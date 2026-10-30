@@ -13,7 +13,7 @@ the current model runners require native dependencies.
 The product target is faster, easier charting and reliable team work;
 complete OCTAVE/Moonscraper parity and hosted collaboration remain unfinished.
 
-![YACE with Star Power, section and timing markers, a source waveform and selected-note controls](assets/screenshots/editor.png)
+![YACE with Star Power, section and timing markers, a source waveform and compact note-type controls](assets/screenshots/editor.png)
 
 Preview above, edit notes and Star Power below. Shown with a small demo chart.
 
