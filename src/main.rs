@@ -20,6 +20,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Open the shared Rust chart editor through a browser on this computer.
+    #[cfg(feature = "browser")]
+    Serve {
+        #[arg(long, default_value = "output/browser-workspace")]
+        workspace: PathBuf,
+        #[arg(long, default_value_t = 3030)]
+        port: u16,
+    },
     /// Per-instrument and per-section evidence, shared with Part analysis in the editor.
     Parts {
         #[command(subcommand)]
@@ -698,14 +706,18 @@ fn build(
 
 fn main() -> Result<()> {
     let Some(command) = Cli::parse().command else {
-        #[cfg(feature = "editor")]
+        #[cfg(all(feature = "editor", not(feature = "browser")))]
         return chart_engine::editor_ui::launch();
-        #[cfg(not(feature = "editor"))]
+        #[cfg(feature = "browser")]
+        return chart_engine::browser::serve(Path::new("output/browser-workspace"), 3030);
+        #[cfg(not(any(feature = "editor", feature = "browser")))]
         anyhow::bail!(
             "Choose a command with --help, or build --features editor for the native app"
         );
     };
     match command {
+        #[cfg(feature = "browser")]
+        Commands::Serve { workspace, port } => chart_engine::browser::serve(&workspace, port)?,
         Commands::Ai { action } => match action {
             AiCommand::Review { options, limit } => ai_review(options, limit)?,
             AiCommand::Next { options } => ai_review(options, 1)?,
@@ -1036,9 +1048,9 @@ fn main() -> Result<()> {
                 print(&chart_engine::editor::Store::new(&project).apply(request)?)?;
             }
             EditorCommand::Open { project } => {
-                #[cfg(feature = "editor")]
-                chart_engine::editor_ui::open(&project)?;
-                #[cfg(not(feature = "editor"))]
+                #[cfg(feature = "studio")]
+                chart_engine::studio::open(&project)?;
+                #[cfg(not(feature = "studio"))]
                 anyhow::bail!(
                     "Native editor unavailable for {}; build with --features editor",
                     project.display()

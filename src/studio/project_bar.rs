@@ -32,8 +32,12 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
             button { "popovertarget": "project-tools", aria_label: "More tools", "Tools" Icon { name: "chevron-down", size: 12 } }
         }
         div { id: "project-actions", class: "command-popover project-popover", "popover": "auto", onkeydown: keep_space_local,
-            button { "popovertarget": "project-actions", "popovertargetaction": "hide", onclick: move |_| studio.open_dialog(), Icon { name: "folder-open", size: 15 } "Open saved project…" }
-            button { "popovertarget": "project-actions", "popovertargetaction": "hide", onclick: move |_| studio.create_dialog(), Icon { name: "file-plus", size: 15 } "Create from song folder…" }
+            button { "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(), Icon { name: "folder-open", size: 15 } "Open saved project…" }
+            button { "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(), Icon { name: "file-plus", size: 15 } "Create from song folder…" }
+            if cfg!(feature="browser") {
+                button { "popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.create_dialog(),"Import song ZIP…" }
+                button {disabled:!loaded,"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|{if let Some(store)=studio.store.read().clone(){spawn(async move{super::dialogs::download(&store.root).await;});}},"Save project ZIP…"}
+            }
         }
         div { id: "project-tools", class: "command-popover tools-popover", "popover": "auto", onkeydown: keep_space_local,
             button { title: "Assistant for {title}", aria_label: "Chart assistant", disabled: !loaded, "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.assistant_open.set(true), "Chart assistant" }

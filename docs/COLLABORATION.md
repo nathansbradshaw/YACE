@@ -4,6 +4,11 @@ Each person works in their own YACE review project. Share proposals and review
 files through Git, a shared folder or a portable bundle. YACE accounts and a
 hosted server are not required.
 
+The [browser editor](BROWSER.md) supports the same review exchange. Upload or
+download bundles using native file selection and browser downloads. Direct Git
+and live shared-folder controls remain in the desktop app; each collaborator
+still uses a separate editing project.
+
 ## Share review files
 
 1. Open **Tools → Collaborate** and enter your name.

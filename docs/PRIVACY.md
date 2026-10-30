@@ -1,5 +1,9 @@
 # Privacy and data
 
+The optional [browser host](BROWSER.md) sends uploaded files only to the local
+Rust server and serves playback audio to the browser. It binds to loopback and
+requires a per-run session credential. It is not a public hosted service.
+
 ## Local files
 
 YACE decodes recordings and runs transcription models on your computer. Projects

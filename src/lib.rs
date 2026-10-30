@@ -15,10 +15,12 @@ pub mod note_groups;
 pub mod parts;
 pub mod review_git;
 pub mod sections;
-#[cfg(feature = "editor")]
+#[cfg(feature = "studio")]
 pub mod studio;
 #[cfg(feature = "editor")]
 pub use studio as editor_ui;
+#[cfg(feature = "browser")]
+pub mod browser;
 pub mod editor_validation;
 pub mod game_export;
 pub mod gameplay_view;

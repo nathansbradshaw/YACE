@@ -1,5 +1,9 @@
 //! Shared project actions, local audio and desktop jobs. Saved edits use Store.
+use super::dialogs as rfd;
 use super::presentation_clock::PresentationClock;
+#[cfg(feature = "browser")]
+#[path = "browser_audio.rs"]
+mod browser_audio;
 use crate::{
     editor::{Action, Actor, ActorKind, Project, Request, Store},
     models,
@@ -8,6 +12,8 @@ use crate::{
     waveform::Waveform,
 };
 use anyhow::{Context, Result};
+#[cfg(feature = "browser")]
+use browser_audio::Audio;
 use dioxus::prelude::*;
 use std::{
     cell::RefCell,
@@ -65,6 +71,7 @@ pub struct ReviewWaveforms {
 }
 /// A single interleaved sample cursor addresses the original and every stem.
 /// Mix weights change atomically at a stereo frame boundary; buffers stay shared.
+#[cfg(not(feature = "browser"))]
 #[derive(Clone)]
 struct ReviewSource {
     loaded: Arc<LoadedStems>,
@@ -73,6 +80,7 @@ struct ReviewSource {
     sample: usize,
     frame: [f32; 2],
 }
+#[cfg(not(feature = "browser"))]
 impl Iterator for ReviewSource {
     type Item = f32;
     fn next(&mut self) -> Option<f32> {
@@ -101,6 +109,7 @@ impl Iterator for ReviewSource {
         (remaining, Some(remaining))
     }
 }
+#[cfg(not(feature = "browser"))]
 impl rodio::Source for ReviewSource {
     fn current_span_len(&self) -> Option<usize> {
         Some(self.loaded.original.len().saturating_sub(self.sample))
@@ -141,6 +150,7 @@ impl rodio::Source for ReviewSource {
         Ok(())
     }
 }
+#[cfg(not(feature = "browser"))]
 pub struct Audio {
     _device: rodio::MixerDeviceSink,
     player: rodio::Player,
@@ -164,6 +174,9 @@ struct AudioOutputConfig {
 }
 impl AudioOutputConfig {
     fn status(&self) -> String {
+        if cfg!(feature = "browser") {
+            return "Browser audio · shared source clock".into();
+        }
         let timing = self.nominal_buffer_ms.map_or_else(
             || "device-default buffer".into(),
             |ms| format!("{ms:.1} ms nominal buffer"),
@@ -175,8 +188,9 @@ impl AudioOutputConfig {
         }
     }
 }
+#[cfg(not(feature = "browser"))]
 impl Audio {
-    fn new(
+    async fn new(
         loaded: LoadedStems,
         kit_audio: Option<Arc<Vec<f32>>>,
         kit_audition: Option<crate::part_analysis::KitAudition>,
@@ -299,7 +313,7 @@ impl Drop for WindowLock {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Studio {
-    pub doc: Signal<Option<Project>>,
+    pub doc: Signal<Option<Arc<Project>>>,
     pub store: Signal<Option<Store>>,
     pub timing: Signal<Option<TempoMap>>,
     pub playhead: Signal<f64>,
@@ -333,6 +347,7 @@ pub struct Studio {
     pub group: Signal<crate::note_groups::Selection>,
     pub selection_dragging: Signal<bool>,
     pub editor_focus: Signal<Option<Rc<MountedData>>>,
+    #[cfg(not(feature = "browser"))]
     pub clipboard: Signal<Option<Rc<std::cell::RefCell<arboard::Clipboard>>>>,
     pub metadata: Signal<BTreeMap<String, String>>,
     pub chart_hash: Signal<String>,
@@ -359,7 +374,7 @@ impl Studio {
             .map_or_else(String::new, |audio| audio.output_config.status())
     }
 
-    pub fn snapshot(self) -> Option<Project> {
+    pub fn snapshot(self) -> Option<Arc<Project>> {
         self.doc.read().clone()
     }
     pub fn dispatch(mut self, action: Action) {
@@ -400,7 +415,13 @@ impl Studio {
             Ok(result) => {
                 self.error.set(None);
                 if let Some(path) = result.exported_to {
+                    #[cfg(not(feature = "browser"))]
                     self.status.set(format!("Exported {}", path.display()));
+                    #[cfg(feature = "browser")]
+                    self.status.set("Song exported · downloading ZIP…".into());
+                    spawn(async move {
+                        rfd::download(&path).await;
+                    });
                 }
                 self.reload(transport);
             }
@@ -555,7 +576,7 @@ impl Studio {
                         }
                     }
                 }
-                self.doc.set(Some(doc));
+                self.doc.set(Some(Arc::new(doc)));
                 if need_prepare {
                     self.audio_target.set(Some(target));
                     spawn(async move {
@@ -763,7 +784,7 @@ impl Studio {
                     StemMix::default()
                 };
                 let kit_label = current.kit_audition.as_ref().map(|part| part.label.clone());
-                match Audio::new(
+                let audio = Audio::new(
                     loaded,
                     kit_audio,
                     current.kit_audition.clone(),
@@ -771,7 +792,12 @@ impl Studio {
                     key,
                     current.audio_sha256.clone(),
                     &mix,
-                ) {
+                )
+                .await;
+                if (self.audio_epoch)() != epoch {
+                    return;
+                }
+                match audio {
                     Ok(audio) => {
                         let _ = audio.seek((self.playhead)());
                         audio.player.set_volume((self.volume)());
@@ -960,9 +986,15 @@ impl Studio {
     pub fn export_dialog(self) {
         spawn(async move {
             let Some(doc) = self.snapshot() else { return };
+            let name = self.metadata_value("name");
+            let name = if name.trim().is_empty() {
+                &doc.title
+            } else {
+                &name
+            };
             if let Some(path) = rfd::AsyncFileDialog::new()
                 .set_title("Export song into a new folder")
-                .set_file_name(format!("{} reviewed", doc.title))
+                .set_file_name(format!("{name} reviewed"))
                 .save_file()
                 .await
             {
@@ -1062,7 +1094,7 @@ impl Studio {
         self.group.set(Default::default());
         self.sections_open.set(false);
         self.source_sections.set(sections);
-        self.doc.set(Some(doc.clone()));
+        self.doc.set(Some(Arc::new(doc.clone())));
         if let Some(store) = self.store.read().as_ref() {
             self.file_stamp.set(project_stamp(store));
         }
@@ -1275,6 +1307,7 @@ pub fn use_studio() -> Studio {
         group: use_signal(Default::default),
         selection_dragging: use_signal(|| false),
         editor_focus: use_signal(|| None),
+        #[cfg(not(feature = "browser"))]
         clipboard: use_signal(|| None),
         metadata: use_signal(BTreeMap::new),
         chart_hash: use_signal(String::new),
@@ -1490,7 +1523,10 @@ fn persist_stem_waveforms(root: &std::path::Path, cache: &StemWaveformCache) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stem_review::{MixMode, StemChannel, StemId};
+    use crate::stem_review::StemId;
+    #[cfg(not(feature = "browser"))]
+    use crate::stem_review::{MixMode, StemChannel};
+    #[cfg(not(feature = "browser"))]
     use rodio::Source;
     #[test]
     fn isolated_peak_cache_is_bounded_source_timed_and_not_individually_normalized() {
@@ -1531,6 +1567,7 @@ mod tests {
         assert_eq!(clock(f64::INFINITY), "0:00.0");
     }
     #[test]
+    #[cfg(not(feature = "browser"))]
     fn one_cursor_switches_mix_only_between_stereo_frames_and_seeks_together() {
         let loaded = Arc::new(
             LoadedStems::from_pcm(
@@ -1567,6 +1604,7 @@ mod tests {
         assert_eq!(source.next(), None);
     }
     #[test]
+    #[cfg(not(feature = "browser"))]
     fn kit_component_uses_the_main_stereo_cursor_and_never_the_recording_mix() {
         let loaded = Arc::new(
             LoadedStems::from_pcm(44100, Arc::new(vec![0.9; 8]), BTreeMap::new()).unwrap(),

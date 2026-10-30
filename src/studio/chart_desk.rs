@@ -16,7 +16,7 @@ pub fn ChartDesk(mut studio: Studio) -> Element {
         if !(studio.selection_dragging)()
             && let Some(doc) = studio.snapshot()
         {
-            layout_track.set(doc.selected_track);
+            layout_track.set(doc.selected_track.clone());
         }
     });
     let Some(document) = studio.snapshot() else {

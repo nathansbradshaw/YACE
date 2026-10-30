@@ -14,15 +14,15 @@ pub fn Welcome(mut studio: Studio) -> Element {
                         strong { "Import audio" }
                         span { "Turn a recording into a chart draft." }
                     }
-                    button { class: "welcome-action", onclick: move |_| studio.create_dialog(),
+                    button { class: "welcome-action", "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(),
                         Icon { name: "folder-open", size: 24 }
                         strong { "Open song folder" }
                         span { "Edit an existing chart in a separate copy." }
                     }
-                    button { class: "welcome-action", onclick: move |_| studio.open_dialog(),
+                    button { class: "welcome-action", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(),
                         Icon { name: "folder-open", size: 24 }
                         strong { "Open saved project" }
-                        span { "Pick up where you left off." }
+                        span { if cfg!(feature="browser") {"Open a saved project ZIP."} else {"Pick up where you left off."} }
                     }
                 }
                 p { class: "welcome-hint", "Edits save automatically. Your original files stay untouched." }

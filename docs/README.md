@@ -2,6 +2,7 @@
 
 ## Get started
 
+- [Chart in a browser](BROWSER.md)
 - [Generate a chart from audio](GENERATION.md)
 - [Edit and export](EDITOR.md)
 - [Review a draft](CHARTING_STANDARD.md)

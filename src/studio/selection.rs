@@ -1,11 +1,15 @@
 //! Selection stays local; edits and clipboard contents use a guarded transaction.
 use super::state::Studio;
+#[cfg(not(feature = "browser"))]
+use crate::note_groups::Clipboard;
 use crate::{
     editor::Action,
-    note_groups::{Clipboard, Edit, Selection, Snapshot},
+    note_groups::{Edit, Selection, Snapshot},
 };
+#[cfg(not(feature = "browser"))]
 use anyhow::{Context, Result};
 use dioxus::prelude::*;
+#[cfg(not(feature = "browser"))]
 use std::{cell::RefCell, rc::Rc};
 
 impl Studio {
@@ -18,13 +22,13 @@ impl Studio {
             return group;
         }
         let mut group = Selection {
-            track: doc.selected_track,
+            track: doc.selected_track.clone(),
             ..Selection::default()
         };
         if group.track == "Vocals" {
             group.vocals.extend((self.vocal_note)());
         } else {
-            group.ids.extend(doc.selected_note);
+            group.ids.extend(doc.selected_note.clone());
         }
         group
     }
@@ -111,13 +115,14 @@ impl Studio {
         self.selection_dragging.set(false);
         if let Some(doc) = self.snapshot() {
             self.set_selection(Selection {
-                track: doc.selected_track,
+                track: doc.selected_track.clone(),
                 ..Selection::default()
             });
         }
     }
     pub fn selection_snapshot(self) -> Option<Snapshot> {
-        Snapshot::capture(&self.snapshot()?, &self.selection()).ok()
+        let project = self.snapshot()?;
+        Snapshot::capture(&project, &self.selection()).ok()
     }
     pub fn delete_selection(self) {
         if let Some(selection) = self.selection_snapshot() {
@@ -211,6 +216,7 @@ impl Studio {
         }
         self.set_selection(group);
     }
+    #[cfg(not(feature = "browser"))]
     fn with_clipboard<T>(
         mut self,
         operation: impl FnOnce(&mut arboard::Clipboard) -> Result<T>,
@@ -222,6 +228,7 @@ impl Studio {
         let clipboard = (self.clipboard)().context("Clipboard unavailable")?;
         operation(&mut clipboard.borrow_mut())
     }
+    #[cfg(not(feature = "browser"))]
     pub fn copy_selection(mut self, cut: bool) {
         let result = (|| {
             let doc = self.snapshot().context("Open a chart first")?;
@@ -249,6 +256,7 @@ impl Studio {
             Err(error) => self.error.set(Some(format!("{error:#}"))),
         }
     }
+    #[cfg(not(feature = "browser"))]
     pub fn paste_selection(mut self) {
         let result = (|| {
             let text = self.with_clipboard(|clipboard| Ok(clipboard.get_text()?))?;
@@ -256,7 +264,8 @@ impl Studio {
             let track = self
                 .snapshot()
                 .context("Open a chart first")?
-                .selected_track;
+                .selected_track
+                .clone();
             let tick = super::note_canvas::snap(self, (self.playhead)())
                 .context("Paste point is outside the chart")?;
             Ok::<_, anyhow::Error>(Edit::Paste {

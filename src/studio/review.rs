@@ -14,7 +14,8 @@ pub fn ReviewPanel(mut studio: Studio) -> Element {
     use_effect(move || {
         let context = studio.snapshot().and_then(|doc| {
             doc.selected_region
-                .map(|region| (region, doc.selected_track))
+                .clone()
+                .map(|region| (region, doc.selected_track.clone()))
         });
         if draft_context() != context {
             comment.set(String::new());

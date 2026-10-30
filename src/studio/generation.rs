@@ -1,4 +1,5 @@
 //! Import and job controls; expensive work runs in the same executable's worker.
+use super::dialogs as rfd;
 use super::state::Studio;
 use crate::{
     generation::{self, Request, Source, State, Status},
@@ -33,7 +34,9 @@ mod tests {
         let mut studio = super::super::state::use_studio();
         let (store, slot) = use_context::<(crate::editor::Store, Slot)>();
         use_hook(move || {
-            studio.doc.set(Some(store.load().unwrap()));
+            studio
+                .doc
+                .set(Some(std::sync::Arc::new(store.load().unwrap())));
             studio.store.set(Some(store));
             *slot.borrow_mut() = Some(studio);
         });
@@ -138,6 +141,7 @@ struct View {
     notice: String,
     worker: Option<Rc<RefCell<Worker>>>,
     info: Option<song_import::SongInfo>,
+    song_details_open: bool,
     cover_preview: Option<String>,
 }
 impl Default for View {
@@ -164,7 +168,7 @@ impl Default for View {
             lyrics: true,
             fetch: true,
             models: generation::default_model_dir(),
-            parent: None,
+            parent: rfd::output_parent(),
             name: "New song".into(),
             busy: false,
             root: None,
@@ -173,6 +177,7 @@ impl Default for View {
             notice: String::new(),
             worker: None,
             info: None,
+            song_details_open: false,
             cover_preview: None,
         }
     }
@@ -320,6 +325,7 @@ fn local_file(mut data: Signal<View>) {
                     meta.name
                 };
                 v.artist = meta.artist;
+                v.song_details_open = v.title.trim().is_empty() || v.artist.trim().is_empty();
                 v.bpm = tempo.bpm.unwrap_or(120.0).to_string();
                 v.info = Some(song_import::SongInfo {
                     album: meta.album,
@@ -750,7 +756,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         class: "generation-modal", close_label: "Close generation", onclose: move |_| studio.generation_open.set(false),
         actions: rsx! {
                     div{class:"generation-actions",
-                        button{class:"action-secondary",disabled:busy,onclick:move|_|recover(data),"Resume saved job…"}
+                        button{class:"action-secondary",disabled:busy,"data-browser-pick":"folder",onclick:move|_|recover(data),"Resume saved job…"}
                         if (saved || part_mode) && !busy { button { class: "action-secondary", onclick: move |_| data.set(View::default()), if part_mode { "New song…" } else { "New generation" } } }
                     }
                     div{class:"generation-actions",
@@ -764,9 +770,9 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
 
                     fieldset{disabled:busy||saved,
                         h3 { class: "generation-step", if part_mode { "{part_title}" } else { "1. Choose audio" } }
-                        if !part_mode { div{class:"generation-actions",button{class:"action-secondary",onclick:move|_|local_file(data),"Choose audio file…"}} }
+                        if !part_mode { div{class:"generation-actions",button{class:"action-secondary","data-browser-pick":"file","data-browser-accept":"audio/*,.ogg,.mp3,.wav,.flac,.m4a,.aac,.opus,.webm,.mp4",onclick:move|_|local_file(data),"Choose audio file…"}} }
                         if let Some(path)=&view.audio{p{class:"generation-path",title:"{path.display()}","{path.file_name().unwrap_or_default().to_string_lossy()}"}}
-                        if !part_mode { details { summary { "Song details" }
+                        if !part_mode { details { open: view.song_details_open, summary { onclick: move |event| { event.prevent_default(); data.with_mut(|view| view.song_details_open = !view.song_details_open); }, "Song details" }
                         div{class:"generation-grid",
                             label{class:"generation-field","Song title",input{class:"field-control",value:"{view.title}",oninput:move|e|data.write().title=e.value()}}
                             label{class:"generation-field","Artist",input{class:"field-control",value:"{view.artist}",oninput:move|e|data.write().artist=e.value()}}
@@ -785,7 +791,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                                 p{class:"field-hint","{info.tempo.note}"}
                                 for note in &info.notes{p{class:"field-hint","{note}"}}
                                 if let Some(artwork)=&info.artwork{p{class:"generation-path","Artwork: {artwork.display()}"}p{class:"field-hint","Source: {info.artwork_source}"}}
-                                div{class:"generation-actions",button{class:"action-secondary",onclick:move|_|choose_artwork(data),"Change artwork…"}}
+                                div{class:"generation-actions",button{class:"action-secondary","data-browser-pick":"file",onclick:move|_|choose_artwork(data),"Change artwork…"}}
                                 if let Some(lyrics)=&info.lyrics{
                                     label{class:"generation-field","Timed lyrics (editable LRC)",textarea{class:"field-control",rows:"6",value:lyrics["syncedLyrics"].as_str().unwrap_or_default(),oninput:move|e|{if let Some(lyrics)=data.write().info.as_mut().and_then(|info|info.lyrics.as_mut()){lyrics["syncedLyrics"]=serde_json::json!(e.value());}}}}
                                 }else{p{class:"field-hint","No matching lyrics found."}}
@@ -839,7 +845,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                                 }
                             }
                         }
-                        if !part_mode { h3 { class: "generation-step", "3. Choose where to save" }
+                        if !part_mode && !cfg!(feature="browser") { h3 { class: "generation-step", "3. Choose where to save" }
                         div{class:"generation-actions",
                             button{class:"action-secondary",onclick:move|_|{spawn(async move{if let Some(folder)=rfd::AsyncFileDialog::new().set_title("Save generated songs here").pick_folder().await{data.write().parent=Some(folder.path().to_owned());}});},"Choose save location…"}
                             if let Some(parent)=&view.parent{span{class:"generation-path","{parent.display()}"}}
@@ -850,7 +856,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                             label{class:"form-check",input{r#type:"checkbox",checked:view.lyrics,onchange:move|e|data.write().lyrics=e.checked()},"Find lyrics online (shares song metadata)"}
                             label{class:"form-check",input{r#type:"checkbox",checked:view.standard,onchange:move|e|data.write().standard=e.checked()},"Standard drums (omit Pro cymbal markers)"}
                             if !part_mode || view.drums { label{class:"form-check",input{r#type:"checkbox",checked:view.full_mix,onchange:move|e|data.with_mut(|v|{v.full_mix=e.checked();if v.full_mix{v.guitar=false;v.bass=false;v.piano=false;v.pro_piano=false;v.vocals=false;v.drums=true;}})},"Drums only from the original mix (skip stem separation)"} }
-                            div{class:"generation-actions",button{class:"action-secondary",onclick:move|_|{spawn(async move{if let Some(folder)=rfd::AsyncFileDialog::new().set_title("Choose model folder").pick_folder().await{data.write().models=folder.path().to_owned();}});},"Model folder…"}span{class:"generation-path","{view.models.display()}"}}
+                            div{class:"generation-actions",button{"data-browser-pick":"folder","data-browser-accept":"",class:"action-secondary",onclick:move|_|{spawn(async move{if let Some(folder)=rfd::AsyncFileDialog::new().set_title("Choose model folder").pick_folder().await{data.write().models=folder.path().to_owned();}});},"Model folder…"}span{class:"generation-path","{view.models.display()}"}}
                         }
                         p{class:"field-hint","Some models are noncommercial. Check licenses before downloading or sharing."}
                         details{summary{"Model licenses"}

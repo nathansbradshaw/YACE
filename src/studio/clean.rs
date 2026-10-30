@@ -1,5 +1,6 @@
 //! Local word review and clean-audio export in the shared tool sheet.
 //! Matching and rendering stay in the model-free clean core and CLI contract.
+use super::dialogs as rfd;
 use super::state::Studio;
 use crate::{
     clean::{
@@ -66,7 +67,7 @@ impl Default for View {
             stem: None,
             stem_hashes: None,
             evidence: String::new(),
-            output_parent: None,
+            output_parent: rfd::output_parent(),
             output_name: "clean-copy".into(),
             busy: None,
             status: String::new(),
@@ -170,6 +171,10 @@ fn job(
         if !current(data, &source, epoch) {
             return;
         }
+        let download = match &result {
+            Ok(Update::Saved(path) | Update::Rendered(_, path)) => Some(path.clone()),
+            _ => None,
+        };
         data.with_mut(|view|{
             view.busy=None;
             match result {
@@ -186,6 +191,9 @@ fn job(
             studio.error.set(Some(error));
         } else {
             studio.status.set(data.read().status.clone());
+            if let Some(path) = download {
+                rfd::download(&path).await;
+            }
         }
     });
 }
@@ -654,8 +662,8 @@ pub fn CleanPanel(studio: Studio) -> Element {
                             p{class:"field-hint","English only · runs locally · 190 MB model download on first use. Finding again replaces your ranges."}
                             details { summary { "Use saved files" }
                             div { class: "clean-actions",
-                                button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){load_words(studio,data,audio,epoch);}},"Load word timings…"}
-                                button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){load_plan(studio,data,audio,epoch);}},"Load clean plan…"}
+                                button{"data-browser-pick":"file","data-browser-accept":".json",class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){load_words(studio,data,audio,epoch);}},"Load word timings…"}
+                                button{"data-browser-pick":"file","data-browser-accept":".json",class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){load_plan(studio,data,audio,epoch);}},"Load clean plan…"}
                             }
                             }
                             if let Some(recognition)=&view.recognition{details{summary{"Recognized lyrics · automatic estimates"}p{class:"field-hint","{clean_recognition::RECOGNITION_WARNING}"}p{class:"field-hint","{recognition.words.words.iter().filter_map(|word|word.text.as_deref()).collect::<Vec<_>>().join(\" \")}"}}}
@@ -685,7 +693,7 @@ pub fn CleanPanel(studio: Studio) -> Element {
                             }
                             if view.mode==CleanMode::VocalOnly{
                                 p{class:"field-hint","Needs an aligned vocal stem. Poor alignment can leave words or damage instruments."}
-                                button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){choose_stem(studio,data,audio,epoch);}},"Choose aligned vocal stem…"}
+                                button{"data-browser-pick":"file","data-browser-accept":"audio/*,.wav,.flac,.ogg,.mp3,.m4a",class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){choose_stem(studio,data,audio,epoch);}},"Choose aligned vocal stem…"}
                                 if let Some(path)=&view.stem{p{class:"clean-path","{path.display()}"}}
                                 div{class:"field-stack",label{class:"field-label",r#for:"clean-alignment-notes","How did you check stem timing?"}textarea{id:"clean-alignment-notes",class:"field-control",rows:"2",value:view.evidence.clone(),placeholder:"Stem source and timing check",oninput:move|event|data.write().evidence=event.value()}}
                                 details { summary { "Stem requirements" } p{class:"field-hint","Use a full-length, aligned vocal stem. Matching duration alone is not enough. Files are verified by hash. Vocal-only mode never falls back to muting the full mix."} }
@@ -718,10 +726,10 @@ pub fn CleanPanel(studio: Studio) -> Element {
                         div{class:"form-section",
                             h3{class:"clean-step","3. Export a copy"}
                             div{class:"field-row",
-                                button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){choose_parent(data,audio,epoch);}},"Choose save location…"}
+                                if !cfg!(feature="browser") {button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){choose_parent(data,audio,epoch);}},"Choose save location…"}}
                                 div{class:"field-stack field-half",label{class:"field-label",r#for:"clean-output-name","New folder name"}input{id:"clean-output-name",class:"field-control",value:view.output_name.clone(),oninput:move|event|data.write().output_name=event.value()}}
                             }
-                            if let Some(path)=view.output(){p{class:"clean-path","{path.display()}"}}
+                            if !cfg!(feature="browser") && let Some(path)=view.output(){p{class:"clean-path","{path.display()}"}}
                             p{class:"field-hint","Choose a new folder. Original files stay untouched."}
                             details { summary { "Export details" } p{class:"field-hint","Saves clean.wav (44.1 kHz stereo float), plan.json and receipt.json. Needs an enabled, valid mute range. Vocal-only also needs a vocal stem and timing notes."} }
                         }

@@ -122,7 +122,7 @@ pub fn StemControls(studio: Studio) -> Element {
                 button{class:if solo_active{"studio-tool active"}else{"studio-tool"},disabled:!selected_available,title:"Listen only to {label(selected)}",onclick:move |_|preset(studio,false),"{label(selected)} only"}
                 button{class:if backing_active{"studio-tool active"}else{"studio-tool"},disabled:!selected_available,title:"{label(selected)} at full gain, other stems at 18%",onclick:move |_|preset(studio,true),"With backing"}
                 if available.is_some(){button{class:if expanded(){"studio-tool active stem-mixer-toggle"}else{"studio-tool stem-mixer-toggle"},aria_label:"Open stem mixer",aria_expanded:expanded().to_string(),title:"Stem mixer and alignment details",onclick:move |_|expanded.set(!expanded()),Icon{name:"sliders",size:13}}}
-                else{button{class:"studio-tool stem-mixer-toggle",title:"Attach aligned local stems to isolate instruments",onclick:move |_|studio.attach_stems_dialog(),Icon{name:"folder-open",size:13}"Attach stems"}}
+                else{button{class:"studio-tool stem-mixer-toggle",title:"Attach aligned local stems to isolate instruments","data-browser-pick":"file",onclick:move |_|studio.attach_stems_dialog(),Icon{name:"folder-open",size:13}"Attach stems"}}
                 span{class:"stem-runtime-status",aria_label:"Audition source",title:"{studio.stem_status}",if let Some(kit)=kit{"Kit · {kit.label}"}else if available.is_none(){"No stems"}else if !original{"Isolated estimate"}}
                 super::part_analysis::PartAnalysisButton{studio}
             }
@@ -140,7 +140,7 @@ pub fn StemControls(studio: Studio) -> Element {
                         }
                     }
                     div{class:"stem-mixer-footer",
-                        button{class:"studio-tool",onclick:move |_|studio.attach_stems_dialog(),Icon{name:"folder-open",size:13}"Replace stems"}
+                        button{class:"studio-tool","data-browser-pick":"file",onclick:move |_|studio.attach_stems_dialog(),Icon{name:"folder-open",size:13}"Replace stems"}
                         span{title:"{manifest.alignment.details}","Alignment: {manifest.alignment.method}"}
                     }
                     div{class:"stem-detailed-status","{studio.stem_status}"}

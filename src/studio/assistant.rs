@@ -252,7 +252,9 @@ mod tests {
         let mut studio = super::super::state::use_studio();
         let (store, slot) = use_context::<(crate::editor::Store, Rc<RefCell<Option<Studio>>>)>();
         use_hook(move || {
-            studio.doc.set(Some(store.load().unwrap()));
+            studio
+                .doc
+                .set(Some(std::sync::Arc::new(store.load().unwrap())));
             studio.store.set(Some(store));
             *slot.borrow_mut() = Some(studio);
         });
@@ -330,7 +332,9 @@ mod tests {
             })
             .unwrap();
         studio.store.set(Some(second.clone()));
-        studio.doc.set(Some(second.load().unwrap()));
+        studio
+            .doc
+            .set(Some(std::sync::Arc::new(second.load().unwrap())));
         studio.metadata.set(std::collections::BTreeMap::from([(
             "name".into(),
             "Second loaded song".into(),
