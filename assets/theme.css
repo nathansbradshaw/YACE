@@ -21,8 +21,8 @@
   --danger-color: #ee9690;
   --danger-color-hover: #ffb9b3;
   --panel-face: #1c1e20;
-  --button-face: radial-gradient(ellipse 8px 1px at 16% 0, #a0a6a336, transparent), radial-gradient(ellipse 5px 1px at 88% 100%, #9ba19d30, transparent), linear-gradient(#34373a, #292c2f);
-  --button-edge: inset 0 1px #ffffff12, 0 1px 1px #0008;
+  --button-face: #2b2e30;
+  --button-edge: none;
   --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'SFMono-Regular', Consolas, monospace;
 }
@@ -65,13 +65,13 @@ button {
 }
 
 button:hover:not(:disabled) {
-  filter: brightness(1.15);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
 button:active:not(:disabled) {
   background: var(--bg-active);
-  box-shadow: inset 0 2px 4px #0009;
+  box-shadow: none;
   transform: translateY(1px);
 }
 
@@ -87,7 +87,7 @@ input, select, textarea {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  box-shadow: inset 0 2px 4px #0008, 0 1px #ffffff0b;
+  box-shadow: none;
 }
 
 input[type=checkbox], input[type=radio], input[type=range] {
@@ -112,7 +112,7 @@ input[type=range]::-webkit-slider-runnable-track {
   border: 1px solid #090a0c;
   border-radius: 3px;
   background: #101214;
-  box-shadow: inset 0 1px 2px #000, 0 1px #ffffff16;
+  box-shadow: none;
 }
 
 input[type=range]::-webkit-slider-thumb {
@@ -122,14 +122,14 @@ input[type=range]::-webkit-slider-thumb {
   margin-top: -6px;
   border: 1px solid #0d0f11;
   border-radius: 3px;
-  background: linear-gradient(#bfc5cc, #747c86 46%, #e0e4e9 49%, #a1a9b3 55%, #5d6670);
-  box-shadow: 0 1px 3px #000b;
+  background: #a0a5a2;
+  box-shadow: none;
 }
 
 .toolbar-volume-slider::-webkit-slider-thumb {
   width: 16px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #42484f 0 25%, #c3c9d0 30%, #7e8791 65%, #d8dde3 72%, #4c535c);
+  border-radius: 2px;
+  background: #a0a5a2;
 }
 
 input[readonly] {
@@ -208,7 +208,7 @@ summary {
   color: var(--accent-color-hover);
   border-color: #777d86;
   background: var(--accent-color-transparent);
-  box-shadow: inset 0 2px 4px #000b, 0 1px #ffffff12;
+  box-shadow: none;
 }
 
 .empty-state, .studio-empty-preview {

@@ -24,7 +24,7 @@
   overflow: hidden;
   background: var(--panel-face);
   border: 1px solid #0b0c0e;
-  box-shadow: inset 0 1px #ffffff12;
+  box-shadow: none;
 }
 
 .project-explorer, .property-panel, .chart-preview, .midi-editor {
@@ -44,7 +44,7 @@
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
   background: #232527;
-  box-shadow: inset 0 1px #ffffff08;
+  box-shadow: none;
 }
 
 .panel-header-title {
@@ -115,8 +115,8 @@
   flex-shrink: 0;
   overflow-x: auto;
   position: relative;
-  background: linear-gradient(#2e3031, #252728);
-  box-shadow: inset 0 1px #5a5c59, inset 0 -1px #101312;
+  background: #292c2b;
+  box-shadow: none;
 }
 
 .toolbar-brand {
@@ -126,7 +126,7 @@
   color: var(--accent-color);
   margin-right: 8px;
   padding: 0;
-  text-shadow: 0 1px 1px #000;
+  text-shadow: none;
 }
 
 .toolbar-wear {
@@ -164,14 +164,14 @@
 }
 
 .toolbar-button-accent {
-  background: linear-gradient(#e2e4e7, #aeb3ba);
+  background: #c9cfca;
   color: #17181a;
   border-color: #111214;
   font-weight: 600;
 }
 
 .toolbar-button-accent:hover:not(:disabled) {
-  background: linear-gradient(#f2f4f6, #bdc3ca);
+  background: #e1e5e2;
   color: #17181a;
 }
 
@@ -223,7 +223,7 @@
   background: #111416;
   border: 1px solid #0a0c0d;
   border-radius: 4px;
-  box-shadow: inset 0 2px 6px #000c, 0 1px #ffffff15;
+  box-shadow: none;
 }
 
 .toolbar-song-name {
@@ -332,7 +332,7 @@
   color: var(--accent-color-hover);
   border-color: #111214;
   background: #161a1c;
-  box-shadow: inset 0 2px 4px #000c, 0 1px #ffffff15;
+  box-shadow: none;
 }
 
 .track-navigation-row.active::after {
@@ -341,7 +341,7 @@
   height: 5px;
   border-radius: 50%;
   background: #d1e2d5;
-  box-shadow: 0 0 4px #acd1b66b;
+  box-shadow: none;
 }
 
 .track-vocals {
@@ -531,7 +531,7 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  box-shadow: inset 0 3px 14px #000b;
+  box-shadow: none;
 }
 
 .studio-highway {
@@ -596,7 +596,7 @@
   color: var(--text-muted);
   font-size: 10px;
   flex-shrink: 0;
-  background: linear-gradient(#25272a, #1a1c1e);
+  background: #1e2022;
 }
 
 .studio-error {
