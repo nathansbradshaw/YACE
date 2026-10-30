@@ -58,6 +58,14 @@ the second tab's stale edit was rejected with an explicit autosave conflict and
 Not saved locally status. Its local changes still downloaded as a project ZIP;
 the first tab's saved project remained intact.
 
+The manual entry point was checked with the same complete recording: native
+audio selection, title/artist/125 BPM setup, an initially empty Guitar track,
+three placed test notes, project and playable-song downloads, project reopening,
+and Undo/Redo from three notes to two and back. The export contained the entered
+metadata, tempo and authored notes, with the original recording hash unchanged.
+Cancelling setup retained the previous 12-track project. This is workflow QA,
+not a claim that three test notes constitute a finished chart.
+
 Automatic chart generation is deliberately disabled in this static build:
 the current native model runners are not portable to this WASM target. There is
 no optional generation service. Hosted teams, broader browser coverage and
