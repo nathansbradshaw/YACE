@@ -63,18 +63,17 @@ async fn open() -> Result<IdbDatabase> {
         .map_err(error)?;
     let source = request_open.clone();
     let upgrade = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
-        if let Ok(value) = source.result() {
-            if let Ok(db) = value.dyn_into::<IdbDatabase>() {
-                if !db.object_store_names().contains("files") {
-                    let _ = db.create_object_store("files");
-                }
-            }
+        if let Ok(value) = source.result()
+            && let Ok(db) = value.dyn_into::<IdbDatabase>()
+            && !db.object_store_names().contains("files")
+        {
+            let _ = db.create_object_store("files");
         }
     });
     request_open.set_onupgradeneeded(Some(upgrade.as_ref().unchecked_ref()));
     let result = request(request_open.clone().unchecked_into()).await;
     request_open.set_onupgradeneeded(None);
-    result?.dyn_into().map_err(|value| error(value))
+    result?.dyn_into().map_err(error)
 }
 struct TransactionGuard {
     tx: IdbTransaction,
@@ -146,7 +145,7 @@ pub async fn save(root: &Path, revision: u64, expected: Option<u64>) -> Result<(
         );
     }
     let files = crate::storage::list(root)?;
-    let dirty = crate::storage::pending(root);
+    let dirty = crate::storage::pending(root)?;
     let paths: Vec<_> = files
         .iter()
         .map(|(path, _)| path.to_string_lossy().into_owned())

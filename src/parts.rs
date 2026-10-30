@@ -1,17 +1,19 @@
 //! Add a part without changing the recording or the chart's timing.
+use crate::editor::Project;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::{
-    editor::{Content, EditorNote, Project, Store},
+    editor::{Content, EditorNote, Store},
     timing::TempoMap,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::{generation, models};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::{
-    collections::BTreeMap,
-    fs,
-    path::{Path, PathBuf},
+use std::path::PathBuf;
+#[cfg(not(target_arch = "wasm32"))]
+use {
+    sha2::{Digest, Sha256},
+    std::{collections::BTreeMap, fs, path::Path},
 };
 
 pub const PARTS: [(&str, &str, &str); 6] = [
@@ -36,6 +38,7 @@ pub fn instrument(track: &str) -> Result<&'static str> {
         .map(|(_, _, instrument)| *instrument)
         .context("Unsupported chart part")
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn digest(value: &impl Serialize) -> Result<String> {
     Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(value)?)))
 }

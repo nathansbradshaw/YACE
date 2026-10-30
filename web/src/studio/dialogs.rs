@@ -10,22 +10,12 @@ impl FileHandle {
     pub fn path(&self) -> &Path {
         &self.0
     }
-    pub fn file_name(&self) -> String {
-        self.0
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned()
-    }
 }
 impl AsyncFileDialog {
     pub fn new() -> Self {
         Self::default()
     }
     pub fn set_title(self, _title: impl Into<String>) -> Self {
-        self
-    }
-    pub fn set_directory(self, _path: impl AsRef<Path>) -> Self {
         self
     }
     pub fn set_file_name(mut self, name: impl Into<String>) -> Self {

@@ -1,22 +1,31 @@
 //! Pinned optional SwiftF0 evaluation through native ONNX Runtime. The model
 //! and chunk/silence conventions are MIT, Lars Nieradzik, revision below.
 //! Raw frames are evidence, not automatically accepted singing or chart notes.
-use crate::{clean::StemAlignment, models};
-use anyhow::{Result, ensure};
 #[cfg(not(target_arch = "wasm32"))]
 use ort::{session::Session, value::Tensor};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
+#[cfg(not(target_arch = "wasm32"))]
+use {
+    crate::{clean::StemAlignment, models},
+    anyhow::{Result, ensure},
+};
 
 pub const MODEL_ID: &str = "swift-f0-v0.3.0";
 pub const REVISION: &str = "d1ba77fe5331310b778ebe126b6cb3656d41d24f";
 pub const MODEL_SHA256: &str = "6385e8c2ebc3872e82c9ff5946228de44cd3be77a750ea53698b7dbfe94b0a22";
 pub const MODEL_URL: &str = "https://raw.githubusercontent.com/lars76/swift-f0/d1ba77fe5331310b778ebe126b6cb3656d41d24f/swift_f0/model.onnx";
+#[cfg(not(target_arch = "wasm32"))]
 const RATE: usize = 16000;
+#[cfg(not(target_arch = "wasm32"))]
 const HOP: usize = 256;
+#[cfg(not(target_arch = "wasm32"))]
 const CHUNK_FRAMES: usize = 1875;
+#[cfg(not(target_arch = "wasm32"))]
 const LEFT_FRAMES: usize = 11;
+#[cfg(not(target_arch = "wasm32"))]
 const RIGHT_FRAMES: usize = 10;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

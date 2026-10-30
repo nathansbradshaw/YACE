@@ -3,7 +3,7 @@ use crate::{
     stem_review::{MixMode, StemId, StemMix},
     waveform::Waveform,
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 use std::{collections::BTreeMap, path::Path};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{AudioContext, GainNode, HtmlAudioElement, MediaElementAudioSourceNode};

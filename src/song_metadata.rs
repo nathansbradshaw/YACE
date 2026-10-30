@@ -9,7 +9,10 @@ pub fn audio_file(folder: &std::path::Path) -> anyhow::Result<std::path::PathBuf
             }
         }
     }
-    anyhow::bail!("No full-song audio found in {}; supply song or guitar audio", folder.display())
+    anyhow::bail!(
+        "No full-song audio found in {}; supply song or guitar audio",
+        folder.display()
+    )
 }
 pub fn ini_fields(text: &str) -> BTreeMap<String, String> {
     let mut fields = BTreeMap::new();

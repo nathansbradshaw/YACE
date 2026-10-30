@@ -130,7 +130,9 @@ impl Studio {
         let Some(store) = self.store.read().clone() else {
             return;
         };
-        let snapshot=crate::storage::cached_project(&store.root).map(Ok).unwrap_or_else(||store.load().map(Arc::new));
+        let snapshot = crate::storage::cached_project(&store.root)
+            .map(Ok)
+            .unwrap_or_else(|| store.load().map(Arc::new));
         match snapshot {
             Ok(doc) => {
                 self.timing.set(doc.timing(&store).ok());
@@ -170,24 +172,24 @@ impl Studio {
                     self.group.set(Default::default());
                     self.vocal_note.set(None);
                 }
-                if let Some(doc) = self.snapshot() {
-                    if let Some(media) = self.media.read().as_ref() {
-                        media.set_rate(doc.transport.playback_rate);
-                        media.mix(&doc.content.stem_mix, (self.volume)());
-                        if seek {
-                            media.seek(doc.transport.position);
-                        }
-                        if doc.transport.playing {
-                            if media.paused() {
-                                if let Err(error) = media.play() {
-                                    self.error.set(Some(format!("{error:#}")));
-                                }
-                            }
-                        } else {
-                            media.pause();
-                        }
-                        self.playhead.set(media.position());
+                if let Some(doc) = self.snapshot()
+                    && let Some(media) = self.media.read().as_ref()
+                {
+                    media.set_rate(doc.transport.playback_rate);
+                    media.mix(&doc.content.stem_mix, (self.volume)());
+                    if seek {
+                        media.seek(doc.transport.position);
                     }
+                    if doc.transport.playing {
+                        if media.paused()
+                            && let Err(error) = media.play()
+                        {
+                            self.error.set(Some(format!("{error:#}")));
+                        }
+                    } else {
+                        media.pause();
+                    }
+                    self.playhead.set(media.position());
                 }
             }
             Err(error) => self.error.set(Some(format!("{error:#}"))),
@@ -282,7 +284,7 @@ impl Studio {
             }
         });
     }
-    pub async fn open_project(mut self, source: PathBuf) -> Result<()> {
+    pub async fn open_project(self, source: PathBuf) -> Result<()> {
         self.open_project_with_revision(source, None).await
     }
     pub async fn open_project_with_revision(
@@ -459,7 +461,8 @@ impl Studio {
                             if root != self.store.read().as_ref().map(|s| s.root.clone())
                                 || track != self.snapshot().map(|d| d.selected_track.clone())
                             {
-                                self.status.set("Notes copied; the active chart changed".into());
+                                self.status
+                                    .set("Notes copied; the active chart changed".into());
                                 return;
                             }
                             if cut {
@@ -564,5 +567,9 @@ pub fn review_manifest(doc: &Project, vocals: bool) -> Option<&StemManifest> {
     } else {
         doc.content.audition_stems(&doc.selected_track)
     }?;
-    manifest.stems.iter().all(|asset| crate::storage::is_file(&asset.path)).then_some(manifest)
+    manifest
+        .stems
+        .iter()
+        .all(|asset| crate::storage::is_file(&asset.path))
+        .then_some(manifest)
 }

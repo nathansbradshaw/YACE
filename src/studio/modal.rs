@@ -19,10 +19,10 @@ pub fn Modal(
                 .ok()
         });
         use_drop(move || {
-            if let Some(trigger) = trigger {
-                if trigger.is_connected() {
-                    let _ = trigger.focus();
-                }
+            if let Some(trigger) = trigger
+                && trigger.is_connected()
+            {
+                let _ = trigger.focus();
             }
         });
     }
@@ -34,7 +34,7 @@ pub fn Modal(
             aria_modal: "true",
             onmounted: move |_| async move {
                 #[cfg(target_arch="wasm32")]
-                {use wasm_bindgen::JsCast;if let Some(element)=web_sys::window().and_then(|window|window.document()).and_then(|document|document.get_element_by_id(id)){if let Ok(dialog)=element.dyn_into::<web_sys::HtmlDialogElement>(){if let Err(error)=dialog.show_modal(){web_sys::console::error_1(&error);}}}}
+                {use wasm_bindgen::JsCast;if let Some(element)=web_sys::window().and_then(|window|window.document()).and_then(|document|document.get_element_by_id(id))&& let Ok(dialog)=element.dyn_into::<web_sys::HtmlDialogElement>()&& let Err(error)=dialog.show_modal(){web_sys::console::error_1(&error);}}
                 #[cfg(not(target_arch="wasm32"))]
                 {
                 // Only the WebView exposes showModal. Its native focus trap also

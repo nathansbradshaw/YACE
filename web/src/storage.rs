@@ -206,13 +206,13 @@ pub fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
     });
     Ok(())
 }
-pub fn pending(root: &Path) -> Vec<(PathBuf, Arc<Vec<u8>>)> {
+pub fn pending(root: &Path) -> io::Result<Vec<(PathBuf, Arc<Vec<u8>>)>> {
     DIRTY.with(|dirty| {
         dirty
             .borrow()
             .iter()
             .filter(|path| path.starts_with(root))
-            .filter_map(|path| shared(path).ok().map(|bytes| (path.clone(), bytes)))
+            .map(|path| shared(path).map(|bytes| (path.clone(), bytes)))
             .collect()
     })
 }

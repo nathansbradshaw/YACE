@@ -1,3 +1,5 @@
+#[path = "../../../src/studio/brand.rs"]
+mod brand;
 #[path = "../../../src/studio/chart_desk.rs"]
 mod chart_desk;
 #[path = "../../../src/studio/collaboration.rs"]

@@ -1,4 +1,5 @@
 //! Phrase audition and explicit, undoable lead-vocal edits.
+#[cfg(not(target_arch = "wasm32"))]
 use super::dialogs as rfd;
 use super::{
     icons::Icon,
@@ -234,6 +235,7 @@ fn issue_label(reason: crate::vocal_generation::Reason) -> &'static str {
         LyricDisagreement => "Lyric sources differ",
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 type GenerationChecks = (
     crate::vocal_generation::Generation,
     Option<crate::vocal_review::VocalReviewMap>,
@@ -706,6 +708,6 @@ pub fn VocalEditor(mut studio: Studio) -> Element {
     VocalReviewChecks{studio}
     div{class:"vocal-file-actions",
     button{class:"studio-tool",onclick:move |_|{spawn(async move{let result=async{let Some(files)=crate::files::pick(false,".json").await?else{return Ok(())};let document:VocalChart=serde_json::from_slice(&files[0].1)?;document.validate()?;studio.dispatch(Action::SetVocals{document});Ok::<_,anyhow::Error>(())}.await;if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}});},"Import JSON"}
-    button{class:"studio-tool",disabled:!studio.snapshot().is_some_and(|doc|doc.content.vocals.is_some()),onclick:move |_|{if let Some(doc)=studio.snapshot(){if let Some(chart)=&doc.content.vocals{let result=serde_json::to_vec_pretty(chart).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download("vocals.json",&bytes));if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}}}},"Save JSON"}
+    button{class:"studio-tool",disabled:!studio.snapshot().is_some_and(|doc|doc.content.vocals.is_some()),onclick:move |_|{if let Some(doc)=studio.snapshot()&& let Some(chart)=&doc.content.vocals{let result=serde_json::to_vec_pretty(chart).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download("vocals.json",&bytes));if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}}},"Save JSON"}
     }p{class:"field-hint","Place notes in the vocal lane or import a vocal document. Automatic generation is unavailable in this browser build."}}
 }

@@ -8,12 +8,14 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-#[cfg(not(target_arch = "wasm32"))]
-use std::fs::OpenOptions;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io::Write,
     path::{Path, PathBuf},
+};
+#[cfg(not(target_arch = "wasm32"))]
+use std::{
+    fs::OpenOptions,
+    io::Write,
     time::{SystemTime, UNIX_EPOCH},
 };
 

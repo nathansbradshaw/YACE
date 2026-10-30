@@ -1,20 +1,21 @@
 //! Content-addressed review DAG. Exchange files are immutable; project.json stays local.
 use crate::{
     collaboration::{self, Entry, Operation},
-    editor::{Action, Actor, Project, Request, Store},
+    editor::{Action, Actor, Project, Store},
 };
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    io::Write,
-    path::Path,
+use std::collections::{BTreeMap, BTreeSet};
+#[cfg(not(target_arch = "wasm32"))]
+use {
+    crate::editor::Request,
+    std::{fs, io::Write, path::Path},
 };
 
 pub const MAX_EVENTS: usize = 2000;
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
+#[cfg(not(target_arch = "wasm32"))]
 const MAX_DIRECTORY_BYTES: u64 = 64 * 1024 * 1024;
 type Ancestors = BTreeMap<String, BTreeSet<String>>;
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -30,6 +31,7 @@ pub struct Event {
     pub operation: Operation,
 }
 impl Event {
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn valid_checksum(&self) -> Result<bool> {
         Ok(self.id == self.digest()?)
     }

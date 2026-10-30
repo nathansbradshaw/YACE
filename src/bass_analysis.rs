@@ -152,6 +152,7 @@ pub fn decoder_is_current(events: &Transcription, audio: &Path) -> Result<bool> 
 }
 
 /// Called only after actual decoder inference, never by refinement replay.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn record_decoder(events: &mut Transcription, audio: &Path, model: &Path) -> Result<()> {
     events.bass_decoder = Some(Decoder {
         version: 1,

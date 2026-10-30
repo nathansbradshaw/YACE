@@ -1,4 +1,4 @@
-pub use crate::song_metadata::{ini_fields, song_ini, update_ini};
+pub use crate::song_metadata::{audio_file, ini_fields, song_ini, update_ini};
 use crate::{
     chart::{self, Chart},
     mapping::{self, Transcription},

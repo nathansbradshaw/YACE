@@ -107,7 +107,7 @@ pub fn unpack(files: Files) -> Result<Files> {
     let mut result = Vec::new();
     let mut total = 0u64;
     for index in 0..zip.len() {
-        let mut entry = zip.by_index(index)?;
+        let entry = zip.by_index(index)?;
         ensure!(!entry.is_symlink(), "Archive symlinks are unsupported");
         let path = entry
             .enclosed_name()
