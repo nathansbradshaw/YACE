@@ -171,7 +171,7 @@ mod web {
         })
         .await;
         let result=async {
-            let path=result??;let url=context.register(&path)?;
+            let path=result??;let url=context.register_download(&path)?;
             let name=path.file_name().unwrap_or_default().to_string_lossy();
             dioxus_document::eval(&format!("const link=document.createElement('a');link.href={};link.download={};const dialogs=document.querySelectorAll('dialog[open]');(dialogs[dialogs.length-1]||document.body).append(link);link.click();link.remove();",serde_json::to_string(&url)?,serde_json::to_string(&name)?)).await?;
             Ok::<_,anyhow::Error>(())

@@ -38,6 +38,11 @@ revision 15 with its undo history, review flags, loop and 75% speed preserved.
 Project archiving takes the editor store lock
 so a concurrent content save cannot split the backup across revisions.
 
+The collaboration dialog exported `reviews.json` as a normal download, then
+imported it through native file selection without errors. Downloads have an
+explicit attachment response, including text/JSON files that a WebView might
+otherwise display instead of downloading.
+
 ## Bottleneck measurement
 
 The former rendering snapshot cloned the complete project, including all tracks,
@@ -46,7 +51,8 @@ review evidence and audit history. The browser now shares an immutable
 clone. Content edits keep their recovery behavior.
 
 An isolated 300-iteration profile on this song measured the former deep copy at
-2,372 microseconds median / 2,532 microseconds p95. Sharing a snapshot measured
+2,670 microseconds median / 2,955 microseconds p95 in the final integrated build.
+Sharing a snapshot measured
 below the clock resolution at median / 0.042 microseconds p95. This measures
 snapshot creation and release, not total editor speed or a competitor comparison.
 
@@ -56,11 +62,12 @@ pauses, seeks, loops and revision changes. It does not establish acoustic latenc
 
 ## Verification and limits
 
-The browser regression run passed 168 tests (12 ignored): shared library,
-actual loopback HTTP host, note groups, editor, collaboration and game export.
+The final integrated browser regression run passed 195 tests (12 ignored): shared
+library, actual loopback HTTP host, note groups, editor, validation, collaboration,
+game export, generation jobs, song sections and timeline.
 Browser Clippy with warnings denied and native editor all-target compilation
-also passed. Additional validation and generation/timeline regressions passed
-earlier in the same workflow.
+also passed. The full browser feature set (separation and vocal alignment) compiled
+with all targets enabled.
 
 This delivery supports a local loopback browser, native file/folder selection,
 normal downloads, client audio and the existing portable team review protocol.

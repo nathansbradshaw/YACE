@@ -44,6 +44,23 @@ fn browser_host_requires_session_same_origin_and_bounded_upload_paths() {
     let cookie = format!("yace_session={token}");
     assert_eq!(
         client
+            .get(format!("{base}/download/unregistered"))
+            .send()
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/download/unregistered"))
+            .header("Cookie", &cookie)
+            .send()
+            .unwrap()
+            .status(),
+        404
+    );
+    assert_eq!(
+        client
             .get(base)
             .header("Cookie", &cookie)
             .send()

@@ -1,5 +1,14 @@
 # Chart in a browser
 
+**Current status:** this is a local Dioxus LiveView workflow harness, not a static
+website. Rust runs on the host and sends UI updates over a WebSocket. The delivery
+target is a static Dioxus Web application compiled to WebAssembly, with chart
+state, editing, undo, playback and file import/export running on the client.
+Keep JavaScript limited to framework/browser bindings; do not put chart logic in
+JavaScript. Native filesystem, subprocess/FFmpeg and inference dependencies need
+to be separated from the browser-compatible editor core before that target works.
+The LiveView host does not satisfy the static deployment requirement.
+
 YACE's browser host runs the same Rust chart editor, generation jobs and saved
 commands as the desktop app. Audio plays on the browser's computer. Open and
 Import use the operating system's file picker through standard browser inputs.
@@ -94,6 +103,6 @@ measures browser display and chart-position intervals during playback. Neither
 metric alone measures acoustic latency, musical accuracy or superiority to
 another editor. See [the full-song acceptance record](BROWSER_ACCEPTANCE.md).
 
-Manual tempo/section/phrase authoring, full game-renderer parity, platform/browser
+Manual tempo/phrase authoring, full game-renderer parity, platform/browser
 coverage and hosted team service remain separate gaps. This browser delivery is
 not a claim of complete OCTAVE or Moonscraper feature parity.

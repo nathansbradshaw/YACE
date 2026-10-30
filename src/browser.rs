@@ -59,6 +59,9 @@ impl BrowserContext {
             .insert(id.clone(), path.to_owned());
         Ok(format!("/asset/{id}"))
     }
+    pub fn register_download(&self, path: &Path) -> Result<String> {
+        Ok(self.register(path)?.replacen("/asset/", "/download/", 1))
+    }
 }
 fn random_id() -> Result<String> {
     let mut bytes = [0; 32];
@@ -239,6 +242,7 @@ fn serve_inner(workspace: &Path, port: u16, start_project: Option<PathBuf>) -> R
             .route("/ws", get(websocket))
             .route("/upload", post(upload))
             .route("/asset/{id}", get(asset))
+            .route("/download/{id}", get(download_asset))
             .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
             .layer(middleware::from_fn_with_state(host.clone(), guard))
             .with_state(host);
@@ -415,6 +419,40 @@ async fn asset(
         Ok(response) => response.into_response(),
         Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+async fn download_asset(
+    State(host): State<Host>,
+    RoutePath(id): RoutePath<String>,
+    headers: HeaderMap,
+) -> Response {
+    let name = host.context.assets.read().ok().and_then(|assets| {
+        assets
+            .get(&id)
+            .and_then(|path| path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+    });
+    let mut response = asset(State(host), RoutePath(id), headers).await;
+    if response.status().is_success()
+        && let Some(name) = name
+    {
+        let encoded: String = name
+            .bytes()
+            .map(|byte| {
+                if byte.is_ascii_alphanumeric() || b"-._".contains(&byte) {
+                    (byte as char).to_string()
+                } else {
+                    format!("%{byte:02X}")
+                }
+            })
+            .collect();
+        response.headers_mut().insert(
+            "content-disposition",
+            HeaderValue::from_str(&format!("attachment; filename*=UTF-8''{encoded}"))
+                .expect("percent-encoded filename"),
+        );
+    }
+    response
 }
 
 #[cfg(test)]

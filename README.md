@@ -6,9 +6,10 @@ Import a local recording, generate a draft, then listen and edit. YACE supports
 guitar, bass, drums, Keys, Pro Keys and lead vocals. Generated parts need review;
 they are not finished charts.
 
-The [browser editor](docs/BROWSER.md) uses the same Rust workbench with browser
-audio, file uploads and downloadable song exports. It currently uses a local
-Rust host. The product target is faster, easier charting and reliable team work;
+The [browser workflow harness](docs/BROWSER.md) uses the same Rust workbench with
+browser audio, file uploads and downloadable song exports. It currently uses a
+local LiveView host. The delivery target is a static Dioxus Web/WASM application.
+The product target is faster, easier charting and reliable team work;
 complete OCTAVE/Moonscraper parity and hosted collaboration remain unfinished.
 
 ![YACE with section markers, a source waveform and the compact note editor](assets/screenshots/editor.png)
