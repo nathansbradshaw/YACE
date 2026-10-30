@@ -17,14 +17,19 @@ fn markers(studio: Studio) -> Vec<Marker> {
         .and_then(|doc| doc.content.sections.clone())
         .unwrap_or_else(|| (studio.source_sections)())
 }
-fn jump(mut studio: Studio, marker: &Marker) {
+fn reveal(mut studio: Studio, seconds: f64) {
+    let duration = studio.doc.read().as_ref().map_or(0., |doc| doc.duration);
+    let last_start = (duration - (studio.span)()).max(0.);
+    studio.view_start.set((seconds - 0.5).clamp(0., last_start));
+}
+fn jump(studio: Studio, marker: &Marker) {
     let Some(timing) = (studio.timing)() else {
         return;
     };
     let seconds = timing.seconds(marker.tick).max(0.);
     studio.dispatch(Action::SetLoop { range: None });
     studio.seek(seconds);
-    studio.view_start.set((seconds - 0.5).max(0.));
+    reveal(studio, seconds);
 }
 fn section_range(studio: Studio, list: &[Marker], index: usize) -> Option<TimeRange> {
     let timing = (studio.timing)()?;
@@ -114,7 +119,7 @@ fn SectionDialog(mut studio: Studio) -> Element {
                         { let go = marker.clone(); let edit = marker.clone(); let remove = marker.clone(); let range = section_range(studio,&list,index); let seconds = timing.seconds(marker.tick);
                           rsx! { li {
                               button { class: "section-go", title: "Go to {marker.name}", onclick: move |_| { jump(studio,&go); studio.sections_open.set(false); }, span { "{marker.name}" } time { "{clock(seconds)}" } }
-                              button { title: "Loop section", aria_label: "Loop section {marker.name}", disabled: range.is_none(), onclick: move |_| { if let Some(range) = range { let start = range.start; studio.dispatch(Action::SetLoop { range: Some(range) }); studio.seek(start); studio.view_start.set((start-0.5).max(0.)); studio.sections_open.set(false); } }, Icon { name: "loop", size: 14 } }
+                              button { title: "Loop section", aria_label: "Loop section {marker.name}", disabled: range.is_none(), onclick: move |_| { if let Some(range) = range { let start = range.start; studio.dispatch(Action::SetLoop { range: Some(range) }); studio.seek(start); reveal(studio,start); studio.sections_open.set(false); } }, Icon { name: "loop", size: 14 } }
                               button { title: "Edit section", aria_label: "Edit section {marker.name}", onclick: move |_| { previous.set(Some(edit.clone())); name.set(edit.name.clone()); tick.set(edit.tick.to_string()); defaults.set((edit.name.clone(),edit.tick.to_string())); form_epoch.set(form_epoch().wrapping_add(1)); error.set(None); }, Icon { name: "sliders", size: 14 } }
                               button { title: "Delete section (Undo restores it)", aria_label: "Delete section {marker.name}", onclick: move |_| {
                                   studio.dispatch(Action::EditSection { edit: Edit::Remove { marker: remove.clone() } }); error.set((studio.error)());
