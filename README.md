@@ -12,9 +12,9 @@ local LiveView host. The delivery target is a static Dioxus Web/WASM application
 The product target is faster, easier charting and reliable team work;
 complete OCTAVE/Moonscraper parity and hosted collaboration remain unfinished.
 
-![YACE with sections, tempo and time-signature markers, a source waveform and the compact note editor](assets/screenshots/editor.png)
+![YACE with Star Power, section and timing markers, a source waveform and selected-note controls](assets/screenshots/editor.png)
 
-Preview above, edit notes below. Shown with a small demo chart.
+Preview above, edit notes and Star Power below. Shown with a small demo chart.
 
 <details>
 <summary>Generating a draft from audio</summary>
