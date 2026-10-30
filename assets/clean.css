@@ -1,0 +1,152 @@
+.clean-modal {
+  width:min(1040px,100%)
+}
+
+.clean-step {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.clean-modal summary {
+  margin: 10px 0;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.clean-options[open] {
+  display: block;
+}
+
+.clean-modal .property-section {
+  margin:0;
+  padding:0 0 16px
+}
+
+.clean-modal .property-section-title {
+  margin-bottom:10px
+}
+
+.clean-modal textarea.property-input {
+  resize:vertical;
+  min-height:72px;
+  line-height:1.5
+}
+
+.clean-modal .clean-actions {
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  align-items:center
+}
+
+.clean-modal .clean-columns {
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px
+}
+
+.clean-modal .clean-path {
+  word-break:break-all;
+  font-family:var(--font-mono);
+  font-size:11px
+}
+
+.clean-modal .clean-fieldset {
+  display:contents;
+  border:0;
+  padding:0;
+  margin:0
+}
+
+.clean-modal .clean-range-scroll {
+  max-height:250px;
+  overflow:auto;
+  border:1px solid var(--border-color);
+  border-radius:6px
+}
+
+.clean-modal .clean-ranges {
+  width:100%;
+  border-collapse:collapse;
+  font-size:12px
+}
+
+.clean-modal .clean-ranges th {
+  position:sticky;
+  top:0;
+  background:var(--bg-secondary);
+  color:var(--text-secondary);
+  text-align:left;
+  font-size:11px;
+  font-weight:600
+}
+
+.clean-modal .clean-ranges th,.clean-modal .clean-ranges td {
+  padding:7px;
+  border-bottom:1px solid var(--border-color)
+}
+
+.clean-modal .clean-ranges input[type=number] {
+  width:90px
+}
+
+.clean-modal .clean-ranges .clean-reason {
+  min-width:180px;
+  width:100%
+}
+
+.clean-modal .clean-warning {
+  padding:10px 12px;
+  border-left:3px solid var(--warning-color,#fbbf24);
+  background:var(--bg-tertiary);
+  font-size:12px;
+  line-height:1.5
+}
+
+.clean-modal .clean-error {
+  padding:10px 12px;
+  border:1px solid var(--danger-color);
+  border-radius:6px;
+  color:var(--danger-color);
+  font-size:12px;
+  white-space:pre-wrap
+}
+
+.clean-modal .clean-status {
+  font-size:12px;
+  color:var(--text-secondary);
+  line-height:1.5
+}
+
+.clean-modal .clean-footer {
+  gap:12px;
+  flex-wrap:wrap
+}
+
+.clean-modal button:disabled {
+  opacity:.45;
+  cursor:not-allowed
+}
+
+.clean-modal details {
+  font-size:12px;
+  color:var(--text-secondary)
+}
+
+.clean-modal summary {
+  cursor:pointer;
+  margin:8px 0
+}
+
+@media(max-width:700px) {
+  .clean-modal .clean-columns {
+    grid-template-columns:1fr
+  }
+
+  .clean-modal .property-row {
+    flex-wrap:wrap
+  }
+
+}

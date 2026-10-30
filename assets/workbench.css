@@ -1,0 +1,126 @@
+/* Dialogs use the WebView's modal layer, including focus and keyboard isolation. */
+.studio-modal-portal {
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  margin: auto;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.studio-modal-portal::backdrop {
+  background: rgba(0, 0, 0, .65);
+}
+
+.studio-modal-portal > div {
+  box-sizing: border-box;
+  max-width: 100%;
+  max-height: calc(100vh - 32px);
+}
+
+.studio-modal-portal .property-button {
+  color: var(--text-primary);
+}
+
+.generation-validation {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warning-color);
+}
+
+/* Keep the starting screen to three choices. The editor appears with a project. */
+.studio-welcome {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  justify-content: center;
+  align-items: center;
+  overflow: auto;
+  padding: 32px;
+}
+
+.welcome-content {
+  width: min(900px, 100%);
+  margin: auto;
+}
+
+.welcome-content h1 {
+  font-size: 28px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.welcome-intro {
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0 0 28px;
+}
+
+.welcome-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.welcome-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 24px;
+  text-align: left;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.welcome-action:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color-hover);
+}
+
+.welcome-action .studio-icon {
+  color: var(--accent-color);
+}
+
+.welcome-action strong {
+  font-size: 15px;
+}
+
+.welcome-action span {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.welcome-hint {
+  margin: 24px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+:is(button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.layout .splitter:focus-visible {
+  background: var(--accent-color);
+  outline-offset: -1px;
+}
+
+.layout .splitter {
+  user-select: none;
+  touch-action: none;
+}
+
+@media (max-width: 1100px) {
+  .welcome-actions { gap: 12px; }
+  .welcome-action { padding: 18px; }
+}

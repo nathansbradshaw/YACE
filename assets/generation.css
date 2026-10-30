@@ -1,0 +1,112 @@
+.generation-modal {
+  width:min(780px,100%)
+}
+
+.generation-step {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.generation-grid {
+  margin-top: 12px;
+}
+
+.generation-modal .generation-grid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:14px
+}
+
+.generation-modal .generation-field {
+  display:grid;
+  gap:7px;
+  font-size:12px;
+  color:var(--text-secondary)
+}
+
+.generation-modal .generation-field input {
+  width:100%;
+  box-sizing:border-box
+}
+
+.generation-modal .generation-actions {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap
+}
+
+.generation-modal .generation-path {
+  font:11px var(--font-mono);
+  overflow-wrap:anywhere;
+  color:var(--text-muted)
+}
+
+.generation-modal fieldset {
+  border:0;
+  padding:0;
+  margin:0;
+  display:grid;
+  gap:16px;
+  min-width:0
+}
+
+.generation-modal .generation-progress {
+  border:1px solid var(--border-color);
+  border-radius:8px;
+  padding:14px;
+  display:grid;
+  gap:8px;
+  background:var(--bg-tertiary);
+  font-size:13px
+}
+
+.generation-modal .generation-error {
+  color:var(--danger-color);
+  white-space:pre-wrap;
+  line-height:1.5;
+  font-size:12px
+}
+
+.generation-modal .generation-progress progress {
+  width:100%;
+  accent-color:var(--accent-color)
+}
+
+.generation-modal .generation-footnote {
+  font-size:11px;
+  color:var(--text-muted);
+  line-height:1.5
+}
+
+.generation-modal button:disabled {
+  opacity:.45;
+  cursor:not-allowed
+}
+
+.generation-modal details {
+  font-size:12px;
+  color:var(--text-secondary)
+}
+
+.generation-modal summary {
+  cursor:pointer;
+  margin-bottom:12px
+}
+
+.generation-artwork {
+  width:120px;
+  height:120px;
+  object-fit:cover;
+  border:1px solid var(--border-color);
+  border-radius:6px
+}
+
+@media(max-width:650px) {
+  .generation-modal .generation-grid {
+    grid-template-columns:1fr
+  }
+
+}

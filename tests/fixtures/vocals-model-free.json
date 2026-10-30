@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "resolution": 480,
+  "source": "Original synthetic test syllables; manually aligned",
+  "phrases": [
+    { "start": 480, "end": 2400, "player": 1 },
+    { "start": 2880, "end": 3840, "player": 2 }
+  ],
+  "notes": [
+    {
+      "start": 480, "end": 960,
+      "tone": { "kind": "pitched", "midi": 60 },
+      "lyric": { "kind": "text", "text": "La", "join_next": true }
+    },
+    {
+      "start": 960, "end": 1200,
+      "tone": { "kind": "pitched", "midi": 64 },
+      "lyric": { "kind": "continue" }
+    },
+    {
+      "start": 1440, "end": 1920,
+      "tone": { "kind": "pitched", "midi": 62 },
+      "lyric": { "kind": "text", "text": "la", "join_next": false }
+    },
+    {
+      "start": 2880, "end": 3360,
+      "tone": { "kind": "talkie", "lenient": false },
+      "lyric": { "kind": "text", "text": "Hey", "join_next": false }
+    },
+    {
+      "start": 3360, "end": 3840,
+      "tone": { "kind": "talkie", "lenient": true },
+      "lyric": { "kind": "text", "text": "Yo", "join_next": false }
+    }
+  ]
+}

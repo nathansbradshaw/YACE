@@ -1,0 +1,82 @@
+.game-preview-canvas {
+  min-height:0;
+  background:radial-gradient(ellipse at 50% 35%,#172232 0%,#0c111b 47%,#05080d 100%)
+}
+
+.game-preview-badge {
+  position:absolute;
+  top:12px;
+  left:14px;
+  border:1px solid rgba(146,177,204,.26);
+  border-radius:4px;
+  padding:4px 7px;
+  color:#91a8ba;
+  background:rgba(8,13,20,.7);
+  font:600 9px var(--font-ui);
+  letter-spacing:1.1px;
+  pointer-events:none
+}
+
+.game-preview-track {
+  position:absolute;
+  top:14px;
+  right:14px;
+  font:11px var(--font-mono);
+  color:#8398a8;
+  pointer-events:none
+}
+
+.game-preview-policy-warning {
+  position:absolute;
+  top:40px;
+  left:14px;
+  font-size:10px;
+  color:var(--warning-color)
+}
+
+.game-preview-footer {
+  display:flex;
+  align-items:center;
+  gap:14px;
+  min-height:35px;
+  padding:6px 12px;
+  background:var(--bg-secondary);
+  border-top:1px solid var(--border-color);
+  flex-shrink:0;
+  color:var(--text-secondary);
+  font-size:11px
+}
+
+.game-preview-time {
+  font:12px var(--font-mono);
+  min-width:48px;
+  color:var(--text-primary)
+}
+
+.game-preview-lookahead {
+  display:flex;
+  align-items:center;
+  gap:6px
+}
+
+.game-preview-lookahead select {
+  background:var(--bg-tertiary);
+  border:1px solid var(--border-color);
+  color:var(--text-secondary);
+  border-radius:4px;
+  padding:2px 5px;
+  font:11px var(--font-ui)
+}
+
+.game-preview-note {
+  margin-left:auto;
+  color:var(--text-muted);
+  font-size:10px
+}
+
+@media(max-width:1280px) {
+  .game-preview-note {
+    display:none
+  }
+
+}

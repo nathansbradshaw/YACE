@@ -1,0 +1,23 @@
+target/
+# Keep internal study output out of source documentation.
+/docs/benchmarks/
+/docs/*_RESULTS.md
+/docs/*_STUDY_PLAN.md
+/docs/*_RESEARCH.md
+/models/*
+!/models/manifest.json
+/output/
+/.runtime/
+.DS_Store
+.env
+.env.*
+.codex/
+.claude/
+.chart-engine-stem-cache/
+*.app/
+*.dSYM/
+*.p12
+*.p8
+*.key
+/vendor/candle-core/Cargo.lock
+/vendor/candle-core-legacy/Cargo.lock

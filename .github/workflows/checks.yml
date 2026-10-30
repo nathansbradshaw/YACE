@@ -1,0 +1,62 @@
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Format, core tests and desktop build
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      CCACHE_DISABLE: "1"
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - name: Install native tools
+        run: brew install cmake ffmpeg
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test core without model downloads
+        run: cargo test --locked --no-default-features --all-targets
+      - name: Check the desktop build
+        run: cargo check --locked --no-default-features --features editor --all-targets
+      - name: Lint the core
+        run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
+      - name: Test the archive converter
+        run: cargo test --locked --manifest-path tools/larsnet-convert/Cargo.toml
+
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: 1.97.1
+      - name: Install the advisory scanner
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Audit application and tool lockfiles
+        run: |
+          for lockfile in Cargo.lock tools/*/Cargo.lock; do
+            cargo audit --file "$lockfile"
+          done

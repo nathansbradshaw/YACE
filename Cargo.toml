@@ -1,0 +1,61 @@
+[package]
+name = "chart-engine"
+version = "0.1.0"
+edition = "2024"
+default-run = "chart-engine"
+license = "MIT"
+description = "YACE — Yet Another Charting Engine"
+repository = "https://github.com/nathansbradshaw/YACE"
+readme = "README.md"
+publish = false
+
+[features]
+default = ["separation", "editor", "vocal-alignment"]
+vocal-alignment = ["dep:practice-acoustic", "dep:whatlang"]
+editor = ["dep:dioxus", "dep:dioxus-document", "dep:rodio", "dep:rfd", "dep:tokio", "dep:base64"]
+separation = ["dep:demucs-core", "dep:burn", "dep:pollster"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+midly = "0.5"
+sha2 = "0.10"
+tempfile = "3"
+libc = "0.2"
+rustfft = "6.4"
+pitch-detection = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+regex = "1"
+ort = "=2.0.0-rc.10"
+whisper-rs = { version = "=0.16.0", default-features = false }
+practice-acoustic = { path = "vendor/practice-acoustic", optional = true }
+whatlang = { version = "0.16", optional = true }
+demucs-core = { path = "vendor/demucs-core", features = ["wgpu"], optional = true }
+burn = { version = "0.20.1", default-features = false, features = ["std", "wgpu"], optional = true }
+pollster = { version = "0.4", optional = true }
+dioxus = { version = "=0.7.10", default-features = false, features = ["desktop", "macro", "html", "signals", "hooks", "launch"], optional = true }
+dioxus-document = { version = "=0.7.10", default-features = false, optional = true }
+tokio = { version = "1", features = ["rt", "time"], optional = true }
+base64 = { version = "0.22", optional = true }
+rodio = { version = "0.22.2", default-features = false, features = ["playback"], optional = true }
+rfd = { version = "0.17.2", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "=0.16.0", default-features = false, features = ["metal"] }
+burn = { version = "0.20.1", default-features = false, features = ["metal"], optional = true }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+burn = { version = "0.20.1", default-features = false, features = ["vulkan"], optional = true }
+
+[profile.release]
+lto = "thin"
+
+[patch.crates-io]
+candle-core = { path = "vendor/candle-core" }
+candle-core-legacy = { package = "candle-core", path = "vendor/candle-core-legacy" }
+
+[dev-dependencies]
+zip = { version = "9.1.3", default-features = false }
+candle-core = { version = "=0.10.2", default-features = false }

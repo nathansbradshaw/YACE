@@ -1,0 +1,65 @@
+[
+  {
+    "id": "lyrics",
+    "filename": "ggml-small.en-q5_1.bin",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.en-q5_1.bin",
+    "sha256": "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30",
+    "license": "MIT; OpenAI Whisper weights converted/quantized by whisper.cpp"
+  },
+  {
+    "id": "drums",
+    "filename": "adtof_frame_rnn.onnx",
+    "url": "https://huggingface.co/thebluescreen/adtof-drums-onnx/resolve/d0e809bb1c1b6fe8a4a00c576852117a0636ab5a/adtof_frame_rnn.onnx",
+    "sha256": "189ca3c2bc7339a5f0fdc0bb11069d4bcc4fafabd142e945228c368c379b6227",
+    "license": "CC-BY-NC-SA-4.0; noncommercial; see licenses/ADTOF-NOTICE.md"
+  },
+  {
+    "id": "drum-articulation",
+    "filename": "oaf_drums.onnx",
+    "url": "https://huggingface.co/thebluescreen/oaf-drums-onnx/resolve/771fd5529062b9f6f0b58f01cc4b9819db046f4a/oaf_drums.onnx",
+    "sha256": "23d4b05ce7e9715bdb4396823d68bc886e8a958fa9f6266c0f7132b78098b521",
+    "license": "Apache-2.0 as declared by ONNX publisher; Magenta E-GMD checkpoint conversion. See licenses/OAF-Drums-NOTICE.md and THIRD_PARTY.md"
+  },
+  {
+    "id": "pitch",
+    "filename": "basic_pitch.onnx",
+    "url": "https://raw.githubusercontent.com/spotify/basic-pitch/fa5997af0a8210982619003269994a1be25eddf3/basic_pitch/saved_models/icassp_2022/nmp.onnx",
+    "sha256": "2c3c1d144bfa61ad236e92e169c13535c880469a12a047d4e73451f2c059a0ec",
+    "license": "Apache-2.0; Copyright Spotify AB"
+  },
+  {
+    "id": "vocal-pitch",
+    "filename": "swift-f0-v0.3.0.onnx",
+    "url": "https://raw.githubusercontent.com/lars76/swift-f0/d1ba77fe5331310b778ebe126b6cb3656d41d24f/swift_f0/model.onnx",
+    "sha256": "6385e8c2ebc3872e82c9ff5946228de44cd3be77a750ea53698b7dbfe94b0a22",
+    "license": "MIT; Copyright (c) 2025-2026 Lars Nieradzik; see licenses/SwiftF0-MIT.txt"
+  },
+  {
+    "id": "piano",
+    "filename": "piano_kong.onnx",
+    "url": "https://huggingface.co/LanOss/mobimml-piano-transcription/resolve/7dff58faf160d4c0bf13be48e30e614faecdba72/piano_transcription.onnx",
+    "sha256": "6ec4f07640837df2fcd2cede9c540865acff341def93fbd6432548dee169195a",
+    "license": "CC-BY-4.0; Qiuqiang Kong et al., ByteDance; ONNX conversion LanOss. See licenses/Kong-Piano-NOTICE.md"
+  },
+  {
+    "id": "separation",
+    "filename": "htdemucs_6s.safetensors",
+    "url": "https://huggingface.co/set-soft/audio_separation/resolve/939723568b2dca203e61cc7294317ba38549964f/Demucs/htdemucs_6s.safetensors",
+    "sha256": "f56fe666f0bbf3a645764856ed90f8c5dd8cf4430b1d9649b94e29ec45aa9057",
+    "license": "Weight mirror labels MIT; original checkpoint terms require clarification. Demucs code MIT; Rust separator Apache-2.0. See docs/INSTRUMENT_ISOLATION.md and THIRD_PARTY.md"
+  },
+  {
+    "id": "muscriptor-cond",
+    "filename": "muscriptor-small-cond.onnx",
+    "url": "https://huggingface.co/unifolia/muscriptor-small-onnx/resolve/15dd43dd431b7b12c0fb2f771bb57dea0cc2d7fa/muscriptor-small-cond.onnx",
+    "sha256": "bfdd8edb30affe9f085cf145400cbd3b320822946468a42d88664d2cd1d91d6b",
+    "license": "CC-BY-NC-4.0; Kyutai x Mirelo, MuScriptor; ONNX conversion unifolia. See licenses/MuScriptor-NOTICE.md"
+  },
+  {
+    "id": "muscriptor-lm",
+    "filename": "muscriptor-small-lm.onnx",
+    "url": "https://huggingface.co/unifolia/muscriptor-small-onnx/resolve/15dd43dd431b7b12c0fb2f771bb57dea0cc2d7fa/muscriptor-small-lm.onnx",
+    "sha256": "88231c3343ecb11f8e3cba4dbf22835e7398122425025a5c00c60e4dfd2e1c66",
+    "license": "CC-BY-NC-4.0; Kyutai x Mirelo, MuScriptor; ONNX conversion unifolia. See licenses/MuScriptor-NOTICE.md"
+  }
+]

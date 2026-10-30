@@ -1,0 +1,131 @@
+.ai-assistant {
+  position:fixed;
+  right:16px;
+  top:64px;
+  bottom:32px;
+  width:420px;
+  max-width:calc(100vw - 32px);
+  z-index:80;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  padding:16px;
+  background:var(--bg-secondary);
+  color:var(--text-primary);
+  border:1px solid var(--border-color);
+  border-radius:12px;
+  box-shadow:0 8px 32px #0009;
+  font-size:13px;
+  overflow:auto
+}
+
+.ai-assistant-header {
+  display:flex;
+  align-items:center;
+  gap:8px
+}
+
+.ai-assistant-header strong {
+  flex:1
+}
+
+.ai-assistant-caption {
+  font-size:11px;
+  color:var(--text-secondary);
+  line-height:1.5;
+  margin:0
+}
+
+.ai-assistant-settings {
+  display:grid;
+  gap:8px;
+  padding:12px;
+  background:var(--bg-primary);
+  border-radius:8px
+}
+
+.ai-assistant-conversation {
+  flex:1;
+  overflow:auto;
+  min-height:120px;
+  line-height:1.6
+}
+
+.ai-assistant-turn {
+  border-bottom:1px solid var(--border-color);
+  padding-bottom:12px;
+  margin-bottom:14px
+}
+
+.ai-assistant-question {
+  font-weight:600;
+  color:var(--accent-primary)
+}
+
+.ai-assistant-answer {
+  white-space:pre-wrap;
+  overflow-wrap:anywhere
+}
+
+.ai-assistant-suggestion {
+  padding:10px;
+  margin-top:8px;
+  background:var(--bg-primary);
+  border-radius:8px
+}
+
+.ai-assistant-suggestion p {
+  margin:0 0 8px
+}
+
+.ai-assistant-compose {
+  display:grid;
+  gap:8px
+}
+
+.ai-assistant-error {
+  color:#ffadad;
+  overflow-wrap:anywhere
+}
+
+.ai-assistant .property-button {
+  height:auto;
+  min-height:28px;
+  white-space:normal
+}
+
+.ai-assistant-header .property-button {
+  width:auto;
+  flex:0 0 auto;
+  padding:6px 10px
+}
+
+.ai-assistant-header strong {
+  white-space:nowrap;
+  font-size:14px
+}
+
+.ai-assistant-body {
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  gap:10px
+}
+
+.ai-assistant-conversation {
+  flex:initial;
+  overflow:visible;
+  min-height:0
+}
+
+.ai-assistant-compose,.ai-assistant-header {
+  flex-shrink:0
+}
+
+.ai-assistant-context {
+  margin:0;
+  font-weight:600;
+  overflow-wrap:anywhere
+}
