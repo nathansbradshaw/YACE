@@ -112,6 +112,8 @@ pub struct FlagScope {
 #[serde(deny_unknown_fields)]
 pub struct Content {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync: Option<crate::sync_track::SyncTrack>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sections: Option<Vec<crate::sections::Marker>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub track_origins: BTreeMap<String, crate::parts::Origin>,
@@ -191,6 +193,9 @@ impl Transport {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
+    EditSync {
+        edit: crate::sync_track::Edit,
+    },
     EditSection {
         edit: crate::sections::Edit,
     },
@@ -354,7 +359,7 @@ fn editable_track(name: &str) -> bool {
 
 impl Project {
     pub fn timing(&self, store: &Store) -> Result<crate::timing::TempoMap> {
-        Ok(store.source_chart(self)?.timing)
+        crate::sync_track::effective(self, &store.source_chart(self)?.timing)
     }
     pub fn chart_text(&self, store: &Store) -> Result<String> {
         let chart = store.source_chart(self)?;
@@ -425,7 +430,8 @@ impl Project {
             text.push_str(&crate::chart::note_lines(&notes, newline));
             text.push_str(&format!("}}{newline}"));
         }
-        crate::sections::render(text, &self.content.sections)
+        let text = crate::sections::render(text, &self.content.sections)?;
+        crate::sync_track::render(text, &self.content.sync)
     }
     pub fn chart_hash(&self, store: &Store) -> Result<String> {
         Ok(hash(self.chart_text(store)?.as_bytes()))
@@ -724,6 +730,9 @@ impl Store {
     pub fn source_sections(&self, project: &Project) -> Result<Vec<crate::sections::Marker>> {
         Ok(crate::sections::imported(&self.source_chart(project)?))
     }
+    pub fn source_sync(&self, project: &Project) -> Result<crate::sync_track::SyncTrack> {
+        crate::sync_track::imported(&self.source_chart(project)?)
+    }
     fn source_chart(&self, project: &Project) -> Result<Chart> {
         let bytes = fs::read(self.root.join("source/notes.chart"))?;
         ensure!(
@@ -923,6 +932,7 @@ impl Store {
             duration,
             review,
             content: Content {
+                sync: None,
                 sections: None,
                 track_origins: Default::default(),
                 tracks,
@@ -985,7 +995,7 @@ impl Store {
         doc.content.stem_mix.prepare(doc.content.stem_ids())?;
         let chart = self.source_chart(&doc)?;
         crate::editor_validation::validate(&doc, &chart)?;
-        crate::difficulty_links::validate(&doc.content, &chart.timing, doc.duration)?;
+        crate::difficulty_links::validate(&doc.content, &doc.timing(self)?, doc.duration)?;
         Ok(doc)
     }
     /// Immutable source routing is separate from undoable note content. Legacy
@@ -1137,6 +1147,7 @@ impl Store {
                 operation: crate::collaboration::Operation::Merge { .. }
             } | Action::CreateTrack { .. }
                 | Action::EditSection { .. }
+                | Action::EditSync { .. }
                 | Action::ApplyGeneratedPart { .. }
                 | Action::AddNote { .. }
                 | Action::UpdateNote { .. }
@@ -1159,7 +1170,12 @@ impl Store {
         let before = content_action.then(|| doc.content.clone());
         doc.transport.position = doc.transport.current_position(doc.duration);
         doc.transport.anchor_ms = now_ms();
+        let before_timing = doc.timing(self)?;
         match &request.action {
+            Action::EditSync { edit } => {
+                let source = self.source_chart(&doc)?;
+                crate::sync_track::apply(&mut doc, &source, edit)?;
+            }
             Action::EditSection { edit } => {
                 let source = self.source_chart(&doc)?;
                 crate::sections::apply(&mut doc, &source, edit)?;
@@ -1505,6 +1521,16 @@ impl Store {
             Action::Export { .. } => unreachable!(),
         }
         let timing = doc.timing(self)?;
+        if before_timing != timing {
+            doc.transport.playing = false;
+            if matches!(request.action, Action::EditSync { .. }) {
+                crate::difficulty_links::after_timing_edit(
+                    &mut doc.content,
+                    &timing,
+                    doc.duration,
+                )?;
+            }
+        }
         if matches!(
             request.action,
             Action::AddNote { .. }

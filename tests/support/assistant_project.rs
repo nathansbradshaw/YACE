@@ -70,6 +70,7 @@ pub(crate) fn fixture(root: &Path) -> Store {
         )
         .unwrap(),
         content: Content {
+            sync: None,
             sections: None,
             track_origins: Default::default(),
             difficulty_links: Default::default(),

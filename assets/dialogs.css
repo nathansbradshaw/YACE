@@ -136,3 +136,6 @@
 .section-form input{width:100%;min-width:0}
 .section-form-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px}
 .section-error{margin:0;color:var(--danger-color);font-size:12px}
+.timing-list{max-height:32vh}
+.timing-form{grid-template-columns:minmax(0,1fr) 110px auto}
+.timing-form select{max-width:100%}

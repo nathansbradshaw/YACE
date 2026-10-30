@@ -180,6 +180,7 @@ pub(super) fn VocalRoll(mut studio: Studio) -> Element {
                     rsx!{for tick in (first/step*step..=last).step_by(step as usize){
                         line{x1:"{(timing.seconds(tick)-start)/span*width()}",x2:"{(timing.seconds(tick)-start)/span*width()}",y1:"0",y2:"400",stroke:if tick%timing.resolution as u64==0{"#51515c"}else{"#292b34"},pointer_events:"none"}
                     }}}
+                    BarLines {studio,width:width(),height:400.}
                     if let Some(chart)=doc.content.vocals.as_ref(){for phrase in &chart.phrases{
                         rect{x:"{(timing.seconds(phrase.start)-start)/span*width()}",y:"0",width:"{(timing.seconds(phrase.end)-timing.seconds(phrase.start))/span*width()}",height:"400",fill:"#41c6b8",opacity:"0.04",stroke:"#41c6b8",pointer_events:"none"}
                     }}
@@ -357,32 +358,92 @@ pub(super) fn Ruler(studio: Studio) -> Element {
     let mut width = use_signal(|| 1000.0);
     let start = (studio.view_start)();
     let span = (studio.span)();
+    let mut previous = f64::NEG_INFINITY;
     let labels: Vec<_> = studio
         .timing
         .read()
         .as_ref()
         .map(|map| {
             let first = map.tick(start.max(map.offset)).unwrap_or(0) / map.resolution as u64;
-            (first..first + 200)
+            let last = map.tick(start + span).unwrap_or(0) / map.resolution as u64;
+            let stride = (last.saturating_sub(first) + 1).div_ceil(200).max(1);
+            (first..=last)
+                .step_by(stride as usize)
                 .map(|beat| map.seconds(beat * map.resolution as u64))
                 .take_while(|t| *t <= start + span)
                 .filter(|t| *t >= start)
+                .filter(|t| {
+                    if *t - previous >= span * 55. / width() {
+                        previous = *t;
+                        true
+                    } else {
+                        false
+                    }
+                })
                 .collect()
         })
         .unwrap_or_default();
+    let mut previous_bar = f64::NEG_INFINITY;
+    let bars: Vec<_> = visible_bars(studio, width())
+        .into_iter()
+        .filter(|(x, _)| {
+            if *x - previous_bar >= 28. {
+                previous_bar = *x;
+                true
+            } else {
+                false
+            }
+        })
+        .collect();
     rsx! {
         div {class:"midi-ruler",style:"display:flex",
-            div {style:"width:140px;flex-shrink:0;padding-left:12px;font-size:10px;color:var(--text-muted)","Time"}
+            div {style:"width:140px;flex-shrink:0;padding-left:12px;font-size:10px;color:var(--text-muted)",div {"Time"} div {"Bar"}}
             div {style:"flex:1;min-width:0",onresize:move|e|{if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.0));}},
-                svg {class:"midi-ruler-canvas",view_box:"0 0 {width} 20",preserve_aspect_ratio:"none",
+                svg {class:"midi-ruler-canvas",view_box:"0 0 {width} 32",preserve_aspect_ratio:"none",
                     for seconds in labels {
-                        line {x1:"{(seconds-start)/span*width()}",x2:"{(seconds-start)/span*width()}",y1:"14",y2:"20",stroke:"#78848d"}
                         text {x:"{(seconds-start)/span*width()+3.0}",y:"12",font_size:"9",fill:"#afb8bf","{clock(seconds)}"}
+                    }
+                    for (x,number) in bars {
+                        line {x1:"{x}",x2:"{x}",y1:"18",y2:"32",stroke:"#9c9583"}
+                        text {x:"{x+3.}",y:"28",font_size:"9",fill:"#d4c9b1","{number}"}
                     }
                 }
             }
         }
     }
+}
+
+fn visible_bars(studio: Studio, width: f64) -> Vec<(f64, u64)> {
+    let Some(timing) = (studio.timing)() else {
+        return Vec::new();
+    };
+    let start = (studio.view_start)();
+    let span = (studio.span)();
+    let first = timing.tick(start.max(timing.offset)).unwrap_or(0);
+    let last = timing.tick(start + span).unwrap_or(first);
+    crate::sync_track::bars(
+        &timing,
+        &super::timing_editor::meters(studio),
+        first,
+        last,
+        256,
+    )
+    .into_iter()
+    .map(|bar| {
+        (
+            (timing.seconds(bar.tick) - start) / span * width,
+            bar.number,
+        )
+    })
+    .filter(|(x, _)| *x >= 0. && *x <= width)
+    .collect()
+}
+
+#[component]
+fn BarLines(studio: Studio, width: f64, height: f64) -> Element {
+    rsx! {g {pointer_events:"none", for (x,_) in visible_bars(studio,width) {
+        line {x1:"{x}",x2:"{x}",y1:"0",y2:"{height}",stroke:"#9c9583",stroke_opacity:"0.65"}
+    }}}
 }
 #[component]
 pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) -> Element {
@@ -466,6 +527,7 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
                     onmouseup:on_release,
                     onmouseleave:move |_|{drag.set(None);delta.set((0.0,0.0));gestures.cancel();},
                     g{pointer_events:"none",dangerous_inner_html:"{grid}"}
+                    BarLines {studio,width:width(),height}
                     for item in notes{
                         {let overridden=links.as_ref().is_some_and(|snapshot|super::difficulty::is_override(snapshot,&track,&item.id));
                         {let row=rows.iter().position(|l|*l==item.note.lane).unwrap();let x=(timing.seconds(item.note.tick)-start)/span*width();let end=(timing.seconds(item.note.tick+item.note.sustain)-start)/span*width();let y=row as f64*20.0+3.0;let fill=color(&track,item.note.lane);let id=item.id.clone();let down_id=item.id.clone();let click_track=track.clone();let down_track=track.clone();let id2=item.id.clone();let note_tick=item.note.tick;let origin=Drag{id:item.id.clone(),tick:item.note.tick,lane:item.note.lane,sustain:item.note.sustain,cymbal:doc.is_cymbal(&track,&item.note),start_x:0.0,start_y:0.0,resize:false};let origin2=origin.clone();let is_selected=active&&selected.ids.contains(&item.id);let stroke=if is_selected{"#fff"}else{"#090b0d"};

@@ -71,9 +71,17 @@ fn digest(value: &impl Serialize) -> Result<String> {
 }
 fn fingerprint(project: &Project, track: &str) -> Result<String> {
     if track == "Vocals" {
-        digest(&project.content.vocals)
+        digest(&(
+            &project.source_chart_sha256,
+            &project.content.sync,
+            &project.content.vocals,
+        ))
     } else {
-        digest(project.content.tracks.get(track).context("Unknown track")?)
+        digest(&(
+            &project.source_chart_sha256,
+            &project.content.sync,
+            project.content.tracks.get(track).context("Unknown track")?,
+        ))
     }
 }
 

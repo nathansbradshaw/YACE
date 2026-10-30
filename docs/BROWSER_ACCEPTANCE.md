@@ -78,5 +78,5 @@ transfer when moving a project.
 
 No generated section was approved just to make the workflow appear complete.
 The recording still needs musical listening review, controller/game acceptance
-and broader platform/browser coverage. Manual tempo/phrase authoring and game
+and broader platform/browser coverage. Vocal phrase authoring and game
 renderer parity remain separate gaps.

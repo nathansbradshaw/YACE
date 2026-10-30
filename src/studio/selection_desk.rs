@@ -126,6 +126,9 @@ pub fn SelectionDesk(studio: Studio) -> Element {
         aside { class: "selection-desk", aria_label: "Selection and review", onkeydown: super::shortcuts::keep_space_local,
             header { class: "desk-heading", h2 { if vocals { "Vocals" } else { "Selection" } } }
             div { class: "selection-desk-content",
+                if vocals && document.content.vocal_review.is_none() && document.content.sync.as_ref().is_some_and(|sync| sync.archived_vocal_review.is_some()) {
+                    p {class:"field-hint", "Tempo changed. Review vocals again."}
+                }
                 if let Some(crate::parts::Origin::Generated { .. }) = document.content.track_origins.get(&document.selected_track) {
                     p { class: "field-hint", "Generated draft · listen and review this part." }
                 }
