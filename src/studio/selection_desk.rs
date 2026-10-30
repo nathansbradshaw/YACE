@@ -64,6 +64,7 @@ fn NoteSelection(studio: Studio, track: String, item: EditorNote) -> Element {
                 } }
                 button { class: "selection-delete", onclick: move |_| studio.dispatch(Action::DeleteNote { note_id: delete_id.clone() }), "Delete note" }
             }
+            super::note_types::NoteTypes {studio}
             details { class: "context-fold", summary { "Chart source" } super::difficulty::NoteAncestry { studio, note_id: item.id.clone() } }
         }
     }
@@ -136,6 +137,7 @@ pub fn SelectionDesk(studio: Studio) -> Element {
                     section { class: "selection-note", aria_label: "Selected notes",
                         p { class: "selection-caption", "{count} notes selected" }
                         p { class: "field-hint", "Drag to move. Shift-click to add or remove." }
+                        super::note_types::NoteTypes {studio}
                         div { class: "selection-actions",
                             button { onclick: move |_| studio.copy_selection(false), "Copy" }
                             button { onclick: move |_| studio.delete_selection(), "Delete" }
