@@ -36,6 +36,17 @@ to a linked row become overrides; Undo restores the earlier state.
 
 See [Piano](PIANO.md) and [Vocals](VOCALS.md) for their dedicated controls.
 
+## Song sections
+
+Use **Sections** above the time ruler to add a name at the snapped playhead.
+Click a marker to jump there. In the section list, use **Loop** to repeat it
+through the next marker or the end of the song.
+
+Use **Edit** to rename a section or change its start tick. Delete removes the
+marker; Undo restores it. Section edits keep notes and the recording in place.
+Names are saved in chart and MIDI exports. Note proposals do not include section
+edits; share the saved project when those changes need to travel together.
+
 ## Review a section
 
 Select a flag in the **Review queue** or on the timeline. Listen around it,

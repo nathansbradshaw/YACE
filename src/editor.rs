@@ -111,6 +111,8 @@ pub struct FlagScope {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Content {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sections: Option<Vec<crate::sections::Marker>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub track_origins: BTreeMap<String, crate::parts::Origin>,
     pub tracks: BTreeMap<String, Vec<EditorNote>>,
@@ -189,6 +191,9 @@ impl Transport {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
+    EditSection {
+        edit: crate::sections::Edit,
+    },
     CreateTrack {
         track: String,
     },
@@ -420,7 +425,7 @@ impl Project {
             text.push_str(&crate::chart::note_lines(&notes, newline));
             text.push_str(&format!("}}{newline}"));
         }
-        Ok(text)
+        crate::sections::render(text, &self.content.sections)
     }
     pub fn chart_hash(&self, store: &Store) -> Result<String> {
         Ok(hash(self.chart_text(store)?.as_bytes()))
@@ -716,6 +721,9 @@ impl Store {
             root: root.to_owned(),
         }
     }
+    pub fn source_sections(&self, project: &Project) -> Result<Vec<crate::sections::Marker>> {
+        Ok(crate::sections::imported(&self.source_chart(project)?))
+    }
     fn source_chart(&self, project: &Project) -> Result<Chart> {
         let bytes = fs::read(self.root.join("source/notes.chart"))?;
         ensure!(
@@ -915,6 +923,7 @@ impl Store {
             duration,
             review,
             content: Content {
+                sections: None,
                 track_origins: Default::default(),
                 tracks,
                 vocals: {
@@ -1128,6 +1137,7 @@ impl Store {
             Action::Collaborate {
                 operation: crate::collaboration::Operation::Merge { .. }
             } | Action::CreateTrack { .. }
+                | Action::EditSection { .. }
                 | Action::ApplyGeneratedPart { .. }
                 | Action::AddNote { .. }
                 | Action::UpdateNote { .. }
@@ -1148,6 +1158,10 @@ impl Store {
         doc.transport.position = doc.transport.current_position(doc.duration);
         doc.transport.anchor_ms = now_ms();
         match &request.action {
+            Action::EditSection { edit } => {
+                let source = self.source_chart(&doc)?;
+                crate::sections::apply(&mut doc, &source, edit)?;
+            }
             Action::CreateTrack { track } => {
                 crate::parts::create(&mut doc, track)?;
             }

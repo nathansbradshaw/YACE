@@ -100,6 +100,10 @@ impl Proposal {
                 == serde_json::to_value(&edited.content.vocals)?,
             "Vocal changes are not supported in proposal v1; export note changes separately"
         );
+        ensure!(
+            base.content.sections == edited.content.sections,
+            "Section changes are not supported in note proposals; share the saved project instead"
+        );
         let proposal = Self {
             version: 1,
             id,
