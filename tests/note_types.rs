@@ -345,7 +345,8 @@ fn clipboard_moves_and_linked_difficulties_keep_note_types() {
     assert!(linked.content.difficulty_links.links["HardSingle"].enabled);
 }
 
-fn midi_events(bytes: &[u8]) -> (Vec<(u64, u8)>, Vec<(u64, Vec<u8>)>) {
+type MidiEvents = (Vec<(u64, u8)>, Vec<(u64, Vec<u8>)>);
+fn midi_events(bytes: &[u8]) -> MidiEvents {
     let smf = midly::Smf::parse(bytes).unwrap();
     let mut ons = vec![];
     let mut sysex = vec![];
