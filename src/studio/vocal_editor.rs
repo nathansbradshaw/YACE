@@ -376,7 +376,7 @@ fn VocalReviewChecks(studio: Studio) -> Element {
 #[component]
 fn VocalPhrases(studio: Studio) -> Element {
     let mut phrase_index = use_signal(|| 0usize);
-    let mut selected_note = studio.vocal_note;
+    let selected_note = studio.vocal_note;
     let Some(doc) = studio.snapshot() else {
         return rsx! {};
     };
@@ -403,7 +403,7 @@ fn VocalPhrases(studio: Studio) -> Element {
                 for (index,phrase) in chart.phrases.iter().enumerate() {
                     {let start=timing.seconds(phrase.start);let end=timing.seconds(phrase.end);
                      let words=chart.notes.iter().filter(|note|phrase.start<=note.start && note.end<=phrase.end).map(syllable).collect::<Vec<_>>().join(" ");
-                     rsx!{button{class:if selected==Some(phrase){"vocal-phrase-choice active"}else{"vocal-phrase-choice"},title:"Loop vocal phrase at {clock(start)}",onclick:move |_|{phrase_index.set(index);selected_note.set(None);studio.dispatch(Action::SetLoop{range:Some(TimeRange{start,end})});studio.seek(start);},
+                     rsx!{button{class:if selected==Some(phrase){"vocal-phrase-choice active"}else{"vocal-phrase-choice"},title:"Loop vocal phrase at {clock(start)}",onclick:move |_|{phrase_index.set(index);studio.clear_selection();studio.dispatch(Action::SetLoop{range:Some(TimeRange{start,end})});studio.seek(start);},
                         span{class:"vocal-phrase-time","{clock(start)}"}span{class:"vocal-phrase-words","{words}"}
                      }}
                     }
@@ -413,7 +413,7 @@ fn VocalPhrases(studio: Studio) -> Element {
                 div{class:"form-heading",style:"margin-top:16px","Syllables"}
                 div{class:"vocal-syllables",
                     for (index,note) in chart.notes.iter().enumerate().filter(|(_,note)|phrase.start<=note.start && note.end<=phrase.end){
-                        button{class:if selected_note()==Some(index){"studio-tool active"}else{"studio-tool"},title:"Edit vocal note at tick {note.start}",onclick:move |_|selected_note.set(Some(index)),"{syllable(note)}"}
+                        button{class:if selected_note()==Some(index){"studio-tool active"}else{"studio-tool"},title:"Edit vocal note at tick {note.start}",onclick:move |_|studio.select_vocal(index,false,false),"{syllable(note)}"}
                     }
                 }
             }

@@ -328,6 +328,10 @@ pub struct Studio {
     pub parts_open: Signal<bool>,
     pub generation_target: Signal<Option<String>>,
     pub vocal_note: Signal<Option<usize>>,
+    pub group: Signal<crate::note_groups::Selection>,
+    pub selection_dragging: Signal<bool>,
+    pub editor_focus: Signal<Option<Rc<MountedData>>>,
+    pub clipboard: Signal<Option<Rc<std::cell::RefCell<arboard::Clipboard>>>>,
     pub metadata: Signal<BTreeMap<String, String>>,
     pub chart_hash: Signal<String>,
     pub stem_status: Signal<String>,
@@ -365,9 +369,10 @@ impl Studio {
         }
         if matches!(
             &action,
-            Action::SelectTrack { .. } | Action::Undo | Action::Redo
+            Action::SelectTrack { .. } | Action::SelectNote { .. } | Action::Undo | Action::Redo
         ) {
             self.vocal_note.set(None);
+            self.group.set(Default::default());
         }
         let Some(store) = self.store.read().clone() else {
             return;
@@ -445,6 +450,29 @@ impl Studio {
                     if changed {
                         self.vocal_note.set(None);
                     }
+                }
+                let mut group = (self.group)();
+                if group.track != doc.selected_track {
+                    group = Default::default();
+                } else if group.track == "Vocals" {
+                    if self
+                        .doc
+                        .read()
+                        .as_ref()
+                        .is_none_or(|old| old.content.vocals != doc.content.vocals)
+                    {
+                        group.vocals.clear();
+                    }
+                } else {
+                    group.ids.retain(|id| {
+                        doc.content
+                            .tracks
+                            .get(&group.track)
+                            .is_some_and(|notes| notes.iter().any(|n| &n.id == id))
+                    });
+                }
+                if group != (self.group)() {
+                    self.group.set(group);
                 }
                 self.file_stamp.set(project_stamp(&store));
                 match doc.chart_hash(&store) {
@@ -1026,6 +1054,7 @@ impl Studio {
             .set((doc.transport.current_position(doc.duration) - 0.5).max(0.0));
         self.playhead
             .set(doc.transport.current_position(doc.duration));
+        self.group.set(Default::default());
         self.doc.set(Some(doc.clone()));
         if let Some(store) = self.store.read().as_ref() {
             self.file_stamp.set(project_stamp(store));
@@ -1234,6 +1263,10 @@ pub fn use_studio() -> Studio {
         parts_open: use_signal(|| false),
         generation_target: use_signal(|| None),
         vocal_note: use_signal(|| None),
+        group: use_signal(Default::default),
+        selection_dragging: use_signal(|| false),
+        editor_focus: use_signal(|| None),
+        clipboard: use_signal(|| None),
         metadata: use_signal(BTreeMap::new),
         chart_hash: use_signal(String::new),
         stem_status: use_signal(|| "Original recording".into()),

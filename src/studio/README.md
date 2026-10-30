@@ -10,6 +10,7 @@ welcome screen or loaded workbench.
 | Part creation, track selection and note editing | `parts.rs`, `track_picker.rs`, `chart_desk.rs`, `selection_desk.rs` |
 | Flag decisions and tool windows | `review.rs`, `sheet.rs`, `modal.rs` |
 | Playback and note rendering | `game_preview.rs`, `note_canvas.rs`, `vocal_preview.rs` |
+| Group selection, gestures and clipboard | `selection.rs`, `note_gestures.rs`; shared edits in `../note_groups.rs` |
 | Playback controls and stems | `practice.rs`, `stems.rs` |
 | Vocals, linked difficulties and part analysis | `vocal_editor.rs`, `difficulty.rs`, `part_analysis.rs` |
 | Generation, clean audio and collaboration | `generation.rs`, `clean.rs`, `collaboration.rs` |
