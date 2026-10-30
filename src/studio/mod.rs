@@ -1,5 +1,6 @@
 //! Project actions, audition, contextual review and the chart-editing desk.
 mod assistant;
+mod brand;
 #[cfg(feature = "browser")]
 mod browser_clipboard;
 mod chart_desk;
@@ -29,7 +30,6 @@ mod sheet;
 mod shortcuts;
 pub mod state;
 mod stems;
-mod surfaces;
 mod timing_editor;
 mod track_picker;
 mod vocal_editor;
@@ -98,7 +98,6 @@ pub(crate) fn App() -> Element {
     #[cfg(feature = "browser")]
     dialogs::provide_browser_dialogs();
     use_hook(diagnostics::install);
-    let stylesheet = use_hook(|| surfaces::stylesheet(CSS));
     let studio = state::use_studio();
     difficulty::use_snapshot(studio);
     let display_link = frame_pacing::use_frame_pacing(studio);
@@ -138,7 +137,7 @@ pub(crate) fn App() -> Element {
     });
     let doc = studio.snapshot();
     rsx! {
-        style { "{stylesheet}" }
+        style { "{CSS}" }
         div { class: "studio-app", tabindex: "-1",
             onkeydown: move |event| shortcuts::handle(studio, event),
             project_bar::ProjectBar { studio }

@@ -1,33 +1,43 @@
-/* Graphite housing, cream transport keys, and clear instrument colors. */
+/* YACE equipment palette: neutral panels, bright functional state colors. */
 :root {
   color-scheme: dark;
-  --bg-primary: #161a1c;
-  --bg-secondary: #252b2e;
-  --bg-tertiary: #343b3e;
-  --bg-hover: #424b4e;
-  --bg-active: #1c2225;
-  --border-color: #525b5d;
-  --border-color-hover: #8e9693;
-  --text-primary: #eeeadd;
-  --text-secondary: #d1d0c6;
-  --text-muted: #b7bbb5;
-  --accent-color: #e1d4a6;
-  --accent-color-hover: #f4e9c6;
-  --accent-color-transparent: #e1d4a617;
-  --accent-secondary: #a8beb1;
-  --accent-secondary-transparent: #a8beb11a;
-  --warning-color: #e6bc76;
-  --success-color: #98c6a1;
-  --danger-color: #ee9690;
-  --danger-color-hover: #ffb9b3;
-  --panel-face: #30373a;
-  --button-face: #22282b;
-  --key-face: #d8cfad;
-  --key-hover: #eee4bf;
-  --key-pressed: #bab293;
-  --key-ink: #202729;
-  --button-edge: none;
-  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --bg-primary: #15171b;
+  --bg-secondary: #262a30;
+  --bg-tertiary: #363c45;
+  --bg-hover: #48515e;
+  --bg-active: #10151d;
+  --border-color: #505966;
+  --border-color-hover: #a3b0c0;
+  --text-primary: #f5f7fa;
+  --text-secondary: #d5dce6;
+  --text-muted: #aeb9c8;
+  --accent-color: #5badff;
+  --accent-color-hover: #9cd1ff;
+  --accent-color-transparent: #1674ed30;
+  --action-color: #075ed6;
+  --action-hover: #126fef;
+  --action-ink: #ffffff;
+  --accent-secondary: #40e3da;
+  --accent-secondary-transparent: #00d8ca20;
+  --warning-color: #ffc53b;
+  --warning-surface: #3a3012;
+  --success-color: #40e86d;
+  --success-surface: #133d23;
+  --danger-color: #ff6262;
+  --danger-color-hover: #ff9292;
+  --danger-surface: #412022;
+  --panel-face: #30353d;
+  --button-face: #3a424e;
+  --key-face: #c4cbd4;
+  --key-hover: #f1f4f8;
+  --key-pressed: #28c541;
+  --key-ink: #0b1016;
+  --canvas-bg: #0a0c0f;
+  --canvas-raised: #1c2026;
+  --canvas-border: #39414c;
+  --canvas-text: #f5f7fa;
+  --button-edge: inset 0 1px #ffffff14, 0 1px #0009;
+  --font-ui: Arial, 'Helvetica Neue', sans-serif;
   --font-mono: 'SFMono-Regular', Consolas, monospace;
 }
 
@@ -60,7 +70,7 @@ button {
   gap: 6px;
   min-height: 30px;
   padding: 5px 10px;
-  border: 1px solid #13191c;
+  border: 1px solid var(--border-color);
   border-radius: 2px;
   background: var(--button-face);
   box-shadow: var(--button-edge);
@@ -80,7 +90,7 @@ button:active:not(:disabled) {
 }
 
 button:disabled, input:disabled, select:disabled {
-  opacity: .45;
+  opacity: .4;
   cursor: default;
 }
 
@@ -102,7 +112,7 @@ select {
   padding: 4px 28px 4px 8px;
   border-radius: 2px;
   background-color: var(--bg-primary);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='m3 4.5 3 3 3-3' fill='none' stroke='%23d1d0c6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='m3 4.5 3 3 3-3' fill='none' stroke='%23d5dce6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
   background-size: 12px;
@@ -141,9 +151,9 @@ input[type=range] {
 
 input[type=range]::-webkit-slider-runnable-track {
   height: 5px;
-  border: 1px solid #090a0c;
+  border: 0;
   border-radius: 3px;
-  background: #101214;
+  background: var(--border-color);
   box-shadow: none;
 }
 
@@ -152,7 +162,7 @@ input[type=range]::-webkit-slider-thumb {
   width: 12px;
   height: 16px;
   margin-top: -6px;
-  border: 1px solid #0d0f11;
+  border: 1px solid var(--border-color-hover);
   border-radius: 3px;
   background: var(--key-face);
   box-shadow: none;
@@ -177,8 +187,8 @@ summary {
 }
 
 ::selection {
-  color: var(--bg-primary);
-  background: var(--accent-color);
+  color: var(--action-ink);
+  background: var(--action-color);
 }
 
 :is(button, input, select, textarea, summary, [tabindex]):focus-visible {
@@ -192,13 +202,13 @@ summary {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #565a61;
+  background: #647184;
   border-radius: 5px;
   border: 2px solid var(--bg-secondary);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #777d86;
+  background: #91a2b8;
 }
 
 ::-webkit-scrollbar-corner {
@@ -246,7 +256,7 @@ summary {
 .transport-control {
   background: var(--key-face);
   color: var(--key-ink);
-  border-color: #171d20;
+  border-color: var(--key-face);
 }
 
 .transport-control:hover:not(:disabled) {
@@ -260,8 +270,8 @@ summary {
 }
 
 .transport-control[aria-pressed=true] {
-  border-color: #94b79b;
-  box-shadow: inset 0 -2px #4d6f50;
+  border-color: #6af084;
+  box-shadow: inset 0 1px #ffffff50;
 }
 
 .empty-state, .studio-empty-preview {

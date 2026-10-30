@@ -1,7 +1,7 @@
 .ai-assistant {
   position:fixed;
   right:16px;
-  top:70px;
+  top:64px;
   bottom:32px;
   width:420px;
   max-width:calc(100vw - 32px);
@@ -13,8 +13,8 @@
   background:var(--bg-secondary);
   color:var(--text-primary);
   border:1px solid var(--border-color);
-  border-radius:6px;
-  box-shadow:0 8px 32px #0009;
+  border-radius:2px;
+  box-shadow:0 12px 40px #0009;
   font-size:13px;
   overflow:auto
 }
@@ -84,7 +84,7 @@
 }
 
 .ai-assistant-error {
-  color:#ffadad;
+  color:var(--danger-color);
   overflow-wrap:anywhere
 }
 

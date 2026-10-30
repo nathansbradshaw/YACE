@@ -1,73 +1,71 @@
-/* Keep the starting screen to three choices. The editor appears with a project. */
+/* A compact start screen uses the same controls as the editor. */
 .studio-welcome {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  justify-content: center;
-  align-items: center;
-  overflow: auto;
-  padding: 32px;
+  display:flex;
+  flex:1;
+  min-height:0;
+  justify-content:center;
+  align-items:center;
+  overflow:auto;
+  padding:32px;
 }
 
 .welcome-content {
-  width: min(900px, 100%);
-  margin: auto;
+  width:min(520px,100%);
+  margin:auto;
 }
 
 .welcome-content h1 {
-  font-size: 28px;
-  font-weight: 600;
-  margin: 0 0 12px;
+  margin:0 0 8px;
+  font-size:22px;
+  font-weight:600;
 }
 
 .welcome-intro {
-  color: var(--text-secondary);
-  line-height: 1.6;
-  margin: 0 0 28px;
+  margin:0 0 22px;
+  color:var(--text-secondary);
+  font-size:13px;
 }
 
 .welcome-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  display:grid;
+  border-top:1px solid var(--border-color);
 }
 
 .welcome-action {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 28px 24px;
-  text-align: left;
-  color: var(--text-primary);
-  background: var(--panel-face);
-  border: 1px solid var(--border-color);
-  border-radius: 3px;
-  cursor: pointer;
-}
-
-.welcome-action:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--border-color-hover);
+  justify-content:flex-start;
+  gap:16px;
+  padding:17px 10px;
+  text-align:left;
+  border:0;
+  border-bottom:1px solid var(--border-color);
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
 }
 
 .welcome-action .studio-icon {
-  color: var(--accent-color);
+  color:var(--accent-color);
+}
+
+.welcome-action > div {
+  display:grid;
+  gap:3px;
 }
 
 .welcome-action strong {
-  font-size: 15px;
+  color:var(--text-primary);
+  font-size:14px;
+  font-weight:600;
 }
 
 .welcome-action span {
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.6;
+  color:var(--text-secondary);
+  font-size:12px;
 }
 
 .welcome-hint {
-  margin: 24px 0 0;
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.6;
+  margin:20px 0 0;
+  color:var(--text-muted);
+  font-size:11px;
+  line-height:1.5;
 }

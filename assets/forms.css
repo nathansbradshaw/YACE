@@ -87,26 +87,26 @@
 }
 
 .action-primary {
-  color:var(--key-ink);
-  background:var(--key-face);
-  border-color:#171d20;
+  color:var(--action-ink);
+  background:var(--action-color);
+  border-color:var(--accent-color);
   font-weight:600;
 }
 
 .action-primary:hover:not(:disabled) {
-  color:var(--key-ink);
-  background:var(--key-hover);
+  color:var(--action-ink);
+  background:var(--action-hover);
 }
 
 .action-danger {
   color:var(--danger-color);
   background:transparent;
-  border-color:#835550;
+  border-color:var(--danger-color);
 }
 
 .action-danger:hover:not(:disabled) {
   color:var(--danger-color-hover);
-  background:#462c28;
+  background:var(--danger-surface);
 }
 
 .difficulty-controls {
