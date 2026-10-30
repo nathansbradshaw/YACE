@@ -13,8 +13,9 @@ Guitar, 807 Bass and 1,429 Drums. The generation request fingerprint was
 
 The running browser completed uninterrupted playback to 4:03.9. Further checks
 used the 12–24 second review region: selected a note, changed its timing by one
-tick, changed its lane, and undid both changes back to the source. Note copying
-used the browser clipboard. Isolated drums played at 75% pitch-preserving speed
+tick, changed its lane, and undid both changes back to the source. Shift-selected
+two notes, copied/pasted through the browser clipboard at the playhead, and
+undid the complete paste in one action. Isolated drums played at 75% pitch-preserving speed
 with the loop enabled; the cursor remained inside the selected region.
 
 Direct native file selection loaded the full recording through **Choose audio
@@ -26,12 +27,15 @@ The downloaded song ZIP passed archive integrity checks and contained
 `notes.chart`, `song.ini`, `song.ogg`, source evidence and the export receipt.
 Its recording hash matched the source exactly:
 `4116e98add1b324105924afb9788379813c437c9792dbc3328d6ff2c03b5053a`.
-After undo, exported/source chart hashes also matched. The receipt deliberately
+The ZIP reopened through **Import song ZIP** as a new editing project with the
+same three Expert note counts. After undo, exported/source chart hashes also matched. The receipt deliberately
 retains `musical_acceptance: unverified`.
 
 The project ZIP included `project.json`, source media/chart, review evidence and
 all referenced undo checkpoints. Archive integrity and the 12-track/13,601-note
-project contents were verified. Project archiving takes the editor store lock
+project contents were verified. **Open saved project** reopened that ZIP at
+revision 15 with its undo history, review flags, loop and 75% speed preserved.
+Project archiving takes the editor store lock
 so a concurrent content save cannot split the backup across revisions.
 
 ## Bottleneck measurement

@@ -168,7 +168,7 @@ impl Default for View {
             lyrics: true,
             fetch: true,
             models: generation::default_model_dir(),
-            parent: browser_output_parent(),
+            parent: rfd::output_parent(),
             name: "New song".into(),
             busy: false,
             root: None,
@@ -879,17 +879,5 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     }
 
     }
-    }
-}
-
-fn browser_output_parent() -> Option<PathBuf> {
-    #[cfg(feature = "browser")]
-    {
-        dioxus::prelude::try_consume_context::<crate::browser::BrowserContext>()
-            .map(|context| context.root)
-    }
-    #[cfg(not(feature = "browser"))]
-    {
-        None
     }
 }
