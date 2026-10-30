@@ -23,7 +23,7 @@
   min-height: 0;
   overflow: hidden;
   background: var(--panel-face);
-  border: 1px solid #0b0c0e;
+  border: 1px solid #141b1e;
   box-shadow: none;
 }
 
@@ -43,7 +43,7 @@
   padding: 4px 10px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
-  background: #232527;
+  background: var(--panel-face);
   box-shadow: none;
 }
 
@@ -52,8 +52,10 @@
   align-items: center;
   gap: 7px;
   color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -115,7 +117,7 @@
   flex-shrink: 0;
   overflow-x: auto;
   position: relative;
-  background: #292c2b;
+  background: var(--panel-face);
   box-shadow: none;
 }
 
@@ -123,7 +125,7 @@
   font-size: 15px;
   font-weight: 750;
   letter-spacing: 2px;
-  color: var(--accent-color);
+  color: var(--text-primary);
   margin-right: 8px;
   padding: 0;
   text-shadow: none;
@@ -140,26 +142,20 @@
   height: 28px;
   min-width: 32px;
   padding: 5px 8px;
-  border-color: #151618;
-  background: var(--button-face);
+  border-color: #13191c;
   font-size: 12px;
   white-space: nowrap;
 }
 
 .toolbar-button-accent {
-  background: #c9cfca;
-  color: #17181a;
-  border-color: #111214;
+  color: var(--accent-color-hover);
+  border-color: #8a846d;
   font-weight: 600;
 }
 
 .toolbar-button-accent:hover:not(:disabled) {
-  background: #e1e5e2;
-  color: #17181a;
-}
-
-.toolbar-button-play {
-  color: #a8d7b3;
+  background: var(--bg-hover);
+  color: var(--accent-color-hover);
 }
 
 .toolbar-icon {
@@ -203,9 +199,9 @@
   min-width: 70px;
   max-width: 220px;
   padding: 4px 10px;
-  background: #111416;
-  border: 1px solid #0a0c0d;
-  border-radius: 4px;
+  background: var(--bg-primary);
+  border: 1px solid #141b1e;
+  border-radius: 2px;
   box-shadow: none;
 }
 
@@ -242,14 +238,14 @@
 .explorer-song-art, .explorer-song-art-placeholder {
   width: 38px;
   height: 38px;
-  border-radius: 5px;
+  border-radius: 2px;
   object-fit: cover;
 }
 
 .explorer-song-art-placeholder {
   display: grid;
   place-items: center;
-  background: #303237;
+  background: var(--bg-primary);
   color: var(--accent-color);
 }
 
@@ -276,6 +272,8 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
+  letter-spacing: .06em;
+  text-transform: uppercase;
 }
 
 .track-navigation {
@@ -313,8 +311,8 @@
 
 .track-navigation-row.active {
   color: var(--accent-color-hover);
-  border-color: #111214;
-  background: #161a1c;
+  border-color: var(--accent-color);
+  background: var(--bg-primary);
   box-shadow: none;
 }
 
@@ -323,7 +321,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #d1e2d5;
+  background: var(--accent-color);
   box-shadow: none;
 }
 
@@ -346,7 +344,7 @@
 }
 
 .review-queue-row.active {
-  border-color: #777d86;
+  border-color: var(--accent-color);
   background: var(--accent-color-transparent);
 }
 
@@ -579,7 +577,7 @@
   color: var(--text-muted);
   font-size: 10px;
   flex-shrink: 0;
-  background: #1e2022;
+  background: var(--bg-secondary);
 }
 
 .studio-error {

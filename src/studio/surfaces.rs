@@ -11,8 +11,11 @@ pub fn stylesheet(base: &'static str) -> &'static str {
         let grime = STANDARD.encode(include_bytes!(
             "../../assets/surfaces/green_metal_rust_diff_1k.jpg"
         ));
+        let control_edges = STANDARD.encode(include_bytes!(
+            "../../assets/surfaces/control-edges.svg"
+        ));
         format!(
-            "{base}\n:root{{--surface-paint:url(\"data:image/jpeg;base64,{paint}\");--surface-grime:url(\"data:image/jpeg;base64,{grime}\");}}\n{}",
+            "{base}\n:root{{--surface-paint:url(\"data:image/jpeg;base64,{paint}\");--surface-grime:url(\"data:image/jpeg;base64,{grime}\");--control-edges:url(\"data:image/svg+xml;base64,{control_edges}\");}}\n{}",
             include_str!("../../assets/surfaces.css")
         )
     })

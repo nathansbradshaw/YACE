@@ -10,8 +10,10 @@ Original 1K diffuse JPEGs by Rob Tuytel, from Poly Haven:
 Both are [CC0](https://polyhaven.com/license). The full text is in
 [CC0-1.0.txt](../../licenses/CC0-1.0.txt).
 
-These files are unmodified. `surfaces.css` applies grayscale and exposure at
-display time; it does not add control padding or cover the note grid.
+These JPEGs are unmodified. `surfaces.css` uses small amounts at the toolbar edge
+and transport key rims. `control-edges.svg` is an original YACE mask.
+Color and exposure are applied at display time. Labels, ordinary controls,
+panel faces, form fields and the note grid stay free of surface noise.
 `src/studio/surfaces.rs` embeds them so no network request is needed at runtime.
 
 SHA-256:

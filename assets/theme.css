@@ -1,27 +1,31 @@
-/* Shared colors and controls. Note lanes keep their instrument colors. */
+/* Graphite housing, cream transport keys, and clear instrument colors. */
 :root {
   color-scheme: dark;
-  --bg-primary: #121314;
-  --bg-secondary: #1c1d1f;
-  --bg-tertiary: #27282b;
-  --bg-hover: #333538;
-  --bg-active: #3c3e42;
-  --border-color: #383a3e;
-  --border-color-hover: #686b71;
-  --text-primary: #f0f1f2;
-  --text-secondary: #bfc2c7;
-  --text-muted: #999ea6;
-  --accent-color: #e1e3e6;
-  --accent-color-hover: #ffffff;
-  --accent-color-transparent: #ffffff12;
-  --accent-secondary: #90b9b2;
-  --accent-secondary-transparent: #90b9b21a;
+  --bg-primary: #161a1c;
+  --bg-secondary: #252b2e;
+  --bg-tertiary: #343b3e;
+  --bg-hover: #424b4e;
+  --bg-active: #1c2225;
+  --border-color: #525b5d;
+  --border-color-hover: #8e9693;
+  --text-primary: #eeeadd;
+  --text-secondary: #d1d0c6;
+  --text-muted: #b7bbb5;
+  --accent-color: #e1d4a6;
+  --accent-color-hover: #f4e9c6;
+  --accent-color-transparent: #e1d4a617;
+  --accent-secondary: #a8beb1;
+  --accent-secondary-transparent: #a8beb11a;
   --warning-color: #e6bc76;
   --success-color: #98c6a1;
   --danger-color: #ee9690;
   --danger-color-hover: #ffb9b3;
-  --panel-face: #1c1e20;
-  --button-face: #2b2e30;
+  --panel-face: #30373a;
+  --button-face: #22282b;
+  --key-face: #d8cfad;
+  --key-hover: #eee4bf;
+  --key-pressed: #bab293;
+  --key-ink: #202729;
   --button-edge: none;
   --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'SFMono-Regular', Consolas, monospace;
@@ -56,8 +60,8 @@ button {
   gap: 6px;
   min-height: 30px;
   padding: 5px 10px;
-  border: 1px solid #101113;
-  border-radius: 5px;
+  border: 1px solid #13191c;
+  border-radius: 2px;
   background: var(--button-face);
   box-shadow: var(--button-edge);
   color: var(--text-secondary);
@@ -86,7 +90,7 @@ input, select, textarea {
   color: var(--text-primary);
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: 2px;
   box-shadow: none;
 }
 
@@ -122,14 +126,14 @@ input[type=range]::-webkit-slider-thumb {
   margin-top: -6px;
   border: 1px solid #0d0f11;
   border-radius: 3px;
-  background: #a0a5a2;
+  background: var(--key-face);
   box-shadow: none;
 }
 
 .toolbar-volume-slider::-webkit-slider-thumb {
   width: 16px;
   border-radius: 2px;
-  background: #a0a5a2;
+  background: var(--key-face);
 }
 
 input[readonly] {
@@ -206,9 +210,30 @@ summary {
 
 .studio-tool.active, .instrument-toggle.active {
   color: var(--accent-color-hover);
-  border-color: #777d86;
+  border-color: var(--accent-color);
   background: var(--accent-color-transparent);
   box-shadow: none;
+}
+
+.transport-control {
+  background: var(--key-face);
+  color: var(--key-ink);
+  border-color: #171d20;
+}
+
+.transport-control:hover:not(:disabled) {
+  background: var(--key-hover);
+  color: var(--key-ink);
+}
+
+.transport-control:active:not(:disabled), .transport-control[aria-pressed=true] {
+  background: var(--key-pressed);
+  color: var(--key-ink);
+}
+
+.transport-control[aria-pressed=true] {
+  border-color: #94b79b;
+  box-shadow: inset 0 -2px #4d6f50;
 }
 
 .empty-state, .studio-empty-preview {

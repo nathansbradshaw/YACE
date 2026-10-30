@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" preserveAspectRatio="none">
+  <defs>
+    <filter id="soft" x="-10%" y="-25%" width="120%" height="150%">
+      <feGaussianBlur stdDeviation=".65"/>
+    </filter>
+  </defs>
+  <g fill="white" filter="url(#soft)">
+    <path d="M0 0H51L36 3 17 2 0 7ZM73 0H130L112 4 100 6 87 2ZM228 0H298L277 3 250 5Z"/>
+    <path d="M0 0H6L3 17 7 29 0 41ZM0 56L4 69 10 80H0Z"/>
+    <path d="M320 18L313 34 317 47 314 62 320 80Z"/>
+    <path d="M0 80V75L25 77 45 72 67 78 92 80ZM167 80L193 75 215 78 241 73 263 77 289 72 320 77V80Z"/>
+    <path opacity=".25" d="M78 0Q89 12 113 0ZM232 80Q247 67 269 80Z"/>
+  </g>
+</svg>

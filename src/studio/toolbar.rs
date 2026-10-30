@@ -42,8 +42,8 @@ pub fn Toolbar(mut studio: Studio) -> Element {
             }
             div { class: "toolbar-separator" }
             div { class: "toolbar-group toolbar-playback",
-                button { class: "toolbar-button toolbar-button-play", title: "Play / Pause (Space)", aria_label: "Play / Pause (Space)", disabled: !loaded || !(studio.audio_ready)(), onclick: move |_| studio.toggle_playback(), span { class: "toolbar-icon", Icon { name: play_icon } } }
-                button { class: "toolbar-button", title: "Stop and return to beginning", aria_label: "Stop and return to beginning", disabled: !loaded, onclick: move |_| { studio.dispatch(Action::Playback { playing: false }); studio.seek(0.0); }, span { class: "toolbar-icon", Icon { name: "square" } } }
+                button { class: "toolbar-button transport-control", title: "Play / Pause (Space)", aria_label: "Play / Pause (Space)", aria_pressed: playing.to_string(), disabled: !loaded || !(studio.audio_ready)(), onclick: move |_| studio.toggle_playback(), span { class: "toolbar-icon", Icon { name: play_icon } } }
+                button { class: "toolbar-button transport-control", title: "Stop and return to beginning", aria_label: "Stop and return to beginning", disabled: !loaded, onclick: move |_| { studio.dispatch(Action::Playback { playing: false }); studio.seek(0.0); }, span { class: "toolbar-icon", Icon { name: "square" } } }
             }
             div { class: "toolbar-group toolbar-volume",
                 span { class: "toolbar-icon toolbar-volume-icon", Icon { name: "volume" } }
