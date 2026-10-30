@@ -70,6 +70,7 @@ fn fixture(root: &Path) -> Store {
         )
         .unwrap(),
         content: Content {
+            sync: None,
             sections: None,
             track_origins: Default::default(),
             difficulty_links: Default::default(),
@@ -492,6 +493,107 @@ fn approve_vocal(store: &Store, id: &str) {
             status: DecisionStatus::Reviewed,
             comment: "Compared vocal word and pitch against this source section".into(),
         },
+    );
+}
+
+#[test]
+fn tempo_edit_archives_vocal_checks_and_undo_restores_approvals() {
+    use chart_engine::{sync_track::Edit, timing::Tempo};
+    let root = tempfile::tempdir().unwrap();
+    let store = vocal_fixture(root.path());
+    install_vocal_report(&store, &vocal_report(&store));
+    let before = store.load().unwrap();
+    let region = before.content.vocal_review.as_ref().unwrap().regions[0]
+        .id
+        .clone();
+    approve_vocal(&store, &region);
+    let before = store.load().unwrap();
+    let content = serde_json::to_value(&before.content).unwrap();
+    command(
+        &store,
+        Action::EditSync {
+            edit: Edit::PutTempo {
+                previous: Some(before.timing(&store).unwrap().tempos[0].clone()),
+                tempo: Tempo { tick: 0, bpm: 240. },
+            },
+        },
+    );
+    let changed = store.load().unwrap();
+    assert!(changed.content.vocal_review.is_none());
+    assert_eq!(
+        serde_json::to_value(&changed.content.sync.as_ref().unwrap().archived_vocal_review)
+            .unwrap(),
+        serde_json::to_value(&before.content.vocal_review).unwrap()
+    );
+    assert_eq!(changed.content.vocals, before.content.vocals);
+    assert!(
+        changed
+            .decision(&region, "Vocals", &changed.timing(&store).unwrap())
+            .is_none()
+    );
+    let edited = serde_json::to_value(&changed.content).unwrap();
+    command(&store, Action::Undo);
+    let restored = store.load().unwrap();
+    assert_eq!(serde_json::to_value(&restored.content).unwrap(), content);
+    assert!(
+        restored
+            .decision(&region, "Vocals", &restored.timing(&store).unwrap())
+            .is_some()
+    );
+    command(&store, Action::Redo);
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().content).unwrap(),
+        edited
+    );
+}
+
+#[test]
+fn meter_edit_keeps_vocal_checks_and_approvals_current() {
+    use chart_engine::sync_track::{Edit, Meter};
+    let root = tempfile::tempdir().unwrap();
+    let store = vocal_fixture(root.path());
+    install_vocal_report(&store, &vocal_report(&store));
+    let before = store.load().unwrap();
+    let region = before.content.vocal_review.as_ref().unwrap().regions[0]
+        .id
+        .clone();
+    approve_vocal(&store, &region);
+    let before = store.load().unwrap();
+    command(
+        &store,
+        Action::EditSync {
+            edit: Edit::PutMeter {
+                previous: Some(Meter {
+                    tick: 0,
+                    numerator: 4,
+                    denominator: 4,
+                }),
+                meter: Meter {
+                    tick: 0,
+                    numerator: 3,
+                    denominator: 4,
+                },
+            },
+        },
+    );
+    let after = store.load().unwrap();
+    assert_eq!(
+        serde_json::to_value(&after.content.vocal_review).unwrap(),
+        serde_json::to_value(&before.content.vocal_review).unwrap()
+    );
+    assert!(
+        after
+            .content
+            .sync
+            .as_ref()
+            .unwrap()
+            .archived_vocal_review
+            .is_none()
+    );
+    assert!(
+        after
+            .decision(&region, "Vocals", &after.timing(&store).unwrap())
+            .is_some()
     );
 }
 #[test]

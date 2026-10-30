@@ -17,6 +17,7 @@ pub mod review_git;
 pub mod sections;
 #[cfg(feature = "studio")]
 pub mod studio;
+pub mod sync_track;
 #[cfg(feature = "editor")]
 pub use studio as editor_ui;
 #[cfg(feature = "browser")]

@@ -66,13 +66,15 @@ pub struct Proposal {
     pub author: Actor,
     pub source_chart_sha256: String,
     pub audio_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_sha256: Option<String>,
     pub base: Tracks,
     pub proposed: Tracks,
 }
 impl Proposal {
     /// Content identity deliberately excludes editable title/description and actor claims.
     pub fn fingerprint(&self) -> Result<String> {
-        Ok(format!(
+        let notes = format!(
             "{:x}",
             Sha256::digest(serde_json::to_vec(&(
                 &self.source_chart_sha256,
@@ -80,7 +82,12 @@ impl Proposal {
                 &self.base,
                 &self.proposed,
             ))?)
-        ))
+        );
+        // Keep existing review fingerprints valid for projects without timing edits.
+        Ok(match &self.sync_sha256 {
+            Some(sync) => format!("{:x}", Sha256::digest(serde_json::to_vec(&(&notes, sync))?)),
+            None => notes,
+        })
     }
     pub fn between(
         base: &Project,
@@ -104,6 +111,10 @@ impl Proposal {
             base.content.sections == edited.content.sections,
             "Section changes are not supported in note proposals; share the saved project instead"
         );
+        ensure!(
+            sync_fingerprint(base)? == sync_fingerprint(edited)?,
+            "Timing changes are not supported in note proposals; share the saved project instead"
+        );
         let proposal = Self {
             version: 1,
             id,
@@ -112,6 +123,7 @@ impl Proposal {
             author,
             source_chart_sha256: base.source_chart_sha256.clone(),
             audio_sha256: base.audio_sha256.clone(),
+            sync_sha256: sync_fingerprint(base)?,
             base: base.content.tracks.clone(),
             proposed: edited.content.tracks.clone(),
         };
@@ -125,6 +137,20 @@ impl Proposal {
         )?;
         Ok(proposal)
     }
+}
+
+fn sync_fingerprint(project: &Project) -> Result<Option<String>> {
+    project
+        .content
+        .sync
+        .as_ref()
+        .map(|sync| {
+            Ok(format!(
+                "{:x}",
+                Sha256::digest(serde_json::to_vec(&(&sync.tempos, &sync.meters))?)
+            ))
+        })
+        .transpose()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -244,6 +270,13 @@ pub(crate) fn record(
 ) -> Result<()> {
     if let Operation::Submit { proposal } = op {
         ensure!(proposal.version == 1, "Unsupported proposal version");
+        ensure!(
+            proposal
+                .sync_sha256
+                .as_ref()
+                .is_none_or(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())),
+            "Invalid proposal timing fingerprint"
+        );
         nonempty(&proposal.id)?;
         nonempty(&proposal.author.name)?;
         nonempty(&proposal.title)?;
@@ -702,6 +735,24 @@ pub fn apply(project: &mut Project, operation: &Operation, actor: &Actor) -> Res
         "Review journal is at its event limit; no history was removed"
     );
     let mut entries = inspect(project)?;
+    let proposal = match operation {
+        Operation::Submit { proposal } => Some(proposal),
+        Operation::Merge { proposal_id, .. } | Operation::ResolveConflicts { proposal_id, .. } => {
+            Some(
+                &entries
+                    .get(proposal_id)
+                    .context("Unknown proposal")?
+                    .proposal,
+            )
+        }
+        _ => None,
+    };
+    if let Some(proposal) = proposal {
+        ensure!(
+            proposal.sync_sha256 == sync_fingerprint(project)?,
+            "Project timing changed. Share the saved project and create a new note proposal."
+        );
+    }
     if let Operation::ResolveConflicts { current, .. } = operation {
         ensure!(
             *current == project.content.tracks,

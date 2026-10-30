@@ -126,6 +126,7 @@ pub fn reduce_generated(
         effective.insert(track.clone(), notes.clone());
     }
     let content = Content {
+        sync: None,
         sections: None,
         track_origins: Default::default(),
         vocals: None,
@@ -765,6 +766,20 @@ pub fn after_note_edit(
         {
             refresh(content, track, timing, duration)?;
         }
+    }
+    Ok(())
+}
+
+pub fn after_timing_edit(content: &mut Content, timing: &TempoMap, duration: f64) -> Result<()> {
+    let tracks: Vec<_> = content
+        .difficulty_links
+        .links
+        .iter()
+        .filter(|(_, link)| link.enabled)
+        .map(|(track, _)| track.clone())
+        .collect();
+    for track in tracks {
+        refresh(content, &track, timing, duration)?;
     }
     Ok(())
 }

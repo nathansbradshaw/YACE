@@ -48,8 +48,24 @@ pub(crate) fn is_link_created_track(project: &Project, chart: &Chart, track: &st
 }
 
 pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
+    let timing = crate::sync_track::effective(project, &chart.timing)?;
+    if let Some(review) = project
+        .content
+        .sync
+        .as_ref()
+        .and_then(|sync| sync.archived_vocal_review.as_ref())
+    {
+        review.validate()?;
+        ensure!(
+            review
+                .audio_sha256
+                .eq_ignore_ascii_case(&project.audio_sha256)
+                && (review.duration_seconds - project.duration).abs() <= 0.1,
+            "Archived vocal checks belong to another recording"
+        );
+    }
     if let Some(markers) = &project.content.sections {
-        crate::sections::validate(markers, &chart.timing, project.duration)?;
+        crate::sections::validate(markers, &timing, project.duration)?;
     }
     ensure!(project.version == 1, "Unsupported editor project version");
     ensure!(
@@ -83,7 +99,7 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
     let tracks: BTreeSet<_> = project.content.tracks.keys().map(String::as_str).collect();
     if let Some(review) = &project.content.vocal_review {
         review.validate()?;
-        review.validate_timing(&chart.timing, false)?;
+        review.validate_timing(&timing, false)?;
         ensure!(
             review
                 .audio_sha256
@@ -99,21 +115,21 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
     if let Some(vocals) = &project.content.vocals {
         vocals.validate()?;
         ensure!(
-            vocals.resolution == chart.timing.resolution,
+            vocals.resolution == timing.resolution,
             "Vocal/project resolution mismatch"
         );
         ensure!(
             vocals
                 .notes
                 .iter()
-                .all(|note| chart.timing.seconds(note.end) <= project.duration + 0.1),
+                .all(|note| timing.seconds(note.end) <= project.duration + 0.1),
             "Vocal note extends beyond the recording"
         );
         ensure!(
             vocals
                 .phrases
                 .iter()
-                .all(|phrase| chart.timing.seconds(phrase.end) <= project.duration + 0.1),
+                .all(|phrase| timing.seconds(phrase.end) <= project.duration + 0.1),
             "Vocal phrase extends beyond the recording"
         );
     }
@@ -165,7 +181,7 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
                 .checked_add(item.note.sustain)
                 .context("Note tick overflow")?;
             if playable(track, item.note.lane) {
-                let end = chart.timing.seconds(end_tick);
+                let end = timing.seconds(end_tick);
                 ensure!(
                     end.is_finite() && end <= project.duration + 0.1,
                     "Note extends beyond recording"

@@ -12,7 +12,7 @@ local LiveView host. The delivery target is a static Dioxus Web/WASM application
 The product target is faster, easier charting and reliable team work;
 complete OCTAVE/Moonscraper parity and hosted collaboration remain unfinished.
 
-![YACE with section markers, a source waveform and the compact note editor](assets/screenshots/editor.png)
+![YACE with sections, tempo and time-signature markers, a source waveform and the compact note editor](assets/screenshots/editor.png)
 
 Preview above, edit notes below. Shown with a small demo chart.
 
@@ -55,6 +55,7 @@ for the full workflow.
 
 | Task | Guide |
 | --- | --- |
+| Edit notes, tempo, time signatures and song sections | [Editor](docs/EDITOR.md) |
 | Generate guitar, bass and drum drafts | [Generation](docs/GENERATION.md) |
 | Edit five-lane Keys or pitch-based Pro Keys | [Piano and synth](docs/PIANO.md) |
 | Edit vocal pitches, words and phrases | [Vocals](docs/VOCALS.md) |

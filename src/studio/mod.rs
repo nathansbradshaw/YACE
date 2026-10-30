@@ -30,6 +30,7 @@ mod shortcuts;
 pub mod state;
 mod stems;
 mod surfaces;
+mod timing_editor;
 mod track_picker;
 mod vocal_editor;
 mod vocal_preview;

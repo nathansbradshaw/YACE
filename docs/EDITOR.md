@@ -50,6 +50,20 @@ marker; Undo restores it. Section edits keep notes and the recording in place.
 Names are saved in chart and MIDI exports. Note proposals do not include section
 edits; share the saved project when those changes need to travel together.
 
+## Tempo and time signatures
+
+Open **Timing** above the ruler. Select a marker to edit it, or choose a type
+and **Add**. **At playhead** uses the current snap setting.
+
+Tempo changes keep notes on their beats and change when they play. Playback
+pauses so you can check the alignment. Time signatures change bar lines and
+numbers. The first tempo and time signature stay at tick 0.
+
+Each change is one Undo step and appears in chart and MIDI exports. Tempo
+changes make earlier note reviews stale; earlier vocal checks stay in history.
+Review the parts again. Share the saved project to include timing changes;
+note proposals cannot carry them.
+
 ## Review a section
 
 Select a flag in the **Review queue** or on the timeline. Listen around it,

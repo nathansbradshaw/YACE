@@ -33,7 +33,8 @@ pub enum EditTool {
 fn cancels_kit_autoplay(action: &Action) -> bool {
     matches!(
         action,
-        Action::SetStemMix { .. }
+        Action::EditSync { .. }
+            | Action::SetStemMix { .. }
             | Action::SetKitAudition { part: None }
             | Action::AttachStems { .. }
             | Action::AttachKeyboardStems { .. }
@@ -342,6 +343,9 @@ pub struct Studio {
     pub parts_open: Signal<bool>,
     pub sections_open: Signal<bool>,
     pub source_sections: Signal<Vec<crate::sections::Marker>>,
+    pub timing_open: Signal<bool>,
+    pub timing_target: Signal<Option<(bool, u64)>>,
+    pub source_sync: Signal<Option<crate::sync_track::SyncTrack>>,
     pub generation_target: Signal<Option<String>>,
     pub vocal_note: Signal<Option<usize>>,
     pub group: Signal<crate::note_groups::Selection>,
@@ -443,6 +447,17 @@ impl Studio {
         };
         match store.load() {
             Ok(doc) => {
+                let Ok(timing) = doc.timing(&store) else {
+                    self.error.set(Some("Cannot read chart timing".into()));
+                    return;
+                };
+                let timing_changed = self.timing.read().as_ref() != Some(&timing);
+                if timing_changed {
+                    self.timing.set(Some(timing));
+                    self.selection_dragging.set(false);
+                    self.group.set(Default::default());
+                }
+                let transport = transport || timing_changed;
                 if self
                     .doc
                     .read()
@@ -1025,6 +1040,7 @@ impl Studio {
             let guitar_source = store.guitar_source(&doc)?;
             let timing = doc.timing(&store)?;
             let sections = store.source_sections(&doc)?;
+            let sync = store.source_sync(&doc).ok();
             let audio = store.audio_path(&doc)?;
             let metadata = crate::pipeline::ini_fields(&crate::pipeline::song_ini(
                 &store.root.join("source"),
@@ -1057,10 +1073,11 @@ impl Studio {
                 guitar_source,
                 Arc::new(WindowLock(lock)),
                 sections,
+                sync,
             ))
         })
         .await;
-        let (store, doc, timing, audio_path, metadata, art, guitar_source, lock, sections) =
+        let (store, doc, timing, audio_path, metadata, art, guitar_source, lock, sections, sync) =
             match loaded {
                 Ok(Ok(value)) => value,
                 Err(e) => {
@@ -1094,6 +1111,8 @@ impl Studio {
         self.group.set(Default::default());
         self.sections_open.set(false);
         self.source_sections.set(sections);
+        self.source_sync.set(sync);
+        self.timing_open.set(false);
         self.doc.set(Some(Arc::new(doc.clone())));
         if let Some(store) = self.store.read().as_ref() {
             self.file_stamp.set(project_stamp(store));
@@ -1302,6 +1321,9 @@ pub fn use_studio() -> Studio {
         parts_open: use_signal(|| false),
         sections_open: use_signal(|| false),
         source_sections: use_signal(Vec::new),
+        timing_open: use_signal(|| false),
+        timing_target: use_signal(|| None),
+        source_sync: use_signal(|| None),
         generation_target: use_signal(|| None),
         vocal_note: use_signal(|| None),
         group: use_signal(Default::default),

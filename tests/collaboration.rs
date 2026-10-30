@@ -70,6 +70,7 @@ fn fixture(root: &Path) -> Store {
         )
         .unwrap(),
         content: Content {
+            sync: None,
             sections: None,
             track_origins: Default::default(),
             difficulty_links: Default::default(),
@@ -140,6 +141,93 @@ fn proposal(s: &Store) -> Proposal {
         actor("Alice"),
     )
     .unwrap()
+}
+
+#[test]
+fn proposals_cannot_cross_tempo_changes_but_work_with_matching_edited_timing() {
+    use chart_engine::{sync_track::Edit, timing::Tempo};
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let old = proposal(&store);
+    let fingerprint = old.fingerprint().unwrap();
+    run(
+        &store,
+        "Alice",
+        Operation::Submit {
+            proposal: old.clone(),
+        },
+    )
+    .unwrap();
+    run(
+        &store,
+        "Bob",
+        Operation::Review {
+            proposal_id: old.id.clone(),
+            fingerprint: fingerprint.clone(),
+            approve: true,
+            body: "Checked this phrase".into(),
+        },
+    )
+    .unwrap();
+    let before = store.load().unwrap();
+    store
+        .apply(Request {
+            expected_revision: before.revision,
+            actor: actor("You"),
+            action: Action::EditSync {
+                edit: Edit::PutTempo {
+                    previous: Some(before.timing(&store).unwrap().tempos[0].clone()),
+                    tempo: Tempo { tick: 0, bpm: 240. },
+                },
+            },
+        })
+        .unwrap();
+    let bytes = fs::read(store.root.join("project.json")).unwrap();
+    let error = run(
+        &store,
+        "Maintainer",
+        Operation::Merge {
+            proposal_id: old.id.clone(),
+            fingerprint,
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("timing changed"));
+    assert_eq!(bytes, fs::read(store.root.join("project.json")).unwrap());
+    let mut stale = old;
+    stale.id = "stale".into();
+    assert!(run(&store, "Alice", Operation::Submit { proposal: stale }).is_err());
+    let mut current = proposal(&store);
+    current.id = "current".into();
+    assert!(current.sync_sha256.is_some());
+    let fingerprint = current.fingerprint().unwrap();
+    run(&store, "Alice", Operation::Submit { proposal: current }).unwrap();
+    run(
+        &store,
+        "Bob",
+        Operation::Review {
+            proposal_id: "current".into(),
+            fingerprint: fingerprint.clone(),
+            approve: true,
+            body: "Checked at the new tempo".into(),
+        },
+    )
+    .unwrap();
+    run(
+        &store,
+        "Maintainer",
+        Operation::Merge {
+            proposal_id: "current".into(),
+            fingerprint,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        store.load().unwrap().content.tracks["ExpertSingle"][0]
+            .note
+            .lane,
+        2
+    );
 }
 #[test]
 fn complete_review_merge_undo_and_reopen_preserve_history() {

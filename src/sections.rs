@@ -118,7 +118,11 @@ pub fn apply(project: &mut Project, source: &Chart, edit: &Edit) -> Result<()> {
         markers.push(marker.clone());
     }
     markers.sort_by_key(|m| m.tick);
-    validate(&markers, &source.timing, project.duration)?;
+    validate(
+        &markers,
+        &crate::sync_track::effective(project, &source.timing)?,
+        project.duration,
+    )?;
     project.content.sections = Some(markers);
     Ok(())
 }

@@ -103,6 +103,6 @@ measures browser display and chart-position intervals during playback. Neither
 metric alone measures acoustic latency, musical accuracy or superiority to
 another editor. See [the full-song acceptance record](BROWSER_ACCEPTANCE.md).
 
-Manual tempo/phrase authoring, full game-renderer parity, platform/browser
+Vocal phrase authoring, full game-renderer parity, platform/browser
 coverage and hosted team service remain separate gaps. This browser delivery is
 not a claim of complete OCTAVE or Moonscraper feature parity.
