@@ -1,4 +1,5 @@
 //! Native proposal review controls, using the same commands as portable exchange.
+use super::dialogs as rfd;
 use super::state::Studio;
 use crate::{
     collaboration::{self, Operation, Proposal},
@@ -30,63 +31,66 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                     p { "Share review files through Git or a shared folder. Audio stays local." }
                     details { summary { "How sharing works" } p { "Work in your own project, then exchange review files. No server is needed. Names identify contributors locally; they aren’t verified accounts." } }
                     GitReview { studio }
-                    button { class: "field-button", onclick: move |_| {
-                        if let Some(folder) = rfd::FileDialog::new().set_title("Choose Git/shared review exchange folder").pick_folder() {
+                    button { class: "field-button", onclick: move |_| { spawn(async move {
+                        if let Some(folder) = rfd::AsyncFileDialog::new().set_title("Choose Git/shared review exchange folder").pick_folder().await {
                             let store = studio.store.read().clone();
                             if let (Some(store),Some(doc)) = (store,studio.snapshot()) {
                                 let actor = Actor { kind:ActorKind::Human,name:studio.reviewer.read().clone() };
-                                match exchange::sync(&store,&folder,actor,doc.revision) {
+                                match exchange::sync(&store,folder.path(),actor,doc.revision) {
                                     Ok(_) => { studio.error.set(None); studio.status.set("Review files synchronized".into()); studio.reload(false); },
                                     Err(error) => studio.error.set(Some(error.to_string())),
                                 }
                             }
                         }
-                    }, "Sync Git / shared folder…" }
-                    button { class: "field-button", onclick: move |_| {
-                        if let Some(path) = rfd::FileDialog::new().set_file_name("reviews.json").save_file()
-                            && let Some(doc) = studio.snapshot()
-                            && let Err(error) = exchange::write_bundle(&doc,&path) {
-                            studio.error.set(Some(error.to_string()));
+                    }); }, "Sync Git / shared folder…" }
+                    button { class: "field-button", onclick: move |_| { spawn(async move {
+                        if let Some(path) = rfd::AsyncFileDialog::new().set_file_name("reviews.json").save_file().await
+                            && let Some(doc) = studio.snapshot() {
+                            match exchange::write_bundle(&doc,path.path()) {
+                                Ok(())=>rfd::download(path.path()).await,
+                                Err(error)=>studio.error.set(Some(error.to_string())),
+                            }
                         }
-                    }, "Export complete review bundle…" }
-                    button { class: "field-button", onclick: move |_| {
-                        if let Some(path) = rfd::FileDialog::new().add_filter("Review bundle", &["json"]).pick_file() {
-                            match exchange::read_bundle(&path) {
+                    }); }, "Export complete review bundle…" }
+                    button { class: "field-button", onclick: move |_| { spawn(async move {
+                        if let Some(path) = rfd::AsyncFileDialog::new().add_filter("Review bundle", &["json"]).pick_file().await {
+                            match exchange::read_bundle(path.path()) {
                                 Ok(bundle) => studio.dispatch(Action::ImportCollaboration { bundle }),
                                 Err(error) => studio.error.set(Some(error.to_string())),
                             }
                         }
-                    }, "Import review bundle…" }
+                    }); }, "Import review bundle…" }
                     label { r#for: "collaboration-reviewer", "Your name" }
                     input { id: "collaboration-reviewer", class: "field-control", value: "{studio.reviewer}", oninput: move |e| studio.reviewer.set(e.value()) }
                     label { r#for: "collaboration-title", "Proposal title" }
                     input { id: "collaboration-title", class: "field-control", value: "{title}", oninput: move |e| title.set(e.value()) }
                     label { r#for: "collaboration-description", "Proposal description / review comment" }
                     textarea { id: "collaboration-description", class: "field-control", value: "{description}", oninput: move |e| description.set(e.value()) }
-                    button { class: "field-button", onclick: move |_| {
-                        let result = (|| -> anyhow::Result<()> {
-                            let base = rfd::FileDialog::new().set_title("Select unchanged base project").pick_folder().ok_or_else(|| anyhow::anyhow!("Cancelled"))?;
+                    button { class: "field-button", onclick: move |_| { spawn(async move {
+                        let result = async {
+                            let base = rfd::AsyncFileDialog::new().set_title("Select unchanged base project").pick_folder().await.ok_or_else(|| anyhow::anyhow!("Cancelled"))?;
                             let doc = studio.snapshot().ok_or_else(|| anyhow::anyhow!("No project"))?;
                             let id = format!("proposal-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos());
-                            let p = Proposal::between(&Store::new(&base).load()?, &doc, id, title(), description(), Actor { kind: ActorKind::Human, name: studio.reviewer.read().clone() })?;
-                            let output = rfd::FileDialog::new().set_file_name("proposal.json").save_file().ok_or_else(|| anyhow::anyhow!("Cancelled"))?;
+                            let p = Proposal::between(&Store::new(base.path()).load()?, &doc, id, title(), description(), Actor { kind: ActorKind::Human, name: studio.reviewer.read().clone() })?;
+                            let output = rfd::AsyncFileDialog::new().set_file_name("proposal.json").save_file().await.ok_or_else(|| anyhow::anyhow!("Cancelled"))?;
                             use std::io::Write;
-                            let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(output)?;
+                            let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(output.path())?;
                             file.write_all(&serde_json::to_vec_pretty(&p)?)?;
                             file.sync_all()?;
+                            rfd::download(output.path()).await;
                             studio.dispatch(Action::Collaborate { operation:Operation::Submit { proposal:p } });
-                            Ok(())
-                        })();
+                            Ok::<_,anyhow::Error>(())
+                        }.await;
                         if let Err(error) = result { studio.error.set(Some(error.to_string())); }
-                    }, "Export changes against base project…" }
-                    button { class: "field-button", onclick: move |_| {
-                        if let Some(path) = rfd::FileDialog::new().add_filter("Proposal JSON", &["json"]).pick_file() {
-                            match std::fs::read(path).map_err(anyhow::Error::from).and_then(|bytes| Ok(serde_json::from_slice::<Proposal>(&bytes)?)) {
+                    }); }, "Export changes against base project…" }
+                    button { class: "field-button", onclick: move |_| { spawn(async move {
+                        if let Some(path) = rfd::AsyncFileDialog::new().add_filter("Proposal JSON", &["json"]).pick_file().await {
+                            match std::fs::read(path.path()).map_err(anyhow::Error::from).and_then(|bytes| Ok(serde_json::from_slice::<Proposal>(&bytes)?)) {
                                 Ok(proposal) => studio.dispatch(Action::Collaborate { operation: Operation::Submit { proposal } }),
                                 Err(error) => studio.error.set(Some(error.to_string())),
                             }
                         }
-                    }, "Import proposal…" }
+                    }); }, "Import proposal…" }
                     for (id, entry) in entries {
                         {
                             let fingerprint = entry.proposal.fingerprint().unwrap_or_default();
@@ -244,7 +248,8 @@ fn ResolveNotes(mut studio: Studio, proposal: Proposal) -> Element {
         })
         .unwrap_or_else(|| "deleted / absent".into())
     };
-    let current = doc.content.tracks;
+    let current = doc.content.tracks.clone();
+    let duration = doc.duration;
     let count = plan.conflicts.len();
     rsx! {
         section { style:"border:1px solid #bd9049;padding:12px",
@@ -255,7 +260,7 @@ fn ResolveNotes(mut studio: Studio, proposal: Proposal) -> Element {
                     rsx!{ div {
                         strong { "{instrument} · conflicting note" }
                         p { "Before: {before}" } p { "Your current note: {ours}" } p { "Proposed note: {theirs}" }
-                        button {class:"field-button",onclick:move |_| {if let Some(tick)=listen {let timing=studio.timing.read().clone();if let Some(timing)=timing {let start=(timing.seconds(tick)-0.5).clamp(0.0,(doc.duration-0.1).max(0.0));let end=(start+1.5).min(doc.duration);studio.dispatch(Action::SelectTrack {track:track.clone()});studio.dispatch(Action::SetLoop {range:Some(crate::editor::TimeRange {start,end})});studio.seek(start);studio.dispatch(Action::Playback {playing:true});}}},"Listen around this section"}
+                        button {class:"field-button",onclick:move |_| {if let Some(tick)=listen {let timing=studio.timing.read().clone();if let Some(timing)=timing {let start=(timing.seconds(tick)-0.5).clamp(0.0,(duration-0.1).max(0.0));let end=(start+1.5).min(duration);studio.dispatch(Action::SelectTrack {track:track.clone()});studio.dispatch(Action::SetLoop {range:Some(crate::editor::TimeRange {start,end})});studio.seek(start);studio.dispatch(Action::Playback {playing:true});}}},"Listen around this section"}
                         select { aria_label:"Result for conflicting note",value:choices.read().get(&key).map(|c|format!("{c:?}")).unwrap_or_default(),onchange:move |event| {
                             let choice=match event.value().as_str(){"Current"=>Some(collaboration::ConflictChoice::Current),"Proposed"=>Some(collaboration::ConflictChoice::Proposed),"Delete"=>Some(collaboration::ConflictChoice::Delete),_=>None};
                             if let Some(choice)=choice {choices.write().insert(key.clone(),choice);}else{choices.write().remove(&key);}
@@ -283,20 +288,20 @@ fn GitReview(mut studio: Studio) -> Element {
             p {"Use a separate review repo. Publishing uses your existing Git login."}
             label {r#for:"review-git-remote","Remote URL or shared Git path (optional)"}
             input {id:"review-git-remote",class:"field-control",value:"{remote}",oninput:move |event|remote.set(event.value())}
-            button {class:"field-button",onclick:move |_| {
-                if let Some(path)=rfd::FileDialog::new().set_title("Choose an empty folder for a new review repository").pick_folder(){
+            button {class:"field-button",onclick:move |_| {spawn(async move {
+                if let Some(handle)=rfd::AsyncFileDialog::new().set_title("Choose an empty folder for a new review repository").pick_folder().await {let path=handle.path().to_owned();
                     match crate::review_git::create(&path,Some(&remote())){Ok(())=>{folder.set(Some(path));message.set("Review repository created. Save / Pull / Publish to save its first review history.".into());},Err(error)=>message.set(error.to_string())}
                 }
-            },"Create review repository…"}
-            button {class:"field-button",disabled:busy(),onclick:move |_| {
-                if let Some(path)=rfd::FileDialog::new().set_title("Choose an empty folder to clone into").pick_folder(){
+            });},"Create review repository…"}
+            button {class:"field-button",disabled:busy(),onclick:move |_| {spawn(async move {
+                if let Some(handle)=rfd::AsyncFileDialog::new().set_title("Choose an empty folder to clone into").pick_folder().await {let path=handle.path().to_owned();
                     let url=remote();let target=path.clone();busy.set(true);message.set("Cloning review repository…".into());
                     spawn(async move { let result=tokio::task::spawn_blocking(move ||crate::review_git::clone_repository(&url,&target)).await;busy.set(false);match result{Ok(Ok(()))=>{folder.set(Some(path));message.set("Repository cloned; load its reviews with Save / Pull / Publish.".into());},Ok(Err(error))=>message.set(error.to_string()),Err(error)=>message.set(error.to_string())} });
                 }
-            },"Clone shared review repository…"}
-            button {class:"field-button",onclick:move |_| {
-                if let Some(path)=rfd::FileDialog::new().set_title("Choose the dedicated review repository root").pick_folder(){folder.set(Some(path));}
-            },"Choose existing review repository…"}
+            });},"Clone shared review repository…"}
+            button {class:"field-button",onclick:move |_| {spawn(async move {
+                if let Some(path)=rfd::AsyncFileDialog::new().set_title("Choose the dedicated review repository root").pick_folder().await {folder.set(Some(path.path().to_owned()));}
+            });},"Choose existing review repository…"}
             if let Some(path)=folder(){p {"Repository: {path.display()}"}}
             button {class:"field-button",disabled:folder.read().is_none()||busy(),onclick:move |_| {
                 let store=studio.store.read().clone();

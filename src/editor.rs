@@ -1119,7 +1119,6 @@ impl Store {
                 exported_to: Some(output.clone()),
             });
         }
-        let before = doc.content.clone();
         let content_action = matches!(
             request.action,
             Action::Collaborate {
@@ -1141,6 +1140,9 @@ impl Store {
                 | Action::SetVocalGeneration { .. }
                 | Action::SetVocalReview { .. }
         );
+        // Selecting a note, seeking or playing cannot change note content.
+        // Avoid cloning every instrument and its review history for those actions.
+        let before = content_action.then(|| doc.content.clone());
         doc.transport.position = doc.transport.current_position(doc.duration);
         doc.transport.anchor_ms = now_ms();
         match &request.action {
@@ -1493,7 +1495,7 @@ impl Store {
         ) {
             crate::difficulty_links::after_note_edit(
                 &mut doc.content,
-                &before,
+                before.as_ref().context("Missing note-edit checkpoint")?,
                 &timing,
                 doc.duration,
             )?;
@@ -1556,7 +1558,8 @@ impl Store {
         crate::editor_validation::validate(&doc, &self.source_chart(&doc)?)?;
         crate::difficulty_links::validate(&doc.content, &timing, doc.duration)?;
         if content_action {
-            doc.undo.push(self.checkpoint(&before)?);
+            doc.undo
+                .push(self.checkpoint(before.as_ref().context("Missing edit checkpoint")?)?);
             doc.redo.clear();
         }
         doc.revision = doc.revision.checked_add(1).context("Revision overflow")?;
@@ -1767,7 +1770,7 @@ impl Store {
         )
     }
 
-    #[cfg(feature = "editor")]
+    #[cfg(feature = "studio")]
     pub(crate) fn report_live(
         &self,
         revision: u64,

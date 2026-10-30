@@ -1,5 +1,6 @@
 //! Local word review and clean-audio export in the shared tool sheet.
 //! Matching and rendering stay in the model-free clean core and CLI contract.
+use super::dialogs as rfd;
 use super::state::Studio;
 use crate::{
     clean::{

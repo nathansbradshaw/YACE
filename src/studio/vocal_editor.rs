@@ -1,4 +1,5 @@
 //! Phrase audition and explicit, undoable lead-vocal edits.
+use super::dialogs as rfd;
 use super::{
     icons::Icon,
     state::{Studio, clock},
@@ -163,7 +164,7 @@ fn read_import(path: &std::path::Path) -> anyhow::Result<VocalChart> {
 async fn apply_import(
     mut studio: Studio,
     path: std::path::PathBuf,
-    original: crate::editor::Project,
+    original: std::sync::Arc<crate::editor::Project>,
     original_root: Option<std::path::PathBuf>,
 ) {
     let result = tokio::task::spawn_blocking(move || read_import(&path)).await;
@@ -186,7 +187,7 @@ async fn apply_import(
     }
 }
 fn save_document(mut studio: Studio) {
-    let Some(document) = studio.snapshot().and_then(|doc| doc.content.vocals) else {
+    let Some(document) = studio.snapshot().and_then(|doc| doc.content.vocals.clone()) else {
         return;
     };
     spawn(async move {
@@ -200,10 +201,11 @@ fn save_document(mut studio: Studio) {
             return;
         };
         let path = file.path().to_owned();
+        let output = path.clone();
         match tokio::task::spawn_blocking(move || crate::generation::write_json(&path, &document))
             .await
         {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => rfd::download(&output).await,
             Ok(Err(error)) => studio.error.set(Some(format!("{error:#}"))),
             Err(error) => studio.error.set(Some(error.to_string())),
         }

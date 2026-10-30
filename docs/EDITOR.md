@@ -1,5 +1,8 @@
 # Edit and export
 
+These controls also run in the [browser editor](BROWSER.md), using the same
+Rust project, command validation and recovery history.
+
 ## Open a project
 
 - **Import audio** generates a new draft from a recording.

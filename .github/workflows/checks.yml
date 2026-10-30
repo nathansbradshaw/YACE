@@ -37,6 +37,8 @@ jobs:
         run: cargo test --locked --no-default-features --all-targets
       - name: Check the desktop build
         run: cargo check --locked --no-default-features --features editor --all-targets
+      - name: Test the browser editor and local host
+        run: cargo test --locked --no-default-features --features browser --lib --test browser_host
       - name: Lint the core
         run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
       - name: Test the archive converter

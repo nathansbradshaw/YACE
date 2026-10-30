@@ -154,7 +154,7 @@ pub(super) fn VocalRoll(mut studio: Studio) -> Element {
                         let dx=e.page_coordinates().x-x;let dy=e.page_coordinates().y-y;
                         if dx.abs()+dy.abs()<3.0{return;}
                         let Some(doc)=studio.snapshot()else{return};
-                        let Some(mut chart)=doc.content.vocals else{return};
+                        let Some(mut chart)=doc.content.vocals.clone() else{return};
                         if chart.notes.get(index)!=Some(&expected){return;}
                         let Some(map)=(studio.timing)()else{return};
                         let mut note=expected.clone();
@@ -213,7 +213,7 @@ fn place_vocal(mut studio: Studio, event: &MouseEvent, width: f64) {
     let row = (event.element_coordinates().y / 8.0)
         .floor()
         .clamp(0.0, 49.0) as u8;
-    let mut chart = doc.content.vocals.unwrap_or(VocalChart {
+    let mut chart = doc.content.vocals.clone().unwrap_or(VocalChart {
         version: 1,
         resolution: map.resolution,
         source: "Manually authored in YACE".into(),

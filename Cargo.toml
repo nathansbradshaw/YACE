@@ -9,10 +9,17 @@ repository = "https://github.com/nathansbradshaw/YACE"
 readme = "README.md"
 publish = false
 
+[[bin]]
+name = "yace-browser"
+path = "src/bin/yace-browser.rs"
+required-features = ["browser"]
+
 [features]
 default = ["separation", "editor", "vocal-alignment"]
 vocal-alignment = ["dep:practice-acoustic", "dep:whatlang"]
-editor = ["dep:dioxus", "dep:dioxus-document", "dep:rodio", "dep:rfd", "dep:tokio", "dep:base64"]
+studio = ["dep:dioxus", "dep:dioxus-document", "dep:tokio", "dep:base64"]
+editor = ["studio", "dioxus/desktop", "dep:rodio", "dep:rfd"]
+browser = ["studio", "dioxus/liveview", "dep:dioxus-liveview", "dep:axum", "dep:tower-http", "dep:getrandom", "dep:zip"]
 separation = ["dep:demucs-core", "dep:burn", "dep:pollster"]
 
 [dependencies]
@@ -35,12 +42,17 @@ whatlang = { version = "0.16", optional = true }
 demucs-core = { path = "vendor/demucs-core", features = ["wgpu"], optional = true }
 burn = { version = "0.20.1", default-features = false, features = ["std", "wgpu"], optional = true }
 pollster = { version = "0.4", optional = true }
-dioxus = { version = "=0.7.10", default-features = false, features = ["desktop", "macro", "html", "signals", "hooks", "launch"], optional = true }
+dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "hooks", "launch"], optional = true }
 dioxus-document = { version = "=0.7.10", default-features = false, optional = true }
-tokio = { version = "1", features = ["rt", "time"], optional = true }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "net", "fs", "io-util"], optional = true }
 base64 = { version = "0.22", optional = true }
 rodio = { version = "0.22.2", default-features = false, features = ["playback"], optional = true }
 rfd = { version = "0.17.2", optional = true }
+dioxus-liveview = { version = "=0.7.10", features = ["axum"], optional = true }
+axum = { version = "0.8", features = ["ws", "multipart"], optional = true }
+tower-http = { version = "0.6", features = ["fs"], optional = true }
+getrandom = { version = "0.3", optional = true }
+zip = { version = "9.1.3", default-features = false, features = ["deflate-flate2-zlib-rs"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "=0.16.0", default-features = false, features = ["metal"] }

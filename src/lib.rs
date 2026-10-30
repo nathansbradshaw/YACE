@@ -13,10 +13,12 @@ pub mod drum_parts;
 pub mod editor;
 pub mod parts;
 pub mod review_git;
-#[cfg(feature = "editor")]
+#[cfg(feature = "studio")]
 pub mod studio;
 #[cfg(feature = "editor")]
 pub use studio as editor_ui;
+#[cfg(feature = "browser")]
+pub mod browser;
 pub mod editor_validation;
 pub mod game_export;
 pub mod gameplay_view;

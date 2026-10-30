@@ -1,4 +1,5 @@
 //! Import and job controls; expensive work runs in the same executable's worker.
+use super::dialogs as rfd;
 use super::state::Studio;
 use crate::{
     generation::{self, Request, Source, State, Status},
@@ -33,7 +34,9 @@ mod tests {
         let mut studio = super::super::state::use_studio();
         let (store, slot) = use_context::<(crate::editor::Store, Slot)>();
         use_hook(move || {
-            studio.doc.set(Some(store.load().unwrap()));
+            studio
+                .doc
+                .set(Some(std::sync::Arc::new(store.load().unwrap())));
             studio.store.set(Some(store));
             *slot.borrow_mut() = Some(studio);
         });
@@ -138,6 +141,7 @@ struct View {
     notice: String,
     worker: Option<Rc<RefCell<Worker>>>,
     info: Option<song_import::SongInfo>,
+    song_details_open: bool,
     cover_preview: Option<String>,
 }
 impl Default for View {
@@ -164,7 +168,7 @@ impl Default for View {
             lyrics: true,
             fetch: true,
             models: generation::default_model_dir(),
-            parent: None,
+            parent: browser_output_parent(),
             name: "New song".into(),
             busy: false,
             root: None,
@@ -173,6 +177,7 @@ impl Default for View {
             notice: String::new(),
             worker: None,
             info: None,
+            song_details_open: false,
             cover_preview: None,
         }
     }
@@ -320,6 +325,7 @@ fn local_file(mut data: Signal<View>) {
                     meta.name
                 };
                 v.artist = meta.artist;
+                v.song_details_open = v.title.trim().is_empty() || v.artist.trim().is_empty();
                 v.bpm = tempo.bpm.unwrap_or(120.0).to_string();
                 v.info = Some(song_import::SongInfo {
                     album: meta.album,
@@ -766,7 +772,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         h3 { class: "generation-step", if part_mode { "{part_title}" } else { "1. Choose audio" } }
                         if !part_mode { div{class:"generation-actions",button{class:"action-secondary",onclick:move|_|local_file(data),"Choose audio file…"}} }
                         if let Some(path)=&view.audio{p{class:"generation-path",title:"{path.display()}","{path.file_name().unwrap_or_default().to_string_lossy()}"}}
-                        if !part_mode { details { summary { "Song details" }
+                        if !part_mode { details { open: view.song_details_open, summary { onclick: move |event| { event.prevent_default(); data.with_mut(|view| view.song_details_open = !view.song_details_open); }, "Song details" }
                         div{class:"generation-grid",
                             label{class:"generation-field","Song title",input{class:"field-control",value:"{view.title}",oninput:move|e|data.write().title=e.value()}}
                             label{class:"generation-field","Artist",input{class:"field-control",value:"{view.artist}",oninput:move|e|data.write().artist=e.value()}}
@@ -873,5 +879,17 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     }
 
     }
+    }
+}
+
+fn browser_output_parent() -> Option<PathBuf> {
+    #[cfg(feature = "browser")]
+    {
+        dioxus::prelude::try_consume_context::<crate::browser::BrowserContext>()
+            .map(|context| context.root)
+    }
+    #[cfg(not(feature = "browser"))]
+    {
+        None
     }
 }

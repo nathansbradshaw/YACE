@@ -1,4 +1,5 @@
 //! Read-only diagnostics. Note edits and review decisions remain in the editor.
+use super::dialogs as rfd;
 use super::{icons::Icon, state::Studio};
 use crate::{
     editor::{Action, Project, Store, TimeRange},
@@ -225,7 +226,7 @@ fn KitTransportClock(studio: Studio) -> Element {
     rsx! {time{"{super::state::clock((studio.playhead)())}"}}
 }
 
-fn snapshot(studio: Studio) -> Option<(Store, Project, RequestKey)> {
+fn snapshot(studio: Studio) -> Option<(Store, std::sync::Arc<Project>, RequestKey)> {
     let store = studio.store.read().clone()?;
     let project = studio.snapshot()?;
     let content = part_analysis::project_key(&project).ok()?;

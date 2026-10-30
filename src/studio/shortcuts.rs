@@ -45,7 +45,7 @@ pub fn handle(mut studio: Studio, event: KeyboardEvent) {
                     studio.dispatch(Action::DeleteVocalNote { index });
                     studio.vocal_note.set(None);
                 }
-            } else if let Some(note_id) = doc.selected_note {
+            } else if let Some(note_id) = doc.selected_note.clone() {
                 event.prevent_default();
                 studio.dispatch(Action::DeleteNote { note_id });
             }

@@ -1,10 +1,15 @@
 # YACE — Yet Another Charting Engine
 
-A native chart editor for Clone Hero and YARG, written in Rust.
+A chart editor for Clone Hero and YARG, written in Rust.
 
 Import a local recording, generate a draft, then listen and edit. YACE supports
 guitar, bass, drums, Keys, Pro Keys and lead vocals. Generated parts need review;
 they are not finished charts.
+
+The [browser editor](docs/BROWSER.md) uses the same Rust workbench with browser
+audio, file uploads and downloadable song exports. It currently uses a local
+Rust host. The product target is faster, easier charting and reliable team work;
+complete OCTAVE/Moonscraper parity and hosted collaboration remain unfinished.
 
 ![YACE with audition and selection details above the track picker and note editor](assets/screenshots/editor.png)
 

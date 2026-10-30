@@ -4,6 +4,7 @@ mod chart_desk;
 mod clean;
 mod collaboration;
 mod diagnostics;
+mod dialogs;
 mod difficulty;
 mod frame_pacing;
 mod game_preview;
@@ -31,21 +32,26 @@ mod welcome;
 mod workspace;
 use crate::editor::Action;
 use dioxus::prelude::*;
+use std::time::Duration;
+#[cfg(not(feature = "browser"))]
 use std::{
     path::Path,
     sync::{Mutex, OnceLock},
-    time::Duration,
 };
+#[cfg(not(feature = "browser"))]
 static START_PROJECT: OnceLock<Mutex<Option<std::path::PathBuf>>> = OnceLock::new();
 
+#[cfg(not(feature = "browser"))]
 pub fn open(path: &Path) -> anyhow::Result<()> {
     run(Some(path.canonicalize()?));
     Ok(())
 }
+#[cfg(not(feature = "browser"))]
 pub fn launch() -> anyhow::Result<()> {
     run(None);
     Ok(())
 }
+#[cfg(not(feature = "browser"))]
 fn run(project: Option<std::path::PathBuf>) {
     *START_PROJECT
         .get_or_init(|| Mutex::new(None))
@@ -62,6 +68,14 @@ fn run(project: Option<std::path::PathBuf>) {
         )
         .launch(App);
 }
+#[cfg(feature = "browser")]
+pub fn open(path: &std::path::Path) -> anyhow::Result<()> {
+    crate::browser::serve_project(path, 3030)
+}
+#[cfg(feature = "browser")]
+pub fn launch() -> anyhow::Result<()> {
+    crate::browser::serve(std::path::Path::new("output/browser-workspace"), 3030)
+}
 const CSS: &str = concat!(
     include_str!("../../assets/theme.css"),
     include_str!("../../assets/forms.css"),
@@ -74,14 +88,22 @@ const CSS: &str = concat!(
     include_str!("../../assets/part-analysis.css")
 );
 #[component]
-fn App() -> Element {
+pub(crate) fn App() -> Element {
+    #[cfg(feature = "browser")]
+    dialogs::provide_browser_dialogs();
     use_hook(diagnostics::install);
     let stylesheet = use_hook(|| surfaces::stylesheet(CSS));
     let studio = state::use_studio();
     difficulty::use_snapshot(studio);
     let display_link = frame_pacing::use_frame_pacing(studio);
+    #[cfg(feature = "browser")]
+    let initial_project =
+        use_signal(|| consume_context::<crate::browser::BrowserContext>().start_project);
     use_future(move || async move {
+        #[cfg(not(feature = "browser"))]
         let project = START_PROJECT.get().and_then(|p| p.lock().ok()?.take());
+        #[cfg(feature = "browser")]
+        let project = initial_project();
         if let Some(path) = project {
             studio.open_project(path).await;
         }
@@ -124,5 +146,16 @@ fn App() -> Element {
         generation::GenerationPanel{studio}
         collaboration::Collaboration{studio}
         assistant::Assistant{studio}
+        {browser_files()}
+    }
+}
+fn browser_files() -> Element {
+    #[cfg(feature = "browser")]
+    {
+        rsx! {dialogs::BrowserFiles {}}
+    }
+    #[cfg(not(feature = "browser"))]
+    {
+        rsx! {}
     }
 }
