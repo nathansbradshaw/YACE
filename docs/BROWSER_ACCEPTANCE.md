@@ -53,6 +53,10 @@ the browser playback WAV conversion, plus malformed-input rejection.
 An eight-second Opus sample imported and played to its end through the local
 browser codec fallback. Malformed recording data and a malformed ZIP both
 reported errors while leaving that valid project and its audio available.
+Two tabs restored the same saved revision. After the first saved a note edit,
+the second tab's stale edit was rejected with an explicit autosave conflict and
+Not saved locally status. Its local changes still downloaded as a project ZIP;
+the first tab's saved project remained intact.
 
 Automatic chart generation is deliberately disabled in this static build:
 the current native model runners are not portable to this WASM target. There is
