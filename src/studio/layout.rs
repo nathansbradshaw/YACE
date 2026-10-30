@@ -108,7 +108,7 @@ pub fn Workbench(studio: Studio) -> Element {
     let (width, height) = size();
     rsx! {
         div {
-            class: "octave-main",
+            class: "workbench",
             style: "grid-template-rows:minmax(200px,{top}fr) 4px minmax(160px,{bottom}fr)",
             onresize: move |event| {
                 if let Ok(box_size) = event.get_content_box_size() {
@@ -129,7 +129,7 @@ pub fn Workbench(studio: Studio) -> Element {
             },
             onmouseup: move |_| drag.set(None),
             onmouseleave: move |_| drag.set(None),
-            div { class: "octave-top", style: "grid-template-columns:minmax(150px,{left}fr) 4px minmax(300px,{center}fr) 4px minmax(200px,{right}fr)",
+            div { class: "workbench-top", style: "grid-template-columns:minmax(150px,{left}fr) 4px minmax(300px,{center}fr) 4px minmax(200px,{right}fr)",
                 div { class: "panel panel-left", Explorer { studio } }
                 Divider { pane: Pane::Explorer, label: "Resize explorer", value: left, available: (width - 8.0).max(1.0), drag }
                 div { class: "panel panel-center", Preview { studio } }

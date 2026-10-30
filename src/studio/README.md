@@ -25,8 +25,8 @@ Use `Modal` for blocking dialogs. It uses the WebView's native modal layer for
 focus containment and Escape. Closing a dialog retains its job state; it does
 not cancel work unless the user selects Cancel.
 
-Styles live in `assets/`. `identity.css` defines the YACE theme; `workbench.css`
-covers welcome, focus and modal behavior. Feature styles have matching names,
-including `generation.css`, `clean.css` and `game-preview.css`.
-Keep the licensed upstream files in `assets/octave/` unchanged; add overrides
-outside that directory. See [stylesheet attribution](../../assets/octave/README.md).
+Styles live in `assets/`. Start with `theme.css` for shared colors and controls,
+`panels.css` for the workbench, `timeline.css` for note lanes and `dialogs.css`
+for modal windows. `workbench.css` covers the welcome screen; `details.css`
+covers vocals and review details. Other feature styles have matching names.
+See [third-party notices](../../THIRD_PARTY.md) for component ancestry.
