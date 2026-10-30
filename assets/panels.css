@@ -129,23 +129,6 @@
   text-shadow: none;
 }
 
-.toolbar-wear {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.toolbar-wear svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.toolbar > :not(.toolbar-wear) {
-  position: relative;
-  z-index: 1;
-}
-
 .toolbar-group {
   display: flex;
   align-items: center;
