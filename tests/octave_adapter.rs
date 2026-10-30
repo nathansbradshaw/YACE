@@ -58,6 +58,7 @@ fn fixture() -> (Project, Chart) {
         duration: 3.0,
         review,
         content: Content {
+            star_power: Default::default(),
             sync: None,
             sections: None,
             track_origins: Default::default(),

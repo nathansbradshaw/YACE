@@ -27,6 +27,12 @@
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
 }
+.power-lane{display:flex;height:16px;background:var(--canvas-raised,var(--bg-secondary));border-bottom:1px solid var(--canvas-border,var(--border-color))}
+.power-lane-label{width:140px;height:16px;min-height:0;line-height:1;display:flex;align-items:center;flex-shrink:0;border:0;background:transparent;padding:0 12px;text-align:left;font-size:9px;color:var(--text-muted)}
+.power-lane-plot{flex:1;min-width:0;height:16px;overflow:hidden}
+.power-range{fill:var(--accent-color);fill-opacity:.25;stroke:var(--accent-color);stroke-width:1}
+.power-range:focus-visible{outline:2px solid var(--text-primary)}
+.power-grip{fill:var(--accent-color)}
 
 .midi-ruler-canvas {
   width: 100%;

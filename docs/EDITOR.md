@@ -50,6 +50,21 @@ marker; Undo restores it. Section edits keep notes and the recording in place.
 Names are saved in chart and MIDI exports. Note proposals do not include section
 edits; share the saved project when those changes need to travel together.
 
+## Star Power
+
+Choose **Star Power** in the selection desk. Use **Selected notes** to cover a
+selection, or **At playhead** to start a four-beat phrase. Adjust the start and
+end ticks, then choose **Add**.
+
+Phrases appear in a thin lane above that track's notes. Click one to edit it,
+drag its middle to move it, or drag an edge to resize. Phrases cannot overlap.
+Each edit is one Undo step. Deleting a phrase keeps its notes.
+
+Star Power belongs to the selected instrument and difficulty. Chart exports
+keep those separate; MIDI shares Star Power within an instrument and combines
+overlapping difficulty ranges. Note proposals cannot carry phrase changes;
+share the saved project to include them.
+
 ## Tempo and time signatures
 
 Open **Timing** above the ruler. Select a marker to edit it, or choose a type

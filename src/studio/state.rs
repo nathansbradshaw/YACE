@@ -346,6 +346,9 @@ pub struct Studio {
     pub timing_open: Signal<bool>,
     pub timing_target: Signal<Option<(bool, u64)>>,
     pub source_sync: Signal<Option<crate::sync_track::SyncTrack>>,
+    pub source_star_power: Signal<crate::star_power::Source>,
+    pub star_power_open: Signal<bool>,
+    pub star_power_target: Signal<Option<crate::star_power::Phrase>>,
     pub generation_target: Signal<Option<String>>,
     pub vocal_note: Signal<Option<usize>>,
     pub group: Signal<crate::note_groups::Selection>,
@@ -1041,6 +1044,7 @@ impl Studio {
             let timing = doc.timing(&store)?;
             let sections = store.source_sections(&doc)?;
             let sync = store.source_sync(&doc).ok();
+            let star_power = store.source_star_power(&doc)?;
             let audio = store.audio_path(&doc)?;
             let metadata = crate::pipeline::ini_fields(&crate::pipeline::song_ini(
                 &store.root.join("source"),
@@ -1074,21 +1078,33 @@ impl Studio {
                 Arc::new(WindowLock(lock)),
                 sections,
                 sync,
+                star_power,
             ))
         })
         .await;
-        let (store, doc, timing, audio_path, metadata, art, guitar_source, lock, sections, sync) =
-            match loaded {
-                Ok(Ok(value)) => value,
-                Err(e) => {
-                    self.error.set(Some(e.to_string()));
-                    return;
-                }
-                Ok(Err(e)) => {
-                    self.error.set(Some(format!("{e:#}")));
-                    return;
-                }
-            };
+        let (
+            store,
+            doc,
+            timing,
+            audio_path,
+            metadata,
+            art,
+            guitar_source,
+            lock,
+            sections,
+            sync,
+            star_power,
+        ) = match loaded {
+            Ok(Ok(value)) => value,
+            Err(e) => {
+                self.error.set(Some(e.to_string()));
+                return;
+            }
+            Ok(Err(e)) => {
+                self.error.set(Some(format!("{e:#}")));
+                return;
+            }
+        };
         // Pause and close the former project before replacing its audio/lock.
         if let Some(previous) = self.snapshot()
             && previous.transport.playing
@@ -1112,6 +1128,9 @@ impl Studio {
         self.sections_open.set(false);
         self.source_sections.set(sections);
         self.source_sync.set(sync);
+        self.source_star_power.set(star_power);
+        self.star_power_open.set(false);
+        self.star_power_target.set(None);
         self.timing_open.set(false);
         self.doc.set(Some(Arc::new(doc.clone())));
         if let Some(store) = self.store.read().as_ref() {
@@ -1324,6 +1343,9 @@ pub fn use_studio() -> Studio {
         timing_open: use_signal(|| false),
         timing_target: use_signal(|| None),
         source_sync: use_signal(|| None),
+        source_star_power: use_signal(Default::default),
+        star_power_open: use_signal(|| false),
+        star_power_target: use_signal(|| None),
         generation_target: use_signal(|| None),
         vocal_note: use_signal(|| None),
         group: use_signal(Default::default),

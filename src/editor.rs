@@ -111,6 +111,8 @@ pub struct FlagScope {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Content {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub star_power: crate::star_power::Tracks,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync: Option<crate::sync_track::SyncTrack>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -193,6 +195,9 @@ impl Transport {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
+    EditStarPower {
+        edit: crate::star_power::Edit,
+    },
     EditSync {
         edit: crate::sync_track::Edit,
     },
@@ -418,7 +423,10 @@ impl Project {
                     || self.content.track_origins.contains_key(track),
                 "Unrelated new editor track"
             );
-            if notes.is_empty() && !self.content.track_origins.contains_key(track) {
+            if notes.is_empty()
+                && !self.content.track_origins.contains_key(track)
+                && self.content.star_power.get(track).is_none_or(Vec::is_empty)
+            {
                 continue;
             }
             if !text.ends_with('\n') {
@@ -431,7 +439,8 @@ impl Project {
             text.push_str(&format!("}}{newline}"));
         }
         let text = crate::sections::render(text, &self.content.sections)?;
-        crate::sync_track::render(text, &self.content.sync)
+        let text = crate::sync_track::render(text, &self.content.sync)?;
+        crate::star_power::render(text, &self.content.star_power)
     }
     pub fn chart_hash(&self, store: &Store) -> Result<String> {
         Ok(hash(self.chart_text(store)?.as_bytes()))
@@ -733,6 +742,12 @@ impl Store {
     pub fn source_sync(&self, project: &Project) -> Result<crate::sync_track::SyncTrack> {
         crate::sync_track::imported(&self.source_chart(project)?)
     }
+    pub fn source_star_power(&self, project: &Project) -> Result<crate::star_power::Source> {
+        Ok(crate::star_power::source(
+            project,
+            &self.source_chart(project)?,
+        ))
+    }
     fn source_chart(&self, project: &Project) -> Result<Chart> {
         let bytes = fs::read(self.root.join("source/notes.chart"))?;
         ensure!(
@@ -932,6 +947,7 @@ impl Store {
             duration,
             review,
             content: Content {
+                star_power: Default::default(),
                 sync: None,
                 sections: None,
                 track_origins: Default::default(),
@@ -1148,6 +1164,7 @@ impl Store {
             } | Action::CreateTrack { .. }
                 | Action::EditSection { .. }
                 | Action::EditSync { .. }
+                | Action::EditStarPower { .. }
                 | Action::ApplyGeneratedPart { .. }
                 | Action::AddNote { .. }
                 | Action::UpdateNote { .. }
@@ -1172,6 +1189,10 @@ impl Store {
         doc.transport.anchor_ms = now_ms();
         let before_timing = doc.timing(self)?;
         match &request.action {
+            Action::EditStarPower { edit } => {
+                let source = self.source_chart(&doc)?;
+                crate::star_power::apply(&mut doc, &source, edit)?;
+            }
             Action::EditSync { edit } => {
                 let source = self.source_chart(&doc)?;
                 crate::sync_track::apply(&mut doc, &source, edit)?;

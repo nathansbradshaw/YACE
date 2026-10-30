@@ -68,6 +68,8 @@ pub struct Proposal {
     pub audio_sha256: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub star_power_sha256: Option<String>,
     pub base: Tracks,
     pub proposed: Tracks,
 }
@@ -84,9 +86,16 @@ impl Proposal {
             ))?)
         );
         // Keep existing review fingerprints valid for projects without timing edits.
-        Ok(match &self.sync_sha256 {
+        let fingerprint = match &self.sync_sha256 {
             Some(sync) => format!("{:x}", Sha256::digest(serde_json::to_vec(&(&notes, sync))?)),
             None => notes,
+        };
+        Ok(match &self.star_power_sha256 {
+            Some(power) => format!(
+                "{:x}",
+                Sha256::digest(serde_json::to_vec(&(&fingerprint, power))?)
+            ),
+            None => fingerprint,
         })
     }
     pub fn between(
@@ -112,6 +121,10 @@ impl Proposal {
             "Section changes are not supported in note proposals; share the saved project instead"
         );
         ensure!(
+            base.content.star_power == edited.content.star_power,
+            "Star Power changes are not supported in note proposals; share the saved project instead"
+        );
+        ensure!(
             sync_fingerprint(base)? == sync_fingerprint(edited)?,
             "Timing changes are not supported in note proposals; share the saved project instead"
         );
@@ -124,6 +137,7 @@ impl Proposal {
             source_chart_sha256: base.source_chart_sha256.clone(),
             audio_sha256: base.audio_sha256.clone(),
             sync_sha256: sync_fingerprint(base)?,
+            star_power_sha256: power_fingerprint(base)?,
             base: base.content.tracks.clone(),
             proposed: edited.content.tracks.clone(),
         };
@@ -151,6 +165,15 @@ fn sync_fingerprint(project: &Project) -> Result<Option<String>> {
             ))
         })
         .transpose()
+}
+fn power_fingerprint(project: &Project) -> Result<Option<String>> {
+    if project.content.star_power.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&project.content.star_power)?)
+    )))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -270,6 +293,13 @@ pub(crate) fn record(
 ) -> Result<()> {
     if let Operation::Submit { proposal } = op {
         ensure!(proposal.version == 1, "Unsupported proposal version");
+        ensure!(
+            proposal
+                .star_power_sha256
+                .as_ref()
+                .is_none_or(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())),
+            "Invalid proposal Star Power fingerprint"
+        );
         ensure!(
             proposal
                 .sync_sha256
@@ -748,6 +778,10 @@ pub fn apply(project: &mut Project, operation: &Operation, actor: &Actor) -> Res
         _ => None,
     };
     if let Some(proposal) = proposal {
+        ensure!(
+            proposal.star_power_sha256 == power_fingerprint(project)?,
+            "Star Power changed. Share the saved project and create a new note proposal."
+        );
         ensure!(
             proposal.sync_sha256 == sync_fingerprint(project)?,
             "Project timing changed. Share the saved project and create a new note proposal."

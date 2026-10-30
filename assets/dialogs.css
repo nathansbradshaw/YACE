@@ -140,3 +140,6 @@
 .timing-list{max-height:32vh}
 .timing-form{grid-template-columns:minmax(0,1fr) 110px auto}
 .timing-form select{max-width:100%}
+.power-form{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.power-range-actions{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}
+.power-controls{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--border-color)}
