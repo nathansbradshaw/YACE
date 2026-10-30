@@ -35,6 +35,9 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
 
 ## Open, edit, save and export
 
+- **New chart from audio** opens the native file picker, then asks for title,
+  artist and starting tempo. It creates an empty Guitar chart for manual
+  authoring; add other parts with **Add a part**. No generation runs.
 - **Import song ZIP** opens a packaged `.chart` or MIDI song and its recording.
   **Open song folder** uses the operating system's folder picker.
   **Open saved project** opens a project ZIP with review and undo history.

@@ -57,6 +57,7 @@ pub struct Studio {
     pub star_power_open: Signal<bool>,
     pub star_power_target: Signal<Option<crate::star_power::Phrase>>,
     pub generation_target: Signal<Option<String>>,
+    pub new_song: Signal<Option<(PathBuf, String)>>,
     pub vocal_note: Signal<Option<usize>>,
     pub group: Signal<crate::note_groups::Selection>,
     pub selection_dragging: Signal<bool>,
@@ -107,6 +108,7 @@ pub fn use_studio() -> Studio {
         star_power_open: use_signal(|| false),
         star_power_target: use_signal(|| None),
         generation_target: use_signal(|| None),
+        new_song: use_signal(|| None),
         vocal_note: use_signal(|| None),
         group: use_signal(Default::default),
         selection_dragging: use_signal(|| false),
@@ -272,6 +274,85 @@ impl Studio {
     }
     pub fn create_dialog(self) {
         self.import(true);
+    }
+    pub fn new_chart(mut self) {
+        spawn(async move {
+            let result = async {
+                let Some(mut files) =
+                    crate::files::pick(false, ".ogg,.opus,.mp3,.flac,.wav,.m4a").await?
+                else {
+                    return Ok(());
+                };
+                let (name, bytes) = files.pop().context("Choose a recording")?;
+                let path = std::path::Path::new(&name);
+                let extension = path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                ensure!(
+                    ["ogg", "opus", "mp3", "flac", "wav", "m4a"].contains(&extension.as_str()),
+                    "Choose an OGG, Opus, MP3, FLAC, WAV or M4A recording"
+                );
+                let title: String = path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .take(200)
+                    .collect();
+                let root = crate::files::unique_root();
+                crate::files::mount(&root, vec![(format!("song.{extension}"), bytes)])?;
+                self.error.set(None);
+                self.new_song.set(Some((root, title)));
+                Ok(())
+            }
+            .await;
+            if let Err(error) = result {
+                self.error.set(Some(format!("{error:#}")));
+            }
+        });
+    }
+    pub async fn finish_new_chart(
+        mut self,
+        root: PathBuf,
+        title: String,
+        artist: String,
+        bpm: f64,
+    ) -> Result<()> {
+        ensure!(
+            !title.trim().is_empty() && !artist.trim().is_empty(),
+            "Enter a title and artist"
+        );
+        ensure!(
+            !title.chars().chain(artist.chars()).any(char::is_control),
+            "Title and artist must be single lines"
+        );
+        ensure!(
+            bpm.is_finite() && (1. ..=1000.).contains(&bpm),
+            "Tempo must be 1–1000 BPM"
+        );
+        let metadata = BTreeMap::from([
+            ("name".into(), title.trim().into()),
+            ("artist".into(), artist.trim().into()),
+        ]);
+        crate::storage::write(
+            root.join("song.ini"),
+            crate::pipeline::update_ini("[song]\n", &metadata),
+        )?;
+        let tempo = (bpm * 1000.).round() as u32;
+        crate::storage::write(
+            root.join("notes.chart"),
+            format!(
+                "[Song]\n{{\n  Resolution = 480\n}}\n[SyncTrack]\n{{\n  0 = B {tempo}\n  0 = TS 4\n}}\n[Events]\n{{\n}}\n[ExpertSingle]\n{{\n}}\n"
+            ),
+        )?;
+        self.status.set("Preparing new chart…".into());
+        self.open_project(root.clone()).await?;
+        crate::storage::clear(&root);
+        self.new_song.set(None);
+        Ok(())
     }
     pub fn import(mut self, folder: bool) {
         spawn(async move {

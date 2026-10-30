@@ -17,6 +17,7 @@ mod inline_review;
 mod media;
 #[path = "../../../src/studio/modal.rs"]
 mod modal;
+mod new_song;
 #[path = "../../../src/studio/note_canvas.rs"]
 mod note_canvas;
 #[path = "../../../src/studio/note_gestures.rs"]
@@ -147,6 +148,7 @@ pub fn App() -> Element {
     if (studio.review_open)(){review::ReviewPanel{studio}}
     if (studio.parts_open)(){parts::PartsPanel{studio}}
     if (studio.collaboration_open)(){collaboration::Collaboration{studio}}
+    if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
     if (studio.generation_open)(){modal::Modal{id:"browser-generation",label:"Browser generation",onclose:move |_|{let mut s=studio;s.generation_open.set(false);},h2{"Generation unavailable"}p{"The current model backends require native runtimes. Generation is disabled in this static build. Open a chart or add parts and notes manually."}button{onclick:move |_|{let mut s=studio;s.generation_open.set(false);},"Close generation"}}}
     }}
 }
