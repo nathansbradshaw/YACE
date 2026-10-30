@@ -29,6 +29,26 @@ pub fn handle(mut studio: Studio, event: KeyboardEvent) {
         if let Some(action) = undo_action(&key, modifiers.shift()) {
             event.prevent_default();
             studio.dispatch(action);
+        } else if let Key::Character(value) = &key {
+            match value.to_ascii_lowercase().as_str() {
+                "a" => {
+                    event.prevent_default();
+                    studio.select_all();
+                }
+                "c" => {
+                    event.prevent_default();
+                    studio.copy_selection(false);
+                }
+                "x" => {
+                    event.prevent_default();
+                    studio.copy_selection(true);
+                }
+                "v" => {
+                    event.prevent_default();
+                    studio.paste_selection();
+                }
+                _ => {}
+            }
         }
         return;
     }
@@ -38,18 +58,10 @@ pub fn handle(mut studio: Studio, event: KeyboardEvent) {
             studio.toggle_playback();
         }
         Key::Delete | Key::Backspace => {
-            let Some(doc) = studio.snapshot() else { return };
-            if doc.selected_track == "Vocals" {
-                if let Some(index) = (studio.vocal_note)() {
-                    event.prevent_default();
-                    studio.dispatch(Action::DeleteVocalNote { index });
-                    studio.vocal_note.set(None);
-                }
-            } else if let Some(note_id) = doc.selected_note {
-                event.prevent_default();
-                studio.dispatch(Action::DeleteNote { note_id });
-            }
+            event.prevent_default();
+            studio.delete_selection();
         }
+        Key::Escape => studio.clear_selection(),
         Key::Character(value) => {
             let tool = match value.as_str() {
                 "1" => EditTool::Select,

@@ -12,7 +12,7 @@ publish = false
 [features]
 default = ["separation", "editor", "vocal-alignment"]
 vocal-alignment = ["dep:practice-acoustic", "dep:whatlang"]
-editor = ["dep:dioxus", "dep:dioxus-document", "dep:rodio", "dep:rfd", "dep:tokio", "dep:base64"]
+editor = ["dep:dioxus", "dep:dioxus-document", "dep:rodio", "dep:rfd", "dep:tokio", "dep:base64", "dep:arboard"]
 separation = ["dep:demucs-core", "dep:burn", "dep:pollster"]
 
 [dependencies]
@@ -41,6 +41,7 @@ tokio = { version = "1", features = ["rt", "time"], optional = true }
 base64 = { version = "0.22", optional = true }
 rodio = { version = "0.22.2", default-features = false, features = ["playback"], optional = true }
 rfd = { version = "0.17.2", optional = true }
+arboard = { version = "=3.7.0", default-features = false, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "=0.16.0", default-features = false, features = ["metal"] }

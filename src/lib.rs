@@ -11,6 +11,7 @@ pub mod difficulty_links;
 pub mod drum_articulation;
 pub mod drum_parts;
 pub mod editor;
+pub mod note_groups;
 pub mod parts;
 pub mod review_git;
 #[cfg(feature = "editor")]
