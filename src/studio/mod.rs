@@ -1,5 +1,4 @@
-//! Octave's MIT DOM/CSS interface translated to Rust components.
-//! See assets/octave/README.md and licenses/OCTAVE-MIT.txt.
+//! Desktop chart workbench. See THIRD_PARTY.md for component ancestry.
 mod assistant;
 mod clean;
 mod collaboration;
@@ -60,18 +59,12 @@ fn run(project: Option<std::path::PathBuf>) {
         .launch(App);
 }
 const CSS: &str = concat!(
+    include_str!("../../assets/theme.css"),
+    include_str!("../../assets/panels.css"),
+    include_str!("../../assets/timeline.css"),
+    include_str!("../../assets/dialogs.css"),
     include_str!("../../assets/assistant.css"),
-    include_str!("../../assets/octave/main.css"),
-    include_str!("../../assets/octave/Layout.css"),
-    include_str!("../../assets/octave/Toolbar.css"),
-    include_str!("../../assets/octave/ProjectExplorer.css"),
-    include_str!("../../assets/octave/PropertyPanel.css"),
-    include_str!("../../assets/octave/MidiEditor.css"),
-    include_str!("../../assets/octave/ChartPreview.css"),
-    include_str!("../../assets/octave/BottomPanel.css"),
-    include_str!("../../assets/octave/SettingsModal.css"),
-    include_str!("../../assets/studio.css"),
-    include_str!("../../assets/identity.css"),
+    include_str!("../../assets/details.css"),
     include_str!("../../assets/workbench.css"),
     include_str!("../../assets/part-analysis.css")
 );

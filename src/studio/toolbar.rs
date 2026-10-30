@@ -1,4 +1,4 @@
-//! OCTAVE interface adaptation. Original copyright and license: assets/octave/README.md.
+//! File, playback and chart tools. Component ancestry: THIRD_PARTY.md.
 use super::{icons::Icon, state::Studio};
 use crate::editor::Action;
 use dioxus::prelude::*;
@@ -22,6 +22,7 @@ pub fn Toolbar(mut studio: Studio) -> Element {
         div { class: "toolbar", onkeydown: move |event: KeyboardEvent| {
             if event.key() == Key::Character(" ".into()) { event.stop_propagation(); }
         },
+            span { class: "toolbar-brand", "YACE" }
             div { class: "toolbar-group toolbar-file",
                 button { class: "toolbar-button", title: "Open saved review project", aria_label: "Open saved review project", onclick: move |_| studio.open_dialog(),
                     span { class: "toolbar-icon", Icon { name: "folder" } } span { class: "toolbar-label", "Open" }

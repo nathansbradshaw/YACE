@@ -1,4 +1,4 @@
-//! OCTAVE interface adaptation. Original copyright and license: assets/octave/README.md.
+//! Song and track navigation. Component ancestry: THIRD_PARTY.md.
 use super::{
     icons::Icon,
     state::{Studio, clock, instrument},
@@ -67,10 +67,12 @@ pub fn Explorer(studio: Studio) -> Element {
                     }
                     div { class: "explorer-section-heading", "Tracks" }
                     div { class: "track-navigation",
-                        button { class: if doc.selected_track == "Vocals" { "track-navigation-row active" } else { "track-navigation-row" }, aria_label: "Select Vocals", aria_pressed: (doc.selected_track == "Vocals").to_string(), onclick: move |_| {studio.dispatch(Action::SelectTrack {track: "Vocals".into()}); studio.property_tab.set("Note".into());}, "Vocals" }
+                        button { class: if doc.selected_track == "Vocals" { "track-navigation-row track-vocals active" } else { "track-navigation-row track-vocals" }, aria_label: "Select Vocals", aria_pressed: (doc.selected_track == "Vocals").to_string(), onclick: move |_| {studio.dispatch(Action::SelectTrack {track: "Vocals".into()}); studio.property_tab.set("Note".into());}, "Vocals" }
                         for name in ["Guitar", "Bass", "Drums", "Piano", "Pro Piano"] {
                             if doc.content.tracks.keys().any(|track| instrument(track) == name) {
+                              div { class: "track-family",
                                 div { class: "track-family-label", Icon { name: match name { "Bass" => "bass", "Drums" => "drums", _ => "guitar" }, size: 14 } "{name}" }
+                                div { class: "track-tiers",
                                 for tier in ["Expert", "Hard", "Medium", "Easy"] {
                                     for track in doc.content.tracks.keys().filter(|track| instrument(track) == name && track.starts_with(tier)) {
                                         { let target=track.clone(); let active=track==&doc.selected_track;
@@ -82,6 +84,8 @@ pub fn Explorer(studio: Studio) -> Element {
                                         }
                                     }
                                 }
+                                }
+                              }
                             }
                         }
                     }

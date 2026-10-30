@@ -1,17 +1,17 @@
 .game-preview-canvas {
   min-height:0;
-  background:radial-gradient(ellipse at 50% 35%,#172232 0%,#0c111b 47%,#05080d 100%)
+  background:#101113
 }
 
 .game-preview-badge {
   position:absolute;
   top:12px;
   left:14px;
-  border:1px solid rgba(146,177,204,.26);
+  border:1px solid var(--border-color);
   border-radius:4px;
   padding:4px 7px;
-  color:#91a8ba;
-  background:rgba(8,13,20,.7);
+  color:var(--text-muted);
+  background:var(--bg-primary);
   font:600 9px var(--font-ui);
   letter-spacing:1.1px;
   pointer-events:none
@@ -22,7 +22,7 @@
   top:14px;
   right:14px;
   font:11px var(--font-mono);
-  color:#8398a8;
+  color:var(--text-muted);
   pointer-events:none
 }
 

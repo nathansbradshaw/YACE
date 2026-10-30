@@ -1,4 +1,4 @@
-//! OCTAVE interface adaptation. Original copyright and license: assets/octave/README.md.
+//! Song details and selected-note controls. Component ancestry: THIRD_PARTY.md.
 use super::{
     icons::Icon,
     state::{Studio, clock},

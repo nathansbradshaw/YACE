@@ -1,4 +1,4 @@
-//! Rust port of Octave's ChartPreview + full-width, multi-track MidiEditor layout.
+//! Waveforms, note lanes and review markers. Component ancestry: THIRD_PARTY.md.
 use super::state::{EditTool, Studio, clock, instrument};
 use super::{
     icons::Icon,
