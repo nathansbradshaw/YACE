@@ -11,6 +11,7 @@
 //! frame/offset evidence, retriggers and the recording end determine releases.
 use crate::{mapping::PitchNote, models};
 use anyhow::{Context, Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
 use ort::{
     session::{Session, builder::GraphOptimizationLevel},
     value::Tensor,
@@ -97,9 +98,11 @@ pub struct Output {
     pub pedals: Vec<Pedal>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Transcriber {
     session: Session,
 }
+#[cfg(not(target_arch = "wasm32"))]
 impl Transcriber {
     pub fn load(model: &Path) -> Result<Self> {
         ensure!(
@@ -196,6 +199,7 @@ impl Transcriber {
         )
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub fn pitch(audio: &Path, model: &Path) -> Result<Vec<PitchNote>> {
     Ok(Transcriber::load(model)?
         .transcribe(audio, Options::default())?

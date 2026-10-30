@@ -3,6 +3,7 @@
 //! Raw frames are evidence, not automatically accepted singing or chart notes.
 use crate::{clean::StemAlignment, models};
 use anyhow::{Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
 use ort::{session::Session, value::Tensor};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -52,6 +53,7 @@ pub fn implementation_hash() -> String {
     format!("{:x}", hash.finalize())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn analyze(
     audio: &Path,
     stem: &Path,
@@ -107,6 +109,7 @@ pub fn analyze(
 
 /// Low-level source-PCM analysis for reproducible controls. File-based callers
 /// use analyze() to bind frames to the original recording and aligned stem.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn infer_pcm(pcm: &[f32], model: &Path, cancelled: &dyn Fn() -> bool) -> Result<Evidence> {
     ensure!(
         !pcm.is_empty() && pcm.iter().all(|sample| sample.is_finite()),

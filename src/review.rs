@@ -374,6 +374,7 @@ pub fn generation_map(
     Ok(map)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn encode_mp3(path: &Path, left: &[f32], right: &[f32]) -> Result<()> {
     let wav = path.with_extension("wav");
     models::write_audio(&wav, left, right)?;
@@ -930,6 +931,7 @@ fn region_html(map: &ReviewMap) -> String {
 /// Reassess the notes being reviewed, not a report left by their original export.
 /// Authored tracks stay outside the generated-only rule profile. Structural
 /// failures remain visible without discarding the independent signal evidence.
+#[cfg(not(target_arch = "wasm32"))]
 fn with_current_generated_rules(
     mut map: ReviewMap,
     chart: &Chart,
@@ -960,6 +962,7 @@ fn with_current_generated_rules(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run(
     folder: &Path,
     drum_audio: &Path,

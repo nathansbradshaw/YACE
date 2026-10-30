@@ -11,11 +11,14 @@ pub mod difficulty_links;
 pub mod drum_articulation;
 pub mod drum_parts;
 pub mod editor;
+pub mod kit_audition;
 pub mod note_groups;
 pub mod parts;
 pub mod review_git;
 pub mod sections;
 pub mod star_power;
+pub mod song_metadata;
+pub mod storage;
 #[cfg(feature = "studio")]
 pub mod studio;
 pub mod sync_track;

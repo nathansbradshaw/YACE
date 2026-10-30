@@ -344,133 +344,139 @@ pub fn validate_import(project: &Project, bundle: &Bundle) -> Result<bool> {
 pub fn export_bundle(project: &Project) -> Result<Bundle> {
     Ok(journal(project)?.bundle())
 }
-pub fn write_bundle(project: &Project, path: &Path) -> Result<()> {
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    let bytes = serde_json::to_vec_pretty(&export_bundle(project)?)?;
-    ensure!(
-        bytes.len() as u64 <= MAX_FILE_BYTES,
-        "Review bundle exceeds 16 MiB; use the event-directory exchange instead"
-    );
-    file.write_all(&bytes)?;
-    file.as_file().sync_all()?;
-    file.persist_noclobber(path)?;
-    Ok(())
-}
-pub fn read_bundle(path: &Path) -> Result<Bundle> {
-    ensure!(
-        fs::metadata(path)?.len() <= MAX_FILE_BYTES,
-        "Review bundle is too large"
-    );
-    Ok(serde_json::from_slice(&fs::read(path)?)?)
-}
-struct FolderLock(fs::File);
-impl Drop for FolderLock {
-    fn drop(&mut self) {
-        let _ = self.0.unlock();
-    }
-}
-/// Pull immutable events, then publish local events. Never edits project files in the exchange folder.
-pub fn sync(
-    store: &Store,
-    folder: &Path,
-    actor: Actor,
-    expected_revision: u64,
-) -> Result<serde_json::Value> {
-    fs::create_dir_all(folder)?;
-    ensure!(
-        folder.canonicalize()? != store.root.canonicalize()?,
-        "Choose a separate exchange folder, not the live project folder"
-    );
-    let lock = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(folder.join("exchange.lock"))?;
-    lock.try_lock()
-        .context("Review exchange is busy; retry after the other writer finishes")?;
-    let _lock = FolderLock(lock);
-    let mut events = vec![];
-    let mut total_bytes = 0u64;
-    for item in fs::read_dir(folder)? {
-        let path = item?.path();
-        if path.extension().is_none_or(|x| x != "json") {
-            continue;
-        }
-        let stem = path.file_stem().unwrap().to_string_lossy();
-        ensure!(
-            stem.len() == 64 && stem.bytes().all(|b| b.is_ascii_hexdigit()),
-            "Unexpected JSON file in review exchange"
-        );
-        ensure!(
-            fs::symlink_metadata(&path)?.file_type().is_file(),
-            "Review events must be ordinary files"
-        );
-        let size = fs::metadata(&path)?.len();
-        total_bytes = total_bytes
-            .checked_add(size)
-            .context("Exchange size overflow")?;
-        ensure!(
-            total_bytes <= MAX_DIRECTORY_BYTES,
-            "Review directory exceeds 64 MiB"
-        );
-        ensure!(size <= MAX_FILE_BYTES, "Review event is too large");
-        let event: Event = serde_json::from_slice(&fs::read(&path)?)?;
-        ensure!(event.id == stem, "Review filename does not match event ID");
-        events.push(event);
-        ensure!(events.len() <= MAX_EVENTS, "Too many review event files");
-    }
-    let applied = store.apply(Request {
-        expected_revision,
-        actor,
-        action: Action::ImportCollaboration {
-            bundle: Bundle { version: 1, events },
-        },
-    })?;
-    match fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(folder.join(".gitignore"))
-    {
-        Ok(mut ignore) => {
-            ignore.write_all(b"/exchange.lock\n/.tmp*\n")?;
-            ignore.sync_all()?;
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
-        Err(e) => return Err(e.into()),
-    }
-    let doc = store.load()?;
-    let bundle = export_bundle(&doc)?;
-    for event in &bundle.events {
-        let path = folder.join(format!("{}.json", event.id));
-        let bytes = serde_json::to_vec_pretty(event)?;
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::*;
+#[cfg(not(target_arch = "wasm32"))]
+mod native {
+    use super::*;
+    pub fn write_bundle(project: &Project, path: &Path) -> Result<()> {
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let mut file = tempfile::NamedTempFile::new_in(parent)?;
+        let bytes = serde_json::to_vec_pretty(&export_bundle(project)?)?;
         ensure!(
             bytes.len() as u64 <= MAX_FILE_BYTES,
-            "A review event exceeds 16 MiB; event history was retained locally"
+            "Review bundle exceeds 16 MiB; use the event-directory exchange instead"
         );
-        if path.exists() {
-            continue;
-        }
-        let mut temp = tempfile::NamedTempFile::new_in(folder)?;
-        temp.write_all(&bytes)?;
-        temp.as_file().sync_all()?;
-        match temp.persist_noclobber(&path) {
-            Ok(_) => (),
-            Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => {
-                ensure!(
-                    serde_json::from_slice::<serde_json::Value>(&fs::read(&path)?)?
-                        == serde_json::to_value(event)?,
-                    "Concurrent event file differs"
-                );
-            }
-            Err(e) => return Err(e.into()),
+        file.write_all(&bytes)?;
+        file.as_file().sync_all()?;
+        file.persist_noclobber(path)?;
+        Ok(())
+    }
+    pub fn read_bundle(path: &Path) -> Result<Bundle> {
+        ensure!(
+            fs::metadata(path)?.len() <= MAX_FILE_BYTES,
+            "Review bundle is too large"
+        );
+        Ok(serde_json::from_slice(&fs::read(path)?)?)
+    }
+    struct FolderLock(fs::File);
+    impl Drop for FolderLock {
+        fn drop(&mut self) {
+            let _ = self.0.unlock();
         }
     }
-    Ok(
-        serde_json::json!({"revision":applied.revision,"events":bundle.events.len(),"folder":folder}),
-    )
+    /// Pull immutable events, then publish local events. Never edits project files in the exchange folder.
+    pub fn sync(
+        store: &Store,
+        folder: &Path,
+        actor: Actor,
+        expected_revision: u64,
+    ) -> Result<serde_json::Value> {
+        fs::create_dir_all(folder)?;
+        ensure!(
+            folder.canonicalize()? != store.root.canonicalize()?,
+            "Choose a separate exchange folder, not the live project folder"
+        );
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(folder.join("exchange.lock"))?;
+        lock.try_lock()
+            .context("Review exchange is busy; retry after the other writer finishes")?;
+        let _lock = FolderLock(lock);
+        let mut events = vec![];
+        let mut total_bytes = 0u64;
+        for item in fs::read_dir(folder)? {
+            let path = item?.path();
+            if path.extension().is_none_or(|x| x != "json") {
+                continue;
+            }
+            let stem = path.file_stem().unwrap().to_string_lossy();
+            ensure!(
+                stem.len() == 64 && stem.bytes().all(|b| b.is_ascii_hexdigit()),
+                "Unexpected JSON file in review exchange"
+            );
+            ensure!(
+                fs::symlink_metadata(&path)?.file_type().is_file(),
+                "Review events must be ordinary files"
+            );
+            let size = fs::metadata(&path)?.len();
+            total_bytes = total_bytes
+                .checked_add(size)
+                .context("Exchange size overflow")?;
+            ensure!(
+                total_bytes <= MAX_DIRECTORY_BYTES,
+                "Review directory exceeds 64 MiB"
+            );
+            ensure!(size <= MAX_FILE_BYTES, "Review event is too large");
+            let event: Event = serde_json::from_slice(&fs::read(&path)?)?;
+            ensure!(event.id == stem, "Review filename does not match event ID");
+            events.push(event);
+            ensure!(events.len() <= MAX_EVENTS, "Too many review event files");
+        }
+        let applied = store.apply(Request {
+            expected_revision,
+            actor,
+            action: Action::ImportCollaboration {
+                bundle: Bundle { version: 1, events },
+            },
+        })?;
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(folder.join(".gitignore"))
+        {
+            Ok(mut ignore) => {
+                ignore.write_all(b"/exchange.lock\n/.tmp*\n")?;
+                ignore.sync_all()?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
+            Err(e) => return Err(e.into()),
+        }
+        let doc = store.load()?;
+        let bundle = export_bundle(&doc)?;
+        for event in &bundle.events {
+            let path = folder.join(format!("{}.json", event.id));
+            let bytes = serde_json::to_vec_pretty(event)?;
+            ensure!(
+                bytes.len() as u64 <= MAX_FILE_BYTES,
+                "A review event exceeds 16 MiB; event history was retained locally"
+            );
+            if path.exists() {
+                continue;
+            }
+            let mut temp = tempfile::NamedTempFile::new_in(folder)?;
+            temp.write_all(&bytes)?;
+            temp.as_file().sync_all()?;
+            match temp.persist_noclobber(&path) {
+                Ok(_) => (),
+                Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    ensure!(
+                        serde_json::from_slice::<serde_json::Value>(&fs::read(&path)?)?
+                            == serde_json::to_value(event)?,
+                        "Concurrent event file differs"
+                    );
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(
+            serde_json::json!({"revision":applied.revision,"events":bundle.events.len(),"folder":folder}),
+        )
+    }
 }

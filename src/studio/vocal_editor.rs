@@ -21,6 +21,7 @@ fn syllable(note: &VocalNote) -> String {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[component]
 pub fn VocalEditor(studio: Studio) -> Element {
     let mut recognize = use_signal(|| true);
@@ -124,6 +125,7 @@ pub fn VocalEditor(studio: Studio) -> Element {
     }}
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn import_document(studio: Studio) {
     let Some(original) = studio.snapshot() else {
         return;
@@ -141,6 +143,7 @@ fn import_document(studio: Studio) {
     });
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn import_document_path(studio: Studio, path: std::path::PathBuf) {
     let Some(original) = studio.snapshot() else {
         return;
@@ -151,6 +154,7 @@ fn import_document_path(studio: Studio, path: std::path::PathBuf) {
     });
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn read_import(path: &std::path::Path) -> anyhow::Result<VocalChart> {
     anyhow::ensure!(
         std::fs::metadata(path)?.len() <= 8 * 1024 * 1024,
@@ -161,6 +165,7 @@ fn read_import(path: &std::path::Path) -> anyhow::Result<VocalChart> {
     Ok(document)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn apply_import(
     mut studio: Studio,
     path: std::path::PathBuf,
@@ -186,6 +191,7 @@ async fn apply_import(
         Err(error) => studio.error.set(Some(error.to_string())),
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn save_document(mut studio: Studio) {
     let Some(document) = studio.snapshot().and_then(|doc| doc.content.vocals.clone()) else {
         return;
@@ -232,6 +238,7 @@ type GenerationChecks = (
     crate::vocal_generation::Generation,
     Option<crate::vocal_review::VocalReviewMap>,
 );
+#[cfg(not(target_arch = "wasm32"))]
 #[component]
 fn VocalGenerationIssues(studio: Studio, refresh: u64) -> Element {
     let source = use_memo(use_reactive((&refresh,), move |(refresh,)| {
@@ -676,4 +683,14 @@ mod tests {
                 .contains("8 MiB")
         );
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[component]
+pub fn VocalEditor(mut studio: Studio) -> Element {
+    rsx! {VocalPhrases{studio}
+    div{class:"vocal-file-actions",
+    button{class:"studio-tool",onclick:move |_|{spawn(async move{let result=async{let Some(files)=crate::files::pick(false,".json").await?else{return Ok(())};let document:VocalChart=serde_json::from_slice(&files[0].1)?;document.validate()?;studio.dispatch(Action::SetVocals{document});Ok::<_,anyhow::Error>(())}.await;if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}});},"Import JSON"}
+    button{class:"studio-tool",disabled:!studio.snapshot().is_some_and(|doc|doc.content.vocals.is_some()),onclick:move |_|{if let Some(doc)=studio.snapshot(){if let Some(chart)=&doc.content.vocals{let result=serde_json::to_vec_pretty(chart).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download("vocals.json",&bytes));if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}}}},"Save JSON"}
+    }p{class:"field-hint","Place notes in the vocal lane or import a vocal document. Automatic generation is unavailable in this browser build."}}
 }

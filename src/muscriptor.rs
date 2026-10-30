@@ -5,6 +5,7 @@
 //! Uses the checkpoint's own embedded spectral front end and a cached greedy LM.
 use crate::models::{self, ModelAsset};
 use anyhow::{Context, Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
 use ort::{memory::Allocator, session::Session, value::Tensor};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -433,11 +434,13 @@ impl NoteDecoder {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Transcriber {
     conditioner: Session,
     lm: Session,
     model_assets: BTreeMap<String, String>,
 }
+#[cfg(not(target_arch = "wasm32"))]
 impl Transcriber {
     pub fn load(dir: &Path) -> Result<Self> {
         let dir = verified_dir(dir)?;
@@ -468,6 +471,7 @@ impl Transcriber {
                 .collect(),
         })
     }
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn transcribe(&mut self, audio: &Path, options: Options) -> Result<Output> {
         self.transcribe_samples(&models::decode(audio, SAMPLE_RATE as u32, 1)?, options)
     }
@@ -609,6 +613,7 @@ impl Transcriber {
         })
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub fn transcribe(audio: &Path, model_dir: &Path, options: Options) -> Result<Output> {
     Transcriber::load(model_dir)?.transcribe(audio, options)
 }

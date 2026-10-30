@@ -618,6 +618,7 @@ fn require_stereo(path: &Path) -> Result<()> {
 
 /// Decode using existing FFmpeg helpers, render without touching source files,
 /// then publish an entire new output directory atomically without replacement.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn render(request: RenderRequest<'_>) -> Result<CleanReceipt> {
     request.plan.validate()?;
     crate::pipeline::destination(request.output, None)?;
