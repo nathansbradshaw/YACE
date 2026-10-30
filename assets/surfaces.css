@@ -1,81 +1,44 @@
-/* The photos add wear without changing any control or pane dimensions. */
-:is(.toolbar, .panel-header, .project-explorer, .property-panel, .settings-modal-header) {
+/* A little contact wear on the housing edge and transport keys. */
+.toolbar, .transport-control {
   position: relative;
   isolation: isolate;
 }
 
-:is(.toolbar, .panel-header, .project-explorer, .property-panel, .settings-modal-header)::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image: var(--surface-paint);
-  background-size: 640px;
-  background-position: 18% 62%;
-  filter: grayscale(1) contrast(1.3) brightness(.85);
-  opacity: .9;
-  border-radius: inherit;
-}
-
-:is(.project-explorer, .property-panel)::before {
-  background-image: var(--surface-grime);
-  background-size: 460px;
-  filter: grayscale(1) contrast(1.3) brightness(.9);
-  opacity: .6;
-}
-
-.property-panel::before {
-  background-position: 83% 42%;
-}
-
-:is(.toolbar, .panel-header, .settings-modal-header)::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  pointer-events: none;
-  background-image: var(--surface-grime);
-  background-size: 350px;
-  background-position: 25% 74%;
-  filter: grayscale(1) contrast(1.5) brightness(.3);
-  opacity: .8;
-}
-
-:is(.toolbar-button, .studio-tool, .instrument-toggle, .track-navigation-row, .property-button, .settings-modal-primary, .settings-modal-secondary, .welcome-action, .panel-tab) {
-  position: relative;
-  isolation: isolate;
-}
-
-:is(.toolbar-button, .studio-tool, .instrument-toggle, .track-navigation-row, .property-button, .settings-modal-primary, .settings-modal-secondary, .welcome-action, .panel-tab)::before {
+.toolbar::before, .transport-control::before {
   content: '';
   position: absolute;
   inset: 0;
   z-index: -1;
   pointer-events: none;
   border-radius: inherit;
+  background-repeat: no-repeat;
+  mask-image: var(--control-edges);
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+}
+
+.toolbar::before {
   background-image: var(--surface-grime);
-  background-size: 230px;
-  background-position: var(--surface-offset, 20% 32%);
+  background-size: 1600px;
+  background-position: 34% 73%;
   filter: grayscale(1) contrast(1.2) brightness(.8);
-  opacity: .8;
+  opacity: .18;
 }
 
-button:nth-of-type(3n) {
-  --surface-offset: 76% 58%;
+.transport-control::before {
+  background-image: var(--surface-paint);
+  background-size: 270px;
+  background-position: 19% 73%;
+  filter: grayscale(1) contrast(1.4) brightness(.5);
+  opacity: .12;
 }
 
-button:nth-of-type(3n + 1) {
-  --surface-offset: 42% 84%;
+.toolbar-playback .transport-control:nth-child(2)::before {
+  background-position: 83% 26%;
+  transform: scaleX(-1);
 }
 
-:is(.toolbar-button-accent, .settings-modal-primary)::before {
-  opacity: .16;
-  filter: grayscale(1) contrast(1.5);
-}
-
-:is(.studio-tool, .instrument-toggle, .track-navigation-row, .panel-tab).active::before {
-  opacity: .4;
+.practice-controls .transport-control::before {
+  background-position: 38% 91%;
+  background-size: 370px;
 }

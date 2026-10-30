@@ -26,8 +26,8 @@
   width: min(820px, 100%);
   max-height: calc(100vh - 48px);
   background: var(--panel-face);
-  border: 1px solid #686b71;
-  border-radius: 8px;
+  border: 1px solid var(--border-color-hover);
+  border-radius: 3px;
   box-shadow: 0 20px 80px #0009;
   overflow: hidden;
 }
@@ -39,7 +39,7 @@
   gap: 18px;
   padding: 20px 24px;
   border-bottom: 1px solid var(--border-color);
-  background: #292c2d;
+  background: var(--panel-face);
   box-shadow: none;
 }
 
@@ -82,7 +82,7 @@
   padding: 16px 24px;
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;
-  background: #202124;
+  background: var(--bg-secondary);
 }
 
 .settings-modal-primary, .settings-modal-secondary {
@@ -91,15 +91,15 @@
 }
 
 .settings-modal-primary {
-  background: #c9cfca;
-  border-color: #111214;
-  color: #17181a;
+  background: var(--key-face);
+  border-color: #171d20;
+  color: var(--key-ink);
   font-weight: 600;
 }
 
 .settings-modal-primary:hover:not(:disabled) {
-  background: #e1e5e2;
-  color: #17181a;
+  background: var(--key-hover);
+  color: var(--key-ink);
 }
 
 .settings-field-hint {
@@ -124,7 +124,7 @@
 
 .collaboration-modal {
   border: 1px solid var(--border-color-hover);
-  border-radius: 8px;
+  border-radius: 3px;
   box-shadow: 0 20px 80px #0009;
 }
 

@@ -193,7 +193,7 @@ pub fn PracticeControls(studio: Studio, children: Element) -> Element {
         div{class:"practice-controls",role:"toolbar",aria_label:"Preview and practice controls",
             onkeydown:move|event:KeyboardEvent|event.stop_propagation(),
             span{class:"timeline-time",style:"white-space:nowrap;",title:"{position:.3} / {duration:.3} seconds","{clock(position)} / {clock(duration)}"}
-            button{class:if playing{"instrument-toggle active"}else{"instrument-toggle"},disabled:!loaded||!source_ready,aria_label:if playing{"Pause practice recording"}else{"Play practice recording"},title:"Play / pause recording (Space)",onclick:move|_|studio.toggle_playback(),Icon { name: playback_icon, size: 16 }}
+            button{class:"instrument-toggle transport-control",aria_pressed:playing.to_string(),disabled:!loaded||!source_ready,aria_label:if playing{"Pause practice recording"}else{"Play practice recording"},title:"Play / pause recording (Space)",onclick:move|_|studio.toggle_playback(),Icon { name: playback_icon, size: 16 }}
             label{class:"preview-snap-selector","Speed" select{disabled:!loaded,aria_label:"Pitch-preserving practice speed",value:rate.to_string(),onchange:move|event|{if let Ok(rate)=event.value().parse(){studio.set_playback_rate(rate);}},
                 option{value:"0.5",selected:rate==0.5,"50%"}option{value:"0.75",selected:rate==0.75,"75%"}option{value:"1",selected:rate==1.0,"100%"}
                 if ![0.5,0.75,1.0].contains(&rate){option{value:rate.to_string(),selected:true,"{rate:.2}× (current)"}}

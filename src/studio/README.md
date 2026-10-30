@@ -29,6 +29,7 @@ Styles live in `assets/`. Start with `theme.css` for shared colors and controls,
 `panels.css` for the workbench, `timeline.css` for note lanes and `dialogs.css`
 for modal windows. `workbench.css` covers the welcome screen; `details.css`
 covers vocals and review details. Other feature styles have matching names.
-`surfaces.css` applies the embedded photos from `assets/surfaces/` without
-changing layout sizes. Keep the note grid and form fields free of surface noise.
+Use graphite faces, cream transport keys and thin section dividers consistently.
+`surfaces.css` adds subtle contact wear to the toolbar edge and transport keys.
+Keep labels, panel faces, ordinary controls and editing areas free of texture.
 See [third-party notices](../../THIRD_PARTY.md) for component ancestry.
