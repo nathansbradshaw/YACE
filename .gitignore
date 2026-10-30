@@ -1,4 +1,5 @@
 target/
+/web/dist/
 # Keep internal study output out of source documentation.
 /docs/benchmarks/
 /docs/*_RESULTS.md

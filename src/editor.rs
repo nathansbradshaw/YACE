@@ -1,4 +1,5 @@
 //! Saved chart editing shared by the desktop UI and command line.
+use crate::storage as fs;
 use crate::{
     chart::{Chart, Note},
     models, pipeline,
@@ -9,15 +10,40 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, OpenOptions},
-    io::Write,
     path::{Path, PathBuf},
+};
+#[cfg(not(target_arch = "wasm32"))]
+use std::{
+    fs::OpenOptions,
+    io::Write,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+
+#[cfg(target_arch = "wasm32")]
+impl Store {
+    fn save(&self, project: &Project) -> Result<()> {
+        crate::storage::save_project(&self.root, project);
+        Ok(())
+    }
+    fn checkpoint(&self, content: &Content) -> Result<String> {
+        let bytes = serde_json::to_vec(content)?;
+        let id = hash(&bytes);
+        let path = self.root.join("checkpoints").join(format!("{id}.json"));
+        if !fs::exists(&path) {
+            fs::write(&path, &bytes)?;
+        }
+        ensure!(models::hash_file(&path)? == id, "Checkpoint changed");
+        Ok(id)
+    }
+    fn export(&self, _doc: &Project, _output: &Path, _actor: &Actor) -> Result<()> {
+        anyhow::bail!("Use the browser's local song export")
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -27,7 +53,9 @@ fn now_ms() -> u64 {
 
 /// Unlock explicitly before closing the file. A spawned decoder can briefly
 /// inherit the handle and otherwise keep the next editor command locked.
+#[cfg(not(target_arch = "wasm32"))]
 struct CommandLock(std::fs::File);
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for CommandLock {
     fn drop(&mut self) {
         let _ = self.0.unlock();
@@ -763,6 +791,7 @@ impl Store {
         );
         Ok(self.root.join("source").join(&project.audio_filename))
     }
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn create(song: &Path, markers: Option<&Path>, output: &Path) -> Result<Self> {
         pipeline::destination(output, Some(song))?;
         pipeline::validate_existing(song)?;
@@ -784,17 +813,27 @@ impl Store {
             )?;
             fs::copy(&editable_master, stage.path().join("source/notes.chart"))?;
         }
-        let chart = Chart::parse(fs::read_to_string(stage.path().join("source/notes.chart"))?)?;
+        let source_audio = pipeline::audio_file(&stage.path().join("source"))?;
+        let duration = pipeline::metadata(&source_audio)?.duration;
+        Self::new(stage.path()).initialize(song, markers, duration)?;
+        pipeline::publish(stage.path(), output)?;
+        Ok(Self::new(&output.canonicalize()?))
+    }
+    /// Initialize a copied source snapshot using the decoder's measured duration.
+    pub fn initialize(&self, song: &Path, markers: Option<&Path>, duration: f64) -> Result<()> {
+        ensure!(
+            duration.is_finite() && duration > 0.,
+            "Invalid recording duration"
+        );
+        let chart = Chart::parse(fs::read_to_string(
+            self.root.as_path().join("source/notes.chart"),
+        )?)?;
         let source_hash = hash(chart.raw.as_bytes());
-        let audio = pipeline::audio_file(&stage.path().join("source"))?;
-        let duration = pipeline::metadata(&audio)?.duration;
+        let audio = pipeline::audio_file(&self.root.as_path().join("source"))?;
         let audio_hash = models::hash_file(&audio)?;
         let embedded_markers = song.join("chart-engine-review.json");
-        let markers = markers.or_else(|| {
-            embedded_markers
-                .is_file()
-                .then_some(embedded_markers.as_path())
-        });
+        let markers = markers
+            .or_else(|| fs::is_file(&embedded_markers).then_some(embedded_markers.as_path()));
         let mut review = if let Some(path) = markers {
             let review: ReviewMap = serde_json::from_slice(&fs::read(path)?)?;
             ensure!(
@@ -824,14 +863,14 @@ impl Store {
         let stems = match (|| -> Result<Option<crate::stem_review::StemManifest>> {
             let isolation = song.join("chart-engine-isolation.json");
             let transcription = song.join("chart-engine-transcription.json");
-            let (mut manifest, base) = if isolation.is_file() {
+            let (mut manifest, base) = if fs::is_file(&isolation) {
                 (
                     serde_json::from_slice::<crate::stem_review::StemManifest>(&fs::read(
                         &isolation,
                     )?)?,
                     isolation,
                 )
-            } else if transcription.is_file() {
+            } else if fs::is_file(&transcription) {
                 let value: serde_json::Value = serde_json::from_slice(&fs::read(&transcription)?)?;
                 let Some(value) = value.get("isolation").filter(|value| !value.is_null()) else {
                     return Ok(None);
@@ -843,17 +882,14 @@ impl Store {
             } else {
                 return Ok(None);
             };
-            let base = base
-                .parent()
-                .context("Isolation sidecar has no parent")?
-                .canonicalize()?;
+            let base = fs::canonicalize(base.parent().context("Isolation sidecar has no parent")?)?;
             for asset in &mut manifest.stems {
-                let path = if asset.path.is_relative() {
+                let path = if !fs::is_absolute(&asset.path) {
                     base.join(&asset.path)
                 } else {
                     asset.path.clone()
                 };
-                asset.path = path.canonicalize().unwrap_or(path);
+                asset.path = fs::canonicalize(&path).unwrap_or(path);
             }
             manifest.validate_binding(&audio_hash, duration)?;
             Ok(Some(manifest))
@@ -867,9 +903,9 @@ impl Store {
         let keyboard_stems = match (|| -> Result<Option<crate::stem_review::StemManifest>> {
             let sidecar = song.join("chart-engine-keyboard-isolation.json");
             let transcription = song.join("chart-engine-transcription.json");
-            let (value, base) = if sidecar.is_file() {
+            let (value, base) = if fs::is_file(&sidecar) {
                 (serde_json::from_slice(&fs::read(&sidecar)?)?, sidecar)
-            } else if transcription.is_file() {
+            } else if fs::is_file(&transcription) {
                 let saved: serde_json::Value = serde_json::from_slice(&fs::read(&transcription)?)?;
                 let Some(value) = saved.get("keyboard_analysis").filter(|v| !v.is_null()) else {
                     return Ok(None);
@@ -879,17 +915,17 @@ impl Store {
                 return Ok(None);
             };
             let mut manifest: crate::stem_review::StemManifest = serde_json::from_value(value)?;
-            let base = base
-                .parent()
-                .context("Keyboard isolation sidecar has no parent")?
-                .canonicalize()?;
+            let base = fs::canonicalize(
+                base.parent()
+                    .context("Keyboard isolation sidecar has no parent")?,
+            )?;
             for asset in &mut manifest.stems {
-                let path = if asset.path.is_relative() {
+                let path = if !fs::is_absolute(&asset.path) {
                     base.join(&asset.path)
                 } else {
                     asset.path.clone()
                 };
-                asset.path = path.canonicalize().unwrap_or(path);
+                asset.path = fs::canonicalize(&path).unwrap_or(path);
             }
             manifest.validate_binding(&audio_hash, duration)?;
             Ok(Some(manifest))
@@ -940,7 +976,7 @@ impl Store {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into(),
-            original_folder: song.canonicalize()?,
+            original_folder: fs::canonicalize(song)?,
             source_chart_sha256: source_hash,
             audio_filename: audio.file_name().unwrap().to_string_lossy().into(),
             audio_sha256: audio_hash,
@@ -953,8 +989,8 @@ impl Store {
                 track_origins: Default::default(),
                 tracks,
                 vocals: {
-                    let path = stage.path().join("source/chart-engine-vocals.json");
-                    if path.exists() {
+                    let path = self.root.as_path().join("source/chart-engine-vocals.json");
+                    if fs::exists(&path) {
                         Some(serde_json::from_slice(&fs::read(path)?)?)
                     } else {
                         None
@@ -990,14 +1026,16 @@ impl Store {
             &chart.timing,
             duration,
         )?;
-        let staged = Self::new(stage.path());
-        project.validate_notes(&staged)?;
+        project.validate_notes(self)?;
         crate::editor_validation::validate(&project, &chart)?;
-        staged.save(&project)?;
-        pipeline::publish(stage.path(), output)?;
-        Ok(Self::new(&output.canonicalize()?))
+        self.save(&project)?;
+        Ok(())
     }
     pub fn load(&self) -> Result<Project> {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(project) = crate::storage::cached_project(&self.root) {
+            return Ok(project.as_ref().clone());
+        }
         let doc: Project = serde_json::from_slice(&fs::read(self.root.join("project.json"))?)?;
         ensure!(doc.version == 1, "Unsupported editor project version");
         for manifest in doc
@@ -1012,13 +1050,15 @@ impl Store {
         let chart = self.source_chart(&doc)?;
         crate::editor_validation::validate(&doc, &chart)?;
         crate::difficulty_links::validate(&doc.content, &doc.timing(self)?, doc.duration)?;
+        #[cfg(target_arch = "wasm32")]
+        crate::storage::remember_project(&self.root, &doc);
         Ok(doc)
     }
     /// Immutable source routing is separate from undoable note content. Legacy
     /// projects infer it from the exact generation evidence copied into source/.
     pub fn guitar_source(&self, doc: &Project) -> Result<crate::mapping::GuitarSource> {
         let binding = self.root.join("source/chart-engine-melody-source.json");
-        if binding.is_file() {
+        if fs::is_file(&binding) {
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
             struct Binding {
@@ -1034,7 +1074,7 @@ impl Store {
             return Ok(binding.guitar_source);
         }
         let path = self.root.join("source/chart-engine-transcription.json");
-        if !path.is_file() {
+        if !fs::is_file(&path) {
             return Ok(Default::default());
         }
         let bytes = fs::read(path)?;
@@ -1054,6 +1094,7 @@ impl Store {
         }
         Ok(choice.guitar_source)
     }
+    #[cfg(not(target_arch = "wasm32"))]
     fn save(&self, project: &Project) -> Result<()> {
         let mut tmp = tempfile::NamedTempFile::new_in(&self.root)?;
         tmp.write_all(&serde_json::to_vec_pretty(project)?)?;
@@ -1061,6 +1102,7 @@ impl Store {
         tmp.persist(self.root.join("project.json"))?;
         Ok(())
     }
+    #[cfg(not(target_arch = "wasm32"))]
     fn checkpoint(&self, content: &Content) -> Result<String> {
         let bytes = serde_json::to_vec(content)?;
         let id = hash(&bytes);
@@ -1107,6 +1149,7 @@ impl Store {
         } else {
             None
         };
+        #[cfg(not(target_arch = "wasm32"))]
         let mut generated_part = if let Action::ApplyGeneratedPart { job } = &request.action {
             let snapshot = self.load()?;
             ensure!(
@@ -1117,15 +1160,19 @@ impl Store {
         } else {
             None
         };
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(self.root.join("editor.lock"))?;
-        lock.try_lock()
-            .context("Another editor command is saving; reload and retry")?;
-        let _command_lock = CommandLock(lock);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let lock = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .open(self.root.join("editor.lock"))?;
+            lock.try_lock()
+                .context("Another editor command is saving; reload and retry")?;
+            let _command_lock = CommandLock(lock);
+        }
         let mut doc = self.load()?;
         ensure!(
             doc.revision == request.expected_revision,
@@ -1204,6 +1251,11 @@ impl Store {
             Action::CreateTrack { track } => {
                 crate::parts::create(&mut doc, track)?;
             }
+            #[cfg(target_arch = "wasm32")]
+            Action::ApplyGeneratedPart { .. } => {
+                anyhow::bail!("This generation backend cannot run in the browser")
+            }
+            #[cfg(not(target_arch = "wasm32"))]
             Action::ApplyGeneratedPart { .. } => generated_part
                 .take()
                 .context("Missing generated draft")?
@@ -1648,6 +1700,7 @@ impl Store {
         self.save(&doc)?;
         Ok(result)
     }
+    #[cfg(not(target_arch = "wasm32"))]
     fn export(&self, doc: &Project, output: &Path, actor: &Actor) -> Result<()> {
         let source = self.root.join("source");
         pipeline::destination(output, Some(&source))?;
@@ -1659,16 +1712,22 @@ impl Store {
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
         let stage = tempfile::tempdir_in(parent)?;
-        pipeline::copy_folder(&source, stage.path())?;
+        self.write_export(doc, stage.path(), actor)?;
+        pipeline::publish(stage.path(), output)
+    }
+    /// Write the same validated game export into a native or browser staging area.
+    pub fn write_export(&self, doc: &Project, stage: &Path, actor: &Actor) -> Result<()> {
+        let source = self.root.join("source");
+        pipeline::copy_folder(&source, stage)?;
         ensure!(
             models::hash_file(&self.audio_path(doc)?)? == doc.audio_sha256,
             "Source audio snapshot changed"
         );
         let text = doc.chart_text(self)?;
         Chart::parse(text.clone())?;
-        fs::write(stage.path().join("notes.chart"), &text)?;
+        fs::write(stage.join("notes.chart"), &text)?;
         if !doc.content.track_origins.is_empty() {
-            let raw = pipeline::song_ini(stage.path())?;
+            let raw = pipeline::song_ini(stage)?;
             let fields = pipeline::ini_fields(&raw);
             let mut updates = BTreeMap::new();
             for (track, notes) in &doc.content.tracks {
@@ -1709,21 +1768,18 @@ impl Store {
             {
                 updates.insert("diff_vocals".into(), "0".into());
             }
+            fs::write(stage.join("song.ini"), pipeline::update_ini(&raw, &updates))?;
             fs::write(
-                stage.path().join("song.ini"),
-                pipeline::update_ini(&raw, &updates),
-            )?;
-            fs::write(
-                stage.path().join("chart-engine-part-origins.json"),
+                stage.join("chart-engine-part-origins.json"),
                 serde_json::to_vec_pretty(&doc.content.track_origins)?,
             )?;
         }
         // Preserve source generation evidence, but don't present it as a fresh
         // audit of edited notes. Export decisions separately with fingerprints.
-        let mut archive = stage.path().join("editor-source");
+        let mut archive = stage.join("editor-source");
         let mut archive_index = 1;
-        while archive.exists() {
-            archive = stage.path().join(format!("editor-source-{archive_index}"));
+        while fs::exists(&archive) {
+            archive = stage.join(format!("editor-source-{archive_index}"));
             archive_index += 1;
         }
         fs::create_dir(&archive)?;
@@ -1736,23 +1792,20 @@ impl Store {
                 doc.content.vocals.as_ref(),
             )?;
             exported_chart_sha256 = hash(&midi);
-            fs::write(stage.path().join("notes.mid"), midi)?;
-            fs::rename(
-                stage.path().join("notes.chart"),
-                archive.join("notes.chart"),
-            )?;
-            let ini = stage.path().join("song.ini");
-            let raw = pipeline::song_ini(stage.path())?;
+            fs::write(stage.join("notes.mid"), midi)?;
+            fs::rename(stage.join("notes.chart"), archive.join("notes.chart"))?;
+            let ini = stage.join("song.ini");
+            let raw = pipeline::song_ini(stage)?;
             fs::write(ini, crate::game_export::ini_with_delay(&raw, delay))?;
             if let Some(vocals) = &doc.content.vocals {
                 fs::write(
-                    stage.path().join("chart-engine-vocals.json"),
+                    stage.join("chart-engine-vocals.json"),
                     serde_json::to_vec_pretty(vocals)?,
                 )?;
             }
             if doc.content.tracks.keys().any(|t| crate::keys::is_pro(t)) {
-                let working = stage.path().join("chart-engine-working");
-                if working.exists() {
+                let working = stage.join("chart-engine-working");
+                if fs::exists(&working) {
                     fs::rename(&working, archive.join("chart-engine-working"))?;
                 }
                 fs::create_dir(&working)?;
@@ -1774,26 +1827,26 @@ impl Store {
             "chart-engine-keyboard-isolation.json",
             "chart-engine-pro-keys-arrangement.json",
         ] {
-            let path = stage.path().join(name);
-            if path.exists() {
+            let path = stage.join(name);
+            if fs::exists(&path) {
                 fs::rename(path, archive.join(name))?;
             }
         }
         fs::write(
-            stage.path().join("chart-engine-melody-source.json"),
+            stage.join("chart-engine-melody-source.json"),
             serde_json::to_vec_pretty(
-                &serde_json::json!({"version":1,"audio_sha256":models::hash_file(&pipeline::audio_file(stage.path())?)?,"guitar_source":self.guitar_source(doc)?}),
+                &serde_json::json!({"version":1,"audio_sha256":models::hash_file(&pipeline::audio_file(stage)?)?,"guitar_source":self.guitar_source(doc)?}),
             )?,
         )?;
         if let Some(manifest) = &doc.content.stems {
             fs::write(
-                stage.path().join("chart-engine-isolation.json"),
+                stage.join("chart-engine-isolation.json"),
                 serde_json::to_vec_pretty(manifest)?,
             )?;
         }
         if let Some(manifest) = &doc.content.keyboard_stems {
             fs::write(
-                stage.path().join("chart-engine-keyboard-isolation.json"),
+                stage.join("chart-engine-keyboard-isolation.json"),
                 serde_json::to_vec_pretty(manifest)?,
             )?;
         }
@@ -1802,7 +1855,7 @@ impl Store {
         let history:Vec<_>=doc.content.decisions.iter().map(|d|serde_json::json!({"decision":d,"applies_to_current_notes":doc.region_fingerprint(&d.region_id,&d.track,&timing).is_ok_and(|hash|hash==d.region_content_sha256)})).collect();
         let report = serde_json::json!({"version":1,"project_revision":doc.revision,"chart_sha256":fingerprint,"audio_sha256":doc.audio_sha256,"exported_by":actor,"source_review_evidence_is_stale":doc.review.input_sha256.get("chart")!=Some(&fingerprint),"source_review":doc.review,"current_decisions":doc.current_decisions(&timing),"decision_history":history,"hidden_flags":doc.content.hidden_flags,"vocal_review":doc.content.vocal_review,"difficulty_links":crate::difficulty_links::snapshot(doc,&timing),"difficulty_link_state":doc.content.difficulty_links,"stems":doc.content.stems,"stem_mix_requested":doc.content.stem_mix,"stem_mix_scope":"Review preference only; exported song audio is unchanged and playback revalidates stem files","musical_acceptance":"unverified"});
         fs::write(
-            stage.path().join("editor-review.json"),
+            stage.join("editor-review.json"),
             serde_json::to_vec_pretty(&{
                 let mut report = report;
                 report["keyboard_stems"] = serde_json::to_value(&doc.content.keyboard_stems)?;
@@ -1810,7 +1863,7 @@ impl Store {
             })?,
         )?;
         fs::write(
-            stage.path().join("game-export.json"),
+            stage.join("game-export.json"),
             serde_json::to_vec_pretty(&serde_json::json!({
                 "version":1,"source_chart_sha256":fingerprint,"exported_chart_sha256":exported_chart_sha256,
                 "format":if midi_export{"midi"}else{"chart"},"vocals":doc.content.vocals.is_some(),
@@ -1819,8 +1872,9 @@ impl Store {
                 "musical_acceptance":"unverified"
             }))?,
         )?;
-        pipeline::publish(stage.path(), output)
+        Ok(())
     }
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn inspect(&self) -> Result<serde_json::Value> {
         let doc = self.load()?;
         let current = doc.chart_hash(self)?;
@@ -1840,7 +1894,7 @@ impl Store {
         )
     }
 
-    #[cfg(feature = "studio")]
+    #[cfg(all(feature = "studio", not(target_arch = "wasm32")))]
     pub(crate) fn report_live(
         &self,
         revision: u64,
@@ -1855,4 +1909,9 @@ impl Store {
         file.persist(self.root.join("live-state.json"))?;
         Ok(())
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn now_ms() -> u64 {
+    js_sys::Date::now() as u64
 }

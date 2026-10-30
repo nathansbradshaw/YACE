@@ -180,6 +180,7 @@ impl StemManifest {
         self.stems.iter().map(|asset| asset.id).collect()
     }
     /// Relative assets survive atomic directory publication without staging paths.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn write_relative(&self, path: &Path) -> Result<()> {
         let parent = path
             .parent()
@@ -234,7 +235,7 @@ impl StemManifest {
         let mut paths = BTreeSet::new();
         for stem in &self.stems {
             ensure!(
-                stem.path.is_absolute() && valid_hash(&stem.sha256),
+                crate::storage::is_absolute(&stem.path) && valid_hash(&stem.sha256),
                 "Stem paths must be resolved and hashes must be SHA-256"
             );
             ensure!(

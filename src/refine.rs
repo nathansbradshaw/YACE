@@ -268,6 +268,7 @@ fn harmonic_shadow_support(
     })
 }
 
+#[path = "refine/harmonics.rs"]
 mod harmonics;
 use harmonics::harmonic_fit;
 

@@ -3,18 +3,18 @@
 use crate::{
     chart::{Chart, Note},
     mapping::Transcription,
-    models, pipeline,
     review_regions::{Issue, Policy, Reason, ReviewMap},
 };
-use anyhow::{Context, Result, ensure};
+use anyhow::Result;
 use pitch_detection::detector::{PitchDetector, yin::YINDetector};
 use rustfft::{FftPlanner, num_complex::Complex};
 use serde::Serialize;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    path::Path,
-    process::Command,
+use std::collections::{BTreeMap, BTreeSet};
+#[cfg(not(target_arch = "wasm32"))]
+use {
+    crate::{models, pipeline},
+    anyhow::{Context, ensure},
+    std::{fs, path::Path, process::Command},
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -374,6 +374,7 @@ pub fn generation_map(
     Ok(map)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn encode_mp3(path: &Path, left: &[f32], right: &[f32]) -> Result<()> {
     let wav = path.with_extension("wav");
     models::write_audio(&wav, left, right)?;
@@ -388,6 +389,7 @@ fn encode_mp3(path: &Path, left: &[f32], right: &[f32]) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn drum_render(notes: &[Note], chart: &Chart, start: f64, length: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; length];
     let cymbals: BTreeSet<_> = notes
@@ -447,6 +449,7 @@ fn drum_render(notes: &[Note], chart: &Chart, start: f64, length: usize) -> Vec<
     out
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -879,6 +882,7 @@ fn candidate_score_issues(
     Ok(issues)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn region_html(map: &ReviewMap) -> String {
     let mut html = format!(
         "<h2>Sections needing review</h2><p>{} marked sections. All remain pending. Unmarked sections are unverified. Priority describes review urgency, not the probability of an error. Model scores are uncalibrated. <a href='review-regions.json'>Structured markers for tools and AI</a></p><nav aria-label='Review sections'>",
@@ -930,6 +934,7 @@ fn region_html(map: &ReviewMap) -> String {
 /// Reassess the notes being reviewed, not a report left by their original export.
 /// Authored tracks stay outside the generated-only rule profile. Structural
 /// failures remain visible without discarding the independent signal evidence.
+#[cfg(not(target_arch = "wasm32"))]
 fn with_current_generated_rules(
     mut map: ReviewMap,
     chart: &Chart,
@@ -960,6 +965,7 @@ fn with_current_generated_rules(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run(
     folder: &Path,
     drum_audio: &Path,
@@ -1235,6 +1241,7 @@ pub fn run(
     Ok(report)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn bass_render(events: &Transcription, start: f64, length: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; length];
     for note in &events.bass {

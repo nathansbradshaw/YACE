@@ -605,16 +605,7 @@ pub struct DrumPartSet {
     pub receipt: crate::larsnet::SeparationReceipt,
 }
 /// A persisted listening preference, independent of chart notes and approvals.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct KitAudition {
-    pub source_key: String,
-    pub kit: PathBuf,
-    pub part: String,
-    pub label: String,
-    pub audio_sha256: String,
-    pub frames: u64,
-}
+pub use crate::kit_audition::KitAudition;
 pub struct KitClip {
     pub part: String,
     pub start: f64,
@@ -624,12 +615,7 @@ pub struct KitClip {
 
 /// Audio analysis can survive note edits. Never reuse it for changed stems or
 /// another recording merely because the song title or duration happens to match.
-pub fn kit_source_key(project: &Project) -> Result<String> {
-    Ok(digest(&serde_json::to_vec(&(
-        &project.audio_sha256,
-        &project.content.stems,
-    ))?))
-}
+pub use crate::kit_audition::source_key as kit_source_key;
 fn project_drums(store: &Store, project: &Project) -> Result<(PathBuf, String)> {
     let original = store.audio_path(project)?;
     ensure!(

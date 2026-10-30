@@ -648,6 +648,7 @@ pub fn classify_cymbals(
 
 /// Native pinned ONNX;20-second cores with3 seconds of source context. Only
 /// central frames are retained, on the original441-sample/100Hz source clock.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn infer_cymbals(
     audio: &std::path::Path,
     model: &std::path::Path,
@@ -660,6 +661,7 @@ pub fn infer_cymbals(
 
 /// Raw pinned-checkpoint outputs for independent source-bound diagnostics.
 /// Consumers must validate probabilities before treating them as evidence.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn infer_cymbal_frames(
     audio: &std::path::Path,
     model: &std::path::Path,

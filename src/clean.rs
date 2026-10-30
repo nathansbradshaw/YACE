@@ -2,11 +2,9 @@
 //! Speech recognition and model loading happen outside this module.
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+use std::{fs, process::Command};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -585,6 +583,7 @@ pub struct CleanReceipt {
     pub warnings: Vec<String>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn require_stereo(path: &Path) -> Result<()> {
     let probe = Command::new("ffprobe")
         .args([
@@ -618,6 +617,7 @@ fn require_stereo(path: &Path) -> Result<()> {
 
 /// Decode using existing FFmpeg helpers, render without touching source files,
 /// then publish an entire new output directory atomically without replacement.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn render(request: RenderRequest<'_>) -> Result<CleanReceipt> {
     request.plan.validate()?;
     crate::pipeline::destination(request.output, None)?;

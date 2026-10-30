@@ -9,24 +9,33 @@
 //! key releases; they must not become artificially long controller holds.
 //! Intentional decoder delta: sustained notes have no fixed six-second cap;
 //! frame/offset evidence, retriggers and the recording end determine releases.
-use crate::{mapping::PitchNote, models};
-use anyhow::{Context, Result, ensure};
+use crate::mapping::PitchNote;
+use anyhow::{Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
 use ort::{
     session::{Session, builder::GraphOptimizationLevel},
     value::Tensor,
 };
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
+#[cfg(not(target_arch = "wasm32"))]
+use {crate::models, anyhow::Context};
 
 pub const MODEL_REVISION: &str = "7dff58faf160d4c0bf13be48e30e614faecdba72";
 pub const MODEL_SHA256: &str = "6ec4f07640837df2fcd2cede9c540865acff341def93fbd6432548dee169195a";
 pub const MODEL_URL: &str = "https://huggingface.co/LanOss/mobimml-piano-transcription/resolve/7dff58faf160d4c0bf13be48e30e614faecdba72/piano_transcription.onnx";
 pub const METHOD: &str = "kong-high-resolution-piano-onnx-rust-v2;16kHz;100fps;10s/5s overlap;regression decoder with six-second note cap removed;frame/offset/retrigger/audio-end releases;separate key/pedal releases";
+#[cfg(not(target_arch = "wasm32"))]
 const RATE: usize = 16_000;
+#[cfg(not(target_arch = "wasm32"))]
 const WINDOW: usize = 160_000;
+#[cfg(not(target_arch = "wasm32"))]
 const HOP: usize = 80_000;
+#[cfg(not(target_arch = "wasm32"))]
 const FRAMES: usize = 1_001;
 const KEYS: usize = 88;
+#[cfg(not(target_arch = "wasm32"))]
 const HEADS: [(&str, usize); 6] = [
     ("reg_onset_output", KEYS),
     ("reg_offset_output", KEYS),
@@ -97,9 +106,11 @@ pub struct Output {
     pub pedals: Vec<Pedal>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Transcriber {
     session: Session,
 }
+#[cfg(not(target_arch = "wasm32"))]
 impl Transcriber {
     pub fn load(model: &Path) -> Result<Self> {
         ensure!(
@@ -196,12 +207,14 @@ impl Transcriber {
         )
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub fn pitch(audio: &Path, model: &Path) -> Result<Vec<PitchNote>> {
     Ok(Transcriber::load(model)?
         .transcribe(audio, Options::default())?
         .notes)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn retained_frames(index: usize, windows: usize) -> (usize, usize) {
     if windows == 1 {
         (0, FRAMES)

@@ -70,13 +70,10 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                         let result = async {
                             let base = rfd::AsyncFileDialog::new().set_title("Select unchanged base project").pick_folder().await.ok_or_else(|| anyhow::anyhow!("Cancelled"))?;
                             let doc = studio.snapshot().ok_or_else(|| anyhow::anyhow!("No project"))?;
-                            let id = format!("proposal-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos());
+                            let id = format!("proposal-{}", crate::storage::unique_id());
                             let p = Proposal::between(&Store::new(base.path()).load()?, &doc, id, title(), description(), Actor { kind: ActorKind::Human, name: studio.reviewer.read().clone() })?;
                             let output = rfd::AsyncFileDialog::new().set_file_name("proposal.json").save_file().await.ok_or_else(|| anyhow::anyhow!("Cancelled"))?;
-                            use std::io::Write;
-                            let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(output.path())?;
-                            file.write_all(&serde_json::to_vec_pretty(&p)?)?;
-                            file.sync_all()?;
+                            crate::storage::write_new(output.path(),&serde_json::to_vec_pretty(&p)?)?;
                             rfd::download(output.path()).await;
                             studio.dispatch(Action::Collaborate { operation:Operation::Submit { proposal:p } });
                             Ok::<_,anyhow::Error>(())
@@ -85,7 +82,7 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                     }); }, "Export changes against base project…" }
                     button { class: "field-button", "data-browser-pick":"file","data-browser-accept":".json", onclick: move |_| { spawn(async move {
                         if let Some(path) = rfd::AsyncFileDialog::new().add_filter("Proposal JSON", &["json"]).pick_file().await {
-                            match std::fs::read(path.path()).map_err(anyhow::Error::from).and_then(|bytes| Ok(serde_json::from_slice::<Proposal>(&bytes)?)) {
+                            match crate::storage::read(path.path()).map_err(anyhow::Error::from).and_then(|bytes| Ok(serde_json::from_slice::<Proposal>(&bytes)?)) {
                                 Ok(proposal) => studio.dispatch(Action::Collaborate { operation: Operation::Submit { proposal } }),
                                 Err(error) => studio.error.set(Some(error.to_string())),
                             }

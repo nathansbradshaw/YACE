@@ -9,7 +9,9 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, path::Path};
+use std::collections::BTreeMap;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -854,6 +856,7 @@ fn stem_hashes(manifest: &StemManifest, sound: KeyboardSound) -> Result<BTreeMap
         })
         .collect()
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub fn detect(
     audio: &Path,
     manifest: &StemManifest,
@@ -1013,6 +1016,7 @@ pub fn detect(
     })
 }
 /// Model ids needed by a complete Auto-Chart job, excluding optional lyric ASR.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn required_models(
     instruments: &[String],
     sound: KeyboardSound,
@@ -1020,6 +1024,7 @@ pub fn required_models(
 ) -> Vec<&'static str> {
     required_models_with_quality(instruments, sound, PianoQuality::Standard, full_mix_drums)
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub fn required_models_with_quality(
     instruments: &[String],
     sound: KeyboardSound,

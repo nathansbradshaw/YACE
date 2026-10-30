@@ -152,6 +152,7 @@ pub fn decoder_is_current(events: &Transcription, audio: &Path) -> Result<bool> 
 }
 
 /// Called only after actual decoder inference, never by refinement replay.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn record_decoder(events: &mut Transcription, audio: &Path, model: &Path) -> Result<()> {
     events.bass_decoder = Some(Decoder {
         version: 1,
@@ -166,6 +167,7 @@ pub(crate) fn record_decoder(events: &mut Transcription, audio: &Path, model: &P
 
 /// Decode again when the candidate extractor changes. Refinement replay alone
 /// cannot recover attacks discarded by a previous decoder.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn infer(events: &mut Transcription, audio: &Path, model: &Path) -> Result<()> {
     events.validate()?;
     let source_sha = models::hash_file(audio)?;

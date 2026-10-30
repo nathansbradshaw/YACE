@@ -3,14 +3,19 @@
 //! Weights: CC BY-NC4.0, derivative unifolia/muscriptor-small-onnx revision
 //!15dd43dd431b7b12c0fb2f771bb57dea0cc2d7fa. Commercial redistribution is not authorized.
 //! Uses the checkpoint's own embedded spectral front end and a cached greedy LM.
-use crate::models::{self, ModelAsset};
-use anyhow::{Context, Result, ensure};
+use crate::models::ModelAsset;
+use anyhow::{Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
 use ort::{memory::Allocator, session::Session, value::Tensor};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::{Path, PathBuf},
-    time::Instant,
+use std::collections::{BTreeMap, BTreeSet};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+use {
+    crate::models,
+    anyhow::Context,
+    std::path::{Path, PathBuf},
 };
 
 pub const MODEL_REVISION: &str = "15dd43dd431b7b12c0fb2f771bb57dea0cc2d7fa";
@@ -25,9 +30,13 @@ const PITCH: i64 = 1004;
 const VELOCITY: i64 = 1132;
 const PROGRAM: i64 = 1135;
 const DRUM: i64 = 1265;
+#[cfg(not(target_arch = "wasm32"))]
 const LAYERS: usize = 14;
+#[cfg(not(target_arch = "wasm32"))]
 const HEADS: usize = 12;
+#[cfg(not(target_arch = "wasm32"))]
 const HEAD_DIM: usize = 64;
+#[cfg(not(target_arch = "wasm32"))]
 const DIM: usize = 768;
 
 pub fn assets() -> Vec<ModelAsset> {
@@ -53,6 +62,7 @@ pub fn assets() -> Vec<ModelAsset> {
     })
     .collect()
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn verified_dir(dir: &Path) -> Result<PathBuf> {
     let dir = if dir.join("muscriptor-small-cond.onnx").is_file() {
         dir.to_owned()
@@ -433,11 +443,13 @@ impl NoteDecoder {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Transcriber {
     conditioner: Session,
     lm: Session,
     model_assets: BTreeMap<String, String>,
 }
+#[cfg(not(target_arch = "wasm32"))]
 impl Transcriber {
     pub fn load(dir: &Path) -> Result<Self> {
         let dir = verified_dir(dir)?;
@@ -468,6 +480,7 @@ impl Transcriber {
                 .collect(),
         })
     }
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn transcribe(&mut self, audio: &Path, options: Options) -> Result<Output> {
         self.transcribe_samples(&models::decode(audio, SAMPLE_RATE as u32, 1)?, options)
     }
@@ -609,6 +622,7 @@ impl Transcriber {
         })
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub fn transcribe(audio: &Path, model_dir: &Path, options: Options) -> Result<Output> {
     Transcriber::load(model_dir)?.transcribe(audio, options)
 }

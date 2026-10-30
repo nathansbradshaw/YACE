@@ -38,7 +38,7 @@ pub fn PartsPanel(mut studio: Studio) -> Element {
                                   if studio.snapshot().is_some_and(|doc| doc.selected_track == blank_track) { studio.parts_open.set(false); }
                               }, Icon { name: "plus", size: 14 } "Blank"
                           }
-                          button { aria_label: "Generate {label} from recording", onclick: move |_| {
+                          button { disabled:cfg!(target_arch="wasm32"), title:if cfg!(target_arch="wasm32"){"This generation backend is unavailable in the browser"}else{"Generate this part from the recording"}, aria_label: "Generate {label} from recording", onclick: move |_| {
                               studio.generation_target.set(Some(generated_track.clone()));
                               studio.parts_open.set(false); studio.generation_open.set(true);
                           }, Icon { name: "music", size: 14 } "Generate…" }

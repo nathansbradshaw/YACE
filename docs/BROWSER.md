@@ -1,108 +1,101 @@
 # Chart in a browser
 
-**Current status:** this is a local Dioxus LiveView workflow harness, not a static
-website. Rust runs on the host and sends UI updates over a WebSocket. The delivery
-target is a static Dioxus Web application compiled to WebAssembly, with chart
-state, editing, undo, playback and file import/export running on the client.
-Keep JavaScript limited to framework/browser bindings; do not put chart logic in
-JavaScript. Native filesystem, subprocess/FFmpeg and inference dependencies need
-to be separated from the browser-compatible editor core before that target works.
-The LiveView host does not satisfy the static deployment requirement.
+The browser app is a static Dioxus Web application compiled to WebAssembly.
+Rust runs in the browser: chart state, validation, editing, undo, review,
+collaboration files, audio decoding, playback control, ZIPs and recovery storage.
+Deploy the contents of `web/dist` to an ordinary static HTTPS host. No application
+server, account, WebSocket, FFmpeg process or generation service is needed.
 
-YACE's browser host runs the same Rust chart editor, generation jobs and saved
-commands as the desktop app. Audio plays on the browser's computer. Open and
-Import use the operating system's file picker through standard browser inputs.
+## Build and run
+
+Install the Rust target and matching official binding generator once:
 
 ```sh
-cargo run --locked --release --no-default-features \
-  --features browser,separation,vocal-alignment --bin yace-browser -- \
-  serve --workspace output/browser-workspace
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.127 --locked
 ```
 
-Open the loopback URL printed by the command and leave the host running. Download
-models with the existing `models fetch` command first, or enable their download
-in generation settings. The workspace holds uploads, songs, jobs, editing
-projects and exports. Use `--port` to choose another local port.
-
-Omit `separation,vocal-alignment` for a smaller browser build with manual editing
-and the remaining model-free operations. Omitted model backends stay unavailable.
-The separate `yace-browser` executable keeps browser builds from replacing the
-native engine used to package the canonical YACE app.
-
-## Import, edit and export
-
-- **Import audio / Generate** opens the native file picker immediately. Choose
-  a recording from your computer. Generated jobs are stored in the workspace.
-- **Create from song folder** opens the native folder picker. **Import song
-  ZIP** accepts a packaged song. **Open saved project** accepts a project ZIP.
-- Choose a track, play the recording or isolated stems, seek, loop, change
-  practice speed, and edit notes in the existing chart and selection desks.
-  Undo, revision checks and saved review decisions use the same Rust store.
-- **Export** downloads a song ZIP through the browser's normal download flow.
-  The browser's download preferences determine whether a destination is prompted.
-- **Save project ZIP** downloads the editing project, including stable note
-  identities, review history and undo checkpoints. **Open saved project** resumes
-  that ZIP. Externally attached stems must be supplied separately. A game export
-  is not a project backup.
-
-There is no custom workspace file browser. Files selected locally stream into
-the host workspace for Rust processing; exports remain there as recovery copies.
-Folder access uploads a snapshot, rather than granting ongoing filesystem access.
-Cancelling the OS picker returns to the editor without starting an import.
-
-Uploads stream over HTTP. They do not pass through the UI connection as arrays
-of numbers. Exports stream existing compressed music into ZIP storage without
-recompressing it. ZIP import validates paths and expanded size and rejects
-symbolic links and files that leave the upload directory.
-
-A single browser AudioContext starts all stems on the same clock. Gain changes
-keep that cursor. The existing Rust/FFmpeg path prepares pitch-preserving practice
-audio. Source-time waveform pyramids remain available at every playback speed.
-After browser decoding, the host releases its full-song playback PCM, retaining
-waveform detail without a second complete set of decoded stems.
-
-Keyboard defaults are handled in the browser while Rust owns chart operations.
-A lost connection stops playback and visibly blocks editing. Reopening loads
-the last durable revision; pending commands are not silently replayed.
-
-## Team charting
-
-**Tools → Collaborate** retains proposals, comments, suggested edits, independent
-approval and explicit conflict resolution. Review files use native file selection
-and normal downloads. Git and live shared-folder controls remain in the desktop
-app; uploading a folder in the browser does not establish synchronization.
-Each contributor works in a separate project against
-matching source material. Single-project locks and stale-revision rejection
-remain enabled.
-
-This is a local browser host. It binds only to `127.0.0.1`, requires a fresh
-random session credential, sets an HttpOnly/SameSite cookie, checks Host/Origin,
-and confines host file access to its workspace. It does not implement hosted accounts,
-roles, shared cursors or a remote multi-user service. Exposing it through a tunnel
-is outside the supported deployment.
-
-## Measured progress and remaining gaps
-
-User direction, 2026-10-30: combine useful OCTAVE and Moonscraper workflows,
-remove measured bottlenecks with Rust, make charting easier, support reliable
-teams and do all charting in the browser. A familiar appearance or Rust rewrite
-alone does not satisfy that goal. Complete a real song workflow and fix its
-friction before expanding feature scope.
-
-Rendering snapshots now share an immutable `Arc<Project>` instead of cloning all
-tracks, review evidence and audit history. Selection and transport commands also
-skip an unused full-content undo clone. Content edits retain recovery checkpoints.
+From the repository root:
 
 ```sh
-cargo run --locked --release --no-default-features \
-  --example editor-snapshot-profile -- '/path/to/editing-project'
+cargo run --locked --manifest-path web/tools/Cargo.toml -- build
+cargo run --locked --manifest-path web/tools/Cargo.toml -- serve 3030
 ```
 
-This isolates snapshot creation/release cost. The existing `frame-pacing.json`
-measures browser display and chart-position intervals during playback. Neither
-metric alone measures acoustic latency, musical accuracy or superiority to
-another editor. See [the full-song acceptance record](BROWSER_ACCEPTANCE.md).
+Open `http://127.0.0.1:3030/`. The small Rust server serves static bytes for local
+testing; any static host with `application/wasm` support can replace it. Keep the
+generated `snippets` directory with the JS/WASM files. Relative asset URLs also
+support hosting the app below a directory. HTTPS or loopback is required for
+browser storage and clipboard APIs. A desktop shell is not required.
 
-Vocal phrase authoring, full game-renderer parity, platform/browser
-coverage and hosted team service remain separate gaps. This browser delivery is
-not a claim of complete OCTAVE or Moonscraper feature parity.
+The only hand-written JavaScript in the static entry point imports and starts
+the WASM module and displays startup failures. Dioxus and wasm-bindgen generate
+the DOM/browser glue. Application logic stays in Rust, with `web-sys` for browser
+APIs. The static crate imports the shared native Rust editor and chart modules.
+
+## Open, edit, save and export
+
+- **Import song ZIP** opens a packaged `.chart` or MIDI song and its recording.
+  **Open song folder** uses the operating system's folder picker.
+  **Open saved project** opens a project ZIP with review and undo history.
+- Pick tracks, select/place/erase notes, edit timing and song sections, work with
+  difficulty links, author vocals, and undo/redo using the shared Rust commands.
+- Play the recording, seek, loop and change pitch-preserving practice speed.
+  Rust codecs decode supported recordings to a local playback buffer and build
+  waveforms. Formats such as Opus use the browser's local decoder as a fallback,
+  with a bounded wait and a visible error if neither decoder accepts the file.
+  The original encoded recording is preserved in exports.
+- **Save project ZIP** downloads a portable backup with source files, stable note
+  identities, checkpoints and review history. **Export** downloads a playable
+  song ZIP using the same Rust export validation as the desktop app. A game
+  export does not replace a project backup.
+
+Files stay on the user's computer. Browser file inputs open the native picker;
+there is no custom workspace file browser and no upload endpoint. ZIP imports
+reject unsafe paths, symbolic links, duplicates and excessive expanded sizes.
+Folder import reads a snapshot; it does not establish ongoing disk access.
+
+IndexedDB stores the current project, source files and checkpoints in a single
+transaction. The status says **Saved locally** only after that transaction
+commits. Reopening the site restores the last saved project. Export project ZIPs
+for independent backups: browser storage belongs to the current site/profile and
+may be removed by clearing site data. A revision check rejects stale writes from
+another tab instead of silently overwriting that tab's edits.
+
+External stems from desktop projects require matching local files. Attach them
+with the native picker; their content hashes must match. Missing stems are
+reported, and the browser uses the original recording. HTML audio elements share
+an AudioContext gain graph and resynchronize to the original recording's clock;
+this does not establish sample-perfect stem synchronization or acoustic latency.
+
+## Generation and collaboration
+
+**Audio-to-chart AI generation is disabled in the static browser build.** The
+current model runners require native ONNX/separation/alignment dependencies.
+No service is substituted, and no weaker heuristic is presented as generation.
+Existing generated projects, evidence and manual editing remain available.
+
+**Collaborate** supports the shared proposal/comment/approval/conflict workflow
+through downloaded and imported review files against matching source material.
+Each contributor edits a separate project. Git/shared-folder automation stays in
+the desktop app; choosing a local folder does not establish synchronization.
+Static hosting does not supply accounts, roles, live shared cursors or a team
+server.
+
+## Verification
+
+```sh
+cargo test --locked --no-default-features --all-targets
+cargo clippy --locked --manifest-path web/Cargo.toml \
+  --target wasm32-unknown-unknown -- -D warnings
+cargo test --locked --manifest-path web/tools/Cargo.toml
+```
+
+See [the full-song acceptance record](BROWSER_ACCEPTANCE.md) for actual browser
+results and their limits. This delivery does not establish musical accuracy,
+complete OCTAVE/Moonscraper parity, all-browser compatibility or faster total
+frame times than another editor.
+
+The older `yace-browser` LiveView executable remains an optional local diagnostic
+harness. Its host-side uploads, model runners and WebSocket UI are separate from
+the static app and are not required for browser charting.

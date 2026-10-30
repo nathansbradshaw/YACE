@@ -6,9 +6,10 @@ Import a local recording, generate a draft, then listen and edit. YACE supports
 guitar, bass, drums, Keys, Pro Keys and lead vocals. Generated parts need review;
 they are not finished charts.
 
-The [browser workflow harness](docs/BROWSER.md) uses the same Rust workbench with
-browser audio, file uploads and downloadable song exports. It currently uses a
-local LiveView host. The delivery target is a static Dioxus Web/WASM application.
+The [static browser app](docs/BROWSER.md) runs the shared Rust chart editor through
+Dioxus Web/WASM, with local file selection, playback, recovery and ZIP exports.
+It needs only static hosting. AI generation is disabled in the browser because
+the current model runners require native dependencies.
 The product target is faster, easier charting and reliable team work;
 complete OCTAVE/Moonscraper parity and hosted collaboration remain unfinished.
 
