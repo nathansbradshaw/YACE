@@ -13,6 +13,8 @@ the current model runners require native dependencies.
 The product target is faster, easier charting and reliable team work;
 complete OCTAVE/Moonscraper parity and hosted collaboration remain unfinished.
 
+Public hosting and custom-domain updates are documented in [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 ![YACE with Star Power, section and timing markers, a source waveform and selected-note controls](assets/screenshots/editor.png)
 
 Preview above, edit notes and Star Power below. Shown with a small demo chart.
