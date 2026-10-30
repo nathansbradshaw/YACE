@@ -5,8 +5,9 @@ files through Git, a shared folder or a portable bundle. YACE accounts and a
 hosted server are not required.
 
 The [browser editor](BROWSER.md) supports the same review exchange. Upload or
-download bundles through its workspace chooser. Git and shared-folder operations
-use the local Rust host; each collaborator still uses a separate editing project.
+download bundles using native file selection and browser downloads. Direct Git
+and live shared-folder controls remain in the desktop app; each collaborator
+still uses a separate editing project.
 
 ## Share review files
 

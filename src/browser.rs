@@ -68,6 +68,26 @@ fn random_id() -> Result<String> {
 /// Store compressed music without recompressing it. Stream all files through
 /// the ZIP writer, so a full song export does not require a full archive in RAM.
 pub fn archive_folder(folder: &Path, output: &Path) -> Result<()> {
+    let lock = if folder.join("project.json").is_file() {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(folder.join("editor.lock"))?;
+        file.try_lock()
+            .context("The project is saving; retry the download after it finishes")?;
+        Some(file)
+    } else {
+        None
+    };
+    let result = archive_unlocked(folder, output);
+    if let Some(lock) = lock {
+        lock.unlock()?;
+    }
+    result
+}
+fn archive_unlocked(folder: &Path, output: &Path) -> Result<()> {
     let file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -89,10 +109,20 @@ pub fn archive_folder(folder: &Path, output: &Path) -> Result<()> {
                     .strip_prefix(root)?
                     .to_string_lossy()
                     .replace('\\', "/");
+                let text = path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| matches!(ext, "json" | "chart" | "ini" | "txt" | "log"));
+                let method = if text {
+                    zip::CompressionMethod::Deflated
+                } else {
+                    zip::CompressionMethod::Stored
+                };
                 zip.start_file(
                     relative,
                     zip::write::SimpleFileOptions::default()
-                        .compression_method(zip::CompressionMethod::Stored),
+                        .compression_method(method)
+                        .compression_level(text.then_some(1)),
                 )?;
                 std::io::copy(&mut std::fs::File::open(path)?, zip)?;
             }
@@ -264,7 +294,10 @@ async fn index() -> Html<String> {
     Html(format!(
         r#"<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>YACE</title></head><body style="margin:0"><div id="main"></div></body>{}<script>history.replaceState(null,'','/');{}</script></html>"#,
         dioxus_liveview::interpreter_glue("/ws"),
-        include_str!("../assets/browser-host.js")
+        concat!(
+            include_str!("../assets/browser-host.js"),
+            include_str!("../assets/browser-files.js")
+        )
     ))
 }
 async fn websocket(State(host): State<Host>, ws: WebSocketUpgrade) -> impl IntoResponse {

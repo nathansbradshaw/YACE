@@ -1,8 +1,8 @@
 # Chart in a browser
 
 YACE's browser host runs the same Rust chart editor, generation jobs and saved
-commands as the desktop app. Audio plays on the browser's computer. Native file
-dialogs and host-side audio output are not used.
+commands as the desktop app. Audio plays on the browser's computer. Open and
+Import use the operating system's file picker through standard browser inputs.
 
 ```sh
 cargo run --locked --release --no-default-features \
@@ -22,18 +22,24 @@ native engine used to package the canonical YACE app.
 
 ## Import, edit and export
 
-- **Import audio / Generate** opens a recording from the workspace or uploads
-  one from your computer. Generated songs default to the current workspace.
-- **Create from song folder** accepts workspace folders, browser folder uploads
-  and song ZIP uploads. **Open saved project** resumes an editing project.
+- **Import audio / Generate** opens the native file picker immediately. Choose
+  a recording from your computer. Generated jobs are stored in the workspace.
+- **Create from song folder** opens the native folder picker. **Import song
+  ZIP** accepts a packaged song. **Open saved project** accepts a project ZIP.
 - Choose a track, play the recording or isolated stems, seek, loop, change
   practice speed, and edit notes in the existing chart and selection desks.
   Undo, revision checks and saved review decisions use the same Rust store.
-- **Export** saves a separate song folder and downloads a ZIP. **Download** in
-  the workspace chooser also downloads individual files or complete folders.
-- Reopen an exported ZIP with **Create from song folder**, saving a new project.
-  Keep the complete editing project when stable note identities, review history
-  and undo checkpoints are needed; a game export is not a project backup.
+- **Export** downloads a song ZIP through the browser's normal download flow.
+  The browser's download preferences determine whether a destination is prompted.
+- **Save project ZIP** downloads the editing project, including stable note
+  identities, review history and undo checkpoints. **Open saved project** resumes
+  that ZIP. Externally attached stems must be supplied separately. A game export
+  is not a project backup.
+
+There is no custom workspace file browser. Files selected locally stream into
+the host workspace for Rust processing; exports remain there as recovery copies.
+Folder access uploads a snapshot, rather than granting ongoing filesystem access.
+Cancelling the OS picker returns to the editor without starting an import.
 
 Uploads stream over HTTP. They do not pass through the UI connection as arrays
 of numbers. Exports stream existing compressed music into ZIP storage without
@@ -53,15 +59,16 @@ the last durable revision; pending commands are not silently replayed.
 ## Team charting
 
 **Tools → Collaborate** retains proposals, comments, suggested edits, independent
-approval and explicit conflict resolution. Review files download/upload through
-the browser. Git and shared-folder operations use the Rust host's workspace and
-existing Git credentials. Each contributor works in a separate project against
+approval and explicit conflict resolution. Review files use native file selection
+and normal downloads. Git and live shared-folder controls remain in the desktop
+app; uploading a folder in the browser does not establish synchronization.
+Each contributor works in a separate project against
 matching source material. Single-project locks and stale-revision rejection
 remain enabled.
 
 This is a local browser host. It binds only to `127.0.0.1`, requires a fresh
 random session credential, sets an HttpOnly/SameSite cookie, checks Host/Origin,
-and confines the chooser to its workspace. It does not implement hosted accounts,
+and confines host file access to its workspace. It does not implement hosted accounts,
 roles, shared cursors or a remote multi-user service. Exposing it through a tunnel
 is outside the supported deployment.
 

@@ -109,7 +109,7 @@ pub fn VocalEditor(studio: Studio) -> Element {
         if let Some(error)=generation_error(){div{class:"vocal-edit-error",role:"alert","{error}"}}
         if let Some((message,path))=generation_notice(){div{class:"vocal-generation-progress",role:"status",title:"Saved proposal: {path}","{message}"}}
         div{class:"vocal-file-actions",
-            button{class:"studio-tool",disabled:busy,title:"Import a model-free vocal chart JSON",onclick:move |_|import_document(studio),Icon{name:"folder-open",size:13}"Import JSON"}
+            button{class:"studio-tool",disabled:busy,title:"Import a model-free vocal chart JSON","data-browser-pick":"file","data-browser-accept":".json",onclick:move |_|import_document(studio),Icon{name:"folder-open",size:13}"Import JSON"}
             button{class:"studio-tool",disabled:!present,title:"Save the editable vocal chart as JSON",onclick:move |_|save_document(studio),Icon{name:"export",size:13}"Save JSON"}
         }
         details{class:"review-evidence vocal-import-path",summary{"Import path"}
@@ -378,7 +378,7 @@ fn VocalReviewChecks(studio: Studio) -> Element {
 #[component]
 fn VocalPhrases(studio: Studio) -> Element {
     let mut phrase_index = use_signal(|| 0usize);
-    let mut selected_note = studio.vocal_note;
+    let selected_note = studio.vocal_note;
     let Some(doc) = studio.snapshot() else {
         return rsx! {};
     };
@@ -405,7 +405,7 @@ fn VocalPhrases(studio: Studio) -> Element {
                 for (index,phrase) in chart.phrases.iter().enumerate() {
                     {let start=timing.seconds(phrase.start);let end=timing.seconds(phrase.end);
                      let words=chart.notes.iter().filter(|note|phrase.start<=note.start && note.end<=phrase.end).map(syllable).collect::<Vec<_>>().join(" ");
-                     rsx!{button{class:if selected==Some(phrase){"vocal-phrase-choice active"}else{"vocal-phrase-choice"},title:"Loop vocal phrase at {clock(start)}",onclick:move |_|{phrase_index.set(index);selected_note.set(None);studio.dispatch(Action::SetLoop{range:Some(TimeRange{start,end})});studio.seek(start);},
+                     rsx!{button{class:if selected==Some(phrase){"vocal-phrase-choice active"}else{"vocal-phrase-choice"},title:"Loop vocal phrase at {clock(start)}",onclick:move |_|{phrase_index.set(index);studio.clear_selection();studio.dispatch(Action::SetLoop{range:Some(TimeRange{start,end})});studio.seek(start);},
                         span{class:"vocal-phrase-time","{clock(start)}"}span{class:"vocal-phrase-words","{words}"}
                      }}
                     }
@@ -415,7 +415,7 @@ fn VocalPhrases(studio: Studio) -> Element {
                 div{class:"form-heading",style:"margin-top:16px","Syllables"}
                 div{class:"vocal-syllables",
                     for (index,note) in chart.notes.iter().enumerate().filter(|(_,note)|phrase.start<=note.start && note.end<=phrase.end){
-                        button{class:if selected_note()==Some(index){"studio-tool active"}else{"studio-tool"},title:"Edit vocal note at tick {note.start}",onclick:move |_|selected_note.set(Some(index)),"{syllable(note)}"}
+                        button{class:if selected_note()==Some(index){"studio-tool active"}else{"studio-tool"},title:"Edit vocal note at tick {note.start}",onclick:move |_|studio.select_vocal(index,false,false),"{syllable(note)}"}
                     }
                 }
             }

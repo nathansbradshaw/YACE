@@ -67,7 +67,7 @@ pub fn color(track: &str, lane: u8) -> &'static str {
     }
 }
 
-fn snap(studio: Studio, seconds: f64) -> Option<u64> {
+pub(super) fn snap(studio: Studio, seconds: f64) -> Option<u64> {
     let map = studio.timing.read();
     let map = map.as_ref()?;
     let tick = map.tick(seconds)?;
@@ -97,7 +97,6 @@ fn place(studio: Studio, track: &str, event: &MouseEvent, width: f64) {
 #[derive(Clone)]
 struct Drag {
     id: String,
-    track: String,
     tick: u64,
     lane: u8,
     sustain: u64,
@@ -111,6 +110,7 @@ pub(super) fn VocalRoll(mut studio: Studio) -> Element {
     use crate::vocals::{Syllable, VocalTone};
     let mut width = use_signal(|| 1000.0);
     let mut drag = use_signal(|| None::<(usize, crate::vocals::VocalNote, f64, f64, bool)>);
+    let gestures = super::note_gestures::use_gestures(studio);
     let Some(doc) = studio.snapshot() else {
         return rsx! {};
     };
@@ -120,6 +120,7 @@ pub(super) fn VocalRoll(mut studio: Studio) -> Element {
     let start = (studio.view_start)();
     let span = (studio.span)();
     let active = doc.selected_track == "Vocals";
+    let selected_vocals = studio.selection().vocals;
     let notes = doc
         .content
         .vocals
@@ -143,13 +144,17 @@ pub(super) fn VocalRoll(mut studio: Studio) -> Element {
             div{class:"lane-plot",onresize:move|e|{if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.0));}},
                 svg{class:"studio-note-svg",height:"400",view_box:"0 0 {width} 400",preserve_aspect_ratio:"none",
                     onclick:move|e:MouseEvent|{
-                        select(None);
+                        if gestures.consume_click() { e.stop_propagation(); return; }
+                        select(None); studio.clear_selection(); studio.focus_editor();
                         let seconds=start+e.element_coordinates().x/width()*span;
                         if (studio.tool)()==EditTool::Place { place_vocal(studio,&e,width()); }
                         else {studio.seek(seconds);}
                     },
                     ondoubleclick:move|e:MouseEvent|{if (studio.tool)()==EditTool::Select{place_vocal(studio,&e,width());}},
+                    onmousedown:move|e:MouseEvent|gestures.background("Vocals",&e),
+                    onmousemove:move|e:MouseEvent|gestures.moving(&e),
                     onmouseup:move|e:MouseEvent|{
+                        gestures.release(&e,width(),8.);
                         let Some((index,expected,x,y,resize))=drag.take() else{return};
                         let dx=e.page_coordinates().x-x;let dy=e.page_coordinates().y-y;
                         if dx.abs()+dy.abs()<3.0{return;}
@@ -169,7 +174,7 @@ pub(super) fn VocalRoll(mut studio: Studio) -> Element {
                         chart.notes[index]=note;
                         studio.dispatch(Action::SetVocals{document:chart});
                     },
-                    onmouseleave:move |_|drag.set(None),
+                    onmouseleave:move |_|{drag.set(None);gestures.cancel();},
                     for row in 0..50{line{x1:"0",x2:"{width}",y1:"{row*8}",y2:"{row*8}",stroke:"#30343b",pointer_events:"none"}}
                     {let first=timing.tick(start.max(timing.offset)).unwrap_or(0);let last=timing.tick(start+span).unwrap_or(first);let step=(timing.resolution as u64/4).max(1);
                     rsx!{for tick in (first/step*step..=last).step_by(step as usize){
@@ -182,15 +187,17 @@ pub(super) fn VocalRoll(mut studio: Studio) -> Element {
                         {let x=(timing.seconds(note.start)-start)/span*width();let end=(timing.seconds(note.end)-start)/span*width();
                         let row=match note.tone{VocalTone::Pitched{midi}=>84-midi,VocalTone::Talkie{..}=>49};let y=row as f64*8.0+1.0;
                         let label=match &note.lyric{Syllable::Text{text,join_next}=>format!("{text}{}",if *join_next{"-"}else{""}),Syllable::Continue=>"+".into(),Syllable::ContinueWord=>"Continue word".into(),Syllable::Missing=>"Missing lyric".into()};
-                        let expected=note.clone();let resize_note=note.clone();let selected=active&&(studio.vocal_note)()==Some(index);
+                        let note_tick=note.start;let resize_note=note.clone();let selected=active&&selected_vocals.contains(&index);
                         rsx!{g{
-                            onclick:move|e|{e.stop_propagation();select(Some(index));if (studio.tool)()==EditTool::Erase{studio.dispatch(Action::DeleteVocalNote{index});studio.vocal_note.set(None);}},
-                            onmousedown:move|e:MouseEvent|{e.stop_propagation();if (studio.tool)()==EditTool::Select{select(Some(index));drag.set(Some((index,expected.clone(),e.page_coordinates().x,e.page_coordinates().y,false)));}},
-                            rect{x:"{x}",y:"{y}",width:"{(end-x).max(8.0)}",height:"6",rx:"2",fill:"#41c6b8",stroke:if selected{"white"}else{"#15191f"},role:"button","aria-label":"Edit vocal syllable {label}"}
+                            ondoubleclick:move|e|e.stop_propagation(),
+                            onclick:move|e:MouseEvent|{e.stop_propagation();if gestures.consume_click(){return;}studio.select_vocal(index,e.modifiers().shift(),false);if (studio.tool)()==EditTool::Erase{studio.delete_selection();}},
+                            onmousedown:move|e:MouseEvent|{e.stop_propagation();gestures.note("Vocals",None,index,note_tick,&e);},
+                            rect{x:"{x}",y:"{y}",width:"{(end-x).max(8.0)}",height:"6",rx:"2",fill:"#41c6b8",stroke:if selected{"white"}else{"#15191f"},role:"button","aria-pressed":selected.to_string(),"aria-label":"Edit vocal syllable {label}"}
                             text{x:"{x+2.0}",y:"{y-2.0}",font_size:"10",fill:"#e2e8ed",pointer_events:"none","{label}"}
-                            rect{x:"{end-4.0}",y:"{y-1.0}",width:"8",height:"8",fill:"transparent",style:"cursor:ew-resize",onmousedown:move|e:MouseEvent|{e.stop_propagation();select(Some(index));drag.set(Some((index,resize_note.clone(),e.page_coordinates().x,e.page_coordinates().y,true)));}}
+                            rect{x:"{end-4.0}",y:"{y-1.0}",width:"8",height:"8",fill:"transparent",style:"cursor:ew-resize",onmousedown:move|e:MouseEvent|{e.stop_propagation();studio.select_vocal(index,false,false);drag.set(Some((index,resize_note.clone(),e.page_coordinates().x,e.page_coordinates().y,true)));}}
                         }} }
                     }
+                    {gestures.overlay(width(),8.)}
                     Playhead{studio,width:width(),height:400.0}
                 }
             }
@@ -198,7 +205,7 @@ pub(super) fn VocalRoll(mut studio: Studio) -> Element {
     }
 }
 
-fn place_vocal(mut studio: Studio, event: &MouseEvent, width: f64) {
+fn place_vocal(studio: Studio, event: &MouseEvent, width: f64) {
     use crate::vocals::{Syllable, VocalChart, VocalNote, VocalPhrase, VocalTone};
     let Some(doc) = studio.snapshot() else {
         return;
@@ -274,8 +281,10 @@ fn place_vocal(mut studio: Studio, event: &MouseEvent, width: f64) {
     chart.notes.sort_by_key(|note| note.start);
     let index = chart.notes.iter().position(|note| note.start == start);
     studio.dispatch(Action::SetVocals { document: chart });
-    if studio.error.read().is_none() {
-        studio.vocal_note.set(index);
+    if studio.error.read().is_none()
+        && let Some(index) = index
+    {
+        studio.select_vocal(index, false, false);
     }
 }
 #[component]
@@ -387,6 +396,7 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
     let mut width = use_signal(|| 1000.0);
     let mut drag = use_signal(|| None::<Drag>);
     let mut delta = use_signal(|| (0.0_f64, 0.0_f64));
+    let gestures = super::note_gestures::use_gestures(studio);
     let start = (studio.view_start)();
     let span = (studio.span)();
     let geometry = use_memo(use_reactive(
@@ -411,10 +421,12 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
     let geometry = geometry.read();
     let (grid, notes) = &*geometry;
     let active = doc.selected_track == track;
-    let selected = doc.selected_note.clone();
+    let selected = studio.selection();
     let plot_track = track.clone();
     let double_track = track.clone();
+    let box_track = track.clone();
     let on_release = move |e: MouseEvent| {
+        gestures.release(&e, width(), 20.);
         if let Some(origin) = drag.take() {
             let dx = e.page_coordinates().x - origin.start_x;
             let dy = e.page_coordinates().y - origin.start_y;
@@ -425,13 +437,6 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
                 return;
             };
             let origin_time = timing.seconds(origin.tick);
-            let row = lane_rows(&origin.track)
-                .iter()
-                .position(|l| *l == origin.lane)
-                .unwrap_or(0) as f64;
-            let lane_rows = lane_rows(&origin.track);
-            let lane = lane_rows
-                [((row + dy / 20.0).round() as i64).clamp(0, lane_rows.len() as i64 - 1) as usize];
             if origin.resize {
                 let end =
                     timing.seconds(origin.tick + origin.sustain) + dx / width() * (studio.span)();
@@ -444,17 +449,6 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
                         cymbal: origin.cymbal,
                     });
                 }
-            } else if let Some(tick) = snap(
-                studio,
-                (origin_time + dx / width() * (studio.span)()).max(0.0),
-            ) {
-                studio.dispatch(Action::UpdateNote {
-                    note_id: origin.id,
-                    tick,
-                    lane,
-                    sustain: origin.sustain,
-                    cymbal: origin.cymbal && lane >= 2,
-                });
             }
         }
     };
@@ -465,26 +459,28 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
         div{class:"lane-surface",ol{class:"lane-labels",for lane in rows.clone(){li{class:"lane-label",style:"color:{color(&track,lane)}","{lane_name(&track,lane)}"}}}
             div{class:"lane-plot",onresize:move|e|{if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.0));}},
                 svg{class:"studio-note-svg",height:"{height}",view_box:"0 0 {width} {height}",preserve_aspect_ratio:"none",
-                    onclick:move|e:MouseEvent|{let seconds=(studio.view_start)()+e.element_coordinates().x/width()*(studio.span)();if (studio.tool)()==EditTool::Place{place(studio,&plot_track,&e,width());}else if (studio.tool)()==EditTool::Select{let view=(studio.view_start)();studio.seek(seconds);studio.view_start.set(view);}},
+                    onmousedown:move|e:MouseEvent|gestures.background(&box_track,&e),
+                    onclick:move|e:MouseEvent|{if gestures.consume_click(){return;}studio.focus_editor();let seconds=(studio.view_start)()+e.element_coordinates().x/width()*(studio.span)();if (studio.tool)()==EditTool::Place{place(studio,&plot_track,&e,width());}else if (studio.tool)()==EditTool::Select{studio.set_selection(crate::note_groups::Selection{track:plot_track.clone(),..Default::default()});let view=(studio.view_start)();studio.seek(seconds);studio.view_start.set(view);}},
                     ondoubleclick:move|e:MouseEvent|{if (studio.tool)()==EditTool::Select{place(studio,&double_track,&e,width());}},
-                    onmousemove:move|e:MouseEvent|{if let Some(origin)=drag.read().as_ref(){delta.set((e.page_coordinates().x-origin.start_x,e.page_coordinates().y-origin.start_y));}},
+                    onmousemove:move|e:MouseEvent|{gestures.moving(&e);if let Some(origin)=drag.read().as_ref(){delta.set((e.page_coordinates().x-origin.start_x,e.page_coordinates().y-origin.start_y));}},
                     onmouseup:on_release,
-                    onmouseleave:move |_|{drag.set(None);delta.set((0.0,0.0));},
+                    onmouseleave:move |_|{drag.set(None);delta.set((0.0,0.0));gestures.cancel();},
                     g{pointer_events:"none",dangerous_inner_html:"{grid}"}
                     for item in notes{
                         {let overridden=links.as_ref().is_some_and(|snapshot|super::difficulty::is_override(snapshot,&track,&item.id));
-                        {let row=rows.iter().position(|l|*l==item.note.lane).unwrap();let x=(timing.seconds(item.note.tick)-start)/span*width();let end=(timing.seconds(item.note.tick+item.note.sustain)-start)/span*width();let y=row as f64*20.0+3.0;let fill=color(&track,item.note.lane);let id=item.id.clone();let id2=item.id.clone();let origin=Drag{id:item.id.clone(),track:track.clone(),tick:item.note.tick,lane:item.note.lane,sustain:item.note.sustain,cymbal:doc.is_cymbal(&track,&item.note),start_x:0.0,start_y:0.0,resize:false};let origin2=origin.clone();let stroke=if selected.as_ref()==Some(&item.id){"#fff"}else{"#090b0d"};
+                        {let row=rows.iter().position(|l|*l==item.note.lane).unwrap();let x=(timing.seconds(item.note.tick)-start)/span*width();let end=(timing.seconds(item.note.tick+item.note.sustain)-start)/span*width();let y=row as f64*20.0+3.0;let fill=color(&track,item.note.lane);let id=item.id.clone();let down_id=item.id.clone();let click_track=track.clone();let down_track=track.clone();let id2=item.id.clone();let note_tick=item.note.tick;let origin=Drag{id:item.id.clone(),tick:item.note.tick,lane:item.note.lane,sustain:item.note.sustain,cymbal:doc.is_cymbal(&track,&item.note),start_x:0.0,start_y:0.0,resize:false};let origin2=origin.clone();let is_selected=active&&selected.ids.contains(&item.id);let stroke=if is_selected{"#fff"}else{"#090b0d"};
                         rsx!{g{
                             ondoubleclick:move|e|e.stop_propagation(),
-                            onclick:move|e|{e.stop_propagation();studio.dispatch(if (studio.tool)()==EditTool::Erase{Action::DeleteNote{note_id:id.clone()}}else{Action::SelectNote{note_id:Some(id.clone())}});},
-                            onmousedown:move|e:MouseEvent|{e.stop_propagation();if (studio.tool)()==EditTool::Select{let mut origin=origin.clone();origin.start_x=e.page_coordinates().x;origin.start_y=e.page_coordinates().y;drag.set(Some(origin));delta.set((0.0,0.0));}},
+                            onclick:move|e:MouseEvent|{e.stop_propagation();if gestures.consume_click(){return;}studio.select_gem(&click_track,&id,e.modifiers().shift(),false);if (studio.tool)()==EditTool::Erase{studio.delete_selection();}},
+                            onmousedown:move|e:MouseEvent|{e.stop_propagation();gestures.note(&down_track,Some(&down_id),0,note_tick,&e);},
                             if item.note.sustain>0{rect{x:"{x.max(0.0)}",y:"{y+4.0}",width:"{(end.min(width())-x.max(0.0)).max(0.0)}",height:"6",rx:"2",fill,opacity:".55"}}
-                            rect{x:"{x}",y:"{y}",width:"14",height:"14",rx:if doc.is_cymbal(&track,&item.note){"1"}else{"3"},fill,stroke,stroke_width:"1.5",role:"button","aria-label":"{lane_name(&track,item.note.lane)} note at {timing.seconds(item.note.tick):.3} seconds",title{"{lane_name(&track,item.note.lane)} · {timing.seconds(item.note.tick):.4}s · {item.id}"}}
+                            rect{x:"{x}",y:"{y}",width:"14",height:"14",rx:if doc.is_cymbal(&track,&item.note){"1"}else{"3"},fill,stroke,stroke_width:"1.5",role:"button","aria-pressed":is_selected.to_string(),"aria-label":"{lane_name(&track,item.note.lane)} note at {timing.seconds(item.note.tick):.3} seconds",title{"{lane_name(&track,item.note.lane)} · {timing.seconds(item.note.tick):.4}s · {item.id}"}}
                             if overridden{rect{x:"{x-1.0}",y:"{y-1.0}",width:"16",height:"16",rx:"3",fill:"none",stroke:"#c889ff",stroke_width:"1",stroke_dasharray:"2 2",pointer_events:"none",title{"Local difficulty override"}}}
                             if item.note.sustain>0{rect{x:"{end-4.0}",y:"{y}",width:"8",height:"14",fill,style:"cursor:ew-resize",onclick:move|e|{e.stop_propagation();studio.dispatch(Action::SelectNote{note_id:Some(id2.clone())});},onmousedown:move|e:MouseEvent|{e.stop_propagation();let mut origin=origin2.clone();origin.start_x=e.page_coordinates().x;origin.start_y=e.page_coordinates().y;origin.resize=true;drag.set(Some(origin));delta.set((0.0,0.0));}}}
                         }} } }
                     }
                     {drag().map(|origin|{let row=rows.iter().position(|l|*l==origin.lane).unwrap_or(0);let x=(timing.seconds(origin.tick)-start)/span*width()+delta().0;let y=row as f64*20.0+3.0+delta().1;rsx!{rect{x:"{x}",y:"{y}",width:"16",height:"14",fill:"none",stroke:"#fff",pointer_events:"none"}}})}
+                    {gestures.overlay(width(),20.)}
                     Playhead{studio,width:width(),height}
                 }
             }

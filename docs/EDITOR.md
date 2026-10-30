@@ -24,7 +24,9 @@ the previous part.
 Choose an instrument and difficulty from **Track** beside the editing tools.
 Audition, selection details and review follow that track.
 
-- **Select**: click a note, or drag it to change its time or lane.
+- **Select**: click a note, or drag across empty space to select a group.
+- **Shift-click** adds or removes a note. Drag a selected note to move the group.
+- **Copy / Paste**: use the buttons beside Undo, or the shortcuts below. Paste starts at the playhead.
 - **Place**: click an empty lane to add a note.
 - **Erase**: click a note to remove it.
 - **Snap**: choose a grid division, or turn snapping off for precise placement.
@@ -50,11 +52,17 @@ Unflagged parts still need listening review.
 | --- | --- |
 | Play or pause | Space |
 | Select / Place / Erase | 1 / 2 / 3 |
-| Delete selected note | Delete or Backspace |
+| Select all notes in the current track | Command/Ctrl+A |
+| Copy / Cut / Paste notes | Command/Ctrl+C / X / V |
+| Clear selection | Escape |
+| Delete selected notes | Delete or Backspace |
 | Undo | Command/Ctrl+Z |
 | Redo | Command/Ctrl+Shift+Z |
 
 Text fields keep their normal typing controls. Escape closes a blocking dialog.
+Each group edit is one undo step. Notes keep their spacing, sustains and drum
+markers. Paste into the same kind of part; guitar and bass can share notes.
+For vocals, select a whole joined word and its continuations together.
 Drag a panel divider to resize it, or focus it with Tab and use arrow keys.
 Shift makes larger steps; Home and End select the size limits.
 

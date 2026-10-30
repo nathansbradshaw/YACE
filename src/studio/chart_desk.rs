@@ -11,6 +11,14 @@ use dioxus::prelude::*;
 #[component]
 pub fn ChartDesk(mut studio: Studio) -> Element {
     let mut hidden_flags = use_signal(|| false);
+    let mut layout_track = use_signal(String::new);
+    use_effect(move || {
+        if !(studio.selection_dragging)()
+            && let Some(doc) = studio.snapshot()
+        {
+            layout_track.set(doc.selected_track.clone());
+        }
+    });
     let Some(document) = studio.snapshot() else {
         return rsx! {};
     };
@@ -26,9 +34,9 @@ pub fn ChartDesk(mut studio: Studio) -> Element {
         .cloned()
         .collect();
     tracks.push("Vocals".into());
-    tracks.sort_by_key(|track| (track != &document.selected_track, track.clone()));
+    tracks.sort_by_key(|track| (track != &layout_track(), track.clone()));
     rsx! {
-        section { class: "chart-desk", aria_label: "Note editor",
+        section { class: "chart-desk", aria_label: "Note editor", tabindex: "-1", onmounted: move |event| studio.editor_focus.set(Some(event.data())),
             div { class: "chart-desk-toolbar", role: "toolbar", aria_label: "Chart editing", onkeydown: super::shortcuts::keep_space_local,
                 TrackPicker { studio }
                 button { aria_label: "Add a part", title: "Add a blank part or generate one from the recording", onclick: move |_| studio.parts_open.set(true), Icon { name: "plus", size: 14 } "Add part" }
@@ -43,6 +51,8 @@ pub fn ChartDesk(mut studio: Studio) -> Element {
                 div { class: "edit-history", role: "group", aria_label: "Edit history",
                     button { title: "Undo (Command/Ctrl+Z)", aria_label: "Undo", disabled: document.undo.is_empty(), onclick: move |_| studio.dispatch(Action::Undo), Icon { name: "undo", size: 14 } }
                     button { title: "Redo (Command/Ctrl+Shift+Z)", aria_label: "Redo", disabled: document.redo.is_empty(), onclick: move |_| studio.dispatch(Action::Redo), Icon { name: "redo", size: 14 } }
+                    button { title: "Copy notes (Command/Ctrl+C)", aria_label: "Copy notes", disabled: studio.selection().is_empty(), onclick: move |_| studio.copy_selection(false), Icon { name: "copy", size: 14 } }
+                    button { title: "Paste at playhead (Command/Ctrl+V)", aria_label: "Paste notes", onclick: move |_| studio.paste_selection(), Icon { name: "clipboard", size: 14 } }
                 }
                 label { class: "edit-snap", "Snap"
                     select { aria_label: "Snap", value: "{studio.snap}", onkeydown: move |event| event.stop_propagation(), onchange: move |event| { if let Ok(value) = event.value().parse() { studio.snap.set(value); } },

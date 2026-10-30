@@ -194,7 +194,7 @@ fn kit_panel(studio: Studio, kit: KitUi) -> Element {
         summary{"Kit isolation"}
         div{class:"part-analysis-kit-heading",
             span{class:"part-analysis-caption",if restoring && !(kit.busy)(){"Loading saved kit…"}else{"Five estimated parts"}}
-            button{class:"studio-tool",disabled:!source_available || (kit.busy)() || pending.is_some(),title:"Choose your local LarsNet ONNX models. CC-BY-NC-4.0 weights; no download or note changes.",onclick:move |_|split_kit(studio,kit),if (kit.busy)(){"Splitting…"}else if has_cache{"Split again…"}else{"Split kit…"}}
+            button{class:"studio-tool",disabled:!source_available || (kit.busy)() || pending.is_some(),title:"Choose your local LarsNet ONNX models. CC-BY-NC-4.0 weights; no download or note changes.","data-browser-pick":"folder",onclick:move |_|split_kit(studio,kit),if (kit.busy)(){"Splitting…"}else if has_cache{"Split again…"}else{"Split kit…"}}
         }
         p{class:"part-analysis-caption","Local LarsNet models · CC-BY-NC-4.0. Audio only; notes stay unchanged."}
         if !source_available{p{class:"part-analysis-caption","Attach aligned drum audio first."}}
@@ -384,12 +384,13 @@ fn save_report(
             return;
         }
         let path = file.path().to_owned();
+        let output = path.clone();
         match tokio::task::spawn_blocking(move || {
             crate::generation::write_json(&path, report.as_ref())
         })
         .await
         {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => rfd::download(&output).await,
             Ok(Err(message)) => error.set(Some(format!("{message:#}"))),
             Err(message) => error.set(Some(message.to_string())),
         }

@@ -14,6 +14,10 @@ fn drawing(name: &str) -> &'static str {
         "export" => "<path d='M5 13v7h14v-7M12 16V3M7 8l5-5 5 5'/>",
         "undo" => "<path d='m8 5-5 5 5 5M3 10h11a6 6 0 0 1 0 12'/>",
         "redo" => "<path d='m16 5 5 5-5 5M21 10H10a6 6 0 0 0 0 12'/>",
+        "copy" => "<rect x='8' y='8' width='12' height='13' rx='1'/><path d='M16 8V3H3v13h5'/>",
+        "clipboard" => {
+            "<path d='M8 5H4v16h16V5h-4'/><rect x='8' y='3' width='8' height='5' rx='1'/><path d='M8 13h8M8 17h6'/>"
+        }
         "play" => "<path d='m7 4 13 8-13 8Z'/>",
         "pause" => "<path d='M7 4v16M17 4v16'/>",
         "square" | "stop" => "<rect x='5' y='5' width='14' height='14' rx='1'/>",

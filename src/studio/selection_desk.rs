@@ -115,6 +115,7 @@ pub fn SelectionDesk(studio: Studio) -> Element {
         .as_ref()
         .and_then(|id| document.find_note(id));
     let vocals = document.selected_track == "Vocals";
+    let count = studio.selection().len();
     let tempo = studio
         .timing
         .read()
@@ -128,11 +129,20 @@ pub fn SelectionDesk(studio: Studio) -> Element {
                 if let Some(crate::parts::Origin::Generated { .. }) = document.content.track_origins.get(&document.selected_track) {
                     p { class: "field-hint", "Generated draft · listen and review this part." }
                 }
-                if !vocals {
+                if count > 1 {
+                    section { class: "selection-note", aria_label: "Selected notes",
+                        p { class: "selection-caption", "{count} notes selected" }
+                        p { class: "field-hint", "Drag to move. Shift-click to add or remove." }
+                        div { class: "selection-actions",
+                            button { onclick: move |_| studio.copy_selection(false), "Copy" }
+                            button { onclick: move |_| studio.delete_selection(), "Delete" }
+                        }
+                    }
+                } else if !vocals {
                     if let Some((track, item)) = selected { NoteSelection { studio, track: track.to_owned(), item: item.clone() } }
-                    else { p { class: "selection-empty", "Select a note to edit it." } }
+                    else { p { class: "selection-empty", "Click a note or drag a box. Shift-click adds notes." } }
                 }
-                div { hidden: !vocals, super::vocal_editor::VocalEditor { studio } }
+                div { hidden: !vocals || count > 1, super::vocal_editor::VocalEditor { studio } }
                 ReviewQueue { studio }
                 details { class: "context-fold", summary { "Song details" }
                     dl { class: "context-metadata",

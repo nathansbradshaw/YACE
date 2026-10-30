@@ -2,7 +2,7 @@
 document.addEventListener('keydown',event=>{
   const target=event.target;
   if(!(target instanceof Element) || !target.closest('.studio-app') || target.closest('input,textarea,select,[contenteditable=true],button,a'))return;
-  if(event.key===' ' || event.key==='Backspace' || event.key==='Delete' || ((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='z'))event.preventDefault();
+  if(event.key===' ' || event.key==='Backspace' || event.key==='Delete' || ((event.metaKey||event.ctrlKey)&&['a','c','x','v','z'].includes(event.key.toLowerCase())))event.preventDefault();
 },true);
 window.ipc.ws.addEventListener('close',()=>{
   window.__yaceAudio?.dispose();

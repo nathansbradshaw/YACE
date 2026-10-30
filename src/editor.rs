@@ -239,6 +239,9 @@ pub enum Action {
     DeleteNote {
         note_id: String,
     },
+    EditNoteGroup {
+        edit: crate::note_groups::Edit,
+    },
     EnableDifficultyLink {
         track: String,
         enabled: bool,
@@ -1128,6 +1131,7 @@ impl Store {
                 | Action::AddNote { .. }
                 | Action::UpdateNote { .. }
                 | Action::DeleteNote { .. }
+                | Action::EditNoteGroup { .. }
                 | Action::EnableDifficultyLink { .. }
                 | Action::ClearDifficultyOverrides { .. }
                 | Action::Decide { .. }
@@ -1310,6 +1314,10 @@ impl Store {
                     .to_owned();
                 doc.edit_note(self, &track, Some(note_id), None, false)?;
             }
+            Action::EditNoteGroup { edit } => {
+                let timing = doc.timing(self)?;
+                crate::note_groups::apply(&mut doc, &timing, edit)?;
+            }
             Action::EnableDifficultyLink { track, enabled } => {
                 let timing = doc.timing(self)?;
                 crate::difficulty_links::set_enabled(
@@ -1489,6 +1497,7 @@ impl Store {
                 | Action::ApplyGeneratedPart { .. }
                 | Action::UpdateNote { .. }
                 | Action::DeleteNote { .. }
+                | Action::EditNoteGroup { .. }
                 | Action::Collaborate {
                     operation: crate::collaboration::Operation::Merge { .. }
                 }

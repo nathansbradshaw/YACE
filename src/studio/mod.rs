@@ -1,5 +1,7 @@
 //! Project actions, audition, contextual review and the chart-editing desk.
 mod assistant;
+#[cfg(feature = "browser")]
+mod browser_clipboard;
 mod chart_desk;
 mod clean;
 mod collaboration;
@@ -13,12 +15,14 @@ mod icons;
 mod inline_review;
 mod modal;
 mod note_canvas;
+mod note_gestures;
 mod part_analysis;
 mod parts;
 mod practice;
 mod presentation_clock;
 mod project_bar;
 mod review;
+mod selection;
 mod selection_desk;
 mod sheet;
 mod shortcuts;

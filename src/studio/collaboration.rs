@@ -31,7 +31,7 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                     p { "Share review files through Git or a shared folder. Audio stays local." }
                     details { summary { "How sharing works" } p { "Work in your own project, then exchange review files. No server is needed. Names identify contributors locally; they aren’t verified accounts." } }
                     GitReview { studio }
-                    button { class: "field-button", onclick: move |_| { spawn(async move {
+                    if !cfg!(feature="browser") { button { class: "field-button", onclick: move |_| { spawn(async move {
                         if let Some(folder) = rfd::AsyncFileDialog::new().set_title("Choose Git/shared review exchange folder").pick_folder().await {
                             let store = studio.store.read().clone();
                             if let (Some(store),Some(doc)) = (store,studio.snapshot()) {
@@ -42,7 +42,7 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                                 }
                             }
                         }
-                    }); }, "Sync Git / shared folder…" }
+                    }); }, "Sync Git / shared folder…" } }
                     button { class: "field-button", onclick: move |_| { spawn(async move {
                         if let Some(path) = rfd::AsyncFileDialog::new().set_file_name("reviews.json").save_file().await
                             && let Some(doc) = studio.snapshot() {
@@ -52,7 +52,7 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                             }
                         }
                     }); }, "Export complete review bundle…" }
-                    button { class: "field-button", onclick: move |_| { spawn(async move {
+                    button { class: "field-button", "data-browser-pick":"file","data-browser-accept":".json", onclick: move |_| { spawn(async move {
                         if let Some(path) = rfd::AsyncFileDialog::new().add_filter("Review bundle", &["json"]).pick_file().await {
                             match exchange::read_bundle(path.path()) {
                                 Ok(bundle) => studio.dispatch(Action::ImportCollaboration { bundle }),
@@ -66,7 +66,7 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                     input { id: "collaboration-title", class: "field-control", value: "{title}", oninput: move |e| title.set(e.value()) }
                     label { r#for: "collaboration-description", "Proposal description / review comment" }
                     textarea { id: "collaboration-description", class: "field-control", value: "{description}", oninput: move |e| description.set(e.value()) }
-                    button { class: "field-button", onclick: move |_| { spawn(async move {
+                    button { class: "field-button", "data-browser-pick":"folder", onclick: move |_| { spawn(async move {
                         let result = async {
                             let base = rfd::AsyncFileDialog::new().set_title("Select unchanged base project").pick_folder().await.ok_or_else(|| anyhow::anyhow!("Cancelled"))?;
                             let doc = studio.snapshot().ok_or_else(|| anyhow::anyhow!("No project"))?;
@@ -83,7 +83,7 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                         }.await;
                         if let Err(error) = result { studio.error.set(Some(error.to_string())); }
                     }); }, "Export changes against base project…" }
-                    button { class: "field-button", onclick: move |_| { spawn(async move {
+                    button { class: "field-button", "data-browser-pick":"file","data-browser-accept":".json", onclick: move |_| { spawn(async move {
                         if let Some(path) = rfd::AsyncFileDialog::new().add_filter("Proposal JSON", &["json"]).pick_file().await {
                             match std::fs::read(path.path()).map_err(anyhow::Error::from).and_then(|bytes| Ok(serde_json::from_slice::<Proposal>(&bytes)?)) {
                                 Ok(proposal) => studio.dispatch(Action::Collaborate { operation: Operation::Submit { proposal } }),
@@ -276,6 +276,7 @@ fn ResolveNotes(mut studio: Studio, proposal: Proposal) -> Element {
     }
 }
 
+#[cfg(not(feature = "browser"))]
 #[component]
 fn GitReview(mut studio: Studio) -> Element {
     let mut folder = use_signal(|| None::<std::path::PathBuf>);
@@ -325,4 +326,11 @@ fn GitReview(mut studio: Studio) -> Element {
             }
         }
     }
+}
+
+#[cfg(feature = "browser")]
+#[component]
+fn GitReview(studio: Studio) -> Element {
+    let _ = studio;
+    rsx! {p{class:"field-hint","Export and import review bundles to exchange proposals, comments and approvals."}}
 }
