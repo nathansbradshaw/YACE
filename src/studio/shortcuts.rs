@@ -3,6 +3,12 @@ use super::state::{EditTool, Studio};
 use crate::editor::Action;
 use dioxus::prelude::*;
 
+pub fn keep_space_local(event: KeyboardEvent) {
+    if event.key() == Key::Character(" ".into()) {
+        event.stop_propagation();
+    }
+}
+
 fn undo_action(key: &Key, shift: bool) -> Option<Action> {
     match key {
         Key::Character(value) if value.eq_ignore_ascii_case("z") => {

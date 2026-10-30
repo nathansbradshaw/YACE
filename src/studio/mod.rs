@@ -1,31 +1,33 @@
-//! Desktop chart workbench. See THIRD_PARTY.md for component ancestry.
+//! Project actions, audition, contextual review and the chart-editing desk.
 mod assistant;
+mod chart_desk;
 mod clean;
 mod collaboration;
 mod diagnostics;
 mod difficulty;
-mod explorer;
 mod frame_pacing;
 mod game_preview;
 mod generation;
 mod icons;
 mod inline_review;
-mod layout;
 mod modal;
+mod note_canvas;
 mod part_analysis;
 mod practice;
 mod presentation_clock;
-mod properties;
+mod project_bar;
 mod review;
+mod selection_desk;
+mod sheet;
 mod shortcuts;
 pub mod state;
 mod stems;
 mod surfaces;
-mod timeline;
-mod toolbar;
+mod track_picker;
 mod vocal_editor;
 mod vocal_preview;
 mod welcome;
+mod workspace;
 use crate::editor::Action;
 use dioxus::prelude::*;
 use std::{
@@ -61,7 +63,8 @@ fn run(project: Option<std::path::PathBuf>) {
 }
 const CSS: &str = concat!(
     include_str!("../../assets/theme.css"),
-    include_str!("../../assets/panels.css"),
+    include_str!("../../assets/forms.css"),
+    include_str!("../../assets/workspace.css"),
     include_str!("../../assets/timeline.css"),
     include_str!("../../assets/dialogs.css"),
     include_str!("../../assets/assistant.css"),
@@ -107,16 +110,17 @@ fn App() -> Element {
     let doc = studio.snapshot();
     rsx! {
         style { "{stylesheet}" }
-        div { class: "layout", tabindex: "-1",
+        div { class: "studio-app", tabindex: "-1",
             onkeydown: move |event| shortcuts::handle(studio, event),
-            toolbar::Toolbar { studio }
-            if doc.is_some() { layout::Workbench { studio } } else { welcome::Welcome { studio } }
+            project_bar::ProjectBar { studio }
+            if doc.is_some() { workspace::Workbench { studio } } else { welcome::Welcome { studio } }
             div {class:"studio-status",span{title: studio.audio_details(), "{studio.status}"} if let Some(doc)=doc {span{title: "Revision {doc.revision} · {doc.selected_track}", "Saved · {state::instrument(&doc.selected_track)}"}}}
             if let Some(error)=(studio.error)(){div {class:"studio-error",role:"alert",span{"{error}"}button{onclick:move |_|{let mut s=studio;s.error.set(None)},"Dismiss"}}}
             if (studio.review_open)(){review::ReviewPanel{studio}}
             clean::CleanPanel{studio}
         }
         generation::GenerationPanel{studio}
+        collaboration::Collaboration{studio}
         assistant::Assistant{studio}
     }
 }

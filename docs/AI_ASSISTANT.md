@@ -1,6 +1,6 @@
 # Charting assistant
 
-The assistant is optional. Open a project, select **Assistant** in the toolbar,
+The assistant is optional. Open a project, select **Tools → Chart assistant**,
 then choose **Connection**.
 
 | Connection | Setup |
@@ -21,7 +21,7 @@ a request runs.
 
 Read each proposed edit before choosing **Apply this edit**. Suggestions apply
 to specific supplied notes; after the chart changes, stale suggestions must be
-requested again. Undo is available in the toolbar.
+requested again. Undo is beside the note-editing tools.
 
 Requests contain text context, including nearby notes, flags, song information
 and sometimes lyrics or local paths. Audio bytes are not uploaded. The assistant

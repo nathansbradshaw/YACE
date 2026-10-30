@@ -19,16 +19,16 @@
   display: block;
 }
 
-.clean-modal .property-section {
+.clean-modal .form-section {
   margin:0;
   padding:0 0 16px
 }
 
-.clean-modal .property-section-title {
+.clean-modal .form-heading {
   margin-bottom:10px
 }
 
-.clean-modal textarea.property-input {
+.clean-modal textarea.field-control {
   resize:vertical;
   min-height:72px;
   line-height:1.5
@@ -120,7 +120,7 @@
   line-height:1.5
 }
 
-.clean-modal .clean-footer {
+.clean-modal .tool-sheet-actions {
   gap:12px;
   flex-wrap:wrap
 }
@@ -145,7 +145,7 @@
     grid-template-columns:1fr
   }
 
-  .clean-modal .property-row {
+  .clean-modal .field-row {
     flex-wrap:wrap
   }
 

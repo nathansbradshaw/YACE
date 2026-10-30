@@ -80,7 +80,7 @@ pub fn VocalEditor(studio: Studio) -> Element {
         }
         if present{VocalPhrases{studio}}
         div{class:"vocal-generation-actions",
-            button{class:"property-button vocal-generate",disabled:busy||!stem_ready,title:"Generate lead-vocal notes and timed lyrics from the attached vocal stem",onclick:move |_|{
+            button{class:"field-button vocal-generate",disabled:busy||!stem_ready,title:"Generate lead-vocal notes and timed lyrics from the attached vocal stem",onclick:move |_|{
                 let Some(project)=studio.store.read().as_ref().map(|store|store.root.clone())else{return};
                 let models=crate::generation::default_model_dir();let recognize=recognize();let lookup_lyrics=lookup();let language=language();
                 let actor=crate::editor::Actor{kind:crate::editor::ActorKind::Human,name:studio.reviewer.read().clone()};
@@ -100,9 +100,9 @@ pub fn VocalEditor(studio: Studio) -> Element {
             if busy{button{class:"studio-tool",disabled:cancelled,onclick:move |_|{if let Some(control)=control.read().as_ref(){control.cancel();}},if cancelled{"Cancelling…"}else{"Cancel"}}}
         }
         details{class:"review-evidence vocal-generation-options",summary{"Options"}
-            label{class:"generation-field","Vocal language",select{class:"property-input",disabled:busy,value:match language(){crate::lyric_language::Language::Auto=>"auto",crate::lyric_language::Language::English=>"english",crate::lyric_language::Language::Spanish=>"spanish"},onkeydown:move|e|e.stop_propagation(),onchange:move|e|language.set(match e.value().as_str(){"english"=>crate::lyric_language::Language::English,"spanish"=>crate::lyric_language::Language::Spanish,_=>crate::lyric_language::Language::Auto}),option{value:"auto","Detect automatically"}option{value:"spanish","Spanish"}option{value:"english","English"}}}
-            label{class:"property-checkbox",title:"Optional local models recognize and align lyrics and add a pitch estimate. Off keeps pitch extraction model-free; supply timed words or import JSON to complete lyrics.",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:recognize(),disabled:busy,onchange:move|event|recognize.set(event.checked())}"Local AI assistance"}
-            label{class:"property-checkbox",title:"Look up matching lyrics online; source metadata is sent to the lyrics provider",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:lookup(),disabled:busy,onchange:move|event|lookup.set(event.checked())}"Fetch lyrics"}
+            label{class:"generation-field","Vocal language",select{class:"field-control",disabled:busy,value:match language(){crate::lyric_language::Language::Auto=>"auto",crate::lyric_language::Language::English=>"english",crate::lyric_language::Language::Spanish=>"spanish"},onkeydown:move|e|e.stop_propagation(),onchange:move|e|language.set(match e.value().as_str(){"english"=>crate::lyric_language::Language::English,"spanish"=>crate::lyric_language::Language::Spanish,_=>crate::lyric_language::Language::Auto}),option{value:"auto","Detect automatically"}option{value:"spanish","Spanish"}option{value:"english","English"}}}
+            label{class:"form-check",title:"Optional local models recognize and align lyrics and add a pitch estimate. Off keeps pitch extraction model-free; supply timed words or import JSON to complete lyrics.",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:recognize(),disabled:busy,onchange:move|event|recognize.set(event.checked())}"Local AI assistance"}
+            label{class:"form-check",title:"Look up matching lyrics online; source metadata is sent to the lyrics provider",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:lookup(),disabled:busy,onchange:move|event|lookup.set(event.checked())}"Fetch lyrics"}
         }
         if busy{div{class:"vocal-generation-progress",role:"status",if progress().is_empty(){"Analyzing vocals…"}else{"{progress}"}}}
         if let Some(error)=generation_error(){div{class:"vocal-edit-error",role:"alert","{error}"}}
@@ -113,7 +113,7 @@ pub fn VocalEditor(studio: Studio) -> Element {
         }
         details{class:"review-evidence vocal-import-path",summary{"Import path"}
             div{class:"vocal-file-actions",
-                input{class:"property-input",aria_label:"Vocal JSON file path",placeholder:"/path/to/vocals.json",value:import_path(),onkeydown:move|event|event.stop_propagation(),oninput:move|event|import_path.set(event.value())}
+                input{class:"field-control",aria_label:"Vocal JSON file path",placeholder:"/path/to/vocals.json",value:import_path(),onkeydown:move|event|event.stop_propagation(),oninput:move|event|import_path.set(event.value())}
                 button{class:"studio-tool",disabled:busy||import_path().trim().is_empty(),onclick:move |_|import_document_path(studio,import_path().trim().into()),"Import"}
             }
         }
@@ -346,7 +346,7 @@ fn VocalReviewChecks(studio: Studio) -> Element {
         .count();
     rsx! {div{class:"vocal-review-summary",
         div{class:"vocal-review-heading",Icon{name:"flag",size:12}strong{"{pending} pending"}
-            if hidden_count>0{label{class:"property-checkbox",input{r#type:"checkbox",checked:show_hidden(),onchange:move|event|show_hidden.set(event.checked())}"Hidden ({hidden_count})"}}
+            if hidden_count>0{label{class:"form-check",input{r#type:"checkbox",checked:show_hidden(),onchange:move|event|show_hidden.set(event.checked())}"Hidden ({hidden_count})"}}
         }
         if !source_current{span{class:"review-stale-badge",title:"These checks describe a different recording or vocal stem; load matching checks before approving","Source changed"}}
         div{class:"vocal-review-regions",for region in &review.regions{
@@ -410,7 +410,7 @@ fn VocalPhrases(studio: Studio) -> Element {
                 }
             }
             if let Some(phrase)=selected {
-                div{class:"property-section-title",style:"margin-top:16px","Syllables"}
+                div{class:"form-heading",style:"margin-top:16px","Syllables"}
                 div{class:"vocal-syllables",
                     for (index,note) in chart.notes.iter().enumerate().filter(|(_,note)|phrase.start<=note.start && note.end<=phrase.end){
                         button{class:if selected_note()==Some(index){"studio-tool active"}else{"studio-tool"},title:"Edit vocal note at tick {note.start}",onclick:move |_|selected_note.set(Some(index)),"{syllable(note)}"}
@@ -529,22 +529,22 @@ fn VocalNoteEditor(
     let current = draft.read().clone();
     let pitched = current.mode == "pitched";
     rsx! {div{class:"vocal-note-editor",
-        div{class:"property-row",
-            div{class:"property-group property-group-half",label{class:"property-label","Start tick"}input{class:"property-input",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal note start tick",r#type:"number",min:"0",value:current.start,oninput:move|event|draft.write().start=event.value()}}
-            div{class:"property-group property-group-half",label{class:"property-label","End tick"}input{class:"property-input",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal note end tick",r#type:"number",min:"1",value:current.end,oninput:move|event|draft.write().end=event.value()}}
+        div{class:"field-row",
+            div{class:"field-stack field-half",label{class:"field-label","Start tick"}input{class:"field-control",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal note start tick",r#type:"number",min:"0",value:current.start,oninput:move|event|draft.write().start=event.value()}}
+            div{class:"field-stack field-half",label{class:"field-label","End tick"}input{class:"field-control",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal note end tick",r#type:"number",min:"1",value:current.end,oninput:move|event|draft.write().end=event.value()}}
         }
-        div{class:"property-group",label{class:"property-label","Syllable"}input{class:"property-input",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal syllable text",placeholder:"Missing lyric",value:current.text,disabled:current.continuation || current.continue_word,oninput:move|event|draft.write().text=event.value()}}
-        div{class:"property-row",
-            div{class:"property-group property-group-half",label{class:"property-label","Type"}select{class:"property-select",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal note type",value:current.mode,onchange:move|event|draft.write().mode=event.value(),option{value:"pitched","Pitched"}option{value:"talkie","Talkie"}option{value:"lenient","Lenient talkie"}}}
-            div{class:"property-group property-group-half",label{class:"property-label","MIDI pitch"}input{class:"property-input",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal MIDI pitch",r#type:"number",min:"36",max:"84",value:current.pitch,disabled:!pitched,oninput:move|event|draft.write().pitch=event.value()}}
+        div{class:"field-stack",label{class:"field-label","Syllable"}input{class:"field-control",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal syllable text",placeholder:"Missing lyric",value:current.text,disabled:current.continuation || current.continue_word,oninput:move|event|draft.write().text=event.value()}}
+        div{class:"field-row",
+            div{class:"field-stack field-half",label{class:"field-label","Type"}select{class:"field-control",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal note type",value:current.mode,onchange:move|event|draft.write().mode=event.value(),option{value:"pitched","Pitched"}option{value:"talkie","Talkie"}option{value:"lenient","Lenient talkie"}}}
+            div{class:"field-stack field-half",label{class:"field-label","MIDI pitch"}input{class:"field-control",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal MIDI pitch",r#type:"number",min:"36",max:"84",value:current.pitch,disabled:!pitched,oninput:move|event|draft.write().pitch=event.value()}}
         }
         div{class:"vocal-note-options",
-            label{class:"property-checkbox",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:current.continue_word,onchange:move|event|{let mut value=draft.write();value.continue_word=event.checked();if value.continue_word{value.continuation=false;}}}"Continue word"}
-            label{class:"property-checkbox",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:current.continuation,onchange:move|event|{let mut value=draft.write();value.continuation=event.checked();if value.continuation{value.continue_word=false;}}}"Pitch slide"}
-            label{class:"property-checkbox",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:current.join,disabled:current.continuation || current.continue_word,onchange:move|event|draft.write().join=event.checked()}"Join next"}
+            label{class:"form-check",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:current.continue_word,onchange:move|event|{let mut value=draft.write();value.continue_word=event.checked();if value.continue_word{value.continuation=false;}}}"Continue word"}
+            label{class:"form-check",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:current.continuation,onchange:move|event|{let mut value=draft.write();value.continuation=event.checked();if value.continuation{value.continue_word=false;}}}"Pitch slide"}
+            label{class:"form-check",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:current.join,disabled:current.continuation || current.continue_word,onchange:move|event|draft.write().join=event.checked()}"Join next"}
         }
         if let Some(error)=error(){div{class:"vocal-edit-error",role:"alert","{error}"}}
-        button{class:"property-button",style:"margin-top:12px",onclick:move |_|{
+        button{class:"field-button",style:"margin-top:12px",onclick:move |_|{
             let Some(doc)=studio.snapshot()else{return};
             if studio.store.read().as_ref().map(|store|store.root.clone())!=project_root || doc.audio_sha256!=audio_sha256{error.set(Some("The project changed. Select a current vocal note.".into()));return;}
             let Some(chart)=doc.content.vocals.as_ref()else{return};

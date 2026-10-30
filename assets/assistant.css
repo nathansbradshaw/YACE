@@ -88,13 +88,13 @@
   overflow-wrap:anywhere
 }
 
-.ai-assistant .property-button {
+.ai-assistant .field-button {
   height:auto;
   min-height:28px;
   white-space:normal
 }
 
-.ai-assistant-header .property-button {
+.ai-assistant-header .field-button {
   width:auto;
   flex:0 0 auto;
   padding:6px 10px

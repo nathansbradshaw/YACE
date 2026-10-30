@@ -4,12 +4,9 @@
 //! Strikeline source. All SVG paths, materials and effects here are original
 //! vector artwork; no YARG meshes, textures, shader code or geometry is copied.
 //! Autoplay animation is an editing aid, never a score or controller judgment.
-use super::{
-    icons::Icon,
-    state::{Studio, instrument},
-};
+use super::state::Studio;
 use crate::{
-    editor::{Action, Project},
+    editor::Project,
     gameplay_view::{self, DrumMode, Dynamics, GemShape, Policy, Technique},
     timing::TempoMap,
 };
@@ -155,46 +152,8 @@ fn preview_policy(studio: Studio, timing: &TempoMap, pro_drums: bool) -> (Policy
     (policy, unknown)
 }
 
-fn select_instrument(studio: Studio, name: &str) {
-    if name == "Vocals" {
-        studio.dispatch(Action::SelectTrack {
-            track: "Vocals".into(),
-        });
-        return;
-    }
-    let Some(doc) = studio.snapshot() else { return };
-    let suffix = match name {
-        "Drums" => "Drums",
-        "Bass" => "DoubleBass",
-        "Piano" => "Keyboard",
-        "Pro Piano" => "ProKeys",
-        _ => "Single",
-    };
-    let tier = ["Easy", "Medium", "Hard", "Expert"]
-        .into_iter()
-        .find(|tier| doc.selected_track.starts_with(tier))
-        .unwrap_or("Expert");
-    let desired = format!("{tier}{suffix}");
-    if let Some(track) = doc
-        .content
-        .tracks
-        .keys()
-        .find(|track| **track == desired)
-        .or_else(|| {
-            doc.content
-                .tracks
-                .keys()
-                .find(|track| track.ends_with(suffix))
-        })
-    {
-        studio.dispatch(Action::SelectTrack {
-            track: track.clone(),
-        });
-    }
-}
-
 #[component]
-pub fn Preview(mut studio: Studio) -> Element {
+pub fn Preview(studio: Studio) -> Element {
     let mut pro_drums = use_signal(|| true);
     let mut lookahead = use_signal(|| DEFAULT_LOOKAHEAD);
     let animation_history = use_hook(|| Rc::new(RefCell::new(Animation::default())));
@@ -271,34 +230,13 @@ pub fn Preview(mut studio: Studio) -> Element {
         doc.as_ref().is_some_and(|doc| doc.transport.playing) && (studio.audio_ready)();
     rsx! {
         style { "{PREVIEW_STYLE}" }
-        div { class: "chart-preview game-preview", "data-preview-position":"{position}", "data-preview-playing":"{telemetry_playing}", "data-preview-revision":"{telemetry_revision}", "data-preview-audio":"{telemetry_audio}",
-            div { class: "panel-header",
-                div { class: "panel-header-title", "Preview" }
-                div { class: "panel-header-actions preview-header-actions",
-                    select { class: "preview-instrument", aria_label: "Preview instrument", value: instrument(&track), onkeydown: move |event| event.stop_propagation(), onchange: move |event| select_instrument(studio, &event.value()),
-                        for name in ["Guitar", "Bass", "Drums", "Piano", "Pro Piano", "Vocals"] {
-                            option { value: name, selected: instrument(&track) == name,
-                                disabled: doc.as_ref().is_none_or(|doc| name != "Vocals" && !doc.content.tracks.keys().any(|track| instrument(track) == name)),
-                                "{name}"
-                            }
-                        }
-                    }
-                    if track != "Vocals" { select { class: "preview-difficulty", aria_label: "Preview difficulty", onkeydown: move |event| event.stop_propagation(), onchange: move |event| {
-                        if let Some(doc) = studio.snapshot()
-                            && let Some(name) = doc.content.tracks.keys().find(|name| name.starts_with(&event.value()) && instrument(name) == instrument(&doc.selected_track))
-                        { studio.dispatch(Action::SelectTrack { track: name.clone() }); }
-                    },
-                        for tier in ["Easy", "Medium", "Hard", "Expert"] {
-                            option { value: tier, selected: track.starts_with(tier),
-                                disabled: doc.as_ref().is_none_or(|doc| !doc.content.tracks.keys().any(|name| name.starts_with(tier) && instrument(name) == instrument(&track))),
-                                "{tier}"
-                            }
-                        }
-                    } }
-                    button { class: "icon-button", title: "Review flagged sections", aria_label: "Review flagged sections", disabled: doc.is_none(), onclick: move |_| studio.review_open.set(true), Icon { name: "flag" } }
-                }
+        section { class: "audition-view", "data-preview-position":"{position}", "data-preview-playing":"{telemetry_playing}", "data-preview-revision":"{telemetry_revision}", "data-preview-audio":"{telemetry_audio}",
+            header { class: "desk-heading audition-heading",
+                h2 { "Audition" }
+                span { class: "audition-track", "{super::track_picker::title(&track)}" }
+                span { class: "audition-mode", "Autoplay" }
             }
-            div { class: "chart-preview-canvas game-preview-canvas",
+            div { class: "audition-surface",
                 if track == "Vocals" {
                     super::vocal_preview::VocalPreview { studio, lookahead: lookahead() }
                 } else if doc.is_some() {
@@ -306,7 +244,6 @@ pub fn Preview(mut studio: Studio) -> Element {
                         "aria-label": "Autoplay editing preview with instrument notes; no scoring or controller judgment",
                         dangerous_inner_html: "{geometry}"
                     }
-                    div { class: "game-preview-badge", "Autoplay" }
                     if (studio.audio_stalled)() && telemetry_playing { div { class: "game-preview-policy-warning", "Audio position stalled · preview held" } }
                     if unknown_policy && !drums && !crate::keys::is_keys(&track) { div { class: "game-preview-policy-warning", "HOPO policy unknown · neutral note caps" } }
                     if let Some(error) = classification_error { div { class: "game-preview-policy-warning", "{error}" } }
@@ -321,9 +258,9 @@ pub fn Preview(mut studio: Studio) -> Element {
             }
             super::practice::PracticeControls { studio,
               super::stems::StemControls { studio }
-            div { class: "game-preview-footer",
+            div { class: "audition-settings",
                 if drums {
-                    label { class: "property-checkbox",
+                    label { class: "form-check",
                         input { r#type: "checkbox", checked: pro_drums(), onkeydown: move |event| event.stop_propagation(), onchange: move |event| pro_drums.set(event.checked()) }
                         span { "Pro Drums" }
                     }
@@ -334,7 +271,6 @@ pub fn Preview(mut studio: Studio) -> Element {
                         for seconds in [2.0, 2.8, 3.6, 4.5, 6.0] { option { value: "{seconds}", selected: seconds == lookahead(), "{seconds:.1}s" } }
                     }
                 }
-                span { class: "game-preview-note", if track == "Vocals" { "Vocal draft · edit notes below" } else { "Visual audition · edit notes below" } }
             }
             }
         }

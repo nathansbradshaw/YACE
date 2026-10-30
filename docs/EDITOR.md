@@ -12,16 +12,17 @@ change; it does not edit the original song folder.
 
 ## Edit notes
 
-Choose an instrument and difficulty in the left sidebar or preview header.
+Choose an instrument and difficulty from **Track** beside the editing tools.
+Audition, selection details and review follow that track.
 
 - **Select**: click a note, or drag it to change its time or lane.
 - **Place**: click an empty lane to add a note.
 - **Erase**: click a note to remove it.
 - **Snap**: choose a grid division, or turn snapping off for precise placement.
-- **Note** in the Inspector: edit position, duration, lane and supported flags.
+- Select a note to edit its position, duration, lane and supported flags in the selection desk.
 - Drag a sustain's end handle to change its length. Drum notes do not sustain.
 
-Use **Difficulty links** in the Inspector to preview a reduction from Expert.
+Use **Difficulty links** in the selection desk to preview a reduction from Expert.
 Confirm the replacement before linking an existing lower difficulty. Local edits
 to a linked row become overrides; Undo restores the earlier state.
 

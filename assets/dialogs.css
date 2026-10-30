@@ -1,151 +1,123 @@
-/* Native dialogs provide focus containment and the dimmed background. */
+/* Native dialogs own focus and Escape; the sheet owns scrolling and actions. */
 .studio-modal-portal {
-  width: max-content;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 32px);
-  margin: auto;
-  padding: 0;
-  border: 0;
-  overflow: visible;
-  background: transparent;
-  color: var(--text-primary);
+  width:max-content;
+  max-width:calc(100vw - 24px);
+  max-height:calc(100vh - 24px);
+  margin:auto;
+  padding:0;
+  border:0;
+  overflow:visible;
+  background:transparent;
+  color:var(--text-primary);
 }
 
 .studio-modal-portal::backdrop {
-  background: #070809b8;
+  background:#070809b8;
 }
 
-.studio-modal-portal > div {
-  max-width: 100%;
-  max-height: calc(100vh - 32px);
+.studio-modal-portal > * {
+  max-width:100%;
+  max-height:calc(100vh - 24px);
 }
 
-.settings-modal {
-  display: flex;
-  flex-direction: column;
-  width: min(820px, 100%);
-  max-height: calc(100vh - 48px);
-  background: var(--panel-face);
-  border: 1px solid var(--border-color-hover);
-  border-radius: 3px;
-  box-shadow: 0 20px 80px #0009;
-  overflow: hidden;
+.tool-sheet {
+  display:flex;
+  flex-direction:column;
+  width:min(820px,100%);
+  max-height:calc(100vh - 32px);
+  overflow:hidden;
+  background:var(--panel-face);
+  border:1px solid var(--border-color-hover);
+  border-radius:3px;
+  box-shadow:0 16px 48px #0008;
 }
 
-.settings-modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border-color);
-  background: var(--panel-face);
-  box-shadow: none;
+.tool-sheet-heading {
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:14px;
+  flex-shrink:0;
+  padding:14px 18px;
+  border-bottom:1px solid var(--border-color);
 }
 
-.settings-modal-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
+.tool-sheet-heading h2 {
+  margin:0;
+  font-size:18px;
+  font-weight:600;
 }
 
-.settings-modal-subtitle {
-  margin: 5px 0 0;
-  font-size: 12px;
-  color: var(--text-muted);
+.tool-sheet-heading p {
+  margin:5px 0 0;
+  font-size:12px;
+  color:var(--text-muted);
 }
 
-.settings-modal-close {
-  display: flex;
-  width: 30px;
-  height: 30px;
-  padding: 5px;
-  background: transparent;
-  border-color: transparent;
-  flex-shrink: 0;
-  box-shadow: none;
+.tool-sheet-close {
+  width:28px;
+  height:28px;
+  min-height:28px;
+  flex-shrink:0;
+  padding:4px;
+  background:transparent;
+  border-color:transparent;
 }
 
-.settings-modal-body {
-  display: grid;
-  gap: 20px;
-  padding: 24px;
-  overflow: auto;
-  min-height: 0;
+.tool-sheet-content {
+  display:grid;
+  gap:16px;
+  padding:18px;
+  min-height:0;
+  overflow:auto;
 }
 
-.settings-modal-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 16px 24px;
-  border-top: 1px solid var(--border-color);
-  flex-shrink: 0;
-  background: var(--bg-secondary);
+.tool-sheet-actions {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:10px;
+  flex-shrink:0;
+  padding:10px 18px;
+  border-top:1px solid var(--border-color);
+  background:var(--bg-secondary);
 }
 
-.settings-modal-primary, .settings-modal-secondary {
-  padding: 7px 14px;
-  font-size: 12px;
-}
-
-.settings-modal-primary {
-  background: var(--key-face);
-  border-color: #171d20;
-  color: var(--key-ink);
-  font-weight: 600;
-}
-
-.settings-modal-primary:hover:not(:disabled) {
-  background: var(--key-hover);
-  color: var(--key-ink);
-}
-
-.settings-field-hint {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.settings-field-hint code {
-  background: var(--bg-tertiary);
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: 11px;
+.review-sheet {
+  width:1000px;
 }
 
 .generation-validation {
-  margin: 0;
-  color: var(--warning-color);
-  font-size: 12px;
+  margin:0;
+  color:var(--warning-color);
+  font-size:12px;
 }
 
 .collaboration-modal {
-  border: 1px solid var(--border-color-hover);
-  border-radius: 3px;
-  box-shadow: 0 20px 80px #0009;
+  border:1px solid var(--border-color-hover);
+  border-radius:3px;
+  box-shadow:0 16px 48px #0008;
 }
 
-.collaboration-modal > .property-button:first-child {
-  float: right;
-  width: auto;
-  margin-left: 16px;
+.collaboration-modal > .field-button:first-child {
+  float:right;
+  width:auto;
+  margin-left:16px;
 }
 
 .collaboration-modal > h2 {
-  margin: 0 0 14px;
-  font-size: 20px;
+  margin:0 0 14px;
+  font-size:18px;
 }
 
 .collaboration-modal > label {
-  display: block;
-  margin: 10px 0 5px;
-  font-size: 12px;
-  color: var(--text-secondary);
+  display:block;
+  margin:10px 0 5px;
+  color:var(--text-secondary);
+  font-size:12px;
 }
 
-.collaboration-modal > .property-button {
-  margin-bottom: 8px;
+.collaboration-modal > .field-button {
+  margin-bottom:8px;
 }

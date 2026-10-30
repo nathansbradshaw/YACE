@@ -192,13 +192,17 @@ pub fn PracticeControls(studio: Studio, children: Element) -> Element {
     rsx! {
         div{class:"practice-controls",role:"toolbar",aria_label:"Preview and practice controls",
             onkeydown:move|event:KeyboardEvent|event.stop_propagation(),
-            span{class:"timeline-time",style:"white-space:nowrap;",title:"{position:.3} / {duration:.3} seconds","{clock(position)} / {clock(duration)}"}
             button{class:"instrument-toggle transport-control",aria_pressed:playing.to_string(),disabled:!loaded||!source_ready,aria_label:if playing{"Pause practice recording"}else{"Play practice recording"},title:"Play / pause recording (Space)",onclick:move|_|studio.toggle_playback(),Icon { name: playback_icon, size: 16 }}
+            button{class:"instrument-toggle transport-control",disabled:!loaded,aria_label:"Stop and return to beginning",title:"Stop and return to beginning",onclick:move|_|{studio.dispatch(Action::Playback{playing:false});studio.seek(0.0);},Icon{name:"square",size:16}}
+            span{class:"timeline-time",style:"white-space:nowrap;",title:"{position:.3} / {duration:.3} seconds","{clock(position)} / {clock(duration)}"}
             label{class:"preview-snap-selector","Speed" select{disabled:!loaded,aria_label:"Pitch-preserving practice speed",value:rate.to_string(),onchange:move|event|{if let Ok(rate)=event.value().parse(){studio.set_playback_rate(rate);}},
                 option{value:"0.5",selected:rate==0.5,"50%"}option{value:"0.75",selected:rate==0.75,"75%"}option{value:"1",selected:rate==1.0,"100%"}
                 if ![0.5,0.75,1.0].contains(&rate){option{value:rate.to_string(),selected:true,"{rate:.2}× (current)"}}
             }}
-            if loaded&&!source_ready{span{class:"settings-field-hint",role:"status","Audio not ready"}}
+            label{class:"practice-volume",title:"Recording volume",Icon{name:"volume",size:15}
+                input{r#type:"range",min:"0",max:"1",step:"0.01",value:"{(studio.volume)()}",disabled:!loaded,aria_label:"Recording volume",oninput:move|event|{if let Ok(volume)=event.value().parse(){studio.update_volume(volume);}}}
+            }
+            if loaded&&!source_ready{span{class:"field-hint",role:"status","Audio not ready"}}
             details { class: "preview-options", open: options_open(),
               onkeydown: move |event: KeyboardEvent| {
                 if event.key() == Key::Escape {
@@ -218,14 +222,14 @@ pub fn PracticeControls(studio: Studio, children: Element) -> Element {
                 }
             if edit_loop(){
                 div{style:"display:flex;flex:1 0 100%;flex-wrap:wrap;align-items:center;gap:8px;padding-top:4px;",
-                    label{class:"preview-snap-selector","In (s)" input{class:"property-input",style:"width:88px;height:28px;border-radius:4px;padding:4px 8px;",r#type:"number",min:"0",step:"0.01",aria_label:"Practice loop in seconds",disabled:!loaded,value:view.start.clone(),oninput:move|event|stage(draft,Some(event.value()),None)}}
+                    label{class:"preview-snap-selector","In (s)" input{class:"field-control",style:"width:88px;height:28px;border-radius:4px;padding:4px 8px;",r#type:"text",inputmode:"decimal",aria_label:"Practice loop in seconds",disabled:!loaded,value:view.start.clone(),oninput:move|event|stage(draft,Some(event.value()),None)}}
                     button{class:"instrument-toggle",disabled:!loaded,title:"Use current playhead as staged loop in point",onclick:move|_|stage(draft,Some((studio.playhead)().to_string()),None),"In here"}
-                    label{class:"preview-snap-selector","Out (s)" input{class:"property-input",style:"width:88px;height:28px;border-radius:4px;padding:4px 8px;",r#type:"number",min:"0",step:"0.01",aria_label:"Practice loop out seconds",disabled:!loaded,value:view.end.clone(),oninput:move|event|stage(draft,None,Some(event.value()))}}
+                    label{class:"preview-snap-selector","Out (s)" input{class:"field-control",style:"width:88px;height:28px;border-radius:4px;padding:4px 8px;",r#type:"text",inputmode:"decimal",aria_label:"Practice loop out seconds",disabled:!loaded,value:view.end.clone(),oninput:move|event|stage(draft,None,Some(event.value()))}}
                     button{class:"instrument-toggle",disabled:!loaded,title:"Use current playhead as staged loop out point",onclick:move|_|stage(draft,None,Some((studio.playhead)().to_string())),"Out here"}
                     button{class:"instrument-toggle",disabled:!valid_draft,title:"Apply these exact-second loop points",onclick:move|_|commit(studio,draft),"Apply loop"}
                     button{class:"instrument-toggle",disabled:!loop_on,onclick:move|_|{studio.dispatch(Action::SetLoop{range:None});draft.with_mut(|draft|{draft.changed_elsewhere=false;draft.error=None;});},"Clear loop"}
-                    if view.changed_elsewhere{span{class:"settings-field-hint","Loop changed elsewhere; Apply commits your staged points."}}
-                    if let Some(error)=error{span{class:"settings-field-hint",role:"alert",style:"color:var(--danger-color);","{error}"}}
+                    if view.changed_elsewhere{span{class:"field-hint","Loop changed elsewhere; Apply commits your staged points."}}
+                    if let Some(error)=error{span{class:"field-hint",role:"alert",style:"color:var(--danger-color);","{error}"}}
                 }
             }
                 {children}

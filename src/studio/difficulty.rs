@@ -185,7 +185,7 @@ pub fn NoteAncestry(studio: Studio, note_id: String) -> Element {
     };
     let Some(state) = snapshot.tracks.iter().find(|state| state.track == track) else {
         return if track.starts_with("Expert") {
-            rsx! {div{class:"property-group",label{class:"property-label","Difficulty source"}div{class:"difficulty-hint",title:"Linked lower difficulties retain or omit this attack according to their rules","Expert master"}}}
+            rsx! {div{class:"field-stack",label{class:"field-label","Difficulty source"}div{class:"difficulty-hint",title:"Linked lower difficulties retain or omit this attack according to their rules","Expert master"}}}
         } else {
             rsx! {}
         };
@@ -197,20 +197,20 @@ pub fn NoteAncestry(studio: Studio, note_id: String) -> Element {
         .or_else(|| override_view.and_then(|item| item.ancestry.as_ref()));
     let reset_id = note_id.clone();
     let reset_track = track.to_owned();
-    rsx! {div{class:"property-group",onkeydown:move|event|event.stop_propagation(),
-        label{class:"property-label","Expert source"}
+    rsx! {div{class:"field-stack",onkeydown:move|event|event.stop_propagation(),
+        label{class:"field-label","Expert source"}
         div{style:"font-size:11px;color:var(--text-secondary)",if state.linked{"Auto-linked"}else if state.has_link{"Link paused"}else{"Independent"} if override_view.is_some(){span{style:"color:#c889ff"," · Local override"}}}
         if let Some(ancestry)=ancestry{
             for parent_id in &ancestry.parent_ids{
                 if let Some((parent_track,parent))=doc.find_note(parent_id){
-                    {let id=parent_id.clone();rsx!{button{class:"property-button",style:"margin-top:5px",title:"Jump to {parent_track}, tick {parent.note.tick}, lane {parent.note.lane}",onclick:move |_|jump_note(studio,id.clone()),Icon{name:"skip-back",size:12}" Expert · tick {parent.note.tick}"}}}
+                    {let id=parent_id.clone();rsx!{button{class:"field-button",style:"margin-top:5px",title:"Jump to {parent_track}, tick {parent.note.tick}, lane {parent.note.lane}",onclick:move |_|jump_note(studio,id.clone()),Icon{name:"skip-back",size:12}" Expert · tick {parent.note.tick}"}}}
                 }else{div{class:"difficulty-hint","Expert source removed: {parent_id}"}}
             }
             details{class:"review-evidence",summary{"Reduction rules"}div{class:"review-evidence-body","Tick {ancestry.source_tick} · lanes {ancestry.source_lanes:?} → {ancestry.mapped_lane}" div{class:"review-evidence-values",{format!("{} · {}", ancestry.role, ancestry.rule_ids.join(", "))}}}}
         }else if state.has_link{div{class:"difficulty-hint","Manual addition"}}else{div{class:"difficulty-hint","Independent authored note"}}
         if let Some(override_view)=override_view{
             if override_view.orphaned{div{style:"font-size:11px;color:var(--warning-color)","Expert parent changed or disappeared. Review this retained override."}}
-            button{class:"property-button",disabled:!state.linked,title:if state.linked{"Restore this Expert-derived reduction"}else{"Resume the link before resetting overrides"},style:"margin-top:6px",onclick:move |_|studio.dispatch(Action::ClearDifficultyOverrides{track:reset_track.clone(),note_id:Some(reset_id.clone())}),"Reset this override"}
+            button{class:"field-button",disabled:!state.linked,title:if state.linked{"Restore this Expert-derived reduction"}else{"Resume the link before resetting overrides"},style:"margin-top:6px",onclick:move |_|studio.dispatch(Action::ClearDifficultyOverrides{track:reset_track.clone(),note_id:Some(reset_id.clone())}),"Reset this override"}
         }
         for finding in state.findings.iter().filter(|finding|finding.note_id.as_ref()==Some(&note_id)){
             div{style:"font-size:10px;color:var(--warning-color);margin-top:5px","{finding.reason}"}

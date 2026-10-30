@@ -130,7 +130,7 @@ input[type=range]::-webkit-slider-thumb {
   box-shadow: none;
 }
 
-.toolbar-volume-slider::-webkit-slider-thumb {
+.practice-volume input::-webkit-slider-thumb {
   width: 16px;
   border-radius: 2px;
   background: var(--key-face);
@@ -194,7 +194,7 @@ summary {
   box-shadow: none;
 }
 
-.toolbar-toggle, .property-checkbox, .settings-checkbox-row {
+.toolbar-toggle, .form-check {
   display: inline-flex;
   align-items: center;
   gap: 7px;

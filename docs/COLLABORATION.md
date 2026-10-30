@@ -6,7 +6,7 @@ hosted server are not required.
 
 ## Share review files
 
-1. Open **Collaborate** in the toolbar and enter your name.
+1. Open **Tools → Collaborate** and enter your name.
 2. Export a review bundle, or sync with a shared review folder.
 3. Ask the other person to import or sync those files in their project.
 

@@ -1,5 +1,5 @@
 /* Vocal editing and review details. */
-.layout .review-approve, .layout .review-hide {
+.studio-app .review-approve, .studio-app .review-hide {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -11,38 +11,38 @@
   min-height: 23px;
 }
 
-.layout .review-approve {
+.studio-app .review-approve {
   color: var(--success-color);
   background: #274638;
   border: 1px solid #4b795f;
 }
 
-.layout .review-approve:hover:not(:disabled) {
+.studio-app .review-approve:hover:not(:disabled) {
   background: #335b47;
 }
 
-.layout .review-approve:disabled {
+.studio-app .review-approve:disabled {
   opacity: .55;
   cursor: default;
 }
 
-.layout .review-hide {
+.studio-app .review-hide {
   color: var(--text-secondary);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
 }
 
-.layout .review-hide:hover {
+.studio-app .review-hide:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
 }
 
-.layout .review-evidence {
+.studio-app .review-evidence {
   border-top: 1px solid var(--border-color);
   margin-top: 3px;
 }
 
-.layout .review-evidence summary {
+.studio-app .review-evidence summary {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -51,7 +51,7 @@
   padding: 5px 0;
 }
 
-.layout .review-evidence summary::before {
+.studio-app .review-evidence summary::before {
   content: '';
   width: 5px;
   height: 5px;
@@ -61,29 +61,29 @@
   flex: 0 0 auto;
 }
 
-.layout .review-evidence[open] summary::before {
+.studio-app .review-evidence[open] summary::before {
   transform: rotate(45deg);
 }
 
-.layout .review-evidence summary > span {
+.studio-app .review-evidence summary > span {
   color: var(--text-muted);
   font-family: var(--font-mono);
 }
 
-.layout .review-evidence-body {
+.studio-app .review-evidence-body {
   color: var(--text-secondary);
   padding: 0 0 7px 12px;
   font-size: 10px;
 }
 
-.layout .review-evidence-values {
+.studio-app .review-evidence-values {
   font: 9px var(--font-mono);
   color: var(--text-muted);
   padding-top: 5px;
   overflow-wrap: anywhere;
 }
 
-.layout .review-state-badge, .layout .review-stale-badge {
+.studio-app .review-state-badge, .studio-app .review-stale-badge {
   display: inline-block;
   font-size: 9px;
   font-weight: 400;
@@ -94,53 +94,53 @@
   margin: 0 0 3px 7px;
 }
 
-.layout .review-results-heading {
+.studio-app .review-results-heading {
   color: var(--text-muted);
   font-size: 11px;
   margin-bottom: 10px;
 }
 
-.layout .review-notes {
+.studio-app .review-notes {
   margin: 12px 0;
 }
 
-.layout .link-preview-counts {
+.studio-app .link-preview-counts {
   margin-top: 8px;
   color: var(--text-primary);
   font: 13px var(--font-mono);
 }
 
-.layout .link-preview-detail {
+.studio-app .link-preview-detail {
   margin-top: 4px;
   color: var(--text-muted);
   font-size: 10px;
 }
 
-.layout .timeline-heading {
+.studio-app .timeline-heading {
   color: var(--text-primary);
   font-weight: 600;
   font-size: 11px;
   margin-right: 2px;
 }
 
-.layout .vocal-summary {
+.studio-app .vocal-summary {
   display: flex;
   flex-direction: column;
   gap: 3px;
   margin-bottom: 12px;
 }
 
-.layout .vocal-summary strong {
+.studio-app .vocal-summary strong {
   color: var(--text-primary);
   font-size: 12px;
 }
 
-.layout .vocal-summary > span {
+.studio-app .vocal-summary > span {
   color: var(--text-muted);
   font-size: 10px;
 }
 
-.layout .vocal-phrase-list {
+.studio-app .vocal-phrase-list {
   max-height: 210px;
   overflow-y: auto;
   border: 1px solid var(--border-color);
@@ -149,7 +149,7 @@
   background: var(--bg-primary);
 }
 
-.layout .vocal-phrase-choice {
+.studio-app .vocal-phrase-choice {
   display: flex;
   align-items: start;
   gap: 8px;
@@ -163,70 +163,70 @@
   font-size: 11px;
 }
 
-.layout .vocal-phrase-choice:hover, .layout .vocal-phrase-choice.active {
+.studio-app .vocal-phrase-choice:hover, .studio-app .vocal-phrase-choice.active {
   background: var(--bg-active);
   border-color: var(--border-color-hover);
   color: var(--text-primary);
 }
 
-.layout .vocal-phrase-time {
+.studio-app .vocal-phrase-time {
   color: var(--text-muted);
   font: 10px var(--font-mono);
   flex: 0 0 auto;
   padding-top: 2px;
 }
 
-.layout .vocal-phrase-words {
+.studio-app .vocal-phrase-words {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-.layout .vocal-syllables {
+.studio-app .vocal-syllables {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
 }
 
-.layout .vocal-syllables .studio-tool {
+.studio-app .vocal-syllables .studio-tool {
   min-width: 30px;
 }
 
-.layout .vocal-note-editor {
+.studio-app .vocal-note-editor {
   margin-top: 14px;
   border-top: 1px solid var(--border-color);
   padding-top: 14px;
 }
 
-.layout .vocal-note-options {
+.studio-app .vocal-note-options {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   font-size: 10px;
 }
 
-.layout .vocal-edit-error {
+.studio-app .vocal-edit-error {
   color: var(--danger-color);
   margin-top: 8px;
   font-size: 11px;
 }
 
-.layout .vocal-file-actions {
+.studio-app .vocal-file-actions {
   display: flex;
   gap: 6px;
   margin-bottom: 14px;
 }
 
-.layout .vocal-empty {
+.studio-app .vocal-empty {
   padding: 18px 0;
   color: var(--text-muted);
   font-size: 11px;
 }
 
-.layout .vocal-review-summary {
+.studio-app .vocal-review-summary {
   margin-bottom: 12px;
 }
 
-.layout .vocal-review-heading {
+.studio-app .vocal-review-heading {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -235,18 +235,18 @@
   font-size: 11px;
 }
 
-.layout .vocal-review-heading .property-checkbox {
+.studio-app .vocal-review-heading .form-check {
   margin-left: auto;
   font-size: 10px;
   color: var(--text-muted);
 }
 
-.layout .vocal-review-regions {
+.studio-app .vocal-review-regions {
   max-height: 240px;
   overflow-y: auto;
 }
 
-.layout .vocal-review-region {
+.studio-app .vocal-review-region {
   border: 1px solid #65513b;
   border-left: 3px solid #dca15a;
   border-radius: 3px;
@@ -255,23 +255,23 @@
   padding: 5px 7px;
 }
 
-.layout .vocal-review-region.active {
+.studio-app .vocal-review-region.active {
   background: #3c3022;
   border-color: #e0ab67;
 }
 
-.layout .vocal-review-region.reviewed {
+.studio-app .vocal-review-region.reviewed {
   background: #1b302b;
   border-color: #40685a;
   border-left-color: #63b398;
 }
 
-.layout .vocal-review-region.hidden {
+.studio-app .vocal-review-region.hidden {
   background: var(--bg-tertiary);
   border-color: var(--border-color);
 }
 
-.layout .vocal-review-jump {
+.studio-app .vocal-review-jump {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -284,24 +284,24 @@
   font-size: 11px;
 }
 
-.layout .vocal-review-actions {
+.studio-app .vocal-review-actions {
   display: flex;
   gap: 5px;
   align-items: center;
 }
 
-.layout .vocal-review-state {
+.studio-app .vocal-review-state {
   margin-right: auto;
   font-size: 9px;
   color: var(--text-muted);
 }
 
-.layout .vocal-review-causes {
+.studio-app .vocal-review-causes {
   max-height: 150px;
   overflow-y: auto;
 }
 
-.layout .vocal-review-cause {
+.studio-app .vocal-review-cause {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -311,7 +311,7 @@
   font-size: 10px;
 }
 
-.layout .vocal-review-status {
+.studio-app .vocal-review-status {
   padding: 7px 9px;
   color: #edba7d;
   background: #332a20;
@@ -320,12 +320,12 @@
   font-size: 11px;
 }
 
-.layout .vocal-check-list {
+.studio-app .vocal-check-list {
   max-height: 170px;
   overflow-y: auto;
 }
 
-.layout .vocal-check-row {
+.studio-app .vocal-check-row {
   display: flex;
   gap: 8px;
   width: 100%;
@@ -338,22 +338,22 @@
   font-size: 10px;
 }
 
-.layout .vocal-check-row:hover:not(:disabled) {
+.studio-app .vocal-check-row:hover:not(:disabled) {
   background: #342d24;
 }
 
-.layout .vocal-check-row:disabled {
+.studio-app .vocal-check-row:disabled {
   opacity: .5;
   cursor: default;
 }
 
-.layout .vocal-generation-actions {
+.studio-app .vocal-generation-actions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.layout .vocal-generate {
+.studio-app .vocal-generate {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -365,21 +365,21 @@
   color: var(--accent-color-hover);
 }
 
-.layout .vocal-generate:disabled {
+.studio-app .vocal-generate:disabled {
   opacity: .45;
   cursor: default;
 }
 
-.layout .vocal-generation-options {
+.studio-app .vocal-generation-options {
   margin: 7px 0 12px;
 }
 
-.layout .vocal-generation-options .property-checkbox {
+.studio-app .vocal-generation-options .form-check {
   margin: 6px 0;
   font-size: 11px;
 }
 
-.layout .vocal-generation-progress {
+.studio-app .vocal-generation-progress {
   font-size: 10px;
   color: var(--accent-color);
   margin: 7px 0 12px;

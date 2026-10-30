@@ -21,7 +21,7 @@ fn preset(studio: Studio, quiet_backing: bool) {
     let Some(doc) = project.as_ref() else {
         return;
     };
-    let vocals = studio.property_tab.read().eq_ignore_ascii_case("vocals");
+    let vocals = studio.is_vocal_track();
     let Some(manifest) = super::state::review_manifest(doc, vocals) else {
         return;
     };
@@ -78,14 +78,11 @@ pub fn StemControls(studio: Studio) -> Element {
     let Some(doc) = project.as_ref() else {
         return rsx! {};
     };
-    let available = super::state::review_manifest(
-        doc,
-        studio.property_tab.read().eq_ignore_ascii_case("vocals"),
-    );
-    let selected = studio.guitar_source.read().audition_stem(
-        &doc.selected_track,
-        studio.property_tab.read().eq_ignore_ascii_case("vocals"),
-    );
+    let available = super::state::review_manifest(doc, studio.is_vocal_track());
+    let selected = studio
+        .guitar_source
+        .read()
+        .audition_stem(&doc.selected_track, studio.is_vocal_track());
     let selected_available = available.is_some_and(|m| m.stems.iter().any(|s| s.id == selected));
     let kit = doc.kit_audition.as_ref();
     let original = kit.is_none() && doc.content.stem_mix.mode == MixMode::Original;
