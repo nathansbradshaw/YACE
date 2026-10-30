@@ -6,6 +6,7 @@ Research-only source checkouts and private recordings are not included.
 
 | Upstream | Pinned revision | Use and license |
 | --- | --- | --- |
+| Symphonia (Rust codecs) | `0.5.5`, `web/Cargo.lock` | MPL-2.0; unmodified Rust decoding libraries used by the static browser app. Covered source is available in the exact crates recorded in the lockfile and from [upstream](https://github.com/pdeljanov/Symphonia/tree/v0.5.5). License text: `licenses/Symphonia-MPL-2.0.txt`. No model weights are included in the static app. |
 | arboard (Rust crate) | `3.7.0`, Cargo.lock | MIT/Apache-2.0; native text clipboard for desktop note copy/paste. Original MIT notice: `licenses/Arboard-MIT.txt`. Image clipboard support is disabled. |
 | zip-rs/zip2 | `zip` 9.1.3, upstream `af2ed2a3e12af1fdd733b1886b3e9067bf510be5` | MIT; complete original notice in `licenses/ZIP-MIT.txt`. Replaces ZIP 7 in the application and converter. NPY/pickle readers handle fallible names; pinned TorchScript conversion supplies its known byte-zero archive offset. |
 | Hugging Face Candle | `candle-core` 0.10.2 (`7c7a8c570e6a16ea24cc30a7501c8ffbbdb51680`) and 0.9.2 (`3b39794c14b1de8ba4c2d10d49354d557a415547`) | Supplied Apache-2.0 licenses retained in `vendor/candle-core` and `vendor/candle-core-legacy`. YACE raises both ZIP requirements to 9.1.3 and propagates fallible archive-name errors in NPY/pickle readers. Tensor/model computation sources are unchanged. Each copy's `YACE-NOTICE.md` records changes and omitted Python fixture generators. |

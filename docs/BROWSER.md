@@ -42,7 +42,9 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
   difficulty links, author vocals, and undo/redo using the shared Rust commands.
 - Play the recording, seek, loop and change pitch-preserving practice speed.
   Rust codecs decode supported recordings to a local playback buffer and build
-  waveforms. The original encoded recording is preserved in exports.
+  waveforms. Formats such as Opus use the browser's local decoder as a fallback,
+  with a bounded wait and a visible error if neither decoder accepts the file.
+  The original encoded recording is preserved in exports.
 - **Save project ZIP** downloads a portable backup with source files, stable note
   identities, checkpoints and review history. **Export** downloads a playable
   song ZIP using the same Rust export validation as the desktop app. A game

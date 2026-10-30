@@ -3559,6 +3559,7 @@ dependencies = [
  "dioxus",
  "dioxus-document",
  "futures-channel",
+ "futures-util",
  "gloo-timers",
  "js-sys",
  "midly",

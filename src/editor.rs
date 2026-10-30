@@ -1894,7 +1894,7 @@ impl Store {
         )
     }
 
-    #[cfg(feature = "studio")]
+    #[cfg(all(feature = "studio", not(target_arch = "wasm32")))]
     pub(crate) fn report_live(
         &self,
         revision: u64,

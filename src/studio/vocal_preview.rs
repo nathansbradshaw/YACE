@@ -73,7 +73,7 @@ pub fn VocalPreview(studio: Studio, lookahead: f64) -> Element {
     let Some(chart) = &doc.content.vocals else {
         return rsx! { div { class: "studio-empty-preview",
             div { class: "empty-state-title", "No vocal chart yet" }
-            div { "Generate or import vocals in the selection desk." }
+            div { if cfg!(target_arch="wasm32") { "Place notes in the vocal lane or import vocals in the selection desk." } else { "Generate or import vocals in the selection desk." } }
         }};
     };
     let Some(timing) = (studio.timing)() else {

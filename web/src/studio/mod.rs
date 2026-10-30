@@ -37,6 +37,8 @@ mod selection_desk;
 mod sheet;
 #[path = "../../../src/studio/shortcuts.rs"]
 mod shortcuts;
+#[path = "../../../src/studio/star_power.rs"]
+mod star_power;
 mod state;
 #[path = "../../../src/studio/stems.rs"]
 mod stems;

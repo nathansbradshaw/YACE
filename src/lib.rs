@@ -16,8 +16,8 @@ pub mod note_groups;
 pub mod parts;
 pub mod review_git;
 pub mod sections;
-pub mod star_power;
 pub mod song_metadata;
+pub mod star_power;
 pub mod storage;
 #[cfg(feature = "studio")]
 pub mod studio;

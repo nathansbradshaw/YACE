@@ -66,6 +66,8 @@ pub mod review_regions;
 pub mod sections;
 #[path = "../../src/song_metadata.rs"]
 pub mod song_metadata;
+#[path = "../../src/star_power.rs"]
+pub mod star_power;
 #[path = "../../src/stem_review.rs"]
 pub mod stem_review;
 pub mod storage;

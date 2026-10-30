@@ -26,7 +26,7 @@ midly = { version = "0.5", default-features = false, features = ["std"] }
 regex = "1"
 rustfft = "6.4"
 pitch-detection = "0.3"
-dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "hooks", "launch", "web"] }
+dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "hooks", "launch", "web", "mounted"] }
 dioxus-document = { version = "=0.7.10", default-features = false }
 wasm-bindgen = "=0.2.127"
 wasm-bindgen-futures = "=0.4.77"
@@ -36,6 +36,7 @@ zip = { version = "=9.1.3", default-features = false, features = ["deflate-flate
 base64 = "0.22"
 console_error_panic_hook = "0.1"
 futures-channel = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 symphonia = { version = "0.5.5", features = ["all"] }
 
 [profile.release]

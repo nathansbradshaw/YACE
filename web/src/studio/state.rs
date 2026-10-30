@@ -53,6 +53,9 @@ pub struct Studio {
     pub timing_open: Signal<bool>,
     pub timing_target: Signal<Option<(bool, u64)>>,
     pub source_sync: Signal<Option<crate::sync_track::SyncTrack>>,
+    pub source_star_power: Signal<crate::star_power::Source>,
+    pub star_power_open: Signal<bool>,
+    pub star_power_target: Signal<Option<crate::star_power::Phrase>>,
     pub generation_target: Signal<Option<String>>,
     pub vocal_note: Signal<Option<usize>>,
     pub group: Signal<crate::note_groups::Selection>,
@@ -100,6 +103,9 @@ pub fn use_studio() -> Studio {
         timing_open: use_signal(|| false),
         timing_target: use_signal(|| None),
         source_sync: use_signal(|| None),
+        source_star_power: use_signal(Default::default),
+        star_power_open: use_signal(|| false),
+        star_power_target: use_signal(|| None),
         generation_target: use_signal(|| None),
         vocal_note: use_signal(|| None),
         group: use_signal(Default::default),
@@ -179,6 +185,10 @@ impl Studio {
                     media.mix(&doc.content.stem_mix, (self.volume)());
                     if seek {
                         media.seek(doc.transport.position);
+                        self.view_start.set(
+                            (doc.transport.position - 0.5)
+                                .clamp(0., (doc.duration - (self.span)()).max(0.)),
+                        );
                     }
                     if doc.transport.playing {
                         if media.paused()
@@ -334,6 +344,9 @@ impl Studio {
         self.timing.set(Some(doc.timing(&store)?));
         self.source_sections.set(store.source_sections(&doc)?);
         self.source_sync.set(store.source_sync(&doc).ok());
+        self.source_star_power.set(store.source_star_power(&doc)?);
+        self.star_power_open.set(false);
+        self.star_power_target.set(None);
         self.timing_open.set(false);
         self.source_audio.set(Some(store.audio_path(&doc)?));
         self.guitar_source.set(store.guitar_source(&doc)?);

@@ -3,7 +3,63 @@
 This records functional acceptance, not musical approval or parity with OCTAVE
 or Moonscraper. Source music and generated artifacts stay out of the repository.
 
-## Recording and workflow
+## Static Dioxus Web/WASM acceptance
+
+The static app in `web/` imported the complete song and a saved project through
+the operating system's browser file picker. The same 243.880-second recording,
+12 tracks and Expert note counts below were retained. The deployed assets are
+HTML, generated Dioxus/wasm-bindgen bindings, WASM and license notices. No host
+editor, HTTP file upload, WebSocket, generation endpoint or account is required.
+
+The actual static browser app completed two uninterrupted runs from zero to
+`currentTime == duration == 243.88`, with `ended == true`, 100% speed and the
+original recording selected. Both the old LiveView process and the static HTTP
+file server were stopped during playback. The browser continued playing,
+editing, undoing, saving project ZIPs, reopening those ZIPs and exporting songs.
+
+After the integrated theme/Star Power build's full-song run, a blue cymbal at
+tick 232140 was moved to 232141. Its companion cymbal control moved with it.
+The downloaded project JSON and game chart both contained the changed tick.
+The project ZIP reopened at revision 14 with its checkpoint and selected note;
+Undo restored the original chart exactly. The restored chart SHA-256 was
+`7e2300633a8af340baed76b28d5db67cdcc27972f37740380fcf99f62b75a76d`.
+The exported source recording hash remained
+`4116e98add1b324105924afb9788379813c437c9792dbc3328d6ff2c03b5053a`.
+Project and song ZIP integrity checks passed. Reloading the served site restored
+the project from IndexedDB and displayed Saved locally after its transaction.
+
+The shared collaboration dialog exported and reimported a review bundle using
+normal browser downloads and native file selection. A Star Power phrase was
+added, exported as `0 = S 2 1920`, and undone. A 125 BPM marker was edited to
+126 BPM and undone. In the vocal lane a note was placed, assigned syllable
+`Test` and MIDI pitch 60, saved to JSON and undone. Invalid multiword syllable
+text was rejected by the shared validator. These test edits do not approve any
+musical content.
+
+Browser testing caught and fixed absolute-path handling on wasm32, incomplete
+audio preparation, a restore/autosave revision race, missing dialog mounted
+events, and seek navigation that left the paused timeline behind. The browser
+uses typed immutable project snapshots and serializes pending JSON for durable
+transactions and downloads instead of reparsing the full project on every
+command. Missing external stems visibly retain original-recording audition.
+
+Verification on the integrated main-based source: 551 core/all-target tests
+passed (38 optional tests ignored), 132 LiveView/shared-UI tests passed
+(12 ignored), two Rust codec tests passed, strict core and WASM Clippy passed,
+native editor all-target compilation passed, and static release assets built.
+The codec tests check stereo polarity, sample count and source duration through
+the browser playback WAV conversion, plus malformed-input rejection.
+
+An eight-second Opus sample imported and played to its end through the local
+browser codec fallback. Malformed recording data and a malformed ZIP both
+reported errors while leaving that valid project and its audio available.
+
+Automatic chart generation is deliberately disabled in this static build:
+the current native model runners are not portable to this WASM target. There is
+no optional generation service. Hosted teams, broader browser coverage and
+musical/controller acceptance remain outside these functional checks.
+
+## Earlier LiveView harness recording and workflow
 
 The actual browser editor generated Guitar, Bass and Drums for Bayside's
 **Head On A Plate**, 243.880 seconds, with all four difficulties. The saved

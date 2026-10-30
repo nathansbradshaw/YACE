@@ -28,7 +28,54 @@ pub fn context() -> Result<AudioContext> {
     AudioContext::new_with_context_options(&options).map_err(err)
 }
 pub async fn duration(bytes: &[u8]) -> Result<f64> {
-    Ok(crate::audio_decode::decode(bytes).await?.duration())
+    let context = context()?;
+    let result = decode(&context, bytes).await.map(|pcm| pcm.duration());
+    let _ = context.close();
+    result
+}
+/// Use Rust codecs first. Browser-only codecs such as Opus stay local too.
+async fn decode(context: &AudioContext, bytes: &[u8]) -> Result<crate::audio_decode::Pcm> {
+    match crate::audio_decode::decode(bytes).await {
+        Ok(pcm) => Ok(pcm),
+        Err(rust_error) => {
+            let input = js_sys::Uint8Array::from(bytes).buffer();
+            let decode = JsFuture::from(context.decode_audio_data(&input).map_err(err)?);
+            let timeout = gloo_timers::future::TimeoutFuture::new(15_000);
+            futures_util::pin_mut!(decode, timeout);
+            let value = match futures_util::future::select(decode, timeout).await {
+                futures_util::future::Either::Left((value, _)) => value.map_err(|error| {
+                    anyhow::anyhow!(
+                        "Unsupported or damaged recording: {rust_error:#}; browser: {error:?}"
+                    )
+                })?,
+                futures_util::future::Either::Right(_) => anyhow::bail!(
+                    "The browser could not decode this recording in 15 seconds: {rust_error:#}"
+                ),
+            };
+            use wasm_bindgen::JsCast;
+            let buffer: web_sys::AudioBuffer = value.dyn_into().map_err(err)?;
+            ensure!(buffer.number_of_channels() > 0, "Recording has no channels");
+            let left = buffer.get_channel_data(0).map_err(err)?;
+            let right = if buffer.number_of_channels() > 1 {
+                buffer.get_channel_data(1).map_err(err)?
+            } else {
+                left.clone()
+            };
+            let stereo: Vec<_> = left
+                .into_iter()
+                .zip(right)
+                .flat_map(|(left, right)| [left, right])
+                .collect();
+            ensure!(
+                !stereo.is_empty() && stereo.iter().all(|v| v.is_finite()),
+                "The browser decoded invalid audio"
+            );
+            Ok(crate::audio_decode::Pcm {
+                stereo,
+                rate: buffer.sample_rate() as u32,
+            })
+        }
+    }
 }
 fn channel(
     context: &AudioContext,
@@ -85,7 +132,7 @@ impl Media {
             crate::models::hash_file(&source)?.eq_ignore_ascii_case(&doc.audio_sha256),
             "Source recording checksum differs from the project"
         );
-        let pcm = crate::audio_decode::decode(crate::storage::shared(&source)?.as_slice()).await?;
+        let pcm = decode(&context, crate::storage::shared(&source)?.as_slice()).await?;
         ensure!(
             (pcm.duration() - doc.duration).abs() < 0.2,
             "The recording duration differs from the project"
@@ -115,9 +162,7 @@ impl Media {
                     "Stem checksum differs: {}",
                     asset.id.as_str()
                 );
-                let pcm =
-                    crate::audio_decode::decode(crate::storage::shared(&asset.path)?.as_slice())
-                        .await?;
+                let pcm = decode(&context, crate::storage::shared(&asset.path)?.as_slice()).await?;
                 ensure!(
                     (pcm.duration() - doc.duration).abs() < 0.2,
                     "Stem duration differs: {}",

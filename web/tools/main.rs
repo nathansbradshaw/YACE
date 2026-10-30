@@ -11,51 +11,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[path = "../src/audio_decode.rs"]
 mod audio_decode;
 #[cfg(test)]
-mod tests {
-    use super::audio_decode::{self, Pcm};
-    fn ready<T>(future: impl std::future::Future<Output = T>) -> T {
-        struct Wake;
-        impl std::task::Wake for Wake {
-            fn wake(self: std::sync::Arc<Self>) {}
-        }
-        let waker = std::task::Waker::from(std::sync::Arc::new(Wake));
-        let mut context = std::task::Context::from_waker(&waker);
-        match std::pin::pin!(future).as_mut().poll(&mut context) {
-            std::task::Poll::Ready(value) => value,
-            std::task::Poll::Pending => {
-                panic!("native audio decoding should complete synchronously")
-            }
-        }
-    }
-    #[test]
-    fn playback_wave_keeps_source_clock_stereo_and_sample_polarity() {
-        let stereo = (0..48_000)
-            .flat_map(|n| {
-                let sample = (n as f32 * 0.04).sin() * 0.8;
-                [sample, -sample]
-            })
-            .collect();
-        let pcm = Pcm {
-            stereo,
-            rate: 48_000,
-        };
-        let decoded = ready(audio_decode::decode(&pcm.wave().unwrap())).unwrap();
-        assert_eq!(decoded.rate, pcm.rate);
-        assert_eq!(decoded.stereo.len(), pcm.stereo.len());
-        assert_eq!(decoded.duration(), 1.);
-        assert!(
-            decoded
-                .stereo
-                .iter()
-                .zip(&pcm.stereo)
-                .all(|(a, b)| (a - b).abs() < 0.00005)
-        );
-    }
-    #[test]
-    fn corrupt_audio_is_rejected_before_replacing_the_open_project() {
-        assert!(ready(audio_decode::decode(b"not an audio recording")).is_err());
-    }
-}
+mod tests;
 fn run(command: &mut Command) -> Result<()> {
     let status = command.status()?;
     if !status.success() {
@@ -86,6 +42,16 @@ fn build(root: &Path) -> Result<()> {
         .args(["--target", "web", "--no-typescript", "--out-dir"])
         .arg(&dist))?;
     fs::copy(root.join("web/index.html"), dist.join("index.html"))?;
+    for name in ["LICENSE", "THIRD_PARTY.md"] {
+        fs::copy(root.join(name), dist.join(name))?;
+    }
+    fs::create_dir_all(dist.join("licenses"))?;
+    for entry in fs::read_dir(root.join("licenses"))? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            fs::copy(entry.path(), dist.join("licenses").join(entry.file_name()))?;
+        }
+    }
     println!("Static browser app: {}", dist.display());
     Ok(())
 }
