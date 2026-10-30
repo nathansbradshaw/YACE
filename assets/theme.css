@@ -20,9 +20,9 @@
   --success-color: #98c6a1;
   --danger-color: #ee9690;
   --danger-color-hover: #ffb9b3;
-  --panel-face: linear-gradient(180deg, #292b2e, #202225 42px, #1c1e20);
-  --button-face: linear-gradient(180deg, #44474c, #303236 48%, #292b2e);
-  --button-edge: inset 0 1px #ffffff18, inset 0 -1px #0009, 0 2px 2px #0005;
+  --panel-face: #1c1e20;
+  --button-face: radial-gradient(ellipse 8px 1px at 16% 0, #a0a6a336, transparent), radial-gradient(ellipse 5px 1px at 88% 100%, #9ba19d30, transparent), linear-gradient(#34373a, #292c2f);
+  --button-edge: inset 0 1px #ffffff12, 0 1px 1px #0008;
   --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'SFMono-Regular', Consolas, monospace;
 }

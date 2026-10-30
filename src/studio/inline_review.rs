@@ -67,6 +67,12 @@ pub fn InlineReview(studio: Studio, track: String, show_hidden: bool, plot_width
     let Some(timing) = (studio.timing)() else {
         return rsx! {};
     };
+    // Keep the row stable during playback, even when its flags are offscreen.
+    if !doc.review.regions.iter().any(|region| {
+        region.tracks.contains(&track) && (show_hidden || !doc.is_flag_hidden(&region.id, &track))
+    }) {
+        return rsx! {};
+    }
     let start = (studio.view_start)();
     let span = (studio.span)();
     let regions: Vec<_> = doc

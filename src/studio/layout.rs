@@ -100,7 +100,7 @@ fn Divider(
 pub fn Workbench(studio: Studio) -> Element {
     let mut left = use_signal(|| 17.0_f64);
     let mut right = use_signal(|| 22.0_f64);
-    let mut top = use_signal(|| 58.0_f64);
+    let mut top = use_signal(|| 45.0_f64);
     let mut size = use_signal(|| (1400.0_f64, 800.0_f64));
     let mut drag = use_signal(|| None::<Drag>);
     let center = 100.0 - left() - right();

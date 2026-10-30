@@ -6,7 +6,7 @@
 //! Autoplay animation is an editing aid, never a score or controller judgment.
 use super::{
     icons::Icon,
-    state::{Studio, clock, instrument},
+    state::{Studio, instrument},
 };
 use crate::{
     editor::{Action, Project},
@@ -273,25 +273,25 @@ pub fn Preview(mut studio: Studio) -> Element {
         style { "{PREVIEW_STYLE}" }
         div { class: "chart-preview game-preview", "data-preview-position":"{position}", "data-preview-playing":"{telemetry_playing}", "data-preview-revision":"{telemetry_revision}", "data-preview-audio":"{telemetry_audio}",
             div { class: "panel-header",
-                div { class: "panel-header-title", "Chart Preview" }
+                div { class: "panel-header-title", "Preview" }
                 div { class: "panel-header-actions preview-header-actions",
-                    div { class: "instrument-toggles",
+                    select { class: "preview-instrument", aria_label: "Preview instrument", value: instrument(&track), onkeydown: move |event| event.stop_propagation(), onchange: move |event| select_instrument(studio, &event.value()),
                         for name in ["Guitar", "Bass", "Drums", "Piano", "Pro Piano", "Vocals"] {
-                            button { class: if instrument(&track) == name { "instrument-toggle active" } else { "instrument-toggle" },
+                            option { value: name, selected: instrument(&track) == name,
                                 disabled: doc.as_ref().is_none_or(|doc| name != "Vocals" && !doc.content.tracks.keys().any(|track| instrument(track) == name)),
-                                onclick: move |_| select_instrument(studio, name), "{name}"
+                                "{name}"
                             }
                         }
                     }
-                    if track != "Vocals" { div { class: "difficulty-selector",
+                    if track != "Vocals" { select { class: "preview-difficulty", aria_label: "Preview difficulty", onkeydown: move |event| event.stop_propagation(), onchange: move |event| {
+                        if let Some(doc) = studio.snapshot()
+                            && let Some(name) = doc.content.tracks.keys().find(|name| name.starts_with(&event.value()) && instrument(name) == instrument(&doc.selected_track))
+                        { studio.dispatch(Action::SelectTrack { track: name.clone() }); }
+                    },
                         for tier in ["Easy", "Medium", "Hard", "Expert"] {
-                            button { class: if track.starts_with(tier) { "difficulty-button active" } else { "difficulty-button" },
+                            option { value: tier, selected: track.starts_with(tier),
                                 disabled: doc.as_ref().is_none_or(|doc| !doc.content.tracks.keys().any(|name| name.starts_with(tier) && instrument(name) == instrument(&track))),
-                                onclick: move |_| {
-                                    if let Some(doc) = studio.snapshot()
-                                        && let Some(name) = doc.content.tracks.keys().find(|name| name.starts_with(tier) && instrument(name) == instrument(&doc.selected_track))
-                                    { studio.dispatch(Action::SelectTrack { track: name.clone() }); }
-                                }, "{tier}"
+                                "{tier}"
                             }
                         }
                     } }
@@ -306,8 +306,7 @@ pub fn Preview(mut studio: Studio) -> Element {
                         "aria-label": "Autoplay editing preview with instrument notes; no scoring or controller judgment",
                         dangerous_inner_html: "{geometry}"
                     }
-                    div { class: "game-preview-badge", "AUTOPLAY PREVIEW" }
-                    div { class: "game-preview-track", "{track}" }
+                    div { class: "game-preview-badge", "Autoplay" }
                     if (studio.audio_stalled)() && telemetry_playing { div { class: "game-preview-policy-warning", "Audio position stalled · preview held" } }
                     if unknown_policy && !drums && !crate::keys::is_keys(&track) { div { class: "game-preview-policy-warning", "HOPO policy unknown · neutral note caps" } }
                     if let Some(error) = classification_error { div { class: "game-preview-policy-warning", "{error}" } }
@@ -320,10 +319,9 @@ pub fn Preview(mut studio: Studio) -> Element {
                     }
                 }
             }
-            super::practice::PracticeControls { studio }
-            super::stems::StemControls { studio }
+            super::practice::PracticeControls { studio,
+              super::stems::StemControls { studio }
             div { class: "game-preview-footer",
-                span { class: "game-preview-time", "{clock(position)}" }
                 if drums {
                     label { class: "property-checkbox",
                         input { r#type: "checkbox", checked: pro_drums(), onkeydown: move |event| event.stop_propagation(), onchange: move |event| pro_drums.set(event.checked()) }
@@ -337,6 +335,7 @@ pub fn Preview(mut studio: Studio) -> Element {
                     }
                 }
                 span { class: "game-preview-note", if track == "Vocals" { "Vocal draft · edit notes below" } else { "Visual audition · edit notes below" } }
+            }
             }
         }
     }

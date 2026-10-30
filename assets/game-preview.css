@@ -17,15 +17,6 @@
   pointer-events:none
 }
 
-.game-preview-track {
-  position:absolute;
-  top:14px;
-  right:14px;
-  font:11px var(--font-mono);
-  color:var(--text-muted);
-  pointer-events:none
-}
-
 .game-preview-policy-warning {
   position:absolute;
   top:40px;
@@ -79,4 +70,71 @@
     display:none
   }
 
+}
+.game-preview {
+  position:relative
+}
+
+.practice-controls {
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:7px;
+  padding:5px 8px;
+  border-top:1px solid var(--border-color);
+  flex-shrink:0;
+  font-size:11px
+}
+
+.practice-controls .timeline-time {
+  margin-right:auto;
+  font-size:11px
+}
+
+.preview-options {
+  margin-left:auto
+}
+
+.preview-options > summary {
+  padding:4px;
+  color:var(--text-secondary);
+  white-space:nowrap
+}
+
+/* Open settings over the preview so they never shrink the note editor. */
+.preview-options-body {
+  position:absolute;
+  left:8px;
+  right:8px;
+  bottom:42px;
+  max-height:calc(100% - 80px);
+  overflow:auto;
+  padding:10px;
+  border:1px solid var(--border-color-hover);
+  border-radius:4px;
+  background:var(--bg-secondary);
+  box-shadow:0 5px 16px #0009;
+  z-index:8;
+  white-space:normal
+}
+
+.preview-options:not([open]) > .preview-options-body {
+  display:none
+}
+
+.practice-loop-actions {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+  padding-bottom:8px
+}
+
+.preview-options-body .stem-controls {
+  padding:8px 0
+}
+
+.preview-options-body .game-preview-footer {
+  padding:8px 0 0;
+  flex-wrap:wrap
 }

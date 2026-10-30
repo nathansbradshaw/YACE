@@ -66,6 +66,16 @@ pub fn color(track: &str, lane: u8) -> &'static str {
         }
     }
 }
+fn track_title(track: &str) -> String {
+    ["Expert", "Hard", "Medium", "Easy"]
+        .into_iter()
+        .find(|tier| track.starts_with(tier))
+        .map_or_else(
+            || track.to_owned(),
+            |tier| format!("{} · {tier}", instrument(track)),
+        )
+}
+
 fn snap(studio: Studio, seconds: f64) -> Option<u64> {
     let map = studio.timing.read();
     let map = map.as_ref()?;
@@ -176,7 +186,7 @@ fn VocalRoll(mut studio: Studio) -> Element {
     }
     rsx! {
         div{class:"studio-track-header",onclick:move |_|select(None),"Vocals" span{style:"margin-left:auto","{notes.len()} notes"}}
-        div{class:"midi-waveform-strip",div{class:"midi-waveform-label",style:"width:140px;flex-shrink:0","Vocal stem"}Waveform{studio,stem:Some(StemId::Vocals)}}
+        if has_stem_waveform(studio, StemId::Vocals) {div{class:"midi-waveform-strip",div{class:"midi-waveform-label",style:"width:140px;flex-shrink:0","Vocal stem"}Waveform{studio,stem:Some(StemId::Vocals)}}}
         div{class:"studio-track-grid",
             div{class:"studio-lane-labels",for pitch in (36..=84).rev(){div{class:"studio-lane-label",style:"height:8px;font-size:7px",if pitch%12==0{"C{pitch/12-1} · {pitch}"}}}div{class:"studio-lane-label",style:"height:8px;font-size:7px","Talkie"}}
             div{class:"studio-track-plot",onresize:move|e|{if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.0));}},
@@ -359,10 +369,21 @@ fn Waveform(studio: Studio, #[props(default)] stem: Option<StemId>) -> Element {
 #[component]
 fn InstrumentWaveform(studio: Studio, track: String) -> Element {
     let stem = studio.guitar_source.read().audition_stem(&track, false);
+    if !has_stem_waveform(studio, stem) {
+        return rsx! {};
+    }
     rsx! {div{class:"midi-waveform-strip",
         div{class:"midi-waveform-label",style:"width:140px;flex-shrink:0;flex-direction:column;align-items:flex-start;justify-content:center;font-size:9px;gap:1px",span{"{instrument(&track)}"}span{style:"font-size:8px;color:var(--text-muted)","Estimated {stem.as_str()} audio"}}
         Waveform{studio,stem:Some(stem)}
     }}
+}
+
+fn has_stem_waveform(studio: Studio, stem: StemId) -> bool {
+    studio
+        .waveforms
+        .read()
+        .as_ref()
+        .is_some_and(|cache| cache.stems.contains_key(&stem))
 }
 /// Only this SVG node subscribes to the audio clock. Paths and note lists do
 /// not need to be reconstructed for every playback frame.
@@ -487,7 +508,7 @@ fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) -> Element {
         }
     };
     rsx! {
-        div{class:"studio-track-header",style:if active{"color:var(--accent-color)"}else{""},onclick:{let track=track.clone();move |_|studio.dispatch(Action::SelectTrack{track:track.clone()})},Icon{name:"chevron-down",size:13}"{instrument(&track)} · {track}  ",super::difficulty::TrackLinkBadge{track:track.clone()}span{style:"margin-left:auto;color:var(--text-muted);font-weight:400","{doc.content.tracks[&track].iter().filter(|n|editor::playable(&track,n.note.lane)).count()} notes"}}
+        div{class:"studio-track-header",style:if active{"color:var(--accent-color)"}else{""},onclick:{let track=track.clone();move |_|studio.dispatch(Action::SelectTrack{track:track.clone()})},Icon{name:"chevron-down",size:13}"{track_title(&track)}  ",super::difficulty::TrackLinkBadge{track:track.clone()}span{style:"margin-left:auto;color:var(--text-muted);font-weight:400","{doc.content.tracks[&track].iter().filter(|n|editor::playable(&track,n.note.lane)).count()} notes"}}
         InstrumentWaveform{studio,track:track.clone()}
         InlineReview{studio,track:track.clone(),show_hidden,plot_width:width()}
         div{class:"studio-track-grid",div{class:"studio-lane-labels",for lane in rows.clone(){div{class:"studio-lane-label",style:"color:{color(&track,lane)}","{lane_name(&track,lane)}"}}}

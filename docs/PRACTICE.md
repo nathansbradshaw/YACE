@@ -10,6 +10,8 @@ is ready. The chart and original recording are not stretched or rewritten.
 
 ## Loop a passage
 
+Open **Playback options** below the preview for looping, seeking and stem controls.
+
 Select a review section and choose **Loop section**, or expand **Edit loop**.
 Set **In** and **Out**, then choose **Apply loop**. **In here** and **Out here**
 use the current playhead position. **Clear loop** removes the shared loop.
