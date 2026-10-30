@@ -14,6 +14,7 @@ pub mod editor;
 pub mod note_groups;
 pub mod parts;
 pub mod review_git;
+pub mod sections;
 #[cfg(feature = "studio")]
 pub mod studio;
 #[cfg(feature = "editor")]

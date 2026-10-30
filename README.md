@@ -11,7 +11,7 @@ audio, file uploads and downloadable song exports. It currently uses a local
 Rust host. The product target is faster, easier charting and reliable team work;
 complete OCTAVE/Moonscraper parity and hosted collaboration remain unfinished.
 
-![YACE with audition and selection details above the track picker and note editor](assets/screenshots/editor.png)
+![YACE with section markers, a source waveform and the compact note editor](assets/screenshots/editor.png)
 
 Preview above, edit notes below. Shown with a small demo chart.
 

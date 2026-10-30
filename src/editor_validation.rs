@@ -48,6 +48,9 @@ pub(crate) fn is_link_created_track(project: &Project, chart: &Chart, track: &st
 }
 
 pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
+    if let Some(markers) = &project.content.sections {
+        crate::sections::validate(markers, &chart.timing, project.duration)?;
+    }
     ensure!(project.version == 1, "Unsupported editor project version");
     ensure!(
         project.duration.is_finite() && project.duration > 0.0,

@@ -340,6 +340,8 @@ pub struct Studio {
     pub album_art: Signal<Option<String>>,
     pub collaboration_open: Signal<bool>,
     pub parts_open: Signal<bool>,
+    pub sections_open: Signal<bool>,
+    pub source_sections: Signal<Vec<crate::sections::Marker>>,
     pub generation_target: Signal<Option<String>>,
     pub vocal_note: Signal<Option<usize>>,
     pub group: Signal<crate::note_groups::Selection>,
@@ -1022,6 +1024,7 @@ impl Studio {
             let doc = store.load()?;
             let guitar_source = store.guitar_source(&doc)?;
             let timing = doc.timing(&store)?;
+            let sections = store.source_sections(&doc)?;
             let audio = store.audio_path(&doc)?;
             let metadata = crate::pipeline::ini_fields(&crate::pipeline::song_ini(
                 &store.root.join("source"),
@@ -1053,20 +1056,22 @@ impl Studio {
                 art,
                 guitar_source,
                 Arc::new(WindowLock(lock)),
+                sections,
             ))
         })
         .await;
-        let (store, doc, timing, audio_path, metadata, art, guitar_source, lock) = match loaded {
-            Ok(Ok(value)) => value,
-            Err(e) => {
-                self.error.set(Some(e.to_string()));
-                return;
-            }
-            Ok(Err(e)) => {
-                self.error.set(Some(format!("{e:#}")));
-                return;
-            }
-        };
+        let (store, doc, timing, audio_path, metadata, art, guitar_source, lock, sections) =
+            match loaded {
+                Ok(Ok(value)) => value,
+                Err(e) => {
+                    self.error.set(Some(e.to_string()));
+                    return;
+                }
+                Ok(Err(e)) => {
+                    self.error.set(Some(format!("{e:#}")));
+                    return;
+                }
+            };
         // Pause and close the former project before replacing its audio/lock.
         if let Some(previous) = self.snapshot()
             && previous.transport.playing
@@ -1087,6 +1092,8 @@ impl Studio {
         self.playhead
             .set(doc.transport.current_position(doc.duration));
         self.group.set(Default::default());
+        self.sections_open.set(false);
+        self.source_sections.set(sections);
         self.doc.set(Some(Arc::new(doc.clone())));
         if let Some(store) = self.store.read().as_ref() {
             self.file_stamp.set(project_stamp(store));
@@ -1293,6 +1300,8 @@ pub fn use_studio() -> Studio {
         album_art: use_signal(|| None),
         collaboration_open: use_signal(|| false),
         parts_open: use_signal(|| false),
+        sections_open: use_signal(|| false),
+        source_sections: use_signal(Vec::new),
         generation_target: use_signal(|| None),
         vocal_note: use_signal(|| None),
         group: use_signal(Default::default),

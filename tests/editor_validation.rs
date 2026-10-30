@@ -64,6 +64,7 @@ fn fixture() -> (Project, Chart) {
         duration: 4.0,
         review,
         content: Content {
+            sections: None,
             track_origins: Default::default(),
             difficulty_links: Default::default(),
             vocals: None,
