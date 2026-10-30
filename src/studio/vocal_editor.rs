@@ -688,7 +688,22 @@ mod tests {
 #[cfg(target_arch = "wasm32")]
 #[component]
 pub fn VocalEditor(mut studio: Studio) -> Element {
+    let Some(doc) = studio.snapshot() else {
+        return rsx! {};
+    };
+    let selected = (studio.vocal_note)().and_then(|index| {
+        doc.content
+            .vocals
+            .as_ref()?
+            .notes
+            .get(index)
+            .cloned()
+            .map(|note| (index, note))
+    });
+    let project_root = studio.store.read().as_ref().map(|store| store.root.clone());
     rsx! {VocalPhrases{studio}
+    if let Some((index,note))=selected{VocalNoteEditor{key:"{project_root:?}:{doc.audio_sha256}:{index}:{note:?}",studio,index,note:note.clone(),audio_sha256:doc.audio_sha256.clone(),project_root}}
+    VocalReviewChecks{studio}
     div{class:"vocal-file-actions",
     button{class:"studio-tool",onclick:move |_|{spawn(async move{let result=async{let Some(files)=crate::files::pick(false,".json").await?else{return Ok(())};let document:VocalChart=serde_json::from_slice(&files[0].1)?;document.validate()?;studio.dispatch(Action::SetVocals{document});Ok::<_,anyhow::Error>(())}.await;if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}});},"Import JSON"}
     button{class:"studio-tool",disabled:!studio.snapshot().is_some_and(|doc|doc.content.vocals.is_some()),onclick:move |_|{if let Some(doc)=studio.snapshot(){if let Some(chart)=&doc.content.vocals{let result=serde_json::to_vec_pretty(chart).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download("vocals.json",&bytes));if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}}}},"Save JSON"}

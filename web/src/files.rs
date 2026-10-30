@@ -154,7 +154,7 @@ pub fn mount(root: &Path, files: Files) -> Result<()> {
 }
 pub fn archive(root: &Path) -> Result<Vec<u8>> {
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    for (path, bytes) in crate::storage::list(root) {
+    for (path, bytes) in crate::storage::list(root)? {
         let name = path
             .strip_prefix(root)?
             .to_string_lossy()
@@ -214,7 +214,7 @@ pub fn unique_root() -> PathBuf {
         (js_sys::Math::random() * u32::MAX as f64) as u32
     ))
 }
-pub fn imported_root(root: &Path) -> PathBuf {
+pub fn imported_root(root: &Path) -> Result<PathBuf> {
     let mut root = root.to_owned();
     for _ in 0..32 {
         if ["project.json", "notes.chart", "notes.mid"]
@@ -223,7 +223,7 @@ pub fn imported_root(root: &Path) -> PathBuf {
         {
             break;
         }
-        let files = crate::storage::list(&root);
+        let files = crate::storage::list(&root)?;
         let first = files
             .first()
             .and_then(|(path, _)| path.strip_prefix(&root).ok())
@@ -237,5 +237,5 @@ pub fn imported_root(root: &Path) -> PathBuf {
             break;
         }
     }
-    root
+    Ok(root)
 }

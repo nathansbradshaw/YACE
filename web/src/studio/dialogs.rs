@@ -59,7 +59,7 @@ impl AsyncFileDialog {
         let root = crate::files::unique_root();
         crate::files::mount(&root, files).ok()?;
         Some(FileHandle(if folder {
-            crate::files::imported_root(&root)
+            crate::files::imported_root(&root).ok()?
         } else {
             root.join(first)
         }))

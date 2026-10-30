@@ -225,21 +225,6 @@ pub fn publish(stage: &Path, output: &Path) -> Result<()> {
     }
 }
 
-pub fn audio_file(folder: &Path) -> Result<PathBuf> {
-    for name in ["song", "guitar"] {
-        for extension in ["ogg", "opus", "mp3", "flac", "wav", "m4a"] {
-            let path = folder.join(format!("{name}.{extension}"));
-            if path.is_file() {
-                return Ok(path);
-            }
-        }
-    }
-    bail!(
-        "No full-song audio found in {}; supply --audio",
-        folder.display()
-    )
-}
-
 pub const STEM_MANIFEST: &str = "stem-manifest.json";
 
 fn isolation_limits(manifest: &crate::stem_review::StemManifest) -> Vec<String> {

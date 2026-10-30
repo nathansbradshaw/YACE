@@ -145,7 +145,7 @@ pub async fn save(root: &Path, revision: u64, expected: Option<u64>) -> Result<(
             "This project changed in another tab. Export a project ZIP, then reopen the saved project before continuing."
         );
     }
-    let files = crate::storage::list(root);
+    let files = crate::storage::list(root)?;
     let dirty = crate::storage::pending(root);
     let paths: Vec<_> = files
         .iter()

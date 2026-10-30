@@ -5,7 +5,6 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use std::{collections::BTreeMap, path::Path};
-use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{AudioContext, GainNode, HtmlAudioElement, MediaElementAudioSourceNode};
 pub struct Channel {
@@ -28,27 +27,21 @@ pub fn context() -> Result<AudioContext> {
     options.set_sample_rate(44100.);
     AudioContext::new_with_context_options(&options).map_err(err)
 }
-pub async fn decode(context: &AudioContext, bytes: &[u8]) -> Result<web_sys::AudioBuffer> {
-    let buffer = js_sys::Uint8Array::from(bytes).buffer();
-    JsFuture::from(context.decode_audio_data(&buffer).map_err(err)?)
-        .await
-        .map_err(err)?
-        .dyn_into()
-        .map_err(err)
-}
 pub async fn duration(bytes: &[u8]) -> Result<f64> {
-    let context = context()?;
-    let result = decode(&context, bytes)
-        .await
-        .map(|buffer| buffer.duration());
-    let _ = context.close();
-    result
+    Ok(crate::audio_decode::decode(bytes).await?.duration())
 }
-fn channel(context: &AudioContext, master: &GainNode, path: &Path) -> Result<Channel> {
-    let bytes = crate::storage::shared(path)?;
+fn channel(
+    context: &AudioContext,
+    master: &GainNode,
+    path: &Path,
+    bytes: &[u8],
+) -> Result<Channel> {
     let chunks = js_sys::Array::new();
-    chunks.push(&js_sys::Uint8Array::from(bytes.as_slice()));
-    let blob = web_sys::Blob::new_with_u8_array_sequence(&chunks).map_err(err)?;
+    chunks.push(&js_sys::Uint8Array::from(bytes));
+    let options = web_sys::BlobPropertyBag::new();
+    options.set_type("audio/wav");
+    let blob =
+        web_sys::Blob::new_with_u8_array_sequence_and_options(&chunks, &options).map_err(err)?;
     let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(err)?;
     let element = HtmlAudioElement::new_with_src(&url).map_err(err)?;
     element.set_preload("auto");
@@ -77,23 +70,6 @@ fn channel(context: &AudioContext, master: &GainNode, path: &Path) -> Result<Cha
         url,
     })
 }
-fn waveform(buffer: &web_sys::AudioBuffer) -> Result<Waveform> {
-    let left = buffer.get_channel_data(0).map_err(err)?;
-    let right = if buffer.number_of_channels() > 1 {
-        buffer.get_channel_data(1).map_err(err)?
-    } else {
-        left.clone()
-    };
-    let interleaved: Vec<f32> = left
-        .iter()
-        .zip(&right)
-        .flat_map(|(&l, &r)| [l, r])
-        .collect();
-    Ok(Waveform::from_stereo(
-        &interleaved,
-        buffer.sample_rate() as u32,
-    ))
-}
 impl Media {
     pub async fn load(
         store: &crate::editor::Store,
@@ -109,14 +85,14 @@ impl Media {
             crate::models::hash_file(&source)?.eq_ignore_ascii_case(&doc.audio_sha256),
             "Source recording checksum differs from the project"
         );
-        let pcm = decode(&context, crate::storage::shared(&source)?.as_slice()).await?;
+        let pcm = crate::audio_decode::decode(crate::storage::shared(&source)?.as_slice()).await?;
         ensure!(
             (pcm.duration() - doc.duration).abs() < 0.2,
             "The recording duration differs from the project"
         );
-        let original_waveform = waveform(&pcm)?;
+        let original_waveform = Waveform::from_stereo(&pcm.stereo, pcm.rate);
+        let original = channel(&context, &master, &source, &pcm.wave()?)?;
         drop(pcm);
-        let original = channel(&context, &master, &source)?;
         let mut stems = BTreeMap::new();
         let mut waveforms = BTreeMap::new();
         let mut missing = 0;
@@ -139,15 +115,20 @@ impl Media {
                     "Stem checksum differs: {}",
                     asset.id.as_str()
                 );
-                let pcm = decode(&context, crate::storage::shared(&asset.path)?.as_slice()).await?;
+                let pcm =
+                    crate::audio_decode::decode(crate::storage::shared(&asset.path)?.as_slice())
+                        .await?;
                 ensure!(
                     (pcm.duration() - doc.duration).abs() < 0.2,
                     "Stem duration differs: {}",
                     asset.id.as_str()
                 );
-                waveforms.insert(asset.id, waveform(&pcm)?);
+                waveforms.insert(asset.id, Waveform::from_stereo(&pcm.stereo, pcm.rate));
+                stems.insert(
+                    asset.id,
+                    channel(&context, &master, &asset.path, &pcm.wave()?)?,
+                );
                 drop(pcm);
-                stems.insert(asset.id, channel(&context, &master, &asset.path)?);
             }
         }
         for _ in 0..3000 {
@@ -168,6 +149,16 @@ impl Media {
         };
         media.set_rate(doc.transport.playback_rate);
         media.seek(doc.transport.position);
+        for _ in 0..500 {
+            if !media.original.element.seeking() {
+                break;
+            }
+            gloo_timers::future::TimeoutFuture::new(10).await;
+        }
+        ensure!(
+            !media.original.element.seeking(),
+            "The browser could not finish seeking the recording"
+        );
         media.mix(&doc.content.stem_mix, 0.7);
         let notice = if missing > 0 {
             format!(

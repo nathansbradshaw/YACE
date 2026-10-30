@@ -7,3 +7,7 @@ publish = false
 [[bin]]
 name = "yace-static-web"
 path = "main.rs"
+
+[dev-dependencies]
+anyhow = "1"
+symphonia = { version = "0.5.5", features = ["all"] }

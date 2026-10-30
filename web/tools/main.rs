@@ -1,6 +1,40 @@
 //! Build static WebAssembly assets or serve those bytes for local acceptance.
 use std::{env,fs,io::{Read,Write},net::{TcpListener,TcpStream},path::{Component,Path,PathBuf},process::Command};
 type Result<T>=std::result::Result<T,Box<dyn std::error::Error>>;
+#[cfg(test)]
+#[path = "../src/audio_decode.rs"]
+mod audio_decode;
+#[cfg(test)]
+mod tests {
+    use super::audio_decode::{self, Pcm};
+    fn ready<T>(future: impl std::future::Future<Output = T>) -> T {
+        struct Wake;
+        impl std::task::Wake for Wake { fn wake(self: std::sync::Arc<Self>) {} }
+        let waker = std::task::Waker::from(std::sync::Arc::new(Wake));
+        let mut context = std::task::Context::from_waker(&waker);
+        match std::pin::pin!(future).as_mut().poll(&mut context) {
+            std::task::Poll::Ready(value) => value,
+            std::task::Poll::Pending => panic!("native audio decoding should complete synchronously"),
+        }
+    }
+    #[test]
+    fn playback_wave_keeps_source_clock_stereo_and_sample_polarity() {
+        let stereo = (0..48_000).flat_map(|n| {
+            let sample = (n as f32 * 0.04).sin() * 0.8;
+            [sample, -sample]
+        }).collect();
+        let pcm = Pcm { stereo, rate: 48_000 };
+        let decoded = ready(audio_decode::decode(&pcm.wave().unwrap())).unwrap();
+        assert_eq!(decoded.rate, pcm.rate);
+        assert_eq!(decoded.stereo.len(), pcm.stereo.len());
+        assert_eq!(decoded.duration(), 1.);
+        assert!(decoded.stereo.iter().zip(&pcm.stereo).all(|(a,b)| (a-b).abs() < 0.00005));
+    }
+    #[test]
+    fn corrupt_audio_is_rejected_before_replacing_the_open_project() {
+        assert!(ready(audio_decode::decode(b"not an audio recording")).is_err());
+    }
+}
 fn run(command:&mut Command)->Result<()>{let status=command.status()?;if !status.success(){return Err(format!("Build command failed: {command:?}").into())}Ok(())}
 fn build(root:&Path)->Result<()>{
  let target=env::var_os("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(||root.join("target/web-static"));

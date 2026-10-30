@@ -1,5 +1,16 @@
 //! Lossless song metadata helpers shared by native and WebAssembly.
 use std::collections::BTreeMap;
+pub fn audio_file(folder: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+    for name in ["song", "guitar"] {
+        for extension in ["ogg", "opus", "mp3", "flac", "wav", "m4a"] {
+            let path = folder.join(format!("{name}.{extension}"));
+            if crate::storage::is_file(&path) {
+                return Ok(path);
+            }
+        }
+    }
+    anyhow::bail!("No full-song audio found in {}; supply song or guitar audio", folder.display())
+}
 pub fn ini_fields(text: &str) -> BTreeMap<String, String> {
     let mut fields = BTreeMap::new();
     let mut song = false;

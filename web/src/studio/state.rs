@@ -130,12 +130,13 @@ impl Studio {
         let Some(store) = self.store.read().clone() else {
             return;
         };
-        match store.load() {
+        let snapshot=crate::storage::cached_project(&store.root).map(Ok).unwrap_or_else(||store.load().map(Arc::new));
+        match snapshot {
             Ok(doc) => {
                 self.timing.set(doc.timing(&store).ok());
                 self.chart_hash
                     .set(doc.chart_hash(&store).unwrap_or_default());
-                self.doc.set(Some(Arc::new(doc)));
+                self.doc.set(Some(doc));
             }
             Err(error) => self.error.set(Some(format!("{error:#}"))),
         }
@@ -272,7 +273,7 @@ impl Studio {
                 let files = crate::files::unpack(files)?;
                 let root = crate::files::unique_root();
                 crate::files::mount(&root, files)?;
-                let root = crate::files::imported_root(&root);
+                let root = crate::files::imported_root(&root)?;
                 self.open_project(root).await
             }
             .await;
@@ -282,6 +283,13 @@ impl Studio {
         });
     }
     pub async fn open_project(mut self, source: PathBuf) -> Result<()> {
+        self.open_project_with_revision(source, None).await
+    }
+    pub async fn open_project_with_revision(
+        mut self,
+        source: PathBuf,
+        saved_revision: Option<u64>,
+    ) -> Result<()> {
         let root = if crate::storage::is_file(source.join("project.json")) {
             source.clone()
         } else {
@@ -300,17 +308,26 @@ impl Studio {
         crate::storage::write(root.join("project.json"), serde_json::to_vec(&doc)?)?;
         // Resolve archived/imported stems by content, never by a server filesystem path.
         restore_stem_aliases(&store, &doc)?;
+        if review_manifest(&doc, doc.selected_track == "Vocals").is_none() {
+            doc.content.stem_mix.mode = crate::stem_review::MixMode::Original;
+            crate::storage::write(root.join("project.json"), serde_json::to_vec(&doc)?)?;
+        }
         let metadata =
             crate::pipeline::ini_fields(&crate::pipeline::song_ini(&root.join("source"))?);
         self.epoch.set((self.epoch)().wrapping_add(1));
         let epoch = (self.epoch)();
+        self.status.set("Preparing browser audio…".into());
+        let (media, waves, notice) = Media::load(&store, &doc).await?;
+        if epoch != (self.epoch)() {
+            return Ok(());
+        }
         self.audio_ready.set(false);
         if let Some(media) = self.media.read().as_ref() {
             media.pause();
         }
         self.media.set(None);
         self.store.set(Some(store.clone()));
-        self.saved_revision.set(None);
+        self.saved_revision.set(saved_revision);
         self.metadata.set(metadata);
         self.timing.set(Some(doc.timing(&store)?));
         self.source_sections.set(store.source_sections(&doc)?);
@@ -326,11 +343,6 @@ impl Studio {
             .set((doc.transport.position - 0.5).clamp(0., (doc.duration - (self.span)()).max(0.)));
         self.doc.set(Some(Arc::new(doc.clone())));
         self.dirty.set(true);
-        self.status.set("Preparing browser audio…".into());
-        let (media, waves, notice) = Media::load(&store, &doc).await?;
-        if epoch != (self.epoch)() {
-            return Ok(());
-        }
         self.waveforms.set(Some(Arc::new(waves)));
         self.media.set(Some(Rc::new(media)));
         self.audio_ready.set(true);
@@ -414,7 +426,8 @@ impl Studio {
                     "No selected files match this project's bound stems"
                 );
                 let position = self.current_audio_position();
-                self.open_project(store.root).await?;
+                self.open_project_with_revision(store.root, (self.saved_revision)())
+                    .await?;
                 self.seek(position);
                 self.stem_status
                     .set(format!("Attached {matched} matching stem files"));
@@ -427,6 +440,8 @@ impl Studio {
         });
     }
     pub fn copy_selection(mut self, cut: bool) {
+        let root = self.store.read().as_ref().map(|s| s.root.clone());
+        let track = self.snapshot().map(|d| d.selected_track.clone());
         let result = (|| -> Result<_> {
             let doc = self.snapshot().context("Open a project")?;
             let timing = (self.timing)().context("Missing timing")?;
@@ -441,6 +456,12 @@ impl Studio {
                 spawn(async move {
                     match wasm_bindgen_futures::JsFuture::from(promise).await {
                         Ok(_) => {
+                            if root != self.store.read().as_ref().map(|s| s.root.clone())
+                                || track != self.snapshot().map(|d| d.selected_track.clone())
+                            {
+                                self.status.set("Notes copied; the active chart changed".into());
+                                return;
+                            }
                             if cut {
                                 self.edit_group(crate::note_groups::Edit::Delete {
                                     selection: selected,
@@ -492,7 +513,7 @@ impl Studio {
     }
 }
 fn restore_stem_aliases(store: &Store, doc: &Project) -> Result<()> {
-    let source = crate::storage::list(&store.root.join("source/stems"));
+    let source = crate::storage::list(&store.root.join("source/stems"))?;
     if source.is_empty() {
         return Ok(());
     }
@@ -538,9 +559,10 @@ pub fn instrument(track: &str) -> &'static str {
     }
 }
 pub fn review_manifest(doc: &Project, vocals: bool) -> Option<&StemManifest> {
-    if vocals || doc.selected_track == "Vocals" {
+    let manifest = if vocals || doc.selected_track == "Vocals" {
         doc.content.stems.as_ref()
     } else {
         doc.content.audition_stems(&doc.selected_track)
-    }
+    }?;
+    manifest.stems.iter().all(|asset| crate::storage::is_file(&asset.path)).then_some(manifest)
 }

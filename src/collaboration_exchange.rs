@@ -344,6 +344,36 @@ pub fn validate_import(project: &Project, bundle: &Bundle) -> Result<bool> {
 pub fn export_bundle(project: &Project) -> Result<Bundle> {
     Ok(journal(project)?.bundle())
 }
+#[cfg(target_arch = "wasm32")]
+pub fn write_bundle(project: &Project, path: &std::path::Path) -> Result<()> {
+    let bytes = serde_json::to_vec_pretty(&export_bundle(project)?)?;
+    ensure!(
+        bytes.len() as u64 <= MAX_FILE_BYTES,
+        "Review bundle exceeds 16 MiB"
+    );
+    crate::storage::write_new(path, &bytes)?;
+    Ok(())
+}
+#[cfg(target_arch = "wasm32")]
+pub fn read_bundle(path: &std::path::Path) -> Result<Bundle> {
+    let bytes = crate::storage::read(path)?;
+    ensure!(
+        bytes.len() as u64 <= MAX_FILE_BYTES,
+        "Review bundle exceeds 16 MiB"
+    );
+    Ok(serde_json::from_slice(&bytes)?)
+}
+#[cfg(target_arch = "wasm32")]
+pub fn sync(
+    _store: &Store,
+    _folder: &std::path::Path,
+    _actor: Actor,
+    _revision: u64,
+) -> Result<serde_json::Value> {
+    anyhow::bail!(
+        "Direct Git/shared-folder synchronization is unavailable in the static browser app. Exchange review bundles instead."
+    )
+}
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::*;
 #[cfg(not(target_arch = "wasm32"))]

@@ -1,3 +1,4 @@
+pub mod audio_decode;
 #[path = "../../src/bass_analysis.rs"]
 pub mod bass_analysis;
 #[path = "../../src/chart.rs"]
@@ -44,6 +45,8 @@ pub mod models;
 pub mod muscriptor;
 #[path = "../../src/note_groups.rs"]
 pub mod note_groups;
+#[path = "../../src/octave_adapter.rs"]
+pub mod octave_adapter;
 pub mod part_analysis;
 #[path = "../../src/parts.rs"]
 pub mod parts;

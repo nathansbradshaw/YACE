@@ -24,7 +24,7 @@ fn hash(bytes: &[u8]) -> String {
 #[cfg(target_arch = "wasm32")]
 impl Store {
     fn save(&self, project: &Project) -> Result<()> {
-        fs::write(self.root.join("project.json"), serde_json::to_vec(project)?)?;
+        crate::storage::save_project(&self.root, project);
         Ok(())
     }
     fn checkpoint(&self, content: &Content) -> Result<String> {
@@ -1030,6 +1030,10 @@ impl Store {
         Ok(())
     }
     pub fn load(&self) -> Result<Project> {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(project) = crate::storage::cached_project(&self.root) {
+            return Ok(project.as_ref().clone());
+        }
         let doc: Project = serde_json::from_slice(&fs::read(self.root.join("project.json"))?)?;
         ensure!(doc.version == 1, "Unsupported editor project version");
         for manifest in doc
@@ -1044,6 +1048,8 @@ impl Store {
         let chart = self.source_chart(&doc)?;
         crate::editor_validation::validate(&doc, &chart)?;
         crate::difficulty_links::validate(&doc.content, &doc.timing(self)?, doc.duration)?;
+        #[cfg(target_arch = "wasm32")]
+        crate::storage::remember_project(&self.root, &doc);
         Ok(doc)
     }
     /// Immutable source routing is separate from undoable note content. Legacy

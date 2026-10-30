@@ -1,5 +1,6 @@
 #[path = "../../../src/studio/chart_desk.rs"]
 mod chart_desk;
+#[path = "../../../src/studio/collaboration.rs"]
 mod collaboration;
 mod dialogs;
 #[path = "../../../src/studio/difficulty.rs"]
@@ -66,7 +67,10 @@ pub fn App() -> Element {
         let mut studio = studio;
         match crate::persistence::restore().await {
             Ok(Some((root, revision))) if studio.store.read().is_none() => {
-                if let Err(error) = studio.open_project(root).await {
+                if let Err(error) = studio
+                    .open_project_with_revision(root, Some(revision))
+                    .await
+                {
                     studio.error.set(Some(format!(
                         "Could not restore the local project: {error:#}"
                     )));
