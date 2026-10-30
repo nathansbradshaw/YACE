@@ -1,6 +1,7 @@
 # Piano and Pro Piano
 
-In **Auto-Chart**, select **Piano (Keys)**, **Pro Piano (Pro Keys)**, or both.
+In **Generate → Choose parts**, select **Piano (Keys)**, **Pro Piano (Pro Keys)**,
+or both.
 
 - **Piano** arranges keyboard notes into five lanes.
 - **Pro Piano** uses the game's 25-key keyboard range, MIDI pitches 48–72.

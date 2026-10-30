@@ -8,8 +8,7 @@
 }
 
 .midi-snap-selector select, .preview-snap-selector select {
-  padding: 3px 7px;
-  min-height: 27px;
+  min-height: 28px;
 }
 
 .timeline-time {

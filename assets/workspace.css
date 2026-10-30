@@ -369,6 +369,9 @@
 .chart-desk-toolbar :is(button,select) {
   min-height:28px;
   font-size:12px;
+}
+
+.chart-desk-toolbar button {
   padding:4px 6px;
 }
 
