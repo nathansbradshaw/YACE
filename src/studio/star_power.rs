@@ -67,11 +67,12 @@ fn at_playhead(studio: Studio) -> Phrase {
 pub fn Controls(studio: Studio, track: String) -> Element {
     let phrases = current(studio, &track);
     let count = phrases.as_ref().map_or(0, Vec::len);
+    let noun = if count == 1 { "phrase" } else { "phrases" };
     let edit_track = track.clone();
     rsx! {
         div {class:"power-controls",
             button {class:"studio-tool",aria_label:"Edit Star Power",onclick:move |_|open(studio,&edit_track,None),"Star Power"}
-            span {class:"field-hint","{count} phrases"}
+            span {class:"field-hint","{count} {noun}"}
         }
         if (studio.star_power_open)() {Dialog {studio,track}}
     }
