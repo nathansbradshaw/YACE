@@ -13,6 +13,7 @@ pub mod drum_parts;
 pub mod editor;
 pub mod kit_audition;
 pub mod note_groups;
+pub mod note_types;
 pub mod parts;
 pub mod review_git;
 pub mod sections;

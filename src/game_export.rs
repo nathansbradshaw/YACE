@@ -3,7 +3,7 @@
 //! export so conversion cannot silently lose them.
 use crate::{chart::Chart, vocals::VocalChart};
 use anyhow::{Context, Result, bail, ensure};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 type Events = Vec<(u64, u8, Vec<u8>)>;
 
@@ -72,9 +72,9 @@ pub fn chart_to_midi(chart: &Chart) -> Result<Vec<u8>> {
         chart.timing.offset == 0.0,
         "Vocal MIDI export requires zero chart Offset; the source project is retained"
     );
-    chart_ticks_to_midi(chart)
+    chart_ticks_to_midi(chart, &BTreeMap::new())
 }
-fn chart_ticks_to_midi(chart: &Chart) -> Result<Vec<u8>> {
+fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<Vec<u8>> {
     let resolution = u16::try_from(chart.timing.resolution)?;
     ensure!(
         (1..=32767).contains(&resolution),
@@ -169,6 +169,50 @@ fn chart_ticks_to_midi(chart: &Chart) -> Result<Vec<u8>> {
             .entry(label)
             .or_insert(vec![(0, 1, meta(3, label.as_bytes())?)]);
         let notes = chart.notes(&section.name)?;
+        let frets = matches!(suffix, "Single" | "DoubleBass");
+        if frets {
+            use crate::gameplay_view::{self, Technique};
+            let policy = gameplay_view::yarg_chart_policy(chart.timing.resolution, ini)?;
+            let attacks: BTreeMap<_, _> =
+                gameplay_view::classify(&section.name, &notes, &chart.timing, &policy)?
+                    .into_iter()
+                    .map(|gem| (gem.tick, gem.technique))
+                    .collect();
+            ensure!(
+                notes
+                    .iter()
+                    .filter(|n| matches!(n.lane, 5 | 6))
+                    .all(|n| attacks.contains_key(&n.tick)),
+                "Orphan guitar type marker in {}",
+                section.name
+            );
+            if notes.iter().any(|n| n.lane == 7) {
+                events.push((0, 1, meta(1, b"[ENHANCED_OPENS]")?));
+            }
+            for (tick, kind) in attacks {
+                match kind {
+                    // Resolve the chart's policy explicitly; MIDI has different defaults.
+                    Some(Technique::Hopo) => {
+                        note(events, tick, 1, 65 + difficulty as u8 * 12, 100)?
+                    }
+                    Some(Technique::Strum) => {
+                        note(events, tick, 1, 66 + difficulty as u8 * 12, 100)?
+                    }
+                    Some(Technique::Tap) => {
+                        // Phase Shift tap ranges include their last tick. A point range
+                        // isolates this attack, even beside a note one tick later.
+                        for (priority, value) in [(1, 1), (3, 0)] {
+                            events.push((
+                                tick,
+                                priority,
+                                vec![0xf0, 8, b'P', b'S', 0, 0, difficulty as u8, 4, value, 0xf7],
+                            ));
+                        }
+                    }
+                    _ => bail!("Cannot resolve guitar note type in {}", section.name),
+                }
+            }
+        }
         if suffix == "ProKeys" {
             for marker in crate::key_ranges::plan(&notes)?.markers {
                 note(events, marker.tick, marker.sustain, marker.lane, 100)?;
@@ -187,6 +231,13 @@ fn chart_ticks_to_midi(chart: &Chart) -> Result<Vec<u8>> {
                     let lane = lane.parse::<u8>()?;
                     let duration = duration.parse::<u64>()?;
                     let base = 60 + difficulty as u8 * 12;
+                    if frets && matches!(lane, 5 | 6) {
+                        continue;
+                    }
+                    if frets && lane == 7 {
+                        note(events, tick, duration, base - 1, 100)?;
+                        continue;
+                    }
                     if suffix == "ProKeys" {
                         ensure!(
                             (crate::keys::MIN_PITCH..=crate::keys::MAX_PITCH).contains(&lane),
@@ -289,12 +340,19 @@ pub fn song_with_vocals(chart: &Chart, vocals: &VocalChart) -> Result<(Vec<u8>, 
 /// Convert the editable master to one playable MIDI, optionally with vocals.
 /// Pro Keys custom working sections must always pass through this conversion.
 pub fn song(chart: &Chart, vocals: Option<&VocalChart>) -> Result<(Vec<u8>, i64)> {
+    song_with_ini(chart, vocals, &BTreeMap::new())
+}
+pub fn song_with_ini(
+    chart: &Chart,
+    vocals: Option<&VocalChart>,
+    ini: &BTreeMap<String, String>,
+) -> Result<(Vec<u8>, i64)> {
     let delay = chart.timing.offset * 1000.;
     ensure!(
         delay.abs() <= i32::MAX as f64 && (delay - delay.round()).abs() < 0.000001,
         "Chart Offset cannot be preserved exactly in MIDI song.ini delay"
     );
-    let midi = chart_ticks_to_midi(chart)?;
+    let midi = chart_ticks_to_midi(chart, ini)?;
     let midi = if let Some(vocals) = vocals {
         crate::vocals::append_midi(&midi, vocals)?
     } else {

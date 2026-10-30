@@ -17,6 +17,7 @@ mod inline_review;
 mod modal;
 mod note_canvas;
 mod note_gestures;
+mod note_types;
 mod part_analysis;
 mod parts;
 mod practice;

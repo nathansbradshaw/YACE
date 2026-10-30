@@ -239,6 +239,8 @@
   display:grid;
   gap:10px;
 }
+.selection-properties{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.selection-note-types{min-width:0}
 
 .selection-timing {
   display:grid;

@@ -45,6 +45,8 @@ pub mod models;
 pub mod muscriptor;
 #[path = "../../src/note_groups.rs"]
 pub mod note_groups;
+#[path = "../../src/note_types.rs"]
+pub mod note_types;
 #[path = "../../src/octave_adapter.rs"]
 pub mod octave_adapter;
 pub mod part_analysis;

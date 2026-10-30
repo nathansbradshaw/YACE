@@ -223,6 +223,10 @@ impl Transport {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
+    SetNoteType {
+        selection: crate::note_groups::Snapshot,
+        kind: crate::note_types::Kind,
+    },
     EditStarPower {
         edit: crate::star_power::Edit,
     },
@@ -1217,6 +1221,7 @@ impl Store {
                 | Action::UpdateNote { .. }
                 | Action::DeleteNote { .. }
                 | Action::EditNoteGroup { .. }
+                | Action::SetNoteType { .. }
                 | Action::EnableDifficultyLink { .. }
                 | Action::ClearDifficultyOverrides { .. }
                 | Action::Decide { .. }
@@ -1236,6 +1241,9 @@ impl Store {
         doc.transport.anchor_ms = now_ms();
         let before_timing = doc.timing(self)?;
         match &request.action {
+            Action::SetNoteType { selection, kind } => {
+                crate::note_types::apply(&mut doc, selection, *kind)?
+            }
             Action::EditStarPower { edit } => {
                 let source = self.source_chart(&doc)?;
                 crate::star_power::apply(&mut doc, &source, edit)?;
@@ -1607,6 +1615,7 @@ impl Store {
         if matches!(
             request.action,
             Action::AddNote { .. }
+                | Action::SetNoteType { .. }
                 | Action::ApplyGeneratedPart { .. }
                 | Action::UpdateNote { .. }
                 | Action::DeleteNote { .. }
@@ -1787,15 +1796,16 @@ impl Store {
         let midi_export = doc.content.vocals.is_some()
             || doc.content.tracks.keys().any(|t| crate::keys::is_pro(t));
         if midi_export {
-            let (midi, delay) = crate::game_export::song(
+            let raw = pipeline::song_ini(stage)?;
+            let (midi, delay) = crate::game_export::song_with_ini(
                 &Chart::parse(text.clone())?,
                 doc.content.vocals.as_ref(),
+                &pipeline::ini_fields(&raw),
             )?;
             exported_chart_sha256 = hash(&midi);
             fs::write(stage.join("notes.mid"), midi)?;
             fs::rename(stage.join("notes.chart"), archive.join("notes.chart"))?;
             let ini = stage.join("song.ini");
-            let raw = pipeline::song_ini(stage)?;
             fs::write(ini, crate::game_export::ini_with_delay(&raw, delay))?;
             if let Some(vocals) = &doc.content.vocals {
                 fs::write(
