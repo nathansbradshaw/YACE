@@ -201,7 +201,7 @@ pub fn Lane(mut studio: Studio, track: String) -> Element {
                         }
                         if x>=0. {rect {x:"{x}",y:"1",width:"6",height:"14",class:"power-grip",style:"cursor:ew-resize","aria-label":"Resize Star Power start",onmousedown:move |e:MouseEvent|{if e.trigger_button()==Some(MouseButton::Primary){e.prevent_default();suppress.set(false);drag.set(Some(Drag {phrase:left.clone(),x:e.page_coordinates().x,edge:-1,revision}));}}}}
                         if end<=width() {rect {x:"{end-6.}",y:"1",width:"6",height:"14",class:"power-grip",style:"cursor:ew-resize","aria-label":"Resize Star Power end",onmousedown:move |e:MouseEvent|{if e.trigger_button()==Some(MouseButton::Primary){e.prevent_default();suppress.set(false);drag.set(Some(Drag {phrase:right.clone(),x:e.page_coordinates().x,edge:1,revision}));}}}}
-                        if dx.abs()>=3. {{let edge=drag.read().as_ref().map_or(0,|d|d.edge);let left=if edge==1 {a}else{a+dx};let right=if edge== -1 {b}else{b+dx};rsx! {rect {x:"{left}",y:"1",width:"{(right-left).max(1.)}",height:"14",fill:"none",stroke:"#eee5c9",pointer_events:"none"}}}}
+                        if dx.abs()>=3. {{let edge=drag.read().as_ref().map_or(0,|d|d.edge);let left=if edge==1 {a}else{a+dx};let right=if edge== -1 {b}else{b+dx};rsx! {rect {x:"{left}",y:"1",width:"{(right-left).max(1.)}",height:"14",fill:"none",stroke:"var(--text-primary)",pointer_events:"none"}}}}
                     }}}
                     }
                 }
