@@ -20,6 +20,7 @@ mod review;
 mod shortcuts;
 pub mod state;
 mod stems;
+mod surfaces;
 mod timeline;
 mod toolbar;
 mod vocal_editor;
@@ -71,6 +72,7 @@ const CSS: &str = concat!(
 #[component]
 fn App() -> Element {
     use_hook(diagnostics::install);
+    let stylesheet = use_hook(|| surfaces::stylesheet(CSS));
     let studio = state::use_studio();
     difficulty::use_snapshot(studio);
     let display_link = frame_pacing::use_frame_pacing(studio);
@@ -104,7 +106,7 @@ fn App() -> Element {
     });
     let doc = studio.snapshot();
     rsx! {
-        style { "{CSS}" }
+        style { "{stylesheet}" }
         div { class: "layout", tabindex: "-1",
             onkeydown: move |event| shortcuts::handle(studio, event),
             toolbar::Toolbar { studio }
