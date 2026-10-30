@@ -2,6 +2,8 @@
 
 The preview displays the selected instrument and difficulty alongside recording
 playback. Use it to inspect patterns; edit the notes in the timeline below.
+Choose an instrument and difficulty in the preview header. **Playback options**
+contains the stem, loop and view settings.
 
 The five-fret display supports Guitar/Bass, four-pad Drums and five-lane Piano.
 Pro Piano and Vocals use their own pitch-based representations. **Pro Drums**

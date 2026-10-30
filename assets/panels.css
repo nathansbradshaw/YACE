@@ -24,7 +24,7 @@
   overflow: hidden;
   background: var(--panel-face);
   border: 1px solid #0b0c0e;
-  box-shadow: inset 0 1px #ffffff12;
+  box-shadow: none;
 }
 
 .project-explorer, .property-panel, .chart-preview, .midi-editor {
@@ -39,12 +39,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 42px;
-  padding: 7px 12px;
+  min-height: 34px;
+  padding: 4px 10px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
-  background: linear-gradient(#34373b, #25272a);
-  box-shadow: inset 0 1px #ffffff12, 0 1px 2px #0006;
+  background: #232527;
+  box-shadow: none;
 }
 
 .panel-header-title {
@@ -78,7 +78,7 @@
   flex: 1;
   overflow: auto;
   min-height: 0;
-  padding: 16px;
+  padding: 12px;
 }
 
 .project-explorer > .panel-content {
@@ -109,13 +109,14 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 60px;
-  padding: 0 14px;
+  height: 48px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
   overflow-x: auto;
-  background: repeating-linear-gradient(0deg, #ffffff02 0 1px, transparent 1px 3px), linear-gradient(#3b3e42, #282a2d 55%, #222427);
-  box-shadow: inset 0 1px #ffffff18, inset 0 -1px #000a;
+  position: relative;
+  background: #292c2b;
+  box-shadow: none;
 }
 
 .toolbar-brand {
@@ -124,12 +125,25 @@
   letter-spacing: 2px;
   color: var(--accent-color);
   margin-right: 8px;
-  padding: 4px 8px;
-  border: 1px solid #111214;
-  border-radius: 3px;
-  background: #242629;
-  box-shadow: inset 0 1px 3px #0008, 0 1px #ffffff1a;
-  text-shadow: 0 1px 1px #000;
+  padding: 0;
+  text-shadow: none;
+}
+
+.toolbar-wear {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.toolbar-wear svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.toolbar > :not(.toolbar-wear) {
+  position: relative;
+  z-index: 1;
 }
 
 .toolbar-group {
@@ -140,7 +154,7 @@
 }
 
 .toolbar-button {
-  height: 32px;
+  height: 28px;
   min-width: 32px;
   padding: 5px 8px;
   border-color: #151618;
@@ -150,14 +164,14 @@
 }
 
 .toolbar-button-accent {
-  background: linear-gradient(#e2e4e7, #aeb3ba);
+  background: #c9cfca;
   color: #17181a;
   border-color: #111214;
   font-weight: 600;
 }
 
 .toolbar-button-accent:hover:not(:disabled) {
-  background: linear-gradient(#f2f4f6, #bdc3ca);
+  background: #e1e5e2;
   color: #17181a;
 }
 
@@ -209,7 +223,7 @@
   background: #111416;
   border: 1px solid #0a0c0d;
   border-radius: 4px;
-  box-shadow: inset 0 2px 6px #000c, 0 1px #ffffff15;
+  box-shadow: none;
 }
 
 .toolbar-song-name {
@@ -233,7 +247,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 12px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -275,7 +289,7 @@
 }
 
 .explorer-section-heading {
-  padding: 16px 12px 6px;
+  padding: 10px 12px 6px;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
@@ -293,7 +307,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 4px;
+  padding: 5px 4px;
   color: var(--text-secondary);
   font-size: 12px;
 }
@@ -318,7 +332,7 @@
   color: var(--accent-color-hover);
   border-color: #111214;
   background: #161a1c;
-  box-shadow: inset 0 2px 4px #000c, 0 1px #ffffff15;
+  box-shadow: none;
 }
 
 .track-navigation-row.active::after {
@@ -327,7 +341,7 @@
   height: 5px;
   border-radius: 50%;
   background: #d1e2d5;
-  box-shadow: 0 0 4px #acd1b66b;
+  box-shadow: none;
 }
 
 .track-vocals {
@@ -496,6 +510,7 @@
 }
 
 .preview-header-actions {
+  min-width: 0;
   flex-wrap: wrap;
 }
 
@@ -504,30 +519,11 @@
   gap: 6px;
 }
 
-.instrument-toggles {
-  display: flex;
-  gap: 3px;
-  flex-wrap: wrap;
-}
-
-.difficulty-selector {
-  display: flex;
-  gap: 2px;
-}
-
-.difficulty-button {
-  background: transparent;
-  border-color: transparent;
-  font-size: 11px;
-  min-height: 27px;
-  padding: 4px 7px;
-  box-shadow: none;
-}
-
-.difficulty-button.active {
-  background: var(--accent-color-transparent);
-  border-color: #777d86;
-  color: var(--accent-color-hover);
+.preview-header-actions select {
+  max-width: 100%;
+  padding: 3px 6px;
+  min-height: 26px;
+  font-size: 12px;
 }
 
 .chart-preview-canvas {
@@ -535,7 +531,7 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  box-shadow: inset 0 3px 14px #000b;
+  box-shadow: none;
 }
 
 .studio-highway {
@@ -600,7 +596,7 @@
   color: var(--text-muted);
   font-size: 10px;
   flex-shrink: 0;
-  background: linear-gradient(#25272a, #1a1c1e);
+  background: #1e2022;
 }
 
 .studio-error {
@@ -620,36 +616,6 @@
 }
 
 @media (max-width: 1250px) {
-  .chart-preview > .panel-header {
-    gap: 4px;
-    padding: 6px 10px;
-  }
-
-  .preview-header-actions {
-    gap: 3px;
-  }
-
-  .preview-header-actions .instrument-toggle {
-    font-size: 11px;
-    padding: 4px 6px;
-    min-height: 27px;
-  }
-
-  .preview-header-actions .difficulty-button {
-    font-size: 10px;
-    padding: 4px 5px;
-  }
-
-  /* Keep a usable preview when the window is short. Extra controls scroll. */
-  .game-preview .midi-toolbar {
-    flex-wrap: nowrap !important;
-    gap: 5px !important;
-  }
-
-  .game-preview .midi-toolbar > * {
-    flex-shrink: 0;
-  }
-
   .toolbar {
     gap: 6px;
     padding: 0 10px;

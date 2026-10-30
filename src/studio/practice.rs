@@ -133,9 +133,11 @@ fn enable_loop(studio: Studio, mut draft: Signal<LoopDraft>, enabled: bool) {
 }
 
 #[component]
-pub fn PracticeControls(studio: Studio) -> Element {
+pub fn PracticeControls(studio: Studio, children: Element) -> Element {
     let mut draft = use_signal(LoopDraft::default);
     let mut edit_loop = use_signal(|| false);
+    let mut options_open = use_signal(|| false);
+    let mut summary_node = use_signal(|| None::<std::rc::Rc<MountedData>>);
     use_effect(move || {
         let source = (studio.source_audio)();
         let Some(doc) = studio.snapshot() else { return };
@@ -188,20 +190,32 @@ pub fn PracticeControls(studio: Studio) -> Element {
     let source_ready = (studio.audio_ready)();
     let playback_icon = if playing { "pause" } else { "play" };
     rsx! {
-        div{class:"midi-toolbar",role:"toolbar",aria_label:"Preview and practice controls",style:"flex-wrap:wrap;gap:8px;padding:6px 12px;flex-shrink:0;",
+        div{class:"practice-controls",role:"toolbar",aria_label:"Preview and practice controls",
             onkeydown:move|event:KeyboardEvent|event.stop_propagation(),
             span{class:"timeline-time",style:"white-space:nowrap;",title:"{position:.3} / {duration:.3} seconds","{clock(position)} / {clock(duration)}"}
             button{class:if playing{"instrument-toggle active"}else{"instrument-toggle"},disabled:!loaded||!source_ready,aria_label:if playing{"Pause practice recording"}else{"Play practice recording"},title:"Play / pause recording (Space)",onclick:move|_|studio.toggle_playback(),Icon { name: playback_icon, size: 16 }}
-            button{class:"instrument-toggle",disabled:!loaded,title:"Seek backward two original-recording seconds",aria_label:"Seek backward 2 seconds",onclick:move|_|studio.seek((studio.playhead)()-2.),Icon { name: "skip-back", size: 15 } "2 s"}
-            button{class:"instrument-toggle",disabled:!loaded,title:"Seek forward two original-recording seconds",aria_label:"Seek forward 2 seconds",onclick:move|_|studio.seek((studio.playhead)()+2.),"2 s" Icon { name: "skip-forward", size: 15 }}
-            label{class:"preview-snap-selector",input{r#type:"checkbox",checked:loop_on,disabled:!loaded,onchange:move|event|enable_loop(studio,draft,event.checked())},"Loop"}
-            button{class:"instrument-toggle",disabled:selected_id.is_none(),title:"Loop the selected review region",onclick:move|_|{if let Some(id)=studio.snapshot().and_then(|doc|selected(&doc).map(|(id,_)|id.to_owned())){draft.with_mut(|draft|{draft.dirty=false;draft.changed_elsewhere=false;draft.error=None;});studio.dispatch(Action::SelectRegion{region_id:id});}},"Loop section"}
             label{class:"preview-snap-selector","Speed" select{disabled:!loaded,aria_label:"Pitch-preserving practice speed",value:rate.to_string(),onchange:move|event|{if let Ok(rate)=event.value().parse(){studio.set_playback_rate(rate);}},
                 option{value:"0.5",selected:rate==0.5,"50%"}option{value:"0.75",selected:rate==0.75,"75%"}option{value:"1",selected:rate==1.0,"100%"}
                 if ![0.5,0.75,1.0].contains(&rate){option{value:rate.to_string(),selected:true,"{rate:.2}× (current)"}}
             }}
             if loaded&&!source_ready{span{class:"settings-field-hint",role:"status","Audio not ready"}}
+            details { class: "preview-options", open: options_open(),
+              onkeydown: move |event: KeyboardEvent| {
+                if event.key() == Key::Escape {
+                  event.prevent_default();
+                  options_open.set(false);
+                  if let Some(node) = summary_node() { spawn(async move { let _ = node.set_focus(true).await; }); }
+                }
+              },
+              summary { onmounted: move |event| summary_node.set(Some(event.data())), onclick: move |event| { event.prevent_default(); options_open.set(!options_open()); }, "Playback options" }
+              div { class: "preview-options-body",
+                div { class: "practice-loop-actions",
+                  button{class:"instrument-toggle",disabled:!loaded,title:"Seek backward two original-recording seconds",aria_label:"Seek backward 2 seconds",onclick:move|_|studio.seek((studio.playhead)()-2.),Icon { name: "skip-back", size: 15 } "2 s"}
+                  button{class:"instrument-toggle",disabled:!loaded,title:"Seek forward two original-recording seconds",aria_label:"Seek forward 2 seconds",onclick:move|_|studio.seek((studio.playhead)()+2.),"2 s" Icon { name: "skip-forward", size: 15 }}
+                  label{class:"preview-snap-selector",input{r#type:"checkbox",checked:loop_on,disabled:!loaded,onchange:move|event|enable_loop(studio,draft,event.checked())},"Loop"}
+                  button{class:"instrument-toggle",disabled:selected_id.is_none(),title:"Loop the selected review region",onclick:move|_|{if let Some(id)=studio.snapshot().and_then(|doc|selected(&doc).map(|(id,_)|id.to_owned())){draft.with_mut(|draft|{draft.dirty=false;draft.changed_elsewhere=false;draft.error=None;});studio.dispatch(Action::SelectRegion{region_id:id});}},"Loop section"}
             button{class:if edit_loop(){"instrument-toggle active"}else{"instrument-toggle"},style:"margin-left:auto;white-space:nowrap;",aria_expanded:edit_loop(),onclick:move|_|edit_loop.set(!edit_loop()),"Edit loop"}
+                }
             if edit_loop(){
                 div{style:"display:flex;flex:1 0 100%;flex-wrap:wrap;align-items:center;gap:8px;padding-top:4px;",
                     label{class:"preview-snap-selector","In (s)" input{class:"property-input",style:"width:88px;height:28px;border-radius:4px;padding:4px 8px;",r#type:"number",min:"0",step:"0.01",aria_label:"Practice loop in seconds",disabled:!loaded,value:view.start.clone(),oninput:move|event|stage(draft,Some(event.value()),None)}}
@@ -213,6 +227,9 @@ pub fn PracticeControls(studio: Studio) -> Element {
                     if view.changed_elsewhere{span{class:"settings-field-hint","Loop changed elsewhere; Apply commits your staged points."}}
                     if let Some(error)=error{span{class:"settings-field-hint",role:"alert",style:"color:var(--danger-color);","{error}"}}
                 }
+            }
+                {children}
+              }
             }
         }
     }
