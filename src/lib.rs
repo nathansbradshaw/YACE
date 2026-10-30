@@ -15,6 +15,7 @@ pub mod note_groups;
 pub mod parts;
 pub mod review_git;
 pub mod sections;
+pub mod star_power;
 #[cfg(feature = "studio")]
 pub mod studio;
 pub mod sync_track;

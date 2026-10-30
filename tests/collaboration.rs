@@ -70,6 +70,7 @@ fn fixture(root: &Path) -> Store {
         )
         .unwrap(),
         content: Content {
+            star_power: Default::default(),
             sync: None,
             sections: None,
             track_origins: Default::default(),
@@ -229,6 +230,102 @@ fn proposals_cannot_cross_tempo_changes_but_work_with_matching_edited_timing() {
         2
     );
 }
+#[test]
+fn star_power_binds_note_proposals_and_undo_keeps_legacy_reviews_valid() {
+    use chart_engine::star_power::{Edit, Phrase};
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let old = proposal(&store);
+    let mut legacy = serde_json::to_value(&old).unwrap();
+    legacy.as_object_mut().unwrap().remove("star_power_sha256");
+    let restored: Proposal = serde_json::from_value(legacy).unwrap();
+    assert_eq!(restored.fingerprint().unwrap(), old.fingerprint().unwrap());
+    let fingerprint = old.fingerprint().unwrap();
+    run(&store, "Alice", Operation::Submit { proposal: old }).unwrap();
+    run(
+        &store,
+        "Bob",
+        Operation::Review {
+            proposal_id: "p1".into(),
+            fingerprint: fingerprint.clone(),
+            approve: true,
+            body: "Checked the phrase".into(),
+        },
+    )
+    .unwrap();
+    store
+        .apply(Request {
+            expected_revision: store.load().unwrap().revision,
+            actor: actor("You"),
+            action: Action::EditStarPower {
+                edit: Edit::Put {
+                    track: "ExpertSingle".into(),
+                    previous: None,
+                    phrase: Phrase {
+                        start: 480,
+                        end: 960,
+                    },
+                },
+            },
+        })
+        .unwrap();
+    let bytes = fs::read(store.root.join("project.json")).unwrap();
+    assert!(
+        run(
+            &store,
+            "Maintainer",
+            Operation::Merge {
+                proposal_id: "p1".into(),
+                fingerprint: fingerprint.clone()
+            }
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("Star Power changed")
+    );
+    assert_eq!(fs::read(store.root.join("project.json")).unwrap(), bytes);
+    let mut new = proposal(&store);
+    new.id = "new".into();
+    assert!(new.star_power_sha256.is_some());
+    run(&store, "Alice", Operation::Submit { proposal: new }).unwrap();
+    let base = store.load().unwrap();
+    let mut changed = base.clone();
+    changed.content.star_power.clear();
+    assert!(
+        Proposal::between(
+            &base,
+            &changed,
+            "changed".into(),
+            "Edit".into(),
+            "Edited Star Power".into(),
+            actor("You")
+        )
+        .is_err()
+    );
+    store
+        .apply(Request {
+            expected_revision: base.revision,
+            actor: actor("You"),
+            action: Action::Undo,
+        })
+        .unwrap();
+    run(
+        &store,
+        "Maintainer",
+        Operation::Merge {
+            proposal_id: "p1".into(),
+            fingerprint,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        store.load().unwrap().content.tracks["ExpertSingle"][0]
+            .note
+            .lane,
+        2
+    );
+}
+
 #[test]
 fn complete_review_merge_undo_and_reopen_preserve_history() {
     let root = tempfile::tempdir().unwrap();

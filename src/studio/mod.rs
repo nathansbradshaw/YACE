@@ -28,6 +28,7 @@ mod selection;
 mod selection_desk;
 mod sheet;
 mod shortcuts;
+mod star_power;
 pub mod state;
 mod stems;
 mod timing_editor;

@@ -70,6 +70,7 @@ pub(crate) fn fixture(root: &Path) -> Store {
         )
         .unwrap(),
         content: Content {
+            star_power: Default::default(),
             sync: None,
             sections: None,
             track_origins: Default::default(),
