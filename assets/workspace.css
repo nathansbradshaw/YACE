@@ -239,10 +239,8 @@
   display:grid;
   gap:10px;
 }
-.selection-note-types{margin:8px 0}
-.selection-note-types label{display:flex;align-items:center;gap:8px;font-size:11px}
-.selection-note-types select{flex:1;min-width:0}
-.selection-note-types .field-hint{margin:3px 0 0}
+.selection-properties{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.selection-note-types{min-width:0}
 
 .selection-timing {
   display:grid;

@@ -47,6 +47,5 @@ pub fn NoteTypes(mut studio: Studio) -> Element {
                 option {value:"tap",selected:value=="tap","Tap"}
             }
         }
-        p {class:"field-hint","Applies to whole chords."}
     }}
 }

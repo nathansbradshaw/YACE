@@ -56,7 +56,7 @@ for the full workflow.
 
 | Task | Guide |
 | --- | --- |
-| Edit notes, Star Power, tempo and song sections | [Editor](docs/EDITOR.md) |
+| Edit notes, note types, Star Power, tempo and song sections | [Editor](docs/EDITOR.md) |
 | Generate guitar, bass and drum drafts | [Generation](docs/GENERATION.md) |
 | Edit five-lane Keys or pitch-based Pro Keys | [Piano and synth](docs/PIANO.md) |
 | Edit vocal pitches, words and phrases | [Vocals](docs/VOCALS.md) |

@@ -33,6 +33,14 @@ Audition, selection details and review follow that track.
 - Select a note to edit its position, duration, lane and supported flags in the selection desk.
 - Drag a sustain's end handle to change its length. Drum notes do not sustain.
 
+For guitar and bass, **Type** offers **Auto**, **Forced** and **Tap**. Forced flips
+the automatic strum/HOPO type. Each setting applies to the whole chord, including
+when only one gem is selected. A group edit is one Undo step.
+
+The note lanes mark forced attacks with **F** and taps with **T**. Copy, paste and
+movement keep those flags. The preview follows the song's HOPO settings; MIDI
+exports resolve those settings and keep tap markers separate by difficulty.
+
 Use **Difficulty links** in the selection desk to preview a reduction from Expert.
 Confirm the replacement before linking an existing lower difficulty. Local edits
 to a linked row become overrides; Undo restores the earlier state.
