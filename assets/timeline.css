@@ -135,3 +135,9 @@
   margin-left:auto;
   color:var(--text-muted);
 }
+/* Section names sit on the same clock and gutter as the notes. */
+.section-strip{display:flex;height:25px;border-bottom:1px solid var(--border-color);background:var(--panel-face)}
+.section-strip-label{width:140px;flex-shrink:0;display:flex;align-items:center;gap:6px;border:0;border-right:1px solid var(--border-color);border-radius:0;padding:2px 12px;font-size:11px;text-align:left}
+.section-strip-markers{position:relative;flex:1;min-width:0;overflow:hidden}
+.section-marker{position:absolute;top:2px;height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 5px;border:0;border-left:2px solid var(--accent-color);border-radius:0;background:transparent;font-size:10px;text-align:left}
+.section-marker:hover{background:var(--bg-hover)}

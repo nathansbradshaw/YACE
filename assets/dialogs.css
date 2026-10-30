@@ -121,3 +121,18 @@
 .collaboration-modal > .field-button {
   margin-bottom:8px;
 }
+.sections-dialog{width:min(560px,calc(100vw - 48px));padding:16px;display:flex;flex-direction:column;gap:12px;background:var(--panel-face);border:1px solid var(--border-color-hover);border-radius:3px;overflow:auto}
+.sections-dialog header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sections-dialog h2{margin:0;font-size:16px}
+.sections-dialog header button{display:flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0}
+.sections-list{list-style:none;padding:0;margin:0;max-height:40vh;overflow:auto}
+.sections-list li{display:flex;align-items:center;gap:5px;padding:5px 0;border-bottom:1px solid var(--border-color)}
+.sections-list li>button:not(.section-go){width:28px;height:28px;padding:5px}
+.sections-list .section-go{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:1;min-width:0;border:0;text-align:left;background:transparent}
+.section-go span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.section-go time{font-variant-numeric:tabular-nums;color:var(--text-muted);font-size:11px;flex-shrink:0}
+.section-form{display:grid;grid-template-columns:minmax(0,1fr) 100px auto;align-items:end;gap:8px}
+.section-form label{display:flex;flex-direction:column;gap:4px;font-size:11px}
+.section-form input{width:100%;min-width:0}
+.section-form-actions{grid-column:1/-1;display:flex;justify-content:flex-end;gap:8px}
+.section-error{margin:0;color:var(--danger-color);font-size:12px}

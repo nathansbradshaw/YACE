@@ -6,7 +6,7 @@ Import a local recording, generate a draft, then listen and edit. YACE supports
 guitar, bass, drums, Keys, Pro Keys and lead vocals. Generated parts need review;
 they are not finished charts.
 
-![YACE with audition and selection details above the track picker and note editor](assets/screenshots/editor.png)
+![YACE with section markers, a source waveform and the compact note editor](assets/screenshots/editor.png)
 
 Preview above, edit notes below. Shown with a small demo chart.
 

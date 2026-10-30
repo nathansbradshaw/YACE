@@ -68,7 +68,7 @@ pub fn ChartDesk(mut studio: Studio) -> Element {
                 label { class: "toolbar-toggle", input { r#type: "checkbox", checked: hidden_flags(), onkeydown: move |event| event.stop_propagation(), onchange: move |event| hidden_flags.set(event.checked()) } "Hidden flags" }
             }
             div { class: "chart-desk-scroll",
-                div { class: "chart-desk-ruler", Ruler { studio }
+                div { class: "chart-desk-ruler", super::sections::SectionStrip { studio } Ruler { studio }
                     div { class: "midi-waveform-strip", div { class: "midi-waveform-label", style: "width:140px;flex-shrink:0", "Recording" } Waveform { studio } }
                 }
                 for track in tracks {

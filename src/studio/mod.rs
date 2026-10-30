@@ -19,6 +19,7 @@ mod practice;
 mod presentation_clock;
 mod project_bar;
 mod review;
+mod sections;
 mod selection;
 mod selection_desk;
 mod sheet;
