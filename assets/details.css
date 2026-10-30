@@ -13,12 +13,13 @@
 
 .studio-app .review-approve {
   color: var(--success-color);
-  background: #274638;
-  border: 1px solid #4b795f;
+  background: var(--success-surface);
+  border: 1px solid var(--success-color);
 }
 
 .studio-app .review-approve:hover:not(:disabled) {
-  background: #335b47;
+  background: var(--success-surface);
+  border-color: var(--border-color-hover);
 }
 
 .studio-app .review-approve:disabled {
@@ -87,9 +88,9 @@
   display: inline-block;
   font-size: 9px;
   font-weight: 400;
-  border: 1px solid #675035;
+  border: 1px solid var(--warning-color);
   border-radius: 3px;
-  color: #e8ba7e;
+  color: var(--warning-color);
   padding: 1px 4px;
   margin: 0 0 3px 7px;
 }
@@ -231,7 +232,7 @@
   align-items: center;
   gap: 6px;
   margin: 9px 0;
-  color: #e9b979;
+  color: var(--warning-color);
   font-size: 11px;
 }
 
@@ -247,23 +248,23 @@
 }
 
 .studio-app .vocal-review-region {
-  border: 1px solid #65513b;
-  border-left: 3px solid #dca15a;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--warning-color);
   border-radius: 3px;
-  background: #29251f;
+  background: var(--warning-surface);
   margin-bottom: 5px;
   padding: 5px 7px;
 }
 
 .studio-app .vocal-review-region.active {
-  background: #3c3022;
-  border-color: #e0ab67;
+  background: var(--warning-surface);
+  border-color: var(--warning-color);
 }
 
 .studio-app .vocal-review-region.reviewed {
-  background: #1b302b;
-  border-color: #40685a;
-  border-left-color: #63b398;
+  background: var(--success-surface);
+  border-color: var(--success-color);
+  border-left-color: var(--success-color);
 }
 
 .studio-app .vocal-review-region.hidden {
@@ -305,7 +306,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  border-top: 1px solid #3e3c35;
+  border-top: 1px solid var(--border-color);
   padding: 5px 0;
   color: var(--text-secondary);
   font-size: 10px;
@@ -313,9 +314,9 @@
 
 .studio-app .vocal-review-status {
   padding: 7px 9px;
-  color: #edba7d;
-  background: #332a20;
-  border: 1px solid #5c4830;
+  color: var(--warning-color);
+  background: var(--warning-surface);
+  border: 1px solid var(--warning-color);
   border-radius: 4px;
   font-size: 11px;
 }
@@ -339,7 +340,7 @@
 }
 
 .studio-app .vocal-check-row:hover:not(:disabled) {
-  background: #342d24;
+  background: var(--warning-surface);
 }
 
 .studio-app .vocal-check-row:disabled {

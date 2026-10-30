@@ -31,10 +31,21 @@ Styles live in `assets/`. Start with `theme.css` for shared colors and controls,
 `workspace.css` for the workbench, `forms.css` for form controls, `timeline.css` for note lanes and `dialogs.css`
 for modal windows. `workbench.css` covers the welcome screen; `details.css`
 covers vocals and review details. Other feature styles have matching names.
-Use graphite faces, cream transport keys and thin section dividers consistently.
-`surfaces.css` adds subtle contact wear to the project bar edge and transport keys.
-Keep labels, panel faces, ordinary controls and editing areas free of texture.
+Use black and steel-gray control panels, bright blue selection/primary actions,
+green playback/approval, amber warnings and red destructive states. `brand.rs` supplies the original
+branching Y mark. Use system sans for controls and tabular monospace readouts.
+Keep the start screen to direct project actions, without promotional text or
+decorative cards. Keep lane heights and musical colors
+unchanged. Scope dark canvas tokens to `.chart-desk-scroll` so review and vocal
+details remain readable in either surface. Use semantic status tokens instead of
+hardcoded warning/success fills. All visual assets work offline; no photographic
+textures or downloaded fonts are loaded.
 See [third-party notices](../../THIRD_PARTY.md) for component ancestry.
+
+For a visual check on a disposable project, run
+`cargo run --no-default-features --features browser --example studio-preview -- /path/to/project 3050`.
+This uses the shared Rust UI and leaves other preview servers running. It writes
+normal editor state to the supplied project, so use a test copy.
 
 The track picker drives editing, audition and review together. Selection details
 follow the current note; playback controls stay with the audition view. Keep lane

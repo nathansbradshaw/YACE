@@ -12,7 +12,7 @@
 }
 
 .studio-modal-portal::backdrop {
-  background:#070809b8;
+  background:#000b;
 }
 
 .studio-modal-portal > * {
@@ -27,9 +27,9 @@
   max-height:calc(100vh - 32px);
   overflow:hidden;
   background:var(--panel-face);
-  border:1px solid var(--border-color-hover);
-  border-radius:3px;
-  box-shadow:0 16px 48px #0008;
+  border:1px solid var(--border-color);
+  border-radius:2px;
+  box-shadow:0 16px 40px #0009;
 }
 
 .tool-sheet-heading {
@@ -39,6 +39,7 @@
   gap:14px;
   flex-shrink:0;
   padding:14px 18px;
+  background:#191d23;
   border-bottom:1px solid var(--border-color);
 }
 
