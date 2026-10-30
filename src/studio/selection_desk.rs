@@ -125,6 +125,9 @@ pub fn SelectionDesk(studio: Studio) -> Element {
         aside { class: "selection-desk", aria_label: "Selection and review", onkeydown: super::shortcuts::keep_space_local,
             header { class: "desk-heading", h2 { if vocals { "Vocals" } else { "Selection" } } }
             div { class: "selection-desk-content",
+                if let Some(crate::parts::Origin::Generated { .. }) = document.content.track_origins.get(&document.selected_track) {
+                    p { class: "field-hint", "Generated draft · listen and review this part." }
+                }
                 if !vocals {
                     if let Some((track, item)) = selected { NoteSelection { studio, track: track.to_owned(), item: item.clone() } }
                     else { p { class: "selection-empty", "Select a note to edit it." } }

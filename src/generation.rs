@@ -75,10 +75,6 @@ impl Request {
             "Select guitar, bass, drums, Piano (Keys), Pro Piano (Pro Keys) and/or vocals"
         );
         ensure!(
-            self.instruments.iter().any(|s| s != "vocals"),
-            "Choose an instrumental track too; standalone vocals use the vocals generate command"
-        );
-        ensure!(
             !self.full_mix_drums || self.instruments.iter().all(|s| s == "drums"),
             "Full-mix transcription supports drums only"
         );
@@ -492,7 +488,8 @@ pub fn run(root: &Path) -> Result<()> {
 fn run_inner(root: &Path) -> Result<()> {
     let request: Request = serde_json::from_slice(&fs::read(root.join("request.json"))?)?;
     // Use the saved input on retry. The original file may have moved or been deleted.
-    TempoMap::constant(request.bpm)?;
+    let timing = crate::parts::timing(root, request.bpm)?;
+    let vocals_only = request.instruments.iter().all(|part| part == "vocals");
     update(
         root,
         State::Running,
@@ -505,6 +502,20 @@ fn run_inner(root: &Path) -> Result<()> {
         let stage = tempfile::tempdir_in(root)?;
         let mut filename = match &request.source {
             Source::Audio { path } => {
+                let current_recording = crate::parts::target(root)?
+                    .map(|target| -> Result<_> {
+                        let store = Store::new(&target.project);
+                        let project = store.load()?;
+                        target.validate(&store, &project)?;
+                        let audio = store.audio_path(&project)?;
+                        ensure!(
+                            models::hash_file(&audio)? == target.audio_sha256,
+                            "Project recording changed"
+                        );
+                        Ok(audio)
+                    })
+                    .transpose()?;
+                let path = current_recording.as_ref().unwrap_or(path);
                 let ext = path
                     .extension()
                     .and_then(|s| s.to_str())
@@ -691,28 +702,46 @@ fn run_inner(root: &Path) -> Result<()> {
             None,
         )?;
         let keyboard_analysis_path = root.join("keyboard-analysis-isolation.json");
-        let transcription = pipeline::transcribe_with_isolation(
-            &audio,
-            &request.model_dir,
-            IsolationOptions {
-                guitar_source: request.guitar_source,
-                manifest: manifest.as_deref(),
-                full_mix_drums: request.full_mix_drums,
-                keyboard_sound: request.keyboard_sound,
-                piano_quality: request.piano_quality,
-                keyboard_analysis: keyboard_analysis_path
-                    .is_file()
-                    .then_some(keyboard_analysis_path.as_path()),
+        let transcription = if vocals_only {
+            let isolation = serde_json::from_slice::<crate::stem_review::StemManifest>(&fs::read(
+                manifest.as_ref().context("Vocals require aligned stems")?,
+            )?)?;
+            isolation.validate_source(
+                &audio,
+                &input.sha256,
+                pipeline::metadata(&audio)?.duration,
+            )?;
+            Transcription {
+                isolation: Some(isolation),
                 ..Default::default()
-            },
-            &request
-                .instruments
-                .iter()
-                .filter(|s| s.as_str() != "vocals")
-                .cloned()
-                .collect::<Vec<_>>(),
-        )?;
+            }
+        } else {
+            pipeline::transcribe_with_isolation(
+                &audio,
+                &request.model_dir,
+                IsolationOptions {
+                    guitar_source: request.guitar_source,
+                    manifest: manifest.as_deref(),
+                    full_mix_drums: request.full_mix_drums,
+                    keyboard_sound: request.keyboard_sound,
+                    piano_quality: request.piano_quality,
+                    keyboard_analysis: keyboard_analysis_path
+                        .is_file()
+                        .then_some(keyboard_analysis_path.as_path()),
+                    ..Default::default()
+                },
+                &request
+                    .instruments
+                    .iter()
+                    .filter(|s| s.as_str() != "vocals")
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )?
+        };
         write_json(&events_path, &transcription)?;
+    }
+    if vocals_only && !root.join("song").exists() {
+        crate::parts::vocal_song(root, &audio, &request, &timing)?;
     }
     if !root.join("song").exists() {
         update(
@@ -789,7 +818,7 @@ fn run_inner(root: &Path) -> Result<()> {
                 audio: &audio,
                 output: &root.join("song"),
                 existing: None,
-                timing: Some(TempoMap::constant(request.bpm)?),
+                timing: Some(timing.clone()),
                 transcription: &transcription,
                 meta,
                 pro: !request.standard_drums,
@@ -857,7 +886,7 @@ fn run_inner(root: &Path) -> Result<()> {
                 &audio_hash,
                 &stem.sha256,
                 isolation.frames as f64 / isolation.sample_rate as f64,
-                &TempoMap::constant(request.bpm)?,
+                &timing,
             )?;
             if request.fetch_models || models::verified(&request.model_dir, "vocal-pitch").is_ok() {
                 ensure!(
@@ -892,7 +921,7 @@ fn run_inner(root: &Path) -> Result<()> {
                 crate::vocal_workflow::Request {
                     audio: &audio,
                     manifest: &root.join("isolation.json"),
-                    timing: &TempoMap::constant(request.bpm)?,
+                    timing: &timing,
                     words: None,
                     lyrics: lyrics.as_ref(),
                     recognize: true,

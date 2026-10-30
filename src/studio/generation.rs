@@ -17,6 +17,72 @@ use std::{
 
 const CSS: &str = include_str!("../../assets/generation.css");
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dioxus::core::Mutation;
+    mod fixture {
+        use crate as chart_engine;
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/support/assistant_project.rs"
+        ));
+    }
+    type Slot = Rc<RefCell<Option<Studio>>>;
+    fn loaded() -> Element {
+        let mut studio = super::super::state::use_studio();
+        let (store, slot) = use_context::<(crate::editor::Store, Slot)>();
+        use_hook(move || {
+            studio.doc.set(Some(store.load().unwrap()));
+            studio.store.set(Some(store));
+            *slot.borrow_mut() = Some(studio);
+        });
+        rsx! { GenerationPanel { studio } }
+    }
+    #[tokio::test]
+    async fn requesting_a_part_after_mount_opens_its_recording_and_single_part_form() {
+        for (track, label) in [
+            ("ExpertSingle", "Guitar · Expert"),
+            ("ExpertDoubleBass", "Bass · Expert"),
+            ("ExpertDrums", "Drums · Expert"),
+            ("ExpertKeyboard", "Piano · Expert"),
+            ("ExpertProKeys", "Pro Piano · Expert"),
+            ("Vocals", "Vocals"),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let store = fixture::fixture(root.path());
+            let slot = Rc::new(RefCell::new(None::<Studio>));
+            let mut dom = VirtualDom::new(loaded);
+            dom.provide_root_context((store, slot.clone()));
+            dom.rebuild_to_vec();
+            dom.render_immediate_to_vec();
+            let mut studio = slot.borrow().unwrap();
+            studio.generation_target.set(Some(track.into()));
+            studio.generation_open.set(true);
+            let mut texts = Vec::new();
+            for _ in 0..6 {
+                for mutation in dom.render_immediate_to_vec().edits {
+                    match mutation {
+                        Mutation::CreateTextNode { value, .. }
+                        | Mutation::SetText { value, .. } => texts.push(value),
+                        _ => {}
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+            assert!(
+                texts.iter().any(|text| text == label),
+                "Missing selected part {label}: {texts:?}"
+            );
+            assert!(
+                texts.iter().any(|text| text == "song.ogg"),
+                "Part generation lost its recording: {texts:?}"
+            );
+            assert!(studio.generation_target.peek().is_none());
+        }
+    }
+}
+
 struct Worker {
     child: Child,
     cancelled: bool,
@@ -42,6 +108,8 @@ impl Drop for Worker {
 
 #[derive(Clone)]
 struct View {
+    target: Option<crate::parts::Target>,
+    applied: bool,
     audio: Option<PathBuf>,
     title: String,
     artist: String,
@@ -75,6 +143,8 @@ struct View {
 impl Default for View {
     fn default() -> Self {
         Self {
+            target: None,
+            applied: false,
             audio: None,
             title: String::new(),
             artist: String::new(),
@@ -108,6 +178,51 @@ impl Default for View {
     }
 }
 impl View {
+    fn for_part(studio: Studio, track: &str) -> Result<Self> {
+        let store = studio.store.read().clone().context("Open a chart first")?;
+        let project = studio.snapshot().context("Open a chart first")?;
+        let target = crate::parts::Target::capture(&store, &project, track)?;
+        let instrument = crate::parts::instrument(track)?;
+        let title = studio.metadata_value("name");
+        let artist = studio.metadata_value("artist");
+        Ok(Self {
+            audio: Some(store.audio_path(&project)?),
+            title: if title.is_empty() {
+                project.title.clone()
+            } else {
+                title
+            },
+            artist: if artist.is_empty() {
+                "Unknown artist".into()
+            } else {
+                artist
+            },
+            bpm: target
+                .timing
+                .tempos
+                .first()
+                .context("Chart has no tempo")?
+                .bpm
+                .to_string(),
+            guitar: instrument == "guitar",
+            guitar_source: store.guitar_source(&project)?,
+            bass: instrument == "bass",
+            drums: instrument == "drums",
+            piano: instrument == "piano",
+            pro_piano: instrument == "pro_piano",
+            vocals: instrument == "vocals",
+            parent: Some(store.root.join("generation-jobs")),
+            name: format!(
+                "{}-{instrument}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)?
+                    .as_nanos()
+            ),
+            target: Some(target),
+            lyrics: false,
+            ..Self::default()
+        })
+    }
     fn request(&self) -> Result<Request> {
         let request = Request {
             source: Source::Audio {
@@ -327,11 +442,82 @@ fn generate(mut data: Signal<View>) {
         v.notice = "Creating generation job…".into();
     });
     spawn(async move {
-        match tokio::task::spawn_blocking(move || generation::create(request, &output)).await {
+        match tokio::task::spawn_blocking(move || {
+            if let Some(target) = view.target {
+                fs::create_dir_all(output.parent().context("Missing job folder")?)?;
+                crate::parts::create_job(request, &output, &target)
+            } else {
+                generation::create(request, &output)
+            }
+        })
+        .await
+        {
             Ok(Ok(root)) => {
                 if let Err(error) = launch_worker(data, root.clone()) {
                     data.write().root = Some(root);
                     fail(data, format!("{error:#}"));
+                }
+            }
+            Ok(Err(error)) => fail(data, format!("{error:#}")),
+            Err(error) => fail(data, error),
+        }
+    });
+}
+
+fn apply_part(mut studio: Studio, mut data: Signal<View>) {
+    let view = data.read().clone();
+    let Some(target) = view.target else {
+        return;
+    };
+    let Some(job) = view.root else {
+        return;
+    };
+    let Some(store) = studio.store.read().clone() else {
+        return;
+    };
+    let Some(project) = studio.snapshot() else {
+        return;
+    };
+    if let Err(error) = target.validate(&store, &project) {
+        fail(data, error);
+        return;
+    }
+    let actor = crate::editor::Actor {
+        kind: crate::editor::ActorKind::Human,
+        name: studio.reviewer.read().clone(),
+    };
+    let applied_project = store.root.clone();
+    data.write().busy = true;
+    spawn(async move {
+        let result = tokio::task::spawn_blocking(move || {
+            store.apply(crate::editor::Request {
+                expected_revision: project.revision,
+                actor,
+                action: crate::editor::Action::ApplyGeneratedPart { job },
+            })
+        })
+        .await;
+        match result {
+            Ok(Ok(_)) => {
+                data.with_mut(|view| {
+                    view.busy = false;
+                    view.applied = true;
+                });
+                if studio
+                    .store
+                    .read()
+                    .as_ref()
+                    .is_some_and(|store| store.root == applied_project)
+                {
+                    studio.reload(false);
+                    studio
+                        .status
+                        .set("Generated part added · listen and review before export".into());
+                    studio.generation_open.set(false);
+                } else {
+                    data.write().notice =
+                        "Part applied to its original chart. Your current chart stayed open."
+                            .into();
                 }
             }
             Ok(Err(error)) => fail(data, format!("{error:#}")),
@@ -353,16 +539,21 @@ fn recover(mut data: Signal<View>) {
         };
         let root = folder.path().to_owned();
         let read_root = root.clone();
-        let loaded = tokio::task::spawn_blocking(move || -> Result<(Request, Status)> {
-            Ok((
-                serde_json::from_slice(&fs::read(read_root.join("request.json"))?)?,
-                generation::status(&read_root)?,
-            ))
-        })
+        let loaded = tokio::task::spawn_blocking(
+            move || -> Result<(Request, Status, Option<crate::parts::Target>)> {
+                Ok((
+                    serde_json::from_slice(&fs::read(read_root.join("request.json"))?)?,
+                    generation::status(&read_root)?,
+                    crate::parts::target(&read_root)?,
+                ))
+            },
+        )
         .await;
         match loaded {
-            Ok(Ok((request, status))) => data.with_mut(|v| {
+            Ok(Ok((request, status, target))) => data.with_mut(|v| {
                 let Source::Audio { path } = request.source;
+                v.target = target;
+                v.applied = false;
                 v.audio = Some(path);
                 v.title = request.title;
                 v.artist = request.artist;
@@ -404,6 +595,22 @@ fn recover(mut data: Signal<View>) {
 #[component]
 pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut data = use_signal(View::default);
+    use_effect(move || {
+        let Some(track) = (studio.generation_target)() else {
+            return;
+        };
+        studio.generation_target.set(None);
+        if data.peek().busy || data.peek().worker.is_some() {
+            studio.error.set(Some(
+                "A generation job is already running. Let it finish or cancel it first.".into(),
+            ));
+            return;
+        }
+        match View::for_part(studio, &track) {
+            Ok(view) => data.set(view),
+            Err(error) => studio.error.set(Some(format!("{error:#}"))),
+        }
+    });
     // This component stays mounted when its dialog closes, so jobs and progress
     // remain active while the user reviews another song.
     use_future(move || async move {
@@ -444,7 +651,12 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 .status
                 .as_ref()
                 .is_some_and(|s| s.state == State::Complete);
-            if complete {
+            if complete && data.read().target.is_some() {
+                studio
+                    .status
+                    .set("Part draft ready · review it in Generate".into());
+                studio.generation_open.set(true);
+            } else if complete {
                 studio
                     .status
                     .set("Generated chart draft · opening review project".into());
@@ -468,7 +680,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 studio.status.set(if cancelled {
                     "Generation cancelled; saved inputs retained".into()
                 } else {
-                    "Generation stopped; open Auto-Chart for details".into()
+                    "Generation stopped; open Generate for details".into()
                 });
             }
         }
@@ -484,6 +696,37 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     }
     let busy = view.busy;
     let saved = view.root.is_some();
+    let part_mode = view.target.is_some();
+    let sheet_title: &'static str = if part_mode {
+        "Generate a part"
+    } else {
+        "Generate charts"
+    };
+    let sheet_description: &'static str = if part_mode {
+        "Uses this recording and keeps the other parts."
+    } else {
+        "Choose audio and parts. Review the draft in the editor."
+    };
+    let part_title = view
+        .target
+        .as_ref()
+        .map(|target| super::track_picker::title(&target.track))
+        .unwrap_or_default();
+    let replaces_part = view.target.as_ref().is_some_and(|target| {
+        studio.snapshot().is_some_and(|doc| {
+            if target.track == "Vocals" {
+                doc.content
+                    .vocals
+                    .as_ref()
+                    .is_some_and(|chart| !chart.notes.is_empty())
+            } else {
+                doc.content
+                    .tracks
+                    .get(&target.track)
+                    .is_some_and(|notes| !notes.is_empty())
+            }
+        })
+    });
     let complete = view
         .status
         .as_ref()
@@ -503,26 +746,27 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     rsx! {
         style{"{CSS}"}
         super::sheet::ToolSheet {
-        id: "generation-dialog", title: "Generate charts", description: "Choose audio and parts. Review the draft in the editor.",
+        id: "generation-dialog", title: sheet_title, description: sheet_description,
         class: "generation-modal", close_label: "Close generation", onclose: move |_| studio.generation_open.set(false),
         actions: rsx! {
                     div{class:"generation-actions",
                         button{class:"action-secondary",disabled:busy,onclick:move|_|recover(data),"Resume saved job…"}
-                        if saved&&!busy{button{class:"action-secondary",onclick:move|_|data.set(View::default()),"New generation"}}
+                        if (saved || part_mode) && !busy { button { class: "action-secondary", onclick: move |_| data.set(View::default()), if part_mode { "New song…" } else { "New generation" } } }
                     }
                     div{class:"generation-actions",
                         if view.worker.is_some(){button{class:"action-secondary",onclick:move|_|{if let Some(worker)=data.read().worker.clone(){worker.borrow_mut().cancel();}},"Cancel"}}
                         if saved&&!busy&&!complete{button{class:"action-primary",onclick:move|_|{let root=data.read().root.clone();if let Some(root)=root && let Err(error)=launch_worker(data,root){fail(data,format!("{error:#}"));}},"Resume generation"}}
-                        if complete{button{class:"action-primary",onclick:move|_|{spawn(async move{let root=data.read().root.clone();if let Some(root)=root{studio.open_project(root.join("project")).await;studio.generation_open.set(false);}});},"Open generated chart"}}
-                        if !saved{button{class:"action-primary",disabled:busy||!can_generate,title:"{validation}",aria_describedby: if !busy && !can_generate { Some("generation-validation") } else { None },onclick:move|_|generate(data),if busy{"Working…"}else{"Generate charts"}}}
+                        if complete && part_mode { button { class: "action-primary", disabled: busy || view.applied, onclick: move |_| apply_part(studio, data), if view.applied { "Applied" } else if replaces_part { "Replace {part_title}" } else { "Add {part_title}" } } }
+                        if complete && !part_mode{button{class:"action-primary",onclick:move|_|{spawn(async move{let root=data.read().root.clone();if let Some(root)=root{studio.open_project(root.join("project")).await;studio.generation_open.set(false);}});},"Open generated chart"}}
+                        if !saved{button{class:"action-primary",disabled:busy||!can_generate,title:"{validation}",aria_describedby: if !busy && !can_generate { Some("generation-validation") } else { None },onclick:move|_|generate(data),if busy{"Working…"}else if part_mode{"Generate part"}else{"Generate charts"}}}
                     }
                  },
 
                     fieldset{disabled:busy||saved,
-                        h3 { class: "generation-step", "1. Choose audio" }
-                        div{class:"generation-actions",button{class:"action-secondary",onclick:move|_|local_file(data),"Choose audio file…"}}
+                        h3 { class: "generation-step", if part_mode { "{part_title}" } else { "1. Choose audio" } }
+                        if !part_mode { div{class:"generation-actions",button{class:"action-secondary",onclick:move|_|local_file(data),"Choose audio file…"}} }
                         if let Some(path)=&view.audio{p{class:"generation-path",title:"{path.display()}","{path.file_name().unwrap_or_default().to_string_lossy()}"}}
-                        details { summary { "Song details" }
+                        if !part_mode { details { summary { "Song details" }
                         div{class:"generation-grid",
                             label{class:"generation-field","Song title",input{class:"field-control",value:"{view.title}",oninput:move|e|data.write().title=e.value()}}
                             label{class:"generation-field","Artist",input{class:"field-control",value:"{view.artist}",oninput:move|e|data.write().artist=e.value()}}
@@ -548,21 +792,22 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                             }
                         }
                         }
-                        h3 { class: "generation-step", "2. Choose parts" }
+                        }
+                        if !part_mode { h3 { class: "generation-step", "2. Choose parts" } }
                         div{class:"generation-actions",
-                            label{class:"form-check",input{r#type:"checkbox",checked:view.guitar,disabled:view.full_mix,onchange:move|e|data.write().guitar=e.checked()},"Guitar"}
+                            if !part_mode { label{class:"form-check",input{r#type:"checkbox",checked:view.guitar,disabled:view.full_mix,onchange:move|e|data.write().guitar=e.checked()},"Guitar"} }
                             if view.guitar {
                                 label{class:"generation-field","Guitar chart follows",
-                                    select{class:"field-control",value:match view.guitar_source {crate::mapping::GuitarSource::Guitar=>"guitar",crate::mapping::GuitarSource::Other=>"other",crate::mapping::GuitarSource::Piano=>"piano"},onchange:move|e|data.write().guitar_source=match e.value().as_str(){"other"=>crate::mapping::GuitarSource::Other,"piano"=>crate::mapping::GuitarSource::Piano,_=>crate::mapping::GuitarSource::Guitar},
+                                    select{class:"field-control",disabled:part_mode,value:match view.guitar_source {crate::mapping::GuitarSource::Guitar=>"guitar",crate::mapping::GuitarSource::Other=>"other",crate::mapping::GuitarSource::Piano=>"piano"},onchange:move|e|data.write().guitar_source=match e.value().as_str(){"other"=>crate::mapping::GuitarSource::Other,"piano"=>crate::mapping::GuitarSource::Piano,_=>crate::mapping::GuitarSource::Guitar},
                                         option{value:"guitar","Guitar"}option{value:"other","Other melody / synth"}option{value:"piano","Piano"}
                                     }
                                 }
                                 if view.guitar_source != crate::mapping::GuitarSource::Guitar {p{class:"field-hint","Arranges this sound for five-fret Guitar. Check for missing notes."}}
                             }
-                            label{class:"form-check",input{r#type:"checkbox",checked:view.bass,disabled:view.full_mix,onchange:move|e|data.write().bass=e.checked()},"Bass"}
-                            label{class:"form-check",input{r#type:"checkbox",checked:view.drums,onchange:move|e|data.write().drums=e.checked()},"Drums"}
-                            label{class:"form-check",title:"Keyboard notes arranged into five lanes. Listen and review before export.",input{r#type:"checkbox",checked:view.piano,disabled:view.full_mix,onchange:move|e|data.write().piano=e.checked()},"Piano (Keys)"}
-                            label{class:"form-check",title:"Piano notes fitted to the game keyboard. Review octave and release adjustments before export.",input{r#type:"checkbox",checked:view.pro_piano,disabled:view.full_mix,onchange:move|e|data.write().pro_piano=e.checked()},"Pro Piano (Pro Keys)"}
+                            if !part_mode { label{class:"form-check",input{r#type:"checkbox",checked:view.bass,disabled:view.full_mix,onchange:move|e|data.write().bass=e.checked()},"Bass"} }
+                            if !part_mode { label{class:"form-check",input{r#type:"checkbox",checked:view.drums,onchange:move|e|data.write().drums=e.checked()},"Drums"} }
+                            if !part_mode { label{class:"form-check",title:"Keyboard notes arranged into five lanes. Listen and review before export.",input{r#type:"checkbox",checked:view.piano,disabled:view.full_mix,onchange:move|e|data.write().piano=e.checked()},"Piano (Keys)"} }
+                            if !part_mode { label{class:"form-check",title:"Piano notes fitted to the game keyboard. Review octave and release adjustments before export.",input{r#type:"checkbox",checked:view.pro_piano,disabled:view.full_mix,onchange:move|e|data.write().pro_piano=e.checked()},"Pro Piano (Pro Keys)"} }
                             if view.piano || view.pro_piano {
                                 label{class:"form-check","Keyboard sound"
                                     select{value:if view.keyboard_sound == crate::keyboard_detection::KeyboardSound::Synth {"synth"} else {"piano"},
@@ -585,7 +830,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                                 }
                                 p{class:"generation-note",if view.keyboard_sound == crate::keyboard_detection::KeyboardSound::Synth {"Experimental. Other instruments may appear in this synth part; review each phrase."} else {"Check missing notes, extra notes and key releases."}}
                             }
-                            label{class:"form-check",title:"Estimate sung pitch and recognize lyrics in the selected language. Review before export.",input{r#type:"checkbox",checked:view.vocals,disabled:view.full_mix,onchange:move|e|data.write().vocals=e.checked()},"Vocals"}
+                            if !part_mode { label{class:"form-check",title:"Estimate sung pitch and recognize lyrics in the selected language. Review before export.",input{r#type:"checkbox",checked:view.vocals,disabled:view.full_mix,onchange:move|e|data.write().vocals=e.checked()},"Vocals"} }
                             if view.vocals {
                                 label{class:"generation-field","Vocal language",
                                     select{class:"field-control",value:match view.vocal_language {crate::lyric_language::Language::Auto=>"auto",crate::lyric_language::Language::English=>"english",crate::lyric_language::Language::Spanish=>"spanish"},onchange:move|e|data.write().vocal_language=match e.value().as_str(){"english"=>crate::lyric_language::Language::English,"spanish"=>crate::lyric_language::Language::Spanish,_=>crate::lyric_language::Language::Auto},
@@ -594,16 +839,17 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                                 }
                             }
                         }
-                        h3 { class: "generation-step", "3. Choose where to save" }
+                        if !part_mode { h3 { class: "generation-step", "3. Choose where to save" }
                         div{class:"generation-actions",
                             button{class:"action-secondary",onclick:move|_|{spawn(async move{if let Some(folder)=rfd::AsyncFileDialog::new().set_title("Save generated songs here").pick_folder().await{data.write().parent=Some(folder.path().to_owned());}});},"Choose save location…"}
                             if let Some(parent)=&view.parent{span{class:"generation-path","{parent.display()}"}}
+                        }
                         }
                         details{summary{"Generation options"}
                             label{class:"form-check",input{r#type:"checkbox",checked:view.fetch,onchange:move|e|data.write().fetch=e.checked()},"Download missing models"}
                             label{class:"form-check",input{r#type:"checkbox",checked:view.lyrics,onchange:move|e|data.write().lyrics=e.checked()},"Find lyrics online (shares song metadata)"}
                             label{class:"form-check",input{r#type:"checkbox",checked:view.standard,onchange:move|e|data.write().standard=e.checked()},"Standard drums (omit Pro cymbal markers)"}
-                            label{class:"form-check",input{r#type:"checkbox",checked:view.full_mix,onchange:move|e|data.with_mut(|v|{v.full_mix=e.checked();if v.full_mix{v.guitar=false;v.bass=false;v.piano=false;v.pro_piano=false;v.vocals=false;v.drums=true;}})},"Drums only from the original mix (skip stem separation)"}
+                            if !part_mode || view.drums { label{class:"form-check",input{r#type:"checkbox",checked:view.full_mix,onchange:move|e|data.with_mut(|v|{v.full_mix=e.checked();if v.full_mix{v.guitar=false;v.bass=false;v.piano=false;v.pro_piano=false;v.vocals=false;v.drums=true;}})},"Drums only from the original mix (skip stem separation)"} }
                             div{class:"generation-actions",button{class:"action-secondary",onclick:move|_|{spawn(async move{if let Some(folder)=rfd::AsyncFileDialog::new().set_title("Choose model folder").pick_folder().await{data.write().models=folder.path().to_owned();}});},"Model folder…"}span{class:"generation-path","{view.models.display()}"}}
                         }
                         p{class:"field-hint","Some models are noncommercial. Check licenses before downloading or sharing."}
@@ -613,6 +859,9 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         }
                     }
                     if !view.notice.is_empty(){p{class:"field-hint",role:"status","{view.notice}"}}
+                    if complete && part_mode && !view.applied {
+                        p { class: "field-hint", if replaces_part { "This replaces {part_title}. Undo restores the previous notes." } else { "The draft is ready to add to this chart." } }
+                    }
                     if let Some(status)=&view.status{
                         div{class:"generation-progress",role:"status",strong{"{status.stage}"}span{"{status.detail}"}if busy{progress{aria_label:"Generating charts"}}}
                     }

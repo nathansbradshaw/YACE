@@ -34,7 +34,8 @@ pub(crate) fn is_link_created_track(project: &Project, chart: &Chart, track: &st
         return false;
     }
     let expert = format!("Expert{suffix}");
-    chart.sections.iter().any(|section| section.name == expert)
+    (chart.sections.iter().any(|section| section.name == expert)
+        || project.content.track_origins.contains_key(&expert))
         && project.content.tracks.contains_key(&expert)
         && project
             .content
@@ -113,6 +114,20 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
             "Vocal phrase extends beyond the recording"
         );
     }
+    ensure!(
+        project.content.track_origins.keys().all(|track| {
+            if track == "Vocals" {
+                project.content.vocals.is_some()
+                    || matches!(
+                        project.content.track_origins.get(track),
+                        Some(crate::parts::Origin::Authored)
+                    )
+            } else {
+                supported_track(track) && project.content.tracks.contains_key(track)
+            }
+        }),
+        "Invalid added-part registry"
+    );
     let source_tracks: BTreeSet<_> = chart
         .sections
         .iter()
@@ -124,7 +139,9 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
             && source_tracks.is_subset(&tracks)
             && tracks
                 .difference(&source_tracks)
-                .all(|track| is_link_created_track(project, chart, track)),
+                .all(|track| is_link_created_track(project, chart, track)
+                    || (supported_track(track)
+                        && project.content.track_origins.contains_key(*track))),
         "Project tracks do not match editable source sections"
     );
     let mut note_ids = BTreeSet::new();

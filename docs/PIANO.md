@@ -1,6 +1,10 @@
 # Piano and Pro Piano
 
-In **Generate → Choose parts**, select **Piano (Keys)**, **Pro Piano (Pro Keys)**,
+In an open chart, select **Add part** beside **Track**. Choose a difficulty,
+then **Blank** or **Generate…** beside **Piano (Keys)** or **Pro Piano (Pro Keys)**.
+Both options keep your other parts in place.
+
+For a new song, use **Generate → Choose parts** and select either piano option,
 or both.
 
 - **Piano** arranges keyboard notes into five lanes.

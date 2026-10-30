@@ -2,6 +2,15 @@
 
 Open **Generate**, or choose **Import audio** on the starting screen.
 
+To add one part to an open chart, use **Add part → Generate…** beside the
+instrument. The job uses the current recording and tempo map. Other parts stay
+in place. When it finishes, select **Add** or **Replace** to apply the draft;
+Undo restores the previous notes. If that part changed during generation,
+YACE keeps both versions and refuses to overwrite your edits.
+
+Part jobs are saved in the review project's `generation-jobs` folder. Keep that
+folder with the project to retain generation evidence and recovery files.
+
 1. **Choose audio.** Select a local recording. Expand **Song details** to check
    the title, artist and estimated BPM. Correct these before generating.
 2. **Choose parts.** Select Guitar, Bass, Drums, Piano, Pro Piano or Vocals.
