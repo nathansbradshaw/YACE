@@ -1,10 +1,10 @@
 /* A little contact wear on the housing edge and transport keys. */
-.toolbar, .transport-control {
+.project-bar, .transport-control {
   position: relative;
   isolation: isolate;
 }
 
-.toolbar::before, .transport-control::before {
+.project-bar::before, .transport-control::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -17,7 +17,7 @@
   mask-repeat: no-repeat;
 }
 
-.toolbar::before {
+.project-bar::before {
   background-image: var(--surface-grime);
   background-size: 1600px;
   background-position: 34% 73%;
@@ -33,7 +33,7 @@
   opacity: .12;
 }
 
-.toolbar-playback .transport-control:nth-child(2)::before {
+.practice-controls .transport-control:nth-of-type(2)::before {
   background-position: 83% 26%;
   transform: scaleX(-1);
 }

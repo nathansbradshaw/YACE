@@ -1,9 +1,6 @@
-//! Waveforms, note lanes and review markers. Component ancestry: THIRD_PARTY.md.
+//! Source-timed SVG lanes, note gestures and waveform geometry.
+use super::inline_review::{InlineReview, flag_color};
 use super::state::{EditTool, Studio, clock, instrument};
-use super::{
-    icons::Icon,
-    inline_review::{InlineReview, flag_color},
-};
 use crate::{
     editor::{self, Action},
     stem_review::StemId,
@@ -66,15 +63,6 @@ pub fn color(track: &str, lane: u8) -> &'static str {
         }
     }
 }
-fn track_title(track: &str) -> String {
-    ["Expert", "Hard", "Medium", "Easy"]
-        .into_iter()
-        .find(|tier| track.starts_with(tier))
-        .map_or_else(
-            || track.to_owned(),
-            |tier| format!("{} · {tier}", instrument(track)),
-        )
-}
 
 fn snap(studio: Studio, seconds: f64) -> Option<u64> {
     let map = studio.timing.read();
@@ -116,46 +104,7 @@ struct Drag {
     resize: bool,
 }
 #[component]
-pub fn Timeline(mut studio: Studio) -> Element {
-    let mut show_hidden = use_signal(|| false);
-    let project = studio.doc.read();
-    let Some(doc) = project.as_ref() else {
-        return rsx! {div{class:"midi-editor",div{class:"panel-tabs",button{class:"panel-tab active","MIDI Editor"}}div{class:"empty-state",div{class:"empty-state-title","No chart loaded"}div{class:"empty-state-description","Notes, waveform and review markers appear here."}}}};
-    };
-    let tier = ["Easy", "Medium", "Hard", "Expert"]
-        .into_iter()
-        .find(|t| doc.selected_track.starts_with(t))
-        .unwrap_or("Expert");
-    let mut tracks: Vec<_> = doc
-        .content
-        .tracks
-        .keys()
-        .filter(|t| t.starts_with(tier))
-        .cloned()
-        .collect();
-    tracks.push("Vocals".into());
-    tracks.sort_by_key(|track| (track != &doc.selected_track, track.clone()));
-    rsx! {div{class:"midi-editor",
-        div{class:"midi-toolbar",
-            span{class:"timeline-heading","Notes"}
-            div{class:"midi-tools",for(tool,label,icon,shortcut)in[(EditTool::Select,"Select","cursor","1"),(EditTool::Place,"Place","plus","2"),(EditTool::Erase,"Erase","eraser","3")]{button{class:if (studio.tool)()==tool{"studio-tool active"}else{"studio-tool"},title:"{label} notes ({shortcut})",aria_label:"{label} notes",onclick:move |_|studio.tool.set(tool),Icon{name:icon,size:14}"{label}"}}}
-            label{class:"midi-snap-selector","Snap" select{value:"{studio.snap}",onchange:move|e|studio.snap.set(e.value().parse().unwrap_or(4)),onkeydown:move|e|e.stop_propagation(),for(value,label)in[(0,"Off"),(1,"1/4"),(2,"1/8"),(4,"1/16"),(6,"1/24"),(8,"1/32")]{option{value:"{value}",selected:value==(studio.snap)(),"{label}"}}}}
-            div{class:"midi-zoom-controls",button{title:"Zoom out",onclick:move |_|studio.span.set(((studio.span)()*1.5).min(48.0)),Icon{name:"minus",size:14}}span{"{(studio.span)():.1}s"}button{title:"Zoom in",onclick:move |_|studio.span.set(((studio.span)()/1.5).max(0.5)),Icon{name:"plus",size:14}}}
-            label{class:"toolbar-toggle",title:"Keep the timeline centered on playback",input{r#type:"checkbox",checked:(studio.follow)(),onchange:move|e|studio.follow.set(e.checked()),onkeydown:move|e|e.stop_propagation()}"Follow"}
-            label{class:"toolbar-toggle",title:"Show flags hidden from this track",input{r#type:"checkbox",checked:show_hidden(),onchange:move|e|show_hidden.set(e.checked()),onkeydown:move|e|e.stop_propagation()}"Hidden flags"}
-        }
-        div{class:"studio-roll-scroll",
-            div{style:"position:sticky;top:0;z-index:3;background:var(--bg-secondary)",
-                Ruler{studio}
-                div{class:"midi-waveform-strip",div{class:"midi-waveform-label",style:"width:140px;flex-shrink:0","Song waveform"}Waveform{studio}}
-            }
-            for track in tracks{div{key:"{track}",if track == "Vocals" {VocalRoll{studio}} else {TrackRoll{studio,track,show_hidden:show_hidden()}}}}
-        }
-        div{class:"studio-timeline-nav",span{"{clock((studio.view_start)())}"}input{r#type:"range",min:"0",max:"{(doc.duration-(studio.span)()).max(0.0)}",step:"0.01",value:"{studio.view_start}","aria-label":"Timeline position",onkeydown:move|e|e.stop_propagation(),oninput:move|e|studio.view_start.set(e.value().parse().unwrap_or(0.0))}span{"{clock(((studio.view_start)()+(studio.span)()).min(doc.duration))}"}}
-    }}
-}
-#[component]
-fn VocalRoll(mut studio: Studio) -> Element {
+pub(super) fn VocalRoll(mut studio: Studio) -> Element {
     use crate::vocals::{Syllable, VocalTone};
     let mut width = use_signal(|| 1000.0);
     let mut drag = use_signal(|| None::<(usize, crate::vocals::VocalNote, f64, f64, bool)>);
@@ -179,17 +128,16 @@ fn VocalRoll(mut studio: Studio) -> Element {
             track: "Vocals".into(),
         });
         studio.vocal_note.set(index);
-        studio.property_tab.set("Note".into());
     };
     if !active && notes.is_empty() {
-        return rsx! {div{class:"studio-track-header",onclick:move |_|select(None),"Vocals" span{style:"margin-left:auto","Select to add vocals"}}};
+        return rsx! {header{class:"lane-track-header",button{aria_pressed:active.to_string(),onclick:move |_|select(None),"Vocals"}span{"Select to add vocals"}}};
     }
     rsx! {
-        div{class:"studio-track-header",onclick:move |_|select(None),"Vocals" span{style:"margin-left:auto","{notes.len()} notes"}}
+        header{class:"lane-track-header",button{aria_pressed:active.to_string(),onclick:move |_|select(None),"Vocals"}span{"{notes.len()} notes"}}
         if has_stem_waveform(studio, StemId::Vocals) {div{class:"midi-waveform-strip",div{class:"midi-waveform-label",style:"width:140px;flex-shrink:0","Vocal stem"}Waveform{studio,stem:Some(StemId::Vocals)}}}
-        div{class:"studio-track-grid",
-            div{class:"studio-lane-labels",for pitch in (36..=84).rev(){div{class:"studio-lane-label",style:"height:8px;font-size:7px",if pitch%12==0{"C{pitch/12-1} · {pitch}"}}}div{class:"studio-lane-label",style:"height:8px;font-size:7px","Talkie"}}
-            div{class:"studio-track-plot",onresize:move|e|{if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.0));}},
+        div{class:"lane-surface",
+            ol{class:"lane-labels",for pitch in (36..=84).rev(){li{class:"lane-label",style:"height:8px;font-size:7px",if pitch%12==0{"C{pitch/12-1} · {pitch}"}}}li{class:"lane-label",style:"height:8px;font-size:7px","Talkie"}}
+            div{class:"lane-plot",onresize:move|e|{if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.0));}},
                 svg{class:"studio-note-svg",height:"400",view_box:"0 0 {width} 400",preserve_aspect_ratio:"none",
                     onclick:move|e:MouseEvent|{
                         select(None);
@@ -328,7 +276,7 @@ fn place_vocal(mut studio: Studio, event: &MouseEvent, width: f64) {
     }
 }
 #[component]
-fn Waveform(studio: Studio, #[props(default)] stem: Option<StemId>) -> Element {
+pub(super) fn Waveform(studio: Studio, #[props(default)] stem: Option<StemId>) -> Element {
     let mut width = use_signal(|| 1000.0);
     let geometry = use_memo(use_reactive((&stem,), move |(stem,)| {
         let start = (studio.view_start)();
@@ -393,7 +341,7 @@ fn Playhead(studio: Studio, width: f64, height: f64) -> Element {
     rsx! {line{x1:"{x}",x2:"{x}",y1:"0",y2:"{height}",stroke:"#fff",pointer_events:"none"}}
 }
 #[component]
-fn Ruler(studio: Studio) -> Element {
+pub(super) fn Ruler(studio: Studio) -> Element {
     let mut width = use_signal(|| 1000.0);
     let start = (studio.view_start)();
     let span = (studio.span)();
@@ -425,7 +373,7 @@ fn Ruler(studio: Studio) -> Element {
     }
 }
 #[component]
-fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) -> Element {
+pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) -> Element {
     let links = super::difficulty::shared_snapshot();
     let links = links.read();
     let project = studio.doc.read();
@@ -508,11 +456,11 @@ fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) -> Element {
         }
     };
     rsx! {
-        div{class:"studio-track-header",style:if active{"color:var(--accent-color)"}else{""},onclick:{let track=track.clone();move |_|studio.dispatch(Action::SelectTrack{track:track.clone()})},Icon{name:"chevron-down",size:13}"{track_title(&track)}  ",super::difficulty::TrackLinkBadge{track:track.clone()}span{style:"margin-left:auto;color:var(--text-muted);font-weight:400","{doc.content.tracks[&track].iter().filter(|n|editor::playable(&track,n.note.lane)).count()} notes"}}
+        header{class:"lane-track-header",button{aria_pressed:active.to_string(),onclick:{let track=track.clone();move |_|studio.dispatch(Action::SelectTrack{track:track.clone()})},"{super::track_picker::title(&track)}"}super::difficulty::TrackLinkBadge{track:track.clone()}span{"{doc.content.tracks[&track].iter().filter(|n|editor::playable(&track,n.note.lane)).count()} notes"}}
         InstrumentWaveform{studio,track:track.clone()}
         InlineReview{studio,track:track.clone(),show_hidden,plot_width:width()}
-        div{class:"studio-track-grid",div{class:"studio-lane-labels",for lane in rows.clone(){div{class:"studio-lane-label",style:"color:{color(&track,lane)}","{lane_name(&track,lane)}"}}}
-            div{class:"studio-track-plot",onresize:move|e|{if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.0));}},
+        div{class:"lane-surface",ol{class:"lane-labels",for lane in rows.clone(){li{class:"lane-label",style:"color:{color(&track,lane)}","{lane_name(&track,lane)}"}}}
+            div{class:"lane-plot",onresize:move|e|{if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.0));}},
                 svg{class:"studio-note-svg",height:"{height}",view_box:"0 0 {width} {height}",preserve_aspect_ratio:"none",
                     onclick:move|e:MouseEvent|{let seconds=(studio.view_start)()+e.element_coordinates().x/width()*(studio.span)();if (studio.tool)()==EditTool::Place{place(studio,&plot_track,&e,width());}else if (studio.tool)()==EditTool::Select{let view=(studio.view_start)();studio.seek(seconds);studio.view_start.set(view);}},
                     ondoubleclick:move|e:MouseEvent|{if (studio.tool)()==EditTool::Select{place(studio,&double_track,&e,width());}},

@@ -1,0 +1,161 @@
+/* Shared fields for review, generation, vocals and local tool windows. */
+.form-section {
+  margin-bottom:14px;
+  padding-bottom:14px;
+  border-bottom:1px solid var(--border-color);
+}
+
+.form-heading {
+  margin-bottom:10px;
+  color:var(--text-primary);
+  font-size:12px;
+  font-weight:600;
+}
+
+.field-stack {
+  display:flex;
+  flex-direction:column;
+  gap:5px;
+  margin-bottom:10px;
+  min-width:0;
+}
+
+.field-label {
+  color:var(--text-secondary);
+  font-size:11px;
+}
+
+.field-control {
+  width:100%;
+  min-height:30px;
+  font-size:12px;
+}
+
+.field-row {
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+.field-half {
+  flex:1;
+}
+
+.field-actions {
+  display:flex;
+  gap:8px;
+  margin-top:12px;
+}
+
+.field-flags {
+  display:flex;
+  gap:12px;
+}
+
+.field-button {
+  width:100%;
+  min-height:30px;
+  font-size:12px;
+}
+
+.form-check {
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  color:var(--text-secondary);
+  font-size:12px;
+}
+
+.field-hint {
+  margin:0;
+  color:var(--text-muted);
+  font-size:12px;
+  line-height:1.5;
+}
+
+.field-hint code {
+  background:var(--bg-tertiary);
+  padding:1px 4px;
+  border-radius:2px;
+  font-size:11px;
+}
+
+.action-primary, .action-secondary {
+  min-height:30px;
+  padding:6px 12px;
+  font-size:12px;
+}
+
+.action-primary {
+  color:var(--key-ink);
+  background:var(--key-face);
+  border-color:#171d20;
+  font-weight:600;
+}
+
+.action-primary:hover:not(:disabled) {
+  color:var(--key-ink);
+  background:var(--key-hover);
+}
+
+.action-danger {
+  color:var(--danger-color);
+  background:transparent;
+  border-color:#835550;
+}
+
+.action-danger:hover:not(:disabled) {
+  color:var(--danger-color-hover);
+  background:#462c28;
+}
+
+.difficulty-controls {
+  padding:10px 0;
+  background:transparent;
+}
+
+.difficulty-hint {
+  color:var(--text-muted);
+  font-size:11px;
+}
+
+.stem-controls {
+  flex-shrink:0;
+  padding:7px 12px;
+  border-top:1px solid var(--border-color);
+  font-size:11px;
+}
+
+.stem-controls-toolbar {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:5px;
+}
+
+.stem-controls-label {
+  display:inline-flex;
+  color:var(--text-muted);
+}
+
+.stem-mixer-toggle {
+  margin-left:auto;
+}
+
+.stem-runtime-status {
+  color:var(--text-muted);
+  font-size:10px;
+}
+
+.stem-detailed-status {
+  color:var(--text-muted);
+  padding-top:6px;
+  font-size:11px;
+}
+
+.stem-mixer-footer {
+  display:flex;
+  gap:12px;
+  padding-top:10px;
+  font-size:11px;
+}

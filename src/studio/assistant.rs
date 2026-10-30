@@ -117,8 +117,8 @@ pub fn Assistant(mut studio: Studio) -> Element {
         if (studio.assistant_open)() {
             aside { class:"ai-assistant", aria_label:"AI charting assistant", onkeydown:move |event|event.stop_propagation(),
                 header {class:"ai-assistant-header", strong{"Charting assistant"}
-                    button {class:"property-button",onclick:move |_|settings.set(!settings()),"Connection"}
-                    button {class:"property-button",aria_label:"Close assistant",onclick:move |_|studio.assistant_open.set(false),"Close"}
+                    button {class:"field-button",onclick:move |_|settings.set(!settings()),"Connection"}
+                    button {class:"field-button",aria_label:"Close assistant",onclick:move |_|studio.assistant_open.set(false),"Close"}
                 }
                 div {class:"ai-assistant-body",
                 p {class:"ai-assistant-caption","Ask about this chart. You choose which edits to apply."}
@@ -129,23 +129,23 @@ pub fn Assistant(mut studio: Studio) -> Element {
                 if settings() {
                     div {class:"ai-assistant-settings",
                         label {r#for:"ai-provider","Connect with"}
-                        select {id:"ai-provider",class:"property-select",disabled:busy(),value:"{provider().label()}",onchange:move |e|{
+                        select {id:"ai-provider",class:"field-control",disabled:busy(),value:"{provider().label()}",onchange:move |e|{
                             if let Some((p,_))=Provider::ALL.iter().find(|(_,label)|*label==e.value()) {provider.set(*p);model.set(String::new());key.set(String::new());models.set(Vec::new());}
                         }, for (_,label) in Provider::ALL {option {value:label,"{label}"}} }
                         if provider().needs_key() {
                             label {r#for:"ai-key","API key (this session only)"}
-                            input {id:"ai-key",class:"property-input",r#type:"password",autocomplete:"off",disabled:busy(),value:"{key}",oninput:move |e|key.set(e.value())}
+                            input {id:"ai-key",class:"field-control",r#type:"password",autocomplete:"off",disabled:busy(),value:"{key}",oninput:move |e|key.set(e.value())}
                         }
                         label {r#for:"ai-model",if matches!(provider(),Provider::Codex|Provider::Claude) {"Model (optional; CLI default)"} else {"Model name"}}
-                        input {id:"ai-model",class:"property-input",disabled:busy(),value:"{model}",placeholder:"Enter a model available to your account",oninput:move |e|model.set(e.value())}
+                        input {id:"ai-model",class:"field-control",disabled:busy(),value:"{model}",placeholder:"Enter a model available to your account",oninput:move |e|model.set(e.value())}
                         if provider()==Provider::Ollama {
-                            button {class:"property-button",disabled:busy(),onclick:move |_|{spawn(async move {
+                            button {class:"field-button",disabled:busy(),onclick:move |_|{spawn(async move {
                                 match tokio::task::spawn_blocking(assistant::local_models).await {
                                     Ok(Ok(list))=>{if list.is_empty(){error.set(Some("No models installed. Install an Ollama model and refresh.".into()));} models.set(list);},
                                     Ok(Err(e))=>error.set(Some(format!("{e:#}"))),Err(_)=>error.set(Some("Could not list models".into()))
                                 }
                             });},"Refresh installed models"}
-                            for name in models() {button {class:"property-button",disabled:busy(),onclick:move |_|model.set(name.clone()),"{name}"}}
+                            for name in models() {button {class:"field-button",disabled:busy(),onclick:move |_|model.set(name.clone()),"{name}"}}
                             p {class:"ai-assistant-caption","Start Ollama and choose an installed model. Ollama controls whether that model uses a cloud service."}
                         } else if matches!(provider(),Provider::Codex|Provider::Claude) {
                             p {class:"ai-assistant-caption",if provider()==Provider::Codex {"Install Codex, then run codex login in a terminal to sign in with ChatGPT. YACE uses that CLI session."} else {"Install Claude Code, then run claude in a terminal and sign in. YACE uses that CLI session."}}
@@ -164,34 +164,34 @@ pub fn Assistant(mut studio: Studio) -> Element {
                             p {class:"ai-assistant-caption","{turn.review.provider.label()} · {track_caption} · revision {turn.review.packet.revision} · {turn.review.packet.sections.len()} sections supplied · {turn.review.packet.remaining} more flags"}
                             for section in &turn.review.packet.sections {
                                 {let start=section.start; let end=section.end;
-                                rsx! {button {class:"property-button",disabled:busy()||stale||!(studio.audio_ready)(),onclick:move |_|{studio.seek(start);studio.dispatch(Action::SetLoop{range:Some(crate::editor::TimeRange{start,end})});studio.dispatch(Action::Playback{playing:true});},"Listen / loop {clock(start)}–{clock(end)}"}}}
+                                rsx! {button {class:"field-button",disabled:busy()||stale||!(studio.audio_ready)(),onclick:move |_|{studio.seek(start);studio.dispatch(Action::SetLoop{range:Some(crate::editor::TimeRange{start,end})});studio.dispatch(Action::Playback{playing:true});},"Listen / loop {clock(start)}–{clock(end)}"}}}
                             }
                             for (index,suggestion) in turn.review.reply.suggestions.iter().enumerate() {
                                 div {class:"ai-assistant-suggestion",
                                     p {"{suggestion.reason}"}
                                     p {class:"ai-assistant-caption", "{describe(&turn.review,index)}"}
-                                    button {class:"property-button",disabled:busy()||stale||turn.applied,onclick:move |_|{
+                                    button {class:"field-button",disabled:busy()||stale||turn.applied,onclick:move |_|{
                                         let Some(store)=studio.store.read().clone() else{return;};
                                         let Some(turn)=turns.read().get(turn_index).cloned() else{return;};
                                         match assistant::apply(&store,&turn.review,index) {
-                                            Ok(_)=>{turns.write()[turn_index].applied=true;studio.reload(false);error.set(None);studio.status.set("AI suggestion applied. Undo is available in the toolbar.".into());},
+                                            Ok(_)=>{turns.write()[turn_index].applied=true;studio.reload(false);error.set(None);studio.status.set("Suggestion applied. Undo is beside the editing tools.".into());},
                                             Err(e)=>error.set(Some(format!("{e:#}"))),
                                         }
                                     },"Apply this edit"}
                                 }
                             }
-                            if turn.applied {p {class:"ai-assistant-caption","Applied. Undo is available in the toolbar."}}
+                            if turn.applied {p {class:"ai-assistant-caption","Applied. Undo is beside the editing tools."}}
                             else if stale && !turn.review.reply.suggestions.is_empty() {p {class:"ai-assistant-caption","Chart changed. Ask again before applying these suggestions."}}
                         }}}
                     }
                 }
                 }
                 if let Some(message)=error() {p {role:"alert",class:"ai-assistant-error","{message}"}}
-                if busy() {div {role:"status","Thinking… You can keep charting." button {class:"property-button",onclick:move |_|{cancellation.peek().cancel();epoch.set(epoch()+1);busy.set(false);},"Cancel"}}}
+                if busy() {div {role:"status","Thinking… You can keep charting." button {class:"field-button",onclick:move |_|{cancellation.peek().cancel();epoch.set(epoch()+1);busy.set(false);},"Cancel"}}}
                 div {class:"ai-assistant-compose",
-                    button {class:"property-button",disabled:busy()||!loaded,onclick:move |_|send("Review the next flagged sections of this track. Explain the evidence, what I should listen for, and propose only clear, justified note fixes.".into()),"Review next flags"}
-                    textarea {aria_label:"Ask the charting assistant",class:"property-input",rows:"3",maxlength:8000,disabled:busy(),value:"{question}",placeholder:"Ask about timing, patterns, difficulty…",oninput:move |e|question.set(e.value())}
-                    button {class:"property-button",disabled:busy()||!loaded||question().trim().is_empty(),onclick:move |_|send(question()),"Ask"}
+                    button {class:"field-button",disabled:busy()||!loaded,onclick:move |_|send("Review the next flagged sections of this track. Explain the evidence, what I should listen for, and propose only clear, justified note fixes.".into()),"Review next flags"}
+                    textarea {aria_label:"Ask the charting assistant",class:"field-control",rows:"3",maxlength:8000,disabled:busy(),value:"{question}",placeholder:"Ask about timing, patterns, difficulty…",oninput:move |e|question.set(e.value())}
+                    button {class:"field-button",disabled:busy()||!loaded||question().trim().is_empty(),onclick:move |_|send(question()),"Ask"}
                 }
             }
         }
@@ -256,7 +256,7 @@ mod tests {
             studio.store.set(Some(store));
             *slot.borrow_mut() = Some(studio);
         });
-        rsx! { super::super::toolbar::Toolbar {studio} Assistant {studio} }
+        rsx! { super::super::project_bar::ProjectBar {studio} Assistant {studio} }
     }
     #[test]
     fn opening_ai_after_the_editor_has_loaded_a_project_keeps_that_project() {
@@ -278,10 +278,10 @@ mod tests {
                     value: dioxus::core::AttributeValue::Text(value),
                     id,
                     ..
-                } if value == "AI help for Visibility fixture" => Some(*id),
+                } if value == "Assistant for Visibility fixture" => Some(*id),
                 _ => None,
             })
-            .expect("Loaded editor exposes an AI button for its project");
+            .expect("Loaded editor exposes its chart assistant");
         let click = || {
             Event::new(
                 Rc::new(dioxus::html::PlatformEventData::new(Box::<

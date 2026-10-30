@@ -1,4 +1,4 @@
-//! Native Rust state for the Octave component port. Every saved edit uses Store.
+//! Shared project actions, local audio and desktop jobs. Saved edits use Store.
 use super::presentation_clock::PresentationClock;
 use crate::{
     editor::{Action, Actor, ActorKind, Project, Request, Store},
@@ -324,7 +324,7 @@ pub struct Studio {
     pub source_audio: Signal<Option<PathBuf>>,
     pub guitar_source: Signal<crate::mapping::GuitarSource>,
     pub album_art: Signal<Option<String>>,
-    pub property_tab: Signal<String>,
+    pub collaboration_open: Signal<bool>,
     pub vocal_note: Signal<Option<usize>>,
     pub metadata: Signal<BTreeMap<String, String>>,
     pub chart_hash: Signal<String>,
@@ -361,7 +361,6 @@ impl Studio {
             self.kit_autoplay.set(None);
             self.kit_audition_busy.set(None);
         }
-        let selecting_vocals = matches!(&action, Action::SelectTrack {track} if track == "Vocals");
         if matches!(
             &action,
             Action::SelectTrack { .. } | Action::Undo | Action::Redo
@@ -384,10 +383,6 @@ impl Studio {
                 | Action::SetLoop { .. }
                 | Action::SelectRegion { .. }
         );
-        let note_action = matches!(
-            action,
-            Action::SelectNote { .. } | Action::AddNote { .. } | Action::UpdateNote { .. }
-        );
         match store.apply(Request {
             expected_revision: doc.revision,
             actor,
@@ -399,12 +394,6 @@ impl Studio {
                     self.status.set(format!("Exported {}", path.display()));
                 }
                 self.reload(transport);
-                if selecting_vocals {
-                    self.property_tab.set("Note".into());
-                }
-                if note_action && self.snapshot().is_some_and(|d| d.selected_note.is_some()) {
-                    self.set_property_tab("Note");
-                }
             }
             Err(error) => {
                 self.error.set(Some(format!("{error:#}")));
@@ -412,12 +401,11 @@ impl Studio {
             }
         }
     }
-    pub fn set_property_tab(mut self, tab: &str) {
-        if self.property_tab.read().eq_ignore_ascii_case(tab) {
-            return;
-        }
-        self.property_tab.set(tab.into());
-        self.reload(false);
+    pub fn is_vocal_track(self) -> bool {
+        self.doc
+            .read()
+            .as_ref()
+            .is_some_and(|doc| doc.selected_track == "Vocals")
     }
     pub fn reload(mut self, transport: bool) {
         let Some(store) = self.store.read().clone() else {
@@ -464,10 +452,7 @@ impl Studio {
                         return;
                     }
                 }
-                let assets_key = stem_assets_key(
-                    &doc,
-                    self.property_tab.read().eq_ignore_ascii_case("vocals"),
-                );
+                let assets_key = stem_assets_key(&doc, doc.selected_track == "Vocals");
                 let reattached = doc.audit.last().is_some_and(|entry| {
                     matches!(
                         entry.action,
@@ -677,16 +662,9 @@ impl Studio {
             return;
         };
         let rate = doc.transport.playback_rate;
-        let key = stem_assets_key(
-            &doc,
-            self.property_tab.read().eq_ignore_ascii_case("vocals"),
-        );
+        let key = stem_assets_key(&doc, self.is_vocal_track());
         let expected = doc.audio_sha256.clone();
-        let manifest = review_manifest(
-            &doc,
-            self.property_tab.read().eq_ignore_ascii_case("vocals"),
-        )
-        .cloned();
+        let manifest = review_manifest(&doc, self.is_vocal_track()).cloned();
         let epoch = (self.audio_epoch)() + 1;
         self.audio_epoch.set(epoch);
         self.audio_ready.set(false);
@@ -730,8 +708,7 @@ impl Studio {
             || self.source_audio.read().as_ref() != Some(&source)
             || current.as_ref().is_none_or(|doc| {
                 doc.transport.playback_rate != rate
-                    || stem_assets_key(doc, self.property_tab.read().eq_ignore_ascii_case("vocals"))
-                        != key
+                    || stem_assets_key(doc, self.is_vocal_track()) != key
             })
         {
             return;
@@ -826,7 +803,7 @@ impl Studio {
         }
     }
     pub fn attach_stems_dialog(self) {
-        let keyboard = !self.property_tab.read().eq_ignore_ascii_case("vocals")
+        let keyboard = !self.is_vocal_track()
             && self.snapshot().is_some_and(|doc| {
                 crate::keys::is_keys(&doc.selected_track) && doc.content.keyboard_stems.is_some()
             });
@@ -1251,7 +1228,7 @@ pub fn use_studio() -> Studio {
         source_audio: use_signal(|| None),
         guitar_source: use_signal(Default::default),
         album_art: use_signal(|| None),
-        property_tab: use_signal(|| "Song".into()),
+        collaboration_open: use_signal(|| false),
         vocal_note: use_signal(|| None),
         metadata: use_signal(BTreeMap::new),
         chart_hash: use_signal(String::new),

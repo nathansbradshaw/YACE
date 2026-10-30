@@ -1,5 +1,5 @@
 //! Import and job controls; expensive work runs in the same executable's worker.
-use super::{icons::Icon, state::Studio};
+use super::state::Studio;
 use crate::{
     generation::{self, Request, Source, State, Status},
     pipeline, song_import, tempo_analysis,
@@ -502,60 +502,69 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         .unwrap_or_default();
     rsx! {
         style{"{CSS}"}
-        super::modal::Modal { id: "generation-dialog", label: "Generate charts", onclose: move |_| studio.generation_open.set(false),
-            div{class:"settings-modal generation-modal",
-                div{class:"settings-modal-header",
-                    div{h2{class:"settings-modal-title","Generate charts"}p{class:"settings-modal-subtitle","Choose audio and parts. Review the draft in the editor."}}
-                    button{class:"settings-modal-close",aria_label:"Close generation",onclick:move|_|studio.generation_open.set(false),Icon{name:"close"}}
-                }
-                div{class:"settings-modal-body",
+        super::sheet::ToolSheet {
+        id: "generation-dialog", title: "Generate charts", description: "Choose audio and parts. Review the draft in the editor.",
+        class: "generation-modal", close_label: "Close generation", onclose: move |_| studio.generation_open.set(false),
+        actions: rsx! {
+                    div{class:"generation-actions",
+                        button{class:"action-secondary",disabled:busy,onclick:move|_|recover(data),"Resume saved job…"}
+                        if saved&&!busy{button{class:"action-secondary",onclick:move|_|data.set(View::default()),"New generation"}}
+                    }
+                    div{class:"generation-actions",
+                        if view.worker.is_some(){button{class:"action-secondary",onclick:move|_|{if let Some(worker)=data.read().worker.clone(){worker.borrow_mut().cancel();}},"Cancel"}}
+                        if saved&&!busy&&!complete{button{class:"action-primary",onclick:move|_|{let root=data.read().root.clone();if let Some(root)=root && let Err(error)=launch_worker(data,root){fail(data,format!("{error:#}"));}},"Resume generation"}}
+                        if complete{button{class:"action-primary",onclick:move|_|{spawn(async move{let root=data.read().root.clone();if let Some(root)=root{studio.open_project(root.join("project")).await;studio.generation_open.set(false);}});},"Open generated chart"}}
+                        if !saved{button{class:"action-primary",disabled:busy||!can_generate,title:"{validation}",aria_describedby: if !busy && !can_generate { Some("generation-validation") } else { None },onclick:move|_|generate(data),if busy{"Working…"}else{"Generate charts"}}}
+                    }
+                 },
+
                     fieldset{disabled:busy||saved,
                         h3 { class: "generation-step", "1. Choose audio" }
-                        div{class:"generation-actions",button{class:"settings-modal-secondary",onclick:move|_|local_file(data),"Choose audio file…"}}
+                        div{class:"generation-actions",button{class:"action-secondary",onclick:move|_|local_file(data),"Choose audio file…"}}
                         if let Some(path)=&view.audio{p{class:"generation-path",title:"{path.display()}","{path.file_name().unwrap_or_default().to_string_lossy()}"}}
                         details { summary { "Song details" }
                         div{class:"generation-grid",
-                            label{class:"generation-field","Song title",input{class:"property-input",value:"{view.title}",oninput:move|e|data.write().title=e.value()}}
-                            label{class:"generation-field","Artist",input{class:"property-input",value:"{view.artist}",oninput:move|e|data.write().artist=e.value()}}
-                            label{class:"generation-field","Tempo (BPM)",input{class:"property-input",r#type:"number",min:"1",max:"1000",step:"any",placeholder:"Enter BPM",value:"{view.bpm}",oninput:move|e|data.write().bpm=e.value()}}
-                            label{class:"generation-field","New song folder name",input{class:"property-input",value:"{view.name}",oninput:move|e|data.write().name=e.value()}}
+                            label{class:"generation-field","Song title",input{class:"field-control",value:"{view.title}",oninput:move|e|data.write().title=e.value()}}
+                            label{class:"generation-field","Artist",input{class:"field-control",value:"{view.artist}",oninput:move|e|data.write().artist=e.value()}}
+                            label{class:"generation-field","Tempo (BPM)",input{class:"field-control",r#type:"number",min:"1",max:"1000",step:"any",placeholder:"Enter BPM",value:"{view.bpm}",oninput:move|e|data.write().bpm=e.value()}}
+                            label{class:"generation-field","New song folder name",input{class:"field-control",value:"{view.name}",oninput:move|e|data.write().name=e.value()}}
                         }
-                        p{class:"settings-field-hint","Filled in from the recording. Check the estimated BPM."}
+                        p{class:"field-hint","Filled in from the recording. Check the estimated BPM."}
                         if let Some(info)=&view.info{
                             if let Some(preview)=&view.cover_preview{img{class:"generation-artwork",src:"{preview}",alt:"Suggested artwork for this recording"}}
                             div{class:"generation-grid",
-                                label{class:"generation-field","Album",input{class:"property-input",value:"{info.album}",placeholder:"Unavailable",oninput:move|e|{if let Some(info)=data.write().info.as_mut(){info.album=e.value();}}}}
-                                label{class:"generation-field","Release year",input{class:"property-input",value:"{info.year}",placeholder:"Unavailable",oninput:move|e|{if let Some(info)=data.write().info.as_mut(){info.year=e.value();}}}}
-                                label{class:"generation-field","Genre",input{class:"property-input",value:"{info.genre}",placeholder:"Unavailable",oninput:move|e|{if let Some(info)=data.write().info.as_mut(){info.genre=e.value();}}}}
+                                label{class:"generation-field","Album",input{class:"field-control",value:"{info.album}",placeholder:"Unavailable",oninput:move|e|{if let Some(info)=data.write().info.as_mut(){info.album=e.value();}}}}
+                                label{class:"generation-field","Release year",input{class:"field-control",value:"{info.year}",placeholder:"Unavailable",oninput:move|e|{if let Some(info)=data.write().info.as_mut(){info.year=e.value();}}}}
+                                label{class:"generation-field","Genre",input{class:"field-control",value:"{info.genre}",placeholder:"Unavailable",oninput:move|e|{if let Some(info)=data.write().info.as_mut(){info.genre=e.value();}}}}
                             }
                             details{summary{"Imported information and sources"}
-                                p{class:"settings-field-hint","{info.tempo.note}"}
-                                for note in &info.notes{p{class:"settings-field-hint","{note}"}}
-                                if let Some(artwork)=&info.artwork{p{class:"generation-path","Artwork: {artwork.display()}"}p{class:"settings-field-hint","Source: {info.artwork_source}"}}
-                                div{class:"generation-actions",button{class:"settings-modal-secondary",onclick:move|_|choose_artwork(data),"Change artwork…"}}
+                                p{class:"field-hint","{info.tempo.note}"}
+                                for note in &info.notes{p{class:"field-hint","{note}"}}
+                                if let Some(artwork)=&info.artwork{p{class:"generation-path","Artwork: {artwork.display()}"}p{class:"field-hint","Source: {info.artwork_source}"}}
+                                div{class:"generation-actions",button{class:"action-secondary",onclick:move|_|choose_artwork(data),"Change artwork…"}}
                                 if let Some(lyrics)=&info.lyrics{
-                                    label{class:"generation-field","Timed lyrics (editable LRC)",textarea{class:"property-input",rows:"6",value:lyrics["syncedLyrics"].as_str().unwrap_or_default(),oninput:move|e|{if let Some(lyrics)=data.write().info.as_mut().and_then(|info|info.lyrics.as_mut()){lyrics["syncedLyrics"]=serde_json::json!(e.value());}}}}
-                                }else{p{class:"settings-field-hint","No matching lyrics found."}}
+                                    label{class:"generation-field","Timed lyrics (editable LRC)",textarea{class:"field-control",rows:"6",value:lyrics["syncedLyrics"].as_str().unwrap_or_default(),oninput:move|e|{if let Some(lyrics)=data.write().info.as_mut().and_then(|info|info.lyrics.as_mut()){lyrics["syncedLyrics"]=serde_json::json!(e.value());}}}}
+                                }else{p{class:"field-hint","No matching lyrics found."}}
                             }
                         }
                         }
                         h3 { class: "generation-step", "2. Choose parts" }
                         div{class:"generation-actions",
-                            label{class:"settings-checkbox-row",input{r#type:"checkbox",checked:view.guitar,disabled:view.full_mix,onchange:move|e|data.write().guitar=e.checked()},"Guitar"}
+                            label{class:"form-check",input{r#type:"checkbox",checked:view.guitar,disabled:view.full_mix,onchange:move|e|data.write().guitar=e.checked()},"Guitar"}
                             if view.guitar {
                                 label{class:"generation-field","Guitar chart follows",
-                                    select{class:"property-input",value:match view.guitar_source {crate::mapping::GuitarSource::Guitar=>"guitar",crate::mapping::GuitarSource::Other=>"other",crate::mapping::GuitarSource::Piano=>"piano"},onchange:move|e|data.write().guitar_source=match e.value().as_str(){"other"=>crate::mapping::GuitarSource::Other,"piano"=>crate::mapping::GuitarSource::Piano,_=>crate::mapping::GuitarSource::Guitar},
+                                    select{class:"field-control",value:match view.guitar_source {crate::mapping::GuitarSource::Guitar=>"guitar",crate::mapping::GuitarSource::Other=>"other",crate::mapping::GuitarSource::Piano=>"piano"},onchange:move|e|data.write().guitar_source=match e.value().as_str(){"other"=>crate::mapping::GuitarSource::Other,"piano"=>crate::mapping::GuitarSource::Piano,_=>crate::mapping::GuitarSource::Guitar},
                                         option{value:"guitar","Guitar"}option{value:"other","Other melody / synth"}option{value:"piano","Piano"}
                                     }
                                 }
-                                if view.guitar_source != crate::mapping::GuitarSource::Guitar {p{class:"settings-field-hint","Arranges this sound for five-fret Guitar. Check for missing notes."}}
+                                if view.guitar_source != crate::mapping::GuitarSource::Guitar {p{class:"field-hint","Arranges this sound for five-fret Guitar. Check for missing notes."}}
                             }
-                            label{class:"settings-checkbox-row",input{r#type:"checkbox",checked:view.bass,disabled:view.full_mix,onchange:move|e|data.write().bass=e.checked()},"Bass"}
-                            label{class:"settings-checkbox-row",input{r#type:"checkbox",checked:view.drums,onchange:move|e|data.write().drums=e.checked()},"Drums"}
-                            label{class:"settings-checkbox-row",title:"Keyboard notes arranged into five lanes. Listen and review before export.",input{r#type:"checkbox",checked:view.piano,disabled:view.full_mix,onchange:move|e|data.write().piano=e.checked()},"Piano (Keys)"}
-                            label{class:"settings-checkbox-row",title:"Piano notes fitted to the game keyboard. Review octave and release adjustments before export.",input{r#type:"checkbox",checked:view.pro_piano,disabled:view.full_mix,onchange:move|e|data.write().pro_piano=e.checked()},"Pro Piano (Pro Keys)"}
+                            label{class:"form-check",input{r#type:"checkbox",checked:view.bass,disabled:view.full_mix,onchange:move|e|data.write().bass=e.checked()},"Bass"}
+                            label{class:"form-check",input{r#type:"checkbox",checked:view.drums,onchange:move|e|data.write().drums=e.checked()},"Drums"}
+                            label{class:"form-check",title:"Keyboard notes arranged into five lanes. Listen and review before export.",input{r#type:"checkbox",checked:view.piano,disabled:view.full_mix,onchange:move|e|data.write().piano=e.checked()},"Piano (Keys)"}
+                            label{class:"form-check",title:"Piano notes fitted to the game keyboard. Review octave and release adjustments before export.",input{r#type:"checkbox",checked:view.pro_piano,disabled:view.full_mix,onchange:move|e|data.write().pro_piano=e.checked()},"Pro Piano (Pro Keys)"}
                             if view.piano || view.pro_piano {
-                                label{class:"settings-checkbox-row","Keyboard sound"
+                                label{class:"form-check","Keyboard sound"
                                     select{value:if view.keyboard_sound == crate::keyboard_detection::KeyboardSound::Synth {"synth"} else {"piano"},
                                         onchange:move|e|data.write().keyboard_sound=if e.value()=="synth" {crate::keyboard_detection::KeyboardSound::Synth} else {crate::keyboard_detection::KeyboardSound::Piano},
                                         option{value:"piano","Piano"}
@@ -563,7 +572,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                                     }
                                 }
                                 if view.keyboard_sound == crate::keyboard_detection::KeyboardSound::Piano {
-                                    label{class:"settings-checkbox-row","Piano separation"
+                                    label{class:"form-check","Piano separation"
                                         select{value:if view.piano_quality == crate::keyboard_detection::PianoQuality::HighQuality {"high_quality"} else {"standard"},
                                             onchange:move|e|data.write().piano_quality=if e.value()=="high_quality" {crate::keyboard_detection::PianoQuality::HighQuality} else {crate::keyboard_detection::PianoQuality::Standard},
                                             option{value:"standard","Standard"}
@@ -576,10 +585,10 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                                 }
                                 p{class:"generation-note",if view.keyboard_sound == crate::keyboard_detection::KeyboardSound::Synth {"Experimental. Other instruments may appear in this synth part; review each phrase."} else {"Check missing notes, extra notes and key releases."}}
                             }
-                            label{class:"settings-checkbox-row",title:"Estimate sung pitch and recognize lyrics in the selected language. Review before export.",input{r#type:"checkbox",checked:view.vocals,disabled:view.full_mix,onchange:move|e|data.write().vocals=e.checked()},"Vocals"}
+                            label{class:"form-check",title:"Estimate sung pitch and recognize lyrics in the selected language. Review before export.",input{r#type:"checkbox",checked:view.vocals,disabled:view.full_mix,onchange:move|e|data.write().vocals=e.checked()},"Vocals"}
                             if view.vocals {
                                 label{class:"generation-field","Vocal language",
-                                    select{class:"property-input",value:match view.vocal_language {crate::lyric_language::Language::Auto=>"auto",crate::lyric_language::Language::English=>"english",crate::lyric_language::Language::Spanish=>"spanish"},onchange:move|e|data.write().vocal_language=match e.value().as_str(){"english"=>crate::lyric_language::Language::English,"spanish"=>crate::lyric_language::Language::Spanish,_=>crate::lyric_language::Language::Auto},
+                                    select{class:"field-control",value:match view.vocal_language {crate::lyric_language::Language::Auto=>"auto",crate::lyric_language::Language::English=>"english",crate::lyric_language::Language::Spanish=>"spanish"},onchange:move|e|data.write().vocal_language=match e.value().as_str(){"english"=>crate::lyric_language::Language::English,"spanish"=>crate::lyric_language::Language::Spanish,_=>crate::lyric_language::Language::Auto},
                                         option{value:"auto","Detect automatically"} option{value:"spanish","Spanish"} option{value:"english","English"}
                                     }
                                 }
@@ -587,23 +596,23 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         }
                         h3 { class: "generation-step", "3. Choose where to save" }
                         div{class:"generation-actions",
-                            button{class:"settings-modal-secondary",onclick:move|_|{spawn(async move{if let Some(folder)=rfd::AsyncFileDialog::new().set_title("Save generated songs here").pick_folder().await{data.write().parent=Some(folder.path().to_owned());}});},"Choose save location…"}
+                            button{class:"action-secondary",onclick:move|_|{spawn(async move{if let Some(folder)=rfd::AsyncFileDialog::new().set_title("Save generated songs here").pick_folder().await{data.write().parent=Some(folder.path().to_owned());}});},"Choose save location…"}
                             if let Some(parent)=&view.parent{span{class:"generation-path","{parent.display()}"}}
                         }
                         details{summary{"Generation options"}
-                            label{class:"settings-checkbox-row",input{r#type:"checkbox",checked:view.fetch,onchange:move|e|data.write().fetch=e.checked()},"Download missing models"}
-                            label{class:"settings-checkbox-row",input{r#type:"checkbox",checked:view.lyrics,onchange:move|e|data.write().lyrics=e.checked()},"Find lyrics online (shares song metadata)"}
-                            label{class:"settings-checkbox-row",input{r#type:"checkbox",checked:view.standard,onchange:move|e|data.write().standard=e.checked()},"Standard drums (omit Pro cymbal markers)"}
-                            label{class:"settings-checkbox-row",input{r#type:"checkbox",checked:view.full_mix,onchange:move|e|data.with_mut(|v|{v.full_mix=e.checked();if v.full_mix{v.guitar=false;v.bass=false;v.piano=false;v.pro_piano=false;v.vocals=false;v.drums=true;}})},"Drums only from the original mix (skip stem separation)"}
-                            div{class:"generation-actions",button{class:"settings-modal-secondary",onclick:move|_|{spawn(async move{if let Some(folder)=rfd::AsyncFileDialog::new().set_title("Choose model folder").pick_folder().await{data.write().models=folder.path().to_owned();}});},"Model folder…"}span{class:"generation-path","{view.models.display()}"}}
+                            label{class:"form-check",input{r#type:"checkbox",checked:view.fetch,onchange:move|e|data.write().fetch=e.checked()},"Download missing models"}
+                            label{class:"form-check",input{r#type:"checkbox",checked:view.lyrics,onchange:move|e|data.write().lyrics=e.checked()},"Find lyrics online (shares song metadata)"}
+                            label{class:"form-check",input{r#type:"checkbox",checked:view.standard,onchange:move|e|data.write().standard=e.checked()},"Standard drums (omit Pro cymbal markers)"}
+                            label{class:"form-check",input{r#type:"checkbox",checked:view.full_mix,onchange:move|e|data.with_mut(|v|{v.full_mix=e.checked();if v.full_mix{v.guitar=false;v.bass=false;v.piano=false;v.pro_piano=false;v.vocals=false;v.drums=true;}})},"Drums only from the original mix (skip stem separation)"}
+                            div{class:"generation-actions",button{class:"action-secondary",onclick:move|_|{spawn(async move{if let Some(folder)=rfd::AsyncFileDialog::new().set_title("Choose model folder").pick_folder().await{data.write().models=folder.path().to_owned();}});},"Model folder…"}span{class:"generation-path","{view.models.display()}"}}
                         }
-                        p{class:"settings-field-hint","Some models are noncommercial. Check licenses before downloading or sharing."}
+                        p{class:"field-hint","Some models are noncommercial. Check licenses before downloading or sharing."}
                         details{summary{"Model licenses"}
-                            for asset in crate::models::assets(){p{class:"settings-field-hint",strong{"{asset.id}: "}"{asset.license}"}}
-                            p{class:"settings-field-hint","{crate::keyboard_separation::WEIGHT_LICENSE_NOTICE}"}
+                            for asset in crate::models::assets(){p{class:"field-hint",strong{"{asset.id}: "}"{asset.license}"}}
+                            p{class:"field-hint","{crate::keyboard_separation::WEIGHT_LICENSE_NOTICE}"}
                         }
                     }
-                    if !view.notice.is_empty(){p{class:"settings-field-hint",role:"status","{view.notice}"}}
+                    if !view.notice.is_empty(){p{class:"field-hint",role:"status","{view.notice}"}}
                     if let Some(status)=&view.status{
                         div{class:"generation-progress",role:"status",strong{"{status.stage}"}span{"{status.detail}"}if busy{progress{aria_label:"Generating charts"}}}
                     }
@@ -613,20 +622,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     if !saved && !busy && !can_generate {
                         p { id: "generation-validation", class: "generation-validation", role: "status", "{validation}" }
                     }
-                }
-                div{class:"settings-modal-footer",
-                    div{class:"generation-actions",
-                        button{class:"settings-modal-secondary",disabled:busy,onclick:move|_|recover(data),"Resume saved job…"}
-                        if saved&&!busy{button{class:"settings-modal-secondary",onclick:move|_|data.set(View::default()),"New generation"}}
-                    }
-                    div{class:"generation-actions",
-                        if view.worker.is_some(){button{class:"settings-modal-secondary",onclick:move|_|{if let Some(worker)=data.read().worker.clone(){worker.borrow_mut().cancel();}},"Cancel"}}
-                        if saved&&!busy&&!complete{button{class:"settings-modal-primary",onclick:move|_|{let root=data.read().root.clone();if let Some(root)=root && let Err(error)=launch_worker(data,root){fail(data,format!("{error:#}"));}},"Resume generation"}}
-                        if complete{button{class:"settings-modal-primary",onclick:move|_|{spawn(async move{let root=data.read().root.clone();if let Some(root)=root{studio.open_project(root.join("project")).await;studio.generation_open.set(false);}});},"Open generated chart"}}
-                        if !saved{button{class:"settings-modal-primary",disabled:busy||!can_generate,title:"{validation}",aria_describedby: if !busy && !can_generate { Some("generation-validation") } else { None },onclick:move|_|generate(data),if busy{"Working…"}else{"Generate charts"}}}
-                    }
-                }
-            }
-        }
+
+    }
     }
 }

@@ -1,6 +1,6 @@
 # Vocals and lyrics
 
-Select **Vocals** in the editor to view the pitch lane and vocal Inspector.
+Select **Vocals** in the editor to view the pitch lane and vocal selection desk.
 Vocals can be empty while you build a part; missing lyrics do not need filler.
 
 ## Generate a draft
@@ -19,7 +19,7 @@ see [THIRD_PARTY.md](../THIRD_PARTY.md).
 
 ## Edit a part
 
-Use the vocal Inspector to work with phrases, notes and syllables. Select a
+Use the vocal selection desk to work with phrases, notes and syllables. Select a
 phrase or note, listen around it, then adjust pitch, timing and text. Use Undo
 to recover an earlier edit. Export writes a separate song folder.
 

@@ -1,6 +1,5 @@
-//! Native Rust clean-audio modal using OCTAVE's PropertyPanel/SettingsModal UI.
+//! Local word review and clean-audio export in the shared tool sheet.
 //! Matching and rendering stay in the model-free clean core and CLI contract.
-use super::icons::Icon;
 use super::state::Studio;
 use crate::{
     clean::{
@@ -630,112 +629,108 @@ pub fn CleanPanel(studio: Studio) -> Element {
         .is_some_and(|project| project.transport.loop_range.is_some());
     rsx! {
         style{"{CSS}"}
-        super::modal::Modal { id: "clean-dialog", label: "Clean audio", onclose: move |_| { let mut s = studio; s.clean_open.set(false); },
-            div{class:"settings-modal clean-modal",
-                div{class:"settings-modal-header",
-                    div{h2{class:"settings-modal-title","Clean audio"}p{class:"settings-modal-subtitle","Mute selected words in a separate audio copy."}}
-                    button{class:"settings-modal-close",aria_label:"Close clean audio",onclick:move|_|{let mut s=studio;s.clean_open.set(false);},Icon { name: "close" }}
-                }
-                div{class:"settings-modal-body",
+        super::sheet::ToolSheet {
+        id: "clean-dialog", title: "Clean audio", description: "Mute selected words in a separate audio copy.",
+        class: "clean-modal", close_label: "Close clean audio", onclose: move |_| { let mut s = studio; s.clean_open.set(false); },
+        actions: rsx! {
+                    p{class:"field-hint","Clean edits aren’t autosaved. Save a plan or export before quitting."}
+                    div{class:"clean-actions",
+                        button{class:"action-secondary",disabled:!has_loop,onclick:move|_|studio.dispatch(Action::SetLoop{range:None}),"Clear audition loop"}
+                        button{class:"action-secondary",onclick:move|_|{let mut s=studio;s.clean_open.set(false);},"Close"}
+                        button{class:"action-primary",disabled:busy||!ready,aria_describedby: if !busy && !ready { Some("clean-next-step") } else { None },onclick:move|_|{if let Some(audio)=(studio.source_audio)(){render(studio,data,audio,epoch);}},"Export clean audio"}
+                    }
+                 },
+
                     if let Some(path)=&source{p{class:"clean-path",title:"{path.display()}","{path.file_name().unwrap_or_default().to_string_lossy()}"}}else{p{"Open a song project first."}}
                     if let Some(label)=&view.busy{p{class:"clean-status",role:"status","{label}"}}
-                    if let Some(control)=&view.recognition_control{button{class:"settings-modal-secondary",disabled:control.is_cancelled(),onclick:{let control=control.clone();move|_|{control.cancel();data.write().busy=Some("Cancelling automatic analysis…".into());}},"Cancel automatic analysis"}}
+                    if let Some(control)=&view.recognition_control{button{class:"action-secondary",disabled:control.is_cancelled(),onclick:{let control=control.clone();move|_|{control.cancel();data.write().busy=Some("Cancelling automatic analysis…".into());}},"Cancel automatic analysis"}}
                     fieldset{class:"clean-fieldset",disabled:busy||source.is_none(),
-                        div{class:"property-section",
+                        div{class:"form-section",
                             h3{class:"clean-step","1. Find words"}
                             div{class:"clean-actions",
-                                button{class:"settings-modal-primary",disabled:policy.validate().is_err(),onclick:move|_|{if let Some(audio)=(studio.source_audio)(){detect_automatic(studio,data,audio,epoch);}},"Find explicit words"}
-                                if plan_valid { button{class:"settings-modal-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){save_plan(studio,data,audio,epoch);}},"Save plan…"} }
+                                button{class:"action-primary",disabled:policy.validate().is_err(),onclick:move|_|{if let Some(audio)=(studio.source_audio)(){detect_automatic(studio,data,audio,epoch);}},"Find explicit words"}
+                                if plan_valid { button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){save_plan(studio,data,audio,epoch);}},"Save plan…"} }
                             }
-                            p{class:"settings-field-hint","English only · runs locally · 190 MB model download on first use. Finding again replaces your ranges."}
+                            p{class:"field-hint","English only · runs locally · 190 MB model download on first use. Finding again replaces your ranges."}
                             details { summary { "Use saved files" }
                             div { class: "clean-actions",
-                                button{class:"settings-modal-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){load_words(studio,data,audio,epoch);}},"Load word timings…"}
-                                button{class:"settings-modal-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){load_plan(studio,data,audio,epoch);}},"Load clean plan…"}
+                                button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){load_words(studio,data,audio,epoch);}},"Load word timings…"}
+                                button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){load_plan(studio,data,audio,epoch);}},"Load clean plan…"}
                             }
                             }
-                            if let Some(recognition)=&view.recognition{details{summary{"Recognized lyrics · automatic estimates"}p{class:"settings-field-hint","{clean_recognition::RECOGNITION_WARNING}"}p{class:"settings-field-hint","{recognition.words.words.iter().filter_map(|word|word.text.as_deref()).collect::<Vec<_>>().join(\" \")}"}}}
-                            if let Some(words)=&view.words{p{class:"settings-field-hint","{words.words.len()} words · {words.words.iter().filter(|word|word.text.is_none()).count()} unknown · {words.words.iter().filter(|word|word.start.is_none()).count()} untimed"}}
+                            if let Some(recognition)=&view.recognition{details{summary{"Recognized lyrics · automatic estimates"}p{class:"field-hint","{clean_recognition::RECOGNITION_WARNING}"}p{class:"field-hint","{recognition.words.words.iter().filter_map(|word|word.text.as_deref()).collect::<Vec<_>>().join(\" \")}"}}}
+                            if let Some(words)=&view.words{p{class:"field-hint","{words.words.len()} words · {words.words.iter().filter(|word|word.text.is_none()).count()} unknown · {words.words.iter().filter(|word|word.start.is_none()).count()} untimed"}}
                             if let Some(path)=&view.word_path{p{class:"clean-path","{path.display()}"}}
                         }
-                        details{class:"property-section clean-options",
+                        details{class:"form-section clean-options",
                             summary{"Words to mute and timing"}
-                            details { summary { "About the word list" } p{class:"settings-field-hint","{clean::DEFAULT_POLICY_NOTE}"} }
-                            button{class:"settings-modal-secondary",onclick:move|_|data.with_mut(|view|{let policy=CleanPolicy::default();view.name=policy.name;view.terms=policy.terms.join("\n");}),"Use common explicit markers"}
-                            div{class:"property-group",label{class:"property-label",r#for:"clean-policy-name","Policy name"}input{id:"clean-policy-name",class:"property-input",value:view.name.clone(),oninput:move|event|data.write().name=event.value()}}
-                            div{class:"property-group",label{class:"property-label",r#for:"clean-policy-terms","One exact word or phrase per line"}textarea{id:"clean-policy-terms",class:"property-input",rows:"4",value:view.terms.clone(),placeholder:"Add or remove explicit words and phrases for this recording.",oninput:move|event|data.write().terms=event.value()}}
+                            details { summary { "About the word list" } p{class:"field-hint","{clean::DEFAULT_POLICY_NOTE}"} }
+                            button{class:"action-secondary",onclick:move|_|data.with_mut(|view|{let policy=CleanPolicy::default();view.name=policy.name;view.terms=policy.terms.join("\n");}),"Use common explicit markers"}
+                            div{class:"field-stack",label{class:"field-label",r#for:"clean-policy-name","Policy name"}input{id:"clean-policy-name",class:"field-control",value:view.name.clone(),oninput:move|event|data.write().name=event.value()}}
+                            div{class:"field-stack",label{class:"field-label",r#for:"clean-policy-terms","One exact word or phrase per line"}textarea{id:"clean-policy-terms",class:"field-control",rows:"4",value:view.terms.clone(),placeholder:"Add or remove explicit words and phrases for this recording.",oninput:move|event|data.write().terms=event.value()}}
                             div{class:"clean-columns",
-                                div{class:"property-group",label{class:"property-label",r#for:"clean-pad-before","Padding before (s)"}input{id:"clean-pad-before",class:"property-input",r#type:"number",min:"0",step:"0.005",value:view.padding_before.to_string(),oninput:move|event|{if let Ok(value)=event.value().parse(){data.write().padding_before=value;}}}}
-                                div{class:"property-group",label{class:"property-label",r#for:"clean-pad-after","Padding after (s)"}input{id:"clean-pad-after",class:"property-input",r#type:"number",min:"0",step:"0.005",value:view.padding_after.to_string(),oninput:move|event|{if let Ok(value)=event.value().parse(){data.write().padding_after=value;}}}}
-                                div{class:"property-group",label{class:"property-label",r#for:"clean-fade","Fade outside range (s)"}input{id:"clean-fade",class:"property-input",r#type:"number",min:"0",step:"0.005",value:view.fade.to_string(),oninput:move|event|{if let Ok(value)=event.value().parse(){data.with_mut(|view|{view.fade=value;if let Some(plan)=&mut view.plan{plan.policy.fade_seconds=value;}});}}}}
+                                div{class:"field-stack",label{class:"field-label",r#for:"clean-pad-before","Padding before (s)"}input{id:"clean-pad-before",class:"field-control",r#type:"number",min:"0",step:"0.005",value:view.padding_before.to_string(),oninput:move|event|{if let Ok(value)=event.value().parse(){data.write().padding_before=value;}}}}
+                                div{class:"field-stack",label{class:"field-label",r#for:"clean-pad-after","Padding after (s)"}input{id:"clean-pad-after",class:"field-control",r#type:"number",min:"0",step:"0.005",value:view.padding_after.to_string(),oninput:move|event|{if let Ok(value)=event.value().parse(){data.write().padding_after=value;}}}}
+                                div{class:"field-stack",label{class:"field-label",r#for:"clean-fade","Fade outside range (s)"}input{id:"clean-fade",class:"field-control",r#type:"number",min:"0",step:"0.005",value:view.fade.to_string(),oninput:move|event|{if let Ok(value)=event.value().parse(){data.with_mut(|view|{view.fade=value;if let Some(plan)=&mut view.plan{plan.policy.fade_seconds=value;}});}}}}
                             }
-                            button{class:"settings-modal-secondary",disabled:!can_build,onclick:move|_|{if let Some(audio)=(studio.source_audio)(){build(studio,data,audio,epoch);}},"Rebuild mute ranges"}
-                            p{class:"settings-field-hint","Rebuilding replaces manual range edits."}
+                            button{class:"action-secondary",disabled:!can_build,onclick:move|_|{if let Some(audio)=(studio.source_audio)(){build(studio,data,audio,epoch);}},"Rebuild mute ranges"}
+                            p{class:"field-hint","Rebuilding replaces manual range edits."}
                             if view.plan.as_ref().is_some_and(|plan|plan.policy!=policy){p{class:"clean-warning","Word list or timing changed. Rebuild ranges to apply."}}
                         }
-                        div{class:"property-section",
-                            div{class:"property-section-title","Audio mode"}
-                            div{class:"property-flags",
-                                label{class:"property-checkbox",input{r#type:"radio",name:"clean-mode",checked:view.mode==CleanMode::VocalOnly,onchange:move|_|data.with_mut(|view|{view.mode=CleanMode::VocalOnly;if let Some(plan)=&mut view.plan{plan.mode=CleanMode::VocalOnly;}})},"Vocal-only · aligned stem"}
-                                label{class:"property-checkbox",input{r#type:"radio",name:"clean-mode",checked:view.mode==CleanMode::FullMix,onchange:move|_|data.with_mut(|view|{view.mode=CleanMode::FullMix;if let Some(plan)=&mut view.plan{plan.mode=CleanMode::FullMix;}})},"Full mix · instruments muted too"}
+                        div{class:"form-section",
+                            div{class:"form-heading","Audio mode"}
+                            div{class:"field-flags",
+                                label{class:"form-check",input{r#type:"radio",name:"clean-mode",checked:view.mode==CleanMode::VocalOnly,onchange:move|_|data.with_mut(|view|{view.mode=CleanMode::VocalOnly;if let Some(plan)=&mut view.plan{plan.mode=CleanMode::VocalOnly;}})},"Vocal-only · aligned stem"}
+                                label{class:"form-check",input{r#type:"radio",name:"clean-mode",checked:view.mode==CleanMode::FullMix,onchange:move|_|data.with_mut(|view|{view.mode=CleanMode::FullMix;if let Some(plan)=&mut view.plan{plan.mode=CleanMode::FullMix;}})},"Full mix · instruments muted too"}
                             }
                             if view.mode==CleanMode::VocalOnly{
-                                p{class:"settings-field-hint","Needs an aligned vocal stem. Poor alignment can leave words or damage instruments."}
-                                button{class:"settings-modal-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){choose_stem(studio,data,audio,epoch);}},"Choose aligned vocal stem…"}
+                                p{class:"field-hint","Needs an aligned vocal stem. Poor alignment can leave words or damage instruments."}
+                                button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){choose_stem(studio,data,audio,epoch);}},"Choose aligned vocal stem…"}
                                 if let Some(path)=&view.stem{p{class:"clean-path","{path.display()}"}}
-                                div{class:"property-group",label{class:"property-label",r#for:"clean-alignment-notes","How did you check stem timing?"}textarea{id:"clean-alignment-notes",class:"property-input",rows:"2",value:view.evidence.clone(),placeholder:"Stem source and timing check",oninput:move|event|data.write().evidence=event.value()}}
-                                details { summary { "Stem requirements" } p{class:"settings-field-hint","Use a full-length, aligned vocal stem. Matching duration alone is not enough. Files are verified by hash. Vocal-only mode never falls back to muting the full mix."} }
+                                div{class:"field-stack",label{class:"field-label",r#for:"clean-alignment-notes","How did you check stem timing?"}textarea{id:"clean-alignment-notes",class:"field-control",rows:"2",value:view.evidence.clone(),placeholder:"Stem source and timing check",oninput:move|event|data.write().evidence=event.value()}}
+                                details { summary { "Stem requirements" } p{class:"field-hint","Use a full-length, aligned vocal stem. Matching duration alone is not enough. Files are verified by hash. Vocal-only mode never falls back to muting the full mix."} }
                             }else{p{class:"clean-warning","Full-mix mode silences accompaniment and voice together in each selected range."}}
                         }
                         if let Some(plan)=&view.plan{
-                            div{class:"property-section",
+                            div{class:"form-section",
                                 h3{class:"clean-step","2. Listen and adjust"}
-                                p{class:"settings-field-hint","{plan.matches.len()} matches · {plan.matches.iter().filter(|found|found.start.is_none()).count()} unresolved matches · {plan.unknown_words} unknown words · {plan.untimed_words} untimed words"}
+                                p{class:"field-hint","{plan.matches.len()} matches · {plan.matches.iter().filter(|found|found.start.is_none()).count()} unresolved matches · {plan.unknown_words} unknown words · {plan.untimed_words} untimed words"}
                                 if plan.unknown_words>0||plan.untimed_words>0||plan.matches.iter().any(|found|found.start.is_none()){p{class:"clean-warning","Missing words/times have no invented ranges. Review transcript gaps before accepting any clean version."}}
                                 div{class:"clean-range-scroll",table{class:"clean-ranges",
                                     thead{tr{th{"Use"}th{"Start (s)"}th{"End (s)"}th{"Reason / edit"}th{"Actions"}}}
                                     tbody{for (index,range) in ranges.iter().enumerate(){tr{key:"clean-range-{index}",
                                         td{input{r#type:"checkbox",aria_label:"Enable range {index}",checked:range.enabled,onchange:move|event|set_range(data,index,|range|range.enabled=event.checked())}}
-                                        td{input{class:"property-input",r#type:"number",aria_label:"Range {index} start seconds",min:"0",step:"0.01",value:range.start.to_string(),oninput:move|event|{if let Ok(value)=event.value().parse(){set_range(data,index,|range|range.start=value);}}}}
-                                        td{input{class:"property-input",r#type:"number",aria_label:"Range {index} end seconds",min:"0",step:"0.01",value:range.end.to_string(),oninput:move|event|{if let Ok(value)=event.value().parse(){set_range(data,index,|range|range.end=value);}}}}
-                                        td{input{class:"property-input clean-reason",aria_label:"Range {index} reason",value:range.reason.clone(),oninput:move|event|set_range(data,index,|range|range.reason=event.value())}}
+                                        td{input{class:"field-control",r#type:"number",aria_label:"Range {index} start seconds",min:"0",step:"0.01",value:range.start.to_string(),oninput:move|event|{if let Ok(value)=event.value().parse(){set_range(data,index,|range|range.start=value);}}}}
+                                        td{input{class:"field-control",r#type:"number",aria_label:"Range {index} end seconds",min:"0",step:"0.01",value:range.end.to_string(),oninput:move|event|{if let Ok(value)=event.value().parse(){set_range(data,index,|range|range.end=value);}}}}
+                                        td{input{class:"field-control clean-reason",aria_label:"Range {index} reason",value:range.reason.clone(),oninput:move|event|set_range(data,index,|range|range.reason=event.value())}}
                                         td{div{class:"clean-actions",
-                                            button{class:"settings-modal-secondary",disabled:range.start>=range.end,onclick:move|_|{if let Some(range)=data.read().plan.as_ref().and_then(|plan|plan.ranges.get(index)).cloned(){studio.dispatch(Action::SetLoop{range:Some(TimeRange{start:range.start,end:range.end})});studio.dispatch(Action::Seek{seconds:range.start});studio.dispatch(Action::Playback{playing:true});}},"Listen source"}
-                                            button{class:"settings-modal-secondary",aria_label:"Remove range {index}",onclick:move|_|{if let Some(plan)=&mut data.write().plan&&index<plan.ranges.len(){plan.ranges.remove(index);}},"Remove"}
+                                            button{class:"action-secondary",disabled:range.start>=range.end,onclick:move|_|{if let Some(range)=data.read().plan.as_ref().and_then(|plan|plan.ranges.get(index)).cloned(){studio.dispatch(Action::SetLoop{range:Some(TimeRange{start:range.start,end:range.end})});studio.dispatch(Action::Seek{seconds:range.start});studio.dispatch(Action::Playback{playing:true});}},"Listen source"}
+                                            button{class:"action-secondary",aria_label:"Remove range {index}",onclick:move|_|{if let Some(plan)=&mut data.write().plan&&index<plan.ranges.len(){plan.ranges.remove(index);}},"Remove"}
                                         }}
                                     }}}
                                 }}
-                                button{class:"settings-modal-secondary",onclick:move|_|{if let Some(plan)=&mut data.write().plan{plan.ranges.push(MuteRange{start:0.,end:plan.duration_seconds.min(0.25),enabled:true,reason:"Manual selection; review timing".into()});}},"Add manual range"}
-                                p{class:"settings-field-hint","Listen source loops the original. Check the exported audio separately."}
+                                button{class:"action-secondary",onclick:move|_|{if let Some(plan)=&mut data.write().plan{plan.ranges.push(MuteRange{start:0.,end:plan.duration_seconds.min(0.25),enabled:true,reason:"Manual selection; review timing".into()});}},"Add manual range"}
+                                p{class:"field-hint","Listen source loops the original. Check the exported audio separately."}
                                 if let Err(error)=plan.validate(){p{class:"clean-error",role:"alert","Fix before saving/exporting: {error}"}}
-                                details{summary{"Match provenance and warnings"}for found in &plan.matches{p{class:"settings-field-hint","{found.term:?} · words {found.first_word}..{found.end_word_exclusive} · {found.start:?}–{found.end:?} s"}}for warning in &plan.warnings{p{class:"settings-field-hint","{warning}"}}}
+                                details{summary{"Match provenance and warnings"}for found in &plan.matches{p{class:"field-hint","{found.term:?} · words {found.first_word}..{found.end_word_exclusive} · {found.start:?}–{found.end:?} s"}}for warning in &plan.warnings{p{class:"field-hint","{warning}"}}}
                             }
-                        }else{div { class: "property-section", h3 { class: "clean-step", "2. Listen and adjust" } p { class: "settings-field-hint", "Mute ranges appear after finding words." } }}
-                        div{class:"property-section",
+                        }else{div { class: "form-section", h3 { class: "clean-step", "2. Listen and adjust" } p { class: "field-hint", "Mute ranges appear after finding words." } }}
+                        div{class:"form-section",
                             h3{class:"clean-step","3. Export a copy"}
-                            div{class:"property-row",
-                                button{class:"settings-modal-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){choose_parent(data,audio,epoch);}},"Choose save location…"}
-                                div{class:"property-group property-group-half",label{class:"property-label",r#for:"clean-output-name","New folder name"}input{id:"clean-output-name",class:"property-input",value:view.output_name.clone(),oninput:move|event|data.write().output_name=event.value()}}
+                            div{class:"field-row",
+                                button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){choose_parent(data,audio,epoch);}},"Choose save location…"}
+                                div{class:"field-stack field-half",label{class:"field-label",r#for:"clean-output-name","New folder name"}input{id:"clean-output-name",class:"field-control",value:view.output_name.clone(),oninput:move|event|data.write().output_name=event.value()}}
                             }
                             if let Some(path)=view.output(){p{class:"clean-path","{path.display()}"}}
-                            p{class:"settings-field-hint","Choose a new folder. Original files stay untouched."}
-                            details { summary { "Export details" } p{class:"settings-field-hint","Saves clean.wav (44.1 kHz stereo float), plan.json and receipt.json. Needs an enabled, valid mute range. Vocal-only also needs a vocal stem and timing notes."} }
+                            p{class:"field-hint","Choose a new folder. Original files stay untouched."}
+                            details { summary { "Export details" } p{class:"field-hint","Saves clean.wav (44.1 kHz stereo float), plan.json and receipt.json. Needs an enabled, valid mute range. Vocal-only also needs a vocal stem and timing notes."} }
                         }
                     }
                     if let Some(error)=&view.error{p{class:"clean-error",role:"alert","{error}"}}
                     if !view.status.is_empty(){p{class:"clean-status",role:"status","{view.status}"}}
                     if !busy && !ready { p { id: "clean-next-step", class: "clean-status", role: "status", "{next_step}" } }
-                    if let Some((receipt,path))=&view.receipt{details{summary{"Last export receipt"}p{class:"clean-path","{path.display()}"}p{class:"settings-field-hint","{receipt.rendered_ranges.len()} ranges · {receipt.unresolved_matches} unresolved matches · {receipt.frames} stereo frames · peak {receipt.output_peak}"}for warning in &receipt.warnings{p{class:"settings-field-hint","{warning}"}}}}
-                }
-                div{class:"settings-modal-footer clean-footer",
-                    p{class:"settings-field-hint","Clean edits aren’t autosaved. Save a plan or export before quitting."}
-                    div{class:"clean-actions",
-                        button{class:"settings-modal-secondary",disabled:!has_loop,onclick:move|_|studio.dispatch(Action::SetLoop{range:None}),"Clear audition loop"}
-                        button{class:"settings-modal-secondary",onclick:move|_|{let mut s=studio;s.clean_open.set(false);},"Close"}
-                        button{class:"settings-modal-primary",disabled:busy||!ready,aria_describedby: if !busy && !ready { Some("clean-next-step") } else { None },onclick:move|_|{if let Some(audio)=(studio.source_audio)(){render(studio,data,audio,epoch);}},"Export clean audio"}
-                    }
-                }
-            }
-        }
+                    if let Some((receipt,path))=&view.receipt{details{summary{"Last export receipt"}p{class:"clean-path","{path.display()}"}p{class:"field-hint","{receipt.rendered_ranges.len()} ranges · {receipt.unresolved_matches} unresolved matches · {receipt.frames} stereo frames · peak {receipt.output_peak}"}for warning in &receipt.warnings{p{class:"field-hint","{warning}"}}}}
+
+    }
     }
 }

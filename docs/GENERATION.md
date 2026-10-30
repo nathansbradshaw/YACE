@@ -1,6 +1,6 @@
 # Generate a chart
 
-Open **Auto-Chart** in the toolbar, or choose **Import audio** on the starting screen.
+Open **Generate**, or choose **Import audio** on the starting screen.
 
 1. **Choose audio.** Select a local recording. Expand **Song details** to check
    the title, artist and estimated BPM. Correct these before generating.

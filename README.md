@@ -6,7 +6,7 @@ Import a local recording, generate a draft, then listen and edit. YACE supports
 guitar, bass, drums, Keys, Pro Keys and lead vocals. Generated parts need review;
 they are not finished charts.
 
-![YACE with track navigation, a chart preview, a selected note in the inspector and the note editor below](assets/screenshots/editor.png)
+![YACE with audition and selection details above the track picker and note editor](assets/screenshots/editor.png)
 
 Preview above, edit notes below. Shown with a small demo chart.
 
@@ -34,7 +34,7 @@ cargo run --locked --release
 The desktop app opens when you run YACE without arguments. The executable and
 Cargo package are named `chart-engine`.
 
-1. Choose **Auto-Chart** and select a local audio file.
+1. Choose **Import audio** and select a local audio file.
 2. Check the song information, tempo and instruments.
 3. Generate into a new folder.
 4. Listen to each part, edit the draft, then export a separate song folder.

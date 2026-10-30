@@ -1,7 +1,7 @@
 # Drum articulation
 
 Pro Drums uses cymbal markers on the colored drum lanes. Standard drums omit
-those markers. Select a note and use **Cymbal** in the Inspector where supported.
+those markers. Select a note and use **Cymbal** in the selection desk where supported.
 Kick and snare cannot be cymbals.
 
 Generated proposals can use the isolated drum stem and an optional OAF Drums

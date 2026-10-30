@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn Collaboration(mut studio: Studio) -> Element {
-    let mut open = use_signal(|| false);
+    let mut open = studio.collaboration_open;
     let mut body = use_signal(String::new);
     let mut title = use_signal(String::new);
     let mut description = use_signal(String::new);
@@ -19,11 +19,10 @@ pub fn Collaboration(mut studio: Studio) -> Element {
         .and_then(|d| collaboration::inspect(d).ok())
         .unwrap_or_default();
     rsx! {
-        button { class: "toolbar-button", disabled: doc.is_none(), onclick: move |_| open.set(true), "Collaborate" }
         if open() {
             super::modal::Modal { id: "collaboration-dialog", label: "Collaborative song reviews", onclose: move |_| open.set(false),
                 div { class: "collaboration-modal", style: "background:var(--bg-secondary);padding:24px;width:900px;max-width:95vw;max-height:85vh;overflow:auto",
-                    button { class: "property-button", onclick: move |_| open.set(false), "Close" }
+                    button { class: "field-button", onclick: move |_| open.set(false), "Close" }
                     h2 { "Collaborative reviews" }
                     if let Some(error) = (studio.error)() {
                         p { role: "alert", "{error}" }
@@ -31,7 +30,7 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                     p { "Share review files through Git or a shared folder. Audio stays local." }
                     details { summary { "How sharing works" } p { "Work in your own project, then exchange review files. No server is needed. Names identify contributors locally; they aren’t verified accounts." } }
                     GitReview { studio }
-                    button { class: "property-button", onclick: move |_| {
+                    button { class: "field-button", onclick: move |_| {
                         if let Some(folder) = rfd::FileDialog::new().set_title("Choose Git/shared review exchange folder").pick_folder() {
                             let store = studio.store.read().clone();
                             if let (Some(store),Some(doc)) = (store,studio.snapshot()) {
@@ -43,14 +42,14 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                             }
                         }
                     }, "Sync Git / shared folder…" }
-                    button { class: "property-button", onclick: move |_| {
+                    button { class: "field-button", onclick: move |_| {
                         if let Some(path) = rfd::FileDialog::new().set_file_name("reviews.json").save_file()
                             && let Some(doc) = studio.snapshot()
                             && let Err(error) = exchange::write_bundle(&doc,&path) {
                             studio.error.set(Some(error.to_string()));
                         }
                     }, "Export complete review bundle…" }
-                    button { class: "property-button", onclick: move |_| {
+                    button { class: "field-button", onclick: move |_| {
                         if let Some(path) = rfd::FileDialog::new().add_filter("Review bundle", &["json"]).pick_file() {
                             match exchange::read_bundle(&path) {
                                 Ok(bundle) => studio.dispatch(Action::ImportCollaboration { bundle }),
@@ -59,12 +58,12 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                         }
                     }, "Import review bundle…" }
                     label { r#for: "collaboration-reviewer", "Your name" }
-                    input { id: "collaboration-reviewer", class: "property-input", value: "{studio.reviewer}", oninput: move |e| studio.reviewer.set(e.value()) }
+                    input { id: "collaboration-reviewer", class: "field-control", value: "{studio.reviewer}", oninput: move |e| studio.reviewer.set(e.value()) }
                     label { r#for: "collaboration-title", "Proposal title" }
-                    input { id: "collaboration-title", class: "property-input", value: "{title}", oninput: move |e| title.set(e.value()) }
+                    input { id: "collaboration-title", class: "field-control", value: "{title}", oninput: move |e| title.set(e.value()) }
                     label { r#for: "collaboration-description", "Proposal description / review comment" }
-                    textarea { id: "collaboration-description", class: "property-input", value: "{description}", oninput: move |e| description.set(e.value()) }
-                    button { class: "property-button", onclick: move |_| {
+                    textarea { id: "collaboration-description", class: "field-control", value: "{description}", oninput: move |e| description.set(e.value()) }
+                    button { class: "field-button", onclick: move |_| {
                         let result = (|| -> anyhow::Result<()> {
                             let base = rfd::FileDialog::new().set_title("Select unchanged base project").pick_folder().ok_or_else(|| anyhow::anyhow!("Cancelled"))?;
                             let doc = studio.snapshot().ok_or_else(|| anyhow::anyhow!("No project"))?;
@@ -80,7 +79,7 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                         })();
                         if let Err(error) = result { studio.error.set(Some(error.to_string())); }
                     }, "Export changes against base project…" }
-                    button { class: "property-button", onclick: move |_| {
+                    button { class: "field-button", onclick: move |_| {
                         if let Some(path) = rfd::FileDialog::new().add_filter("Proposal JSON", &["json"]).pick_file() {
                             match std::fs::read(path).map_err(anyhow::Error::from).and_then(|bytes| Ok(serde_json::from_slice::<Proposal>(&bytes)?)) {
                                 Ok(proposal) => studio.dispatch(Action::Collaborate { operation: Operation::Submit { proposal } }),
@@ -117,36 +116,36 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                                     }
                                     div {
                                         for (approve,label) in [(true,"Approve"),(false,"Request changes")] {
-                                            { let id = id.clone(); let fp = fingerprint.clone(); rsx! { button { class: "property-button", onclick: move |_| studio.dispatch(Action::Collaborate { operation: Operation::Review { proposal_id: id.clone(), fingerprint: fp.clone(), approve, body: description() } }), "{label}" } } }
+                                            { let id = id.clone(); let fp = fingerprint.clone(); rsx! { button { class: "field-button", onclick: move |_| studio.dispatch(Action::Collaborate { operation: Operation::Review { proposal_id: id.clone(), fingerprint: fp.clone(), approve, body: description() } }), "{label}" } } }
                                         }
-                                        { let id = id.clone(); rsx! { button { class: "property-button", onclick: move |_| {
+                                        { let id = id.clone(); rsx! { button { class: "field-button", onclick: move |_| {
                                             studio.dispatch(Action::Collaborate { operation: Operation::Comment { proposal_id: id.clone(), thread_id: unique_id("discussion"), anchor: None, body: description() } });
                                         }, "Flag / start discussion" } } }
                                         for (thread_id, thread) in entry.threads {
                                             { let id = id.clone(); let reply_id = id.clone(); let reply_thread = thread_id.clone(); let anchor=thread.anchor.clone(); rsx! {
                                                 div { p { "Discussion {thread_id}" }
                                                     for message in thread.messages { p { "{message.actor.name}: {message.body}" } }
-                                                    button { class:"property-button",onclick:move |_| studio.dispatch(Action::Collaborate { operation:Operation::Comment { proposal_id:reply_id.clone(),thread_id:reply_thread.clone(),anchor:anchor.clone(),body:description() } }),"Reply with comment above" }
-                                                    button { class: "property-button", onclick: move |_| studio.dispatch(Action::Collaborate { operation: Operation::SetResolved { proposal_id: id.clone(), thread_id: thread_id.clone(), resolved: !thread.resolved } }), if thread.resolved { "Reopen discussion" } else { "Resolve discussion" } }
+                                                    button { class:"field-button",onclick:move |_| studio.dispatch(Action::Collaborate { operation:Operation::Comment { proposal_id:reply_id.clone(),thread_id:reply_thread.clone(),anchor:anchor.clone(),body:description() } }),"Reply with comment above" }
+                                                    button { class: "field-button", onclick: move |_| studio.dispatch(Action::Collaborate { operation: Operation::SetResolved { proposal_id: id.clone(), thread_id: thread_id.clone(), resolved: !thread.resolved } }), if thread.resolved { "Reopen discussion" } else { "Resolve discussion" } }
                                                 }
                                             } }
                                         }
                                         for (suggestion_id,suggestion) in entry.suggestions {
                                             { let id=id.clone(); rsx! {
                                                 p { "Suggestion from {suggestion.actor.name}: {suggestion.body}" }
-                                                button { class:"property-button",disabled:entry.status!="open",onclick:move |_| studio.dispatch(Action::Collaborate { operation:Operation::AcceptSuggestion { proposal_id:id.clone(),suggestion_id:suggestion_id.clone(),new_proposal_id:unique_id("proposal") } }),"Accept as new proposal (requires new approval)" }
+                                                button { class:"field-button",disabled:entry.status!="open",onclick:move |_| studio.dispatch(Action::Collaborate { operation:Operation::AcceptSuggestion { proposal_id:id.clone(),suggestion_id:suggestion_id.clone(),new_proposal_id:unique_id("proposal") } }),"Accept as new proposal (requires new approval)" }
                                             } }
                                         }
-                                        { let id = id.clone(); let fp = fingerprint.clone(); rsx! { button { class: "property-button",disabled:entry.status!="open", onclick: move |_| studio.dispatch(Action::Collaborate { operation: Operation::Merge { proposal_id: id.clone(), fingerprint: fp.clone() } }), "Merge approved proposal" } } }
-                                        { let id = id.clone(); rsx! { button { class: "property-button",disabled:entry.status!="open", onclick: move |_| studio.dispatch(Action::Collaborate { operation: Operation::Close { proposal_id: id.clone(), reason: description() } }), "Close proposal" } } }
+                                        { let id = id.clone(); let fp = fingerprint.clone(); rsx! { button { class: "field-button",disabled:entry.status!="open", onclick: move |_| studio.dispatch(Action::Collaborate { operation: Operation::Merge { proposal_id: id.clone(), fingerprint: fp.clone() } }), "Merge approved proposal" } } }
+                                        { let id = id.clone(); rsx! { button { class: "field-button",disabled:entry.status!="open", onclick: move |_| studio.dispatch(Action::Collaborate { operation: Operation::Close { proposal_id: id.clone(), reason: description() } }), "Close proposal" } } }
                                     }
                                 }
                             }
                         }
                     }
                     details { summary { "Advanced: apply an anchored comment or review operation" }
-                        textarea { class: "property-input", value: "{body}", oninput: move |e| body.set(e.value()) }
-                        button { class: "property-button", onclick: move |_| match serde_json::from_str::<Operation>(&body()) {
+                        textarea { class: "field-control", value: "{body}", oninput: move |e| body.set(e.value()) }
+                        button { class: "field-button", onclick: move |_| match serde_json::from_str::<Operation>(&body()) {
                             Ok(operation) => studio.dispatch(Action::Collaborate { operation }),
                             Err(error) => studio.error.set(Some(error.to_string())),
                         }, "Apply operation JSON" }
@@ -185,18 +184,18 @@ fn SuggestNote(
     let flag_note = note.clone();
     rsx! {
         details { summary { "Flag or suggest an edit to this note" }
-            label { "Tick" } input { class:"property-input",value:"{tick}",oninput:move |e| tick.set(e.value()) }
-            label { "Lane" } input { class:"property-input",value:"{lane}",oninput:move |e| lane.set(e.value()) }
-            label { "Sustain" } input { class:"property-input",value:"{sustain}",oninput:move |e| sustain.set(e.value()) }
-            label { "Reason / comment" } input { class:"property-input",value:"{body}",oninput:move |e| body.set(e.value()) }
-            button { class:"property-button",onclick:move |_| {
+            label { "Tick" } input { class:"field-control",value:"{tick}",oninput:move |e| tick.set(e.value()) }
+            label { "Lane" } input { class:"field-control",value:"{lane}",oninput:move |e| lane.set(e.value()) }
+            label { "Sustain" } input { class:"field-control",value:"{sustain}",oninput:move |e| sustain.set(e.value()) }
+            label { "Reason / comment" } input { class:"field-control",value:"{body}",oninput:move |e| body.set(e.value()) }
+            button { class:"field-button",onclick:move |_| {
                 let result = (|| -> anyhow::Result<_> {
                     let mut replacement=note.clone(); replacement.note.tick=tick().parse()?; replacement.note.lane=lane().parse()?; replacement.note.sustain=sustain().parse()?;
                     Ok(Operation::Suggest { proposal_id:proposal_id.clone(),fingerprint:fingerprint.clone(),suggestion_id:unique_id("suggestion"),track:track.clone(),note_id:note.id.clone(),replacement:Some(replacement),body:body() })
                 })();
                 match result { Ok(operation)=>studio.dispatch(Action::Collaborate { operation }),Err(error)=>studio.error.set(Some(error.to_string())) }
             },"Suggest edit" }
-            button { class:"property-button",onclick:move |_| studio.dispatch(Action::Collaborate { operation:Operation::Comment { proposal_id:flag_proposal.clone(),thread_id:unique_id("discussion"),anchor:Some(collaboration::Anchor { track:flag_track.clone(),start_tick:flag_note.note.tick,end_tick:flag_note.note.tick.saturating_add(flag_note.note.sustain),note_id:Some(flag_note.id.clone()) }),body:body() } }),"Flag this note" }
+            button { class:"field-button",onclick:move |_| studio.dispatch(Action::Collaborate { operation:Operation::Comment { proposal_id:flag_proposal.clone(),thread_id:unique_id("discussion"),anchor:Some(collaboration::Anchor { track:flag_track.clone(),start_tick:flag_note.note.tick,end_tick:flag_note.note.tick.saturating_add(flag_note.note.sustain),note_id:Some(flag_note.id.clone()) }),body:body() } }),"Flag this note" }
         }
     }
 }
@@ -256,7 +255,7 @@ fn ResolveNotes(mut studio: Studio, proposal: Proposal) -> Element {
                     rsx!{ div {
                         strong { "{instrument} · conflicting note" }
                         p { "Before: {before}" } p { "Your current note: {ours}" } p { "Proposed note: {theirs}" }
-                        button {class:"property-button",onclick:move |_| {if let Some(tick)=listen {let timing=studio.timing.read().clone();if let Some(timing)=timing {let start=(timing.seconds(tick)-0.5).clamp(0.0,(doc.duration-0.1).max(0.0));let end=(start+1.5).min(doc.duration);studio.dispatch(Action::SelectTrack {track:track.clone()});studio.dispatch(Action::SetLoop {range:Some(crate::editor::TimeRange {start,end})});studio.seek(start);studio.dispatch(Action::Playback {playing:true});}}},"Listen around this section"}
+                        button {class:"field-button",onclick:move |_| {if let Some(tick)=listen {let timing=studio.timing.read().clone();if let Some(timing)=timing {let start=(timing.seconds(tick)-0.5).clamp(0.0,(doc.duration-0.1).max(0.0));let end=(start+1.5).min(doc.duration);studio.dispatch(Action::SelectTrack {track:track.clone()});studio.dispatch(Action::SetLoop {range:Some(crate::editor::TimeRange {start,end})});studio.seek(start);studio.dispatch(Action::Playback {playing:true});}}},"Listen around this section"}
                         select { aria_label:"Result for conflicting note",value:choices.read().get(&key).map(|c|format!("{c:?}")).unwrap_or_default(),onchange:move |event| {
                             let choice=match event.value().as_str(){"Current"=>Some(collaboration::ConflictChoice::Current),"Proposed"=>Some(collaboration::ConflictChoice::Proposed),"Delete"=>Some(collaboration::ConflictChoice::Delete),_=>None};
                             if let Some(choice)=choice {choices.write().insert(key.clone(),choice);}else{choices.write().remove(&key);}
@@ -264,7 +263,7 @@ fn ResolveNotes(mut studio: Studio, proposal: Proposal) -> Element {
                     }}
                 }
             }
-            button {class:"property-button",disabled:choices.read().len()!=count,onclick:move |_| {
+            button {class:"field-button",disabled:choices.read().len()!=count,onclick:move |_| {
                 let result=proposal.fingerprint();
                 match result {Ok(fingerprint)=>studio.dispatch(Action::Collaborate {operation:Operation::ResolveConflicts {proposal_id:proposal.id.clone(),fingerprint,current:current.clone(),choices:choices(),new_proposal_id:unique_id("resolved")}}),Err(error)=>studio.error.set(Some(error.to_string()))}
             },"Save conflict choices"}
@@ -283,23 +282,23 @@ fn GitReview(mut studio: Studio) -> Element {
         details {summary {"Share with Git"}
             p {"Use a separate review repo. Publishing uses your existing Git login."}
             label {r#for:"review-git-remote","Remote URL or shared Git path (optional)"}
-            input {id:"review-git-remote",class:"property-input",value:"{remote}",oninput:move |event|remote.set(event.value())}
-            button {class:"property-button",onclick:move |_| {
+            input {id:"review-git-remote",class:"field-control",value:"{remote}",oninput:move |event|remote.set(event.value())}
+            button {class:"field-button",onclick:move |_| {
                 if let Some(path)=rfd::FileDialog::new().set_title("Choose an empty folder for a new review repository").pick_folder(){
                     match crate::review_git::create(&path,Some(&remote())){Ok(())=>{folder.set(Some(path));message.set("Review repository created. Save / Pull / Publish to save its first review history.".into());},Err(error)=>message.set(error.to_string())}
                 }
             },"Create review repository…"}
-            button {class:"property-button",disabled:busy(),onclick:move |_| {
+            button {class:"field-button",disabled:busy(),onclick:move |_| {
                 if let Some(path)=rfd::FileDialog::new().set_title("Choose an empty folder to clone into").pick_folder(){
                     let url=remote();let target=path.clone();busy.set(true);message.set("Cloning review repository…".into());
                     spawn(async move { let result=tokio::task::spawn_blocking(move ||crate::review_git::clone_repository(&url,&target)).await;busy.set(false);match result{Ok(Ok(()))=>{folder.set(Some(path));message.set("Repository cloned; load its reviews with Save / Pull / Publish.".into());},Ok(Err(error))=>message.set(error.to_string()),Err(error)=>message.set(error.to_string())} });
                 }
             },"Clone shared review repository…"}
-            button {class:"property-button",onclick:move |_| {
+            button {class:"field-button",onclick:move |_| {
                 if let Some(path)=rfd::FileDialog::new().set_title("Choose the dedicated review repository root").pick_folder(){folder.set(Some(path));}
             },"Choose existing review repository…"}
             if let Some(path)=folder(){p {"Repository: {path.display()}"}}
-            button {class:"property-button",disabled:folder.read().is_none()||busy(),onclick:move |_| {
+            button {class:"field-button",disabled:folder.read().is_none()||busy(),onclick:move |_| {
                 let store=studio.store.read().clone();
                 if let (Some(folder),Some(store),Some(doc))=(folder(),store,studio.snapshot()){
                     let actor=Actor {kind:ActorKind::Human,name:studio.reviewer.read().clone()};
@@ -313,7 +312,7 @@ fn GitReview(mut studio: Studio) -> Element {
             for conflict in conflicts(){
                 div {p {"Review-file conflict: {conflict.path}"}
                     for (incoming,label,valid) in [(false,"Keep valid local file",conflict.local_valid),(true,"Use valid incoming file",conflict.incoming_valid)]{
-                        {let path=conflict.path.clone();rsx!{button {class:"property-button",disabled:!valid,onclick:move |_|{
+                        {let path=conflict.path.clone();rsx!{button {class:"field-button",disabled:!valid,onclick:move |_|{
                             if let Some(folder)=folder(){match crate::review_git::resolve_file(&folder,&path,incoming){Ok(())=>match crate::review_git::conflicts(&folder){Ok(remaining)=>{conflicts.set(remaining);message.set("Choice saved. Save / Pull / Publish to finish.".into());},Err(error)=>message.set(error.to_string())},Err(error)=>message.set(error.to_string())}}
                         },"{label}"}}}
                     }
