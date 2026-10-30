@@ -66,7 +66,7 @@ pub fn Collaboration(mut studio: Studio) -> Element {
                     input { id: "collaboration-title", class: "field-control", value: "{title}", oninput: move |e| title.set(e.value()) }
                     label { r#for: "collaboration-description", "Proposal description / review comment" }
                     textarea { id: "collaboration-description", class: "field-control", value: "{description}", oninput: move |e| description.set(e.value()) }
-                    button { class: "field-button", "data-browser-pick":"folder", onclick: move |_| { spawn(async move {
+                    button { class: "field-button", "data-browser-pick":"file", "data-browser-accept":".zip", onclick: move |_| { spawn(async move {
                         let result = async {
                             let base = rfd::AsyncFileDialog::new().set_title("Select unchanged base project").pick_folder().await.ok_or_else(|| anyhow::anyhow!("Cancelled"))?;
                             let doc = studio.snapshot().ok_or_else(|| anyhow::anyhow!("No project"))?;

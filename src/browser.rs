@@ -439,6 +439,29 @@ mod tests {
         }
     }
     #[test]
+    fn project_backup_waits_for_store_and_keeps_checkpoints_with_wrapped_imports() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("wrapped/project");
+        std::fs::create_dir_all(project.join("checkpoints")).unwrap();
+        std::fs::write(project.join("project.json"), b"project revision").unwrap();
+        std::fs::write(project.join("checkpoints/saved.json"), b"undo content").unwrap();
+        let lock = std::fs::File::create(project.join("editor.lock")).unwrap();
+        lock.try_lock().unwrap();
+        let zip = root.path().join("project.zip");
+        assert!(archive_folder(&project, &zip).is_err());
+        assert!(!zip.exists());
+        lock.unlock().unwrap();
+        archive_folder(&root.path().join("wrapped"), &zip).unwrap();
+        let imported = root.path().join("imported");
+        unpack_song(&zip, &imported).unwrap();
+        let restored = imported_root(&imported).unwrap();
+        assert_eq!(restored, imported.join("project"));
+        assert_eq!(
+            std::fs::read(restored.join("checkpoints/saved.json")).unwrap(),
+            b"undo content"
+        );
+    }
+    #[test]
     fn song_archive_round_trip_preserves_audio_and_notes_and_rejects_traversal() {
         let root = tempfile::tempdir().unwrap();
         let song = root.path().join("song");

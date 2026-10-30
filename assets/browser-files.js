@@ -28,7 +28,8 @@ function beginPick(mode,accept='') {
       finish(await response.json());
     } catch(error){finish({error:String(error)});}
   },{once:true});
-  document.body.append(input);
+  const dialogs=document.querySelectorAll('dialog[open]');
+  (dialogs[dialogs.length-1]||document.body).append(input);
   try {if(input.showPicker)input.showPicker();else input.click();}
   catch(error){finish({error:String(error)});}
   return pending;

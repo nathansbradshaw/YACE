@@ -413,7 +413,10 @@ impl Studio {
             Ok(result) => {
                 self.error.set(None);
                 if let Some(path) = result.exported_to {
+                    #[cfg(not(feature = "browser"))]
                     self.status.set(format!("Exported {}", path.display()));
+                    #[cfg(feature = "browser")]
+                    self.status.set("Song exported · downloading ZIP…".into());
                     spawn(async move {
                         rfd::download(&path).await;
                     });
