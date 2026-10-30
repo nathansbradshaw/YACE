@@ -94,6 +94,34 @@ input, select, textarea {
   box-shadow: none;
 }
 
+/* Keep the native menu and keyboard controls; give its closed face one style. */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 30px;
+  padding: 4px 28px 4px 8px;
+  border-radius: 2px;
+  background-color: var(--bg-primary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='m3 4.5 3 3 3-3' fill='none' stroke='%23d1d0c6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+select:hover:not(:disabled) {
+  border-color: var(--border-color-hover);
+}
+
+@media (forced-colors: active) {
+  select {
+    -webkit-appearance: auto;
+    appearance: auto;
+    background-image: none;
+  }
+}
+
 input[type=checkbox], input[type=radio], input[type=range] {
   accent-color: var(--accent-color);
 }

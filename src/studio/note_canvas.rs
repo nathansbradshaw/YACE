@@ -34,6 +34,9 @@ pub fn lane_name(track: &str, lane: u8) -> &'static str {
         }
     }
 }
+fn note_count(count: usize) -> String {
+    format!("{count} {}", if count == 1 { "note" } else { "notes" })
+}
 pub fn color(track: &str, lane: u8) -> &'static str {
     if crate::keys::is_pro(track) {
         if matches!(lane % 12, 1 | 3 | 6 | 8 | 10) {
@@ -133,7 +136,7 @@ pub(super) fn VocalRoll(mut studio: Studio) -> Element {
         return rsx! {header{class:"lane-track-header",button{aria_pressed:active.to_string(),onclick:move |_|select(None),"Vocals"}span{"Select to add vocals"}}};
     }
     rsx! {
-        header{class:"lane-track-header",button{aria_pressed:active.to_string(),onclick:move |_|select(None),"Vocals"}span{"{notes.len()} notes"}}
+        header{class:"lane-track-header",button{aria_pressed:active.to_string(),onclick:move |_|select(None),"Vocals"}span{"{note_count(notes.len())}"}}
         if has_stem_waveform(studio, StemId::Vocals) {div{class:"midi-waveform-strip",div{class:"midi-waveform-label",style:"width:140px;flex-shrink:0","Vocal stem"}Waveform{studio,stem:Some(StemId::Vocals)}}}
         div{class:"lane-surface",
             ol{class:"lane-labels",for pitch in (36..=84).rev(){li{class:"lane-label",style:"height:8px;font-size:7px",if pitch%12==0{"C{pitch/12-1} · {pitch}"}}}li{class:"lane-label",style:"height:8px;font-size:7px","Talkie"}}
@@ -456,7 +459,7 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
         }
     };
     rsx! {
-        header{class:"lane-track-header",button{aria_pressed:active.to_string(),onclick:{let track=track.clone();move |_|studio.dispatch(Action::SelectTrack{track:track.clone()})},"{super::track_picker::title(&track)}"}super::difficulty::TrackLinkBadge{track:track.clone()}span{"{doc.content.tracks[&track].iter().filter(|n|editor::playable(&track,n.note.lane)).count()} notes"}}
+        header{class:"lane-track-header",button{aria_pressed:active.to_string(),onclick:{let track=track.clone();move |_|studio.dispatch(Action::SelectTrack{track:track.clone()})},"{super::track_picker::title(&track)}"}super::difficulty::TrackLinkBadge{track:track.clone()}span{"{note_count(doc.content.tracks[&track].iter().filter(|n|editor::playable(&track,n.note.lane)).count())}"}}
         InstrumentWaveform{studio,track:track.clone()}
         InlineReview{studio,track:track.clone(),show_hidden,plot_width:width()}
         div{class:"lane-surface",ol{class:"lane-labels",for lane in rows.clone(){li{class:"lane-label",style:"color:{color(&track,lane)}","{lane_name(&track,lane)}"}}}

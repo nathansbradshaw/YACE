@@ -70,6 +70,7 @@ fn fixture(root: &Path) -> Store {
         )
         .unwrap(),
         content: Content {
+            track_origins: Default::default(),
             difficulty_links: Default::default(),
             vocals: None,
             vocal_review: None,

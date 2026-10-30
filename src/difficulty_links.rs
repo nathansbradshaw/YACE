@@ -126,6 +126,7 @@ pub fn reduce_generated(
         effective.insert(track.clone(), notes.clone());
     }
     let content = Content {
+        track_origins: Default::default(),
         vocals: None,
         vocal_review: None,
         tracks: effective

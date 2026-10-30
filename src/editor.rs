@@ -111,6 +111,8 @@ pub struct FlagScope {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Content {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub track_origins: BTreeMap<String, crate::parts::Origin>,
     pub tracks: BTreeMap<String, Vec<EditorNote>>,
     #[serde(default)]
     pub vocals: Option<crate::vocals::VocalChart>,
@@ -187,6 +189,12 @@ impl Transport {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
+    CreateTrack {
+        track: String,
+    },
+    ApplyGeneratedPart {
+        job: PathBuf,
+    },
     ImportCollaboration {
         bundle: crate::collaboration_exchange::Bundle,
     },
@@ -381,7 +389,7 @@ impl Project {
             }
             text.replace_range(section.body_start..section.body_end, &body);
         }
-        // Append new lower tracks without touching the existing chart bytes.
+        // Append added parts without touching the existing chart bytes.
         // Skip empty reductions so they do not create unused sections.
         let newline = if chart.raw.contains("\r\n") {
             "\r\n"
@@ -393,10 +401,11 @@ impl Project {
                 continue;
             }
             ensure!(
-                crate::editor_validation::is_link_created_track(self, &chart, track),
+                crate::editor_validation::is_link_created_track(self, &chart, track)
+                    || self.content.track_origins.contains_key(track),
                 "Unrelated new editor track"
             );
-            if notes.is_empty() {
+            if notes.is_empty() && !self.content.track_origins.contains_key(track) {
                 continue;
             }
             if !text.ends_with('\n') {
@@ -903,6 +912,7 @@ impl Store {
             duration,
             review,
             content: Content {
+                track_origins: Default::default(),
                 tracks,
                 vocals: {
                     let path = stage.path().join("source/chart-engine-vocals.json");
@@ -1059,6 +1069,16 @@ impl Store {
         } else {
             None
         };
+        let mut generated_part = if let Action::ApplyGeneratedPart { job } = &request.action {
+            let snapshot = self.load()?;
+            ensure!(
+                snapshot.revision == request.expected_revision,
+                "Revision conflict; reload before applying a part"
+            );
+            Some(crate::parts::Prepared::load(self, &snapshot, job)?)
+        } else {
+            None
+        };
         let lock = OpenOptions::new()
             .read(true)
             .write(true)
@@ -1104,7 +1124,9 @@ impl Store {
             request.action,
             Action::Collaborate {
                 operation: crate::collaboration::Operation::Merge { .. }
-            } | Action::AddNote { .. }
+            } | Action::CreateTrack { .. }
+                | Action::ApplyGeneratedPart { .. }
+                | Action::AddNote { .. }
                 | Action::UpdateNote { .. }
                 | Action::DeleteNote { .. }
                 | Action::EnableDifficultyLink { .. }
@@ -1122,6 +1144,13 @@ impl Store {
         doc.transport.position = doc.transport.current_position(doc.duration);
         doc.transport.anchor_ms = now_ms();
         match &request.action {
+            Action::CreateTrack { track } => {
+                crate::parts::create(&mut doc, track)?;
+            }
+            Action::ApplyGeneratedPart { .. } => generated_part
+                .take()
+                .context("Missing generated draft")?
+                .apply(self, &mut doc)?,
             Action::ImportCollaboration { .. } => (),
             Action::Collaborate { operation } => {
                 crate::collaboration::apply(&mut doc, operation, &request.actor)?
@@ -1455,6 +1484,7 @@ impl Store {
         if matches!(
             request.action,
             Action::AddNote { .. }
+                | Action::ApplyGeneratedPart { .. }
                 | Action::UpdateNote { .. }
                 | Action::DeleteNote { .. }
                 | Action::Collaborate {
@@ -1564,6 +1594,57 @@ impl Store {
         let text = doc.chart_text(self)?;
         Chart::parse(text.clone())?;
         fs::write(stage.path().join("notes.chart"), &text)?;
+        if !doc.content.track_origins.is_empty() {
+            let raw = pipeline::song_ini(stage.path())?;
+            let fields = pipeline::ini_fields(&raw);
+            let mut updates = BTreeMap::new();
+            for (track, notes) in &doc.content.tracks {
+                if !doc.content.track_origins.contains_key(track)
+                    || !notes.iter().any(|note| playable(track, note.note.lane))
+                {
+                    continue;
+                }
+                let key = if track.ends_with("ProKeys") {
+                    "diff_keys_real"
+                } else if track.ends_with("Keyboard") {
+                    "diff_keys"
+                } else if track.ends_with("DoubleBass") {
+                    "diff_bass"
+                } else if track.ends_with("Drums") {
+                    "diff_drums"
+                } else {
+                    "diff_guitar"
+                };
+                if fields
+                    .get(key)
+                    .and_then(|value| value.parse::<i32>().ok())
+                    .is_none_or(|rank| rank < 0)
+                {
+                    updates.insert(key.into(), "0".into());
+                }
+            }
+            if doc.content.track_origins.contains_key("Vocals")
+                && doc
+                    .content
+                    .vocals
+                    .as_ref()
+                    .is_some_and(|chart| !chart.notes.is_empty())
+                && fields
+                    .get("diff_vocals")
+                    .and_then(|value| value.parse::<i32>().ok())
+                    .is_none_or(|rank| rank < 0)
+            {
+                updates.insert("diff_vocals".into(), "0".into());
+            }
+            fs::write(
+                stage.path().join("song.ini"),
+                pipeline::update_ini(&raw, &updates),
+            )?;
+            fs::write(
+                stage.path().join("chart-engine-part-origins.json"),
+                serde_json::to_vec_pretty(&doc.content.track_origins)?,
+            )?;
+        }
         // Preserve source generation evidence, but don't present it as a fresh
         // audit of edited notes. Export decisions separately with fingerprints.
         let mut archive = stage.path().join("editor-source");

@@ -13,6 +13,7 @@ mod inline_review;
 mod modal;
 mod note_canvas;
 mod part_analysis;
+mod parts;
 mod practice;
 mod presentation_clock;
 mod project_bar;
@@ -117,6 +118,7 @@ fn App() -> Element {
             div {class:"studio-status",span{title: studio.audio_details(), "{studio.status}"} if let Some(doc)=doc {span{title: "Revision {doc.revision} · {doc.selected_track}", "Saved · {state::instrument(&doc.selected_track)}"}}}
             if let Some(error)=(studio.error)(){div {class:"studio-error",role:"alert",span{"{error}"}button{onclick:move |_|{let mut s=studio;s.error.set(None)},"Dismiss"}}}
             if (studio.review_open)(){review::ReviewPanel{studio}}
+            if (studio.parts_open)(){parts::PartsPanel{studio}}
             clean::CleanPanel{studio}
         }
         generation::GenerationPanel{studio}

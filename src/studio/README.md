@@ -7,7 +7,7 @@ welcome screen or loaded workbench.
 | --- | --- |
 | Starting screen and project actions | `welcome.rs`, `project_bar.rs` |
 | Pane sizes and keyboard commands | `workspace.rs`, `shortcuts.rs` |
-| Track selection and note editing | `track_picker.rs`, `chart_desk.rs`, `selection_desk.rs` |
+| Part creation, track selection and note editing | `parts.rs`, `track_picker.rs`, `chart_desk.rs`, `selection_desk.rs` |
 | Flag decisions and tool windows | `review.rs`, `sheet.rs`, `modal.rs` |
 | Playback and note rendering | `game_preview.rs`, `note_canvas.rs`, `vocal_preview.rs` |
 | Playback controls and stems | `practice.rs`, `stems.rs` |

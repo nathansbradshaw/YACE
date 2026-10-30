@@ -12,6 +12,12 @@ change; it does not edit the original song folder.
 
 ## Edit notes
 
+Use **Add part** beside **Track** to add guitar, bass, drums, Keys, Pro Keys or
+vocals. Choose **Blank** to place notes yourself, or **Generate…** to make a
+draft from the current recording. Generated drafts keep the current tempo map
+and require **Add** or **Replace** before changing the chart. Undo restores
+the previous part.
+
 Choose an instrument and difficulty from **Track** beside the editing tools.
 Audition, selection details and review follow that track.
 

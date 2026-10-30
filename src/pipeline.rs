@@ -909,7 +909,7 @@ fn archive_generation_sidecars(stage: &Path, source: Option<&Path>) -> Result<Op
     Ok(Some(relative))
 }
 
-fn update_ini(original: &str, updates: &BTreeMap<String, String>) -> String {
+pub(crate) fn update_ini(original: &str, updates: &BTreeMap<String, String>) -> String {
     let newline = if original.contains("\r\n") {
         "\r\n"
     } else {
