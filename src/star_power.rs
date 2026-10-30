@@ -142,15 +142,15 @@ pub fn selected(
         .tracks
         .get(&selection.track)
         .context("Select instrument notes first")?;
-    let mut selected = notes
+    let selected: Vec<_> = notes
         .iter()
         .filter(|n| {
             selection.ids.contains(&n.id) && crate::editor::playable(&selection.track, n.note.lane)
         })
-        .peekable();
+        .collect();
     ensure!(
-        selected.peek().is_some(),
-        "Select notes to cover with Star Power"
+        !selected.is_empty() && selected.len() == selection.ids.len(),
+        "Select notes to cover with Star Power; refresh a changed selection"
     );
     let mut phrase = Phrase {
         start: u64::MAX,

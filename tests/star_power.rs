@@ -229,6 +229,9 @@ fn selected_notes_cover_sustains_and_include_the_last_gem() {
         star_power::selected(&doc, &selection, 120).unwrap(),
         phrase(480, 2520)
     );
+    let mut stale = selection.clone();
+    stale.ids.insert("removed-note".into());
+    assert!(star_power::selected(&doc, &stale, 120).is_err());
     assert!(star_power::selected(&doc, &Default::default(), 120).is_err());
 }
 #[test]
