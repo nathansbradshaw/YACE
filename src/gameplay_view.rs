@@ -180,9 +180,30 @@ pub fn classify(
     timing: &TempoMap,
     policy: &Policy,
 ) -> Result<Vec<GemVisual>> {
+    classify_with_key_techniques(track, notes, timing, policy, false)
+}
+
+/// Five-lane Keys uses guitar-style flags in chart/MIDI interchange. Keep that
+/// interpretation separate from the piano presentation used by the preview.
+pub(crate) fn classify_for_midi(
+    track: &str,
+    notes: &[Note],
+    timing: &TempoMap,
+    policy: &Policy,
+) -> Result<Vec<GemVisual>> {
+    classify_with_key_techniques(track, notes, timing, policy, true)
+}
+
+fn classify_with_key_techniques(
+    track: &str,
+    notes: &[Note],
+    timing: &TempoMap,
+    policy: &Policy,
+    key_techniques: bool,
+) -> Result<Vec<GemVisual>> {
     let drums = supported_track(track).context("Unsupported gameplay-view track")?;
     let pro_keys = track.ends_with("ProKeys");
-    let keys = pro_keys || track.ends_with("Keyboard");
+    let keys = pro_keys || (!key_techniques && track.ends_with("Keyboard"));
     let six_fret = ["GHLGuitar", "GHLBass", "GHLRhythm", "GHLCoop", "GHLKeys"]
         .iter()
         .any(|suffix| track.ends_with(suffix));
