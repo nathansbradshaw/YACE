@@ -26,6 +26,8 @@ pub struct Studio {
     pub library_busy: Signal<bool>,
     pub library_selected: Signal<Option<usize>>,
     pub saved_projects: Signal<Option<Vec<crate::chart_library::Entry>>>,
+    pub export_ready: Signal<Option<(PathBuf, String)>>,
+    pub export_busy: Signal<bool>,
     pub doc: Signal<Option<Arc<Project>>>,
     pub store: Signal<Option<Store>>,
     pub timing: Signal<Option<TempoMap>>,
@@ -82,6 +84,8 @@ pub fn use_studio() -> Studio {
         library_busy: use_signal(|| false),
         library_selected: use_signal(|| None),
         saved_projects: use_signal(|| None),
+        export_ready: use_signal(|| None),
+        export_busy: use_signal(|| false),
         doc: use_signal(|| None),
         store: use_signal(|| None),
         timing: use_signal(|| None),
@@ -745,6 +749,8 @@ impl Studio {
         Ok(())
     }
     pub fn export_dialog(mut self) {
+        if (self.export_busy)() {return;}
+        self.export_busy.set(true);
         dioxus::core::spawn_forever(async move {
             let result = async {
                 let store = self.store.read().clone().context("Open a project")?;
@@ -767,18 +773,20 @@ impl Studio {
                 )
                 .await?;
                 let archive = output.with_extension("zip");
-                let bytes = crate::storage::shared(&archive)?;
                 let name = format!("{} reviewed.zip", self.metadata_value("name"));
-                crate::files::download(&name, &bytes)?;
-                crate::storage::clear(&archive);
+                if let Some((previous,_)) = self.export_ready.replace(Some((archive,name))) {crate::storage::clear(&previous);}
                 Ok::<_, anyhow::Error>(())
             }
             .await;
             match result {
-                Ok(()) => self.status.set("Song ZIP downloaded".into()),
+                Ok(()) => self.status.set("Song ZIP ready to download".into()),
                 Err(error) => self.error.set(Some(format!("{error:#}"))),
             }
+            self.export_busy.set(false);
         });
+    }
+    pub fn close_export(mut self) {
+        if let Some((path,_))=self.export_ready.take() {crate::storage::clear(&path);}
     }
     pub fn save_project(mut self) {
         let result = (|| -> Result<_> {

@@ -18,14 +18,14 @@ saved results and manual tools are still in scope.
 | Edit every instrument/difficulty | Shared Rust parts, note, vocal and difficulty commands | Paired native/browser UI run, including new note types |
 | Timing, sections and Star Power | Browser edits, exports and undo exercised | Paired final-revision export comparison |
 | Playback, seek, loop, speed and waveform | Full browser song ended at 243.880 s; loop/speed exercised | Same-revision native comparison, stems and saved kit playback |
-| Attach and replace aligned stems | Browser restores files for existing manifests only | New manifest attachment with source/hash/format/frame validation |
-| Read-only part analysis | Desktop panel present; browser placeholder disabled | Shared analysis and panel usable locally on web |
-| Clean audio manually | Shared DSP; desktop panel present | Supplied word/plan load, edits, audition and float WAV/receipt export on web |
+| Attach and replace aligned stems | Real full-length supplied manifest attached in browser with worker validation; shared retained-stem and game export routines | Final-revision portable roundtrip and keyboard/primary stem switching |
+| Read-only part analysis | Shared panel and Rust worker exercised on the full song | Paired report comparison and saved kit playback |
+| Clean audio manually | Supplied word/plan load and actual worker render/download passed; full 10,755,108-frame output compared to native DSP, maximum delta 0.00000054 | Final native-panel comparison and rendered-copy listening |
 | Review and flags | Browser flags and decisions exercised | Same final-revision decisions, source bindings and roundtrip |
-| Team proposals | Shared bundle/proposal/comment/approval/conflict logic | Paired two-contributor conflict and merge; browser transport for folder exchange |
+| Team proposals | Direct optional GitHub transport implemented; API protocol tests cover retries, checksums, wrong songs, permissions and idempotency; browser reached GitHub and rejected a source repo | Paired two-contributor UI conflict and merge. User excludes creating throwaway GitHub repositories or publishing test review commits; authenticated remote writes are not claimed as verified |
 | Recovery, undo and backups | Browser IndexedDB restore and stale-tab rejection exercised | Final-revision project roundtrip in both clients, interrupted operation checks |
 | Export playable song | Browser source audio preserved byte-for-byte; chart undo restored original hash | Final-revision native/browser semantic and source-byte comparison |
-| Navigation and errors | Separate headers currently drift | Shared navigation, visible actionable failures, native file pickers |
+| Navigation and errors | Shared header, welcome screen and manual setup; browser chart-folder discovery/switching and saved-project chooser; OS pickers | Final-revision native/browser UI and narrow-window checks |
 | Release | Public static origin and custom domain configured | Tested source matches native package and published static assets |
 
 Do not mark a row passed from compilation alone. Record the revision, fixture,

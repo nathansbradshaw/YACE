@@ -84,9 +84,9 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
-            Self::Tempo { audio } => Ok(serde_json::to_value(crate::tempo_analysis::estimate(
-                &crate::models::decode(audio, crate::tempo_analysis::SAMPLE_RATE, 1)?,
-            ))?),
+            Self::Tempo { audio } => Ok(serde_json::to_value(crate::tempo_analysis::analyze(
+                audio,
+            )?)?),
             Self::Export {
                 root,
                 project,
@@ -200,6 +200,9 @@ fn buffers(message: &JsValue) -> Result<js_sys::Array> {
         }
         for row in js_sys::Array::from(&rows).iter() {
             let data = js_sys::Array::from(&row).get(1);
+            if data.is_string() {
+                continue;
+            }
             buffers.push(&field(&data, "buffer")?);
         }
     }
@@ -217,7 +220,11 @@ async fn process(input: JsValue) -> Result<JsValue> {
     for row in js_sys::Array::from(&field(&input, "files")?).iter() {
         let row = js_sys::Array::from(&row);
         let path = row.get(0).as_string().context("Missing worker path")?;
-        crate::storage::write_owned(path, js_sys::Uint8Array::new(&row.get(1)).to_vec())?;
+        if let Some(source) = row.get(1).as_string() {
+            crate::storage::copy(source, path)?;
+        } else {
+            crate::storage::write_owned(path, js_sys::Uint8Array::new(&row.get(1)).to_vec())?;
+        }
     }
     for row in js_sys::Array::from(&field(&input, "decoded")?).iter() {
         let row = js_sys::Array::from(&row);
@@ -394,10 +401,19 @@ pub async fn run<T: serde::de::DeserializeOwned>(task: Task, roots: &[PathBuf]) 
     let mut supplied = std::collections::BTreeSet::new();
     loop {
         let files = js_sys::Array::new();
+        let mut aliases = std::collections::BTreeMap::new();
         for (path, bytes) in &selected {
             let row = js_sys::Array::new();
             row.push(&path.to_string_lossy().as_ref().into());
-            row.push(&js_sys::Uint8Array::from(bytes.as_slice()));
+            if let Some(source) = aliases.get(&std::sync::Arc::as_ptr(bytes)) {
+                row.push(source);
+            } else {
+                row.push(&js_sys::Uint8Array::from(bytes.as_slice()));
+                aliases.insert(
+                    std::sync::Arc::as_ptr(bytes),
+                    JsValue::from(path.to_string_lossy().as_ref()),
+                );
+            }
             files.push(&row);
         }
         let decoded = js_sys::Array::new();

@@ -168,6 +168,11 @@ pub fn App() -> Element {
     if (studio.review_open)(){review::ReviewPanel{studio}}
     if (studio.parts_open)(){parts::PartsPanel{studio}}
     if (studio.collaboration_open)(){collaboration::Collaboration{studio}}
+    if let Some((path,name))=(studio.export_ready)(){modal::Modal{id:"song-export",label:"Song export",onclose:move |_|studio.close_export(),h2{"Song export ready"}
+        p{"Download the playable song and review receipts. Your editing project stays saved in this browser."}
+        button{onclick:move |_|{let result=crate::storage::shared(&path).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download(&name,&bytes));if let Err(error)=result{let mut s=studio;s.error.set(Some(format!("{error:#}")));}},"Download song ZIP"}
+        button{onclick:move |_|studio.close_export(),"Close"}
+    }}
     if let Some(entries)=(studio.saved_projects)(){modal::Modal{id:"saved-projects",label:"Saved in this browser",onclose:move |_|{let mut s=studio;s.saved_projects.set(None);},h2{"Saved in this browser"}
         if entries.is_empty(){p{"No saved projects yet. Open a chart or import a project ZIP."}}
         for entry in entries {button{class:"welcome-action",disabled:(studio.library_busy)(),onclick:move |_|{let root=entry.path.clone();dioxus::core::spawn_forever(async move{studio.open_saved_project(root).await;});},"{entry.title}"}}
