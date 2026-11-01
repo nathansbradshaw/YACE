@@ -1193,8 +1193,10 @@ impl Studio {
             Store::create(song.path(), None, &output)
         })
         .await??;
-        self.new_song.set(None);
         self.open_project(store.root).await;
+        // The setup component owns this async task. Keep it mounted until
+        // project loading and audio preparation finish, then close it.
+        self.new_song.set(None);
         Ok(())
     }
     #[cfg(not(feature = "browser"))]
