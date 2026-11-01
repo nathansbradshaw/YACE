@@ -64,6 +64,7 @@ fn build(root: &Path) -> Result<()> {
         .arg(&dist))?;
     fs::copy(root.join("web/index.html"), dist.join("index.html"))?;
     fs::copy(root.join("web/worker.js"), dist.join("worker.js"))?;
+    copy_source(&root.join("web/runtime"), &dist.join("runtime"))?;
     for package in ["symphonia-codec-vorbis", "symphonia-bundle-mp3"] {
         copy_source(
             &root.join("vendor").join(package),
@@ -164,7 +165,7 @@ fn serve_file(mut stream: TcpStream, root: &Path) -> Result<()> {
     }
     let mime = match path.extension().and_then(|s| s.to_str()) {
         Some("html") => "text/html; charset=utf-8",
-        Some("js") => "text/javascript; charset=utf-8",
+        Some("js" | "mjs") => "text/javascript; charset=utf-8",
         Some("wasm") => "application/wasm",
         Some("css") => "text/css; charset=utf-8",
         Some("json") => "application/json",

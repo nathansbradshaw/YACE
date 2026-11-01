@@ -23,6 +23,9 @@ pub struct Decoder {
 pub fn decoder_implementation_hash() -> String {
     let mut hash = Sha256::new();
     hash.update(include_bytes!("models.rs"));
+    hash.update(include_bytes!("models/postprocessing.rs"));
+    hash.update(include_bytes!("models/guitar_harmonics.rs"));
+    hash.update(include_bytes!("models/guitar_polyphonic.rs"));
     hash.update(include_bytes!("review.rs"));
     hash.update(include_bytes!("refine.rs"));
     hash.update(include_bytes!("../Cargo.lock"));
@@ -154,10 +157,18 @@ pub fn decoder_is_current(events: &Transcription, audio: &Path) -> Result<bool> 
 /// Called only after actual decoder inference, never by refinement replay.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn record_decoder(events: &mut Transcription, audio: &Path, model: &Path) -> Result<()> {
+    record_decoder_identity(events, audio, models::hash_file(model)?)
+}
+
+pub(crate) fn record_decoder_identity(
+    events: &mut Transcription,
+    audio: &Path,
+    model_sha256: String,
+) -> Result<()> {
     events.bass_decoder = Some(Decoder {
         version: 1,
         implementation_sha256: decoder_implementation_hash(),
-        model_sha256: models::hash_file(model)?,
+        model_sha256,
         bass_audio_sha256: models::hash_file(audio)?,
         candidates_sha256: hash(&events.bass_candidates)?,
         short_candidates_sha256: hash(&events.bass_short_candidates)?,

@@ -1,5 +1,10 @@
-//! Portable source identity; native inference is not linked into the browser.
+//! Portable source identity and shared inference decoding.
+#[path = "../../src/models/postprocessing.rs"]
+pub mod postprocessing;
 use anyhow::{Context, Result, ensure};
+pub use postprocessing::{
+    decode_pitch, decode_pitch_with_evidence, drum_peaks, pitch_frame_seconds, supported_drum_peaks,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};

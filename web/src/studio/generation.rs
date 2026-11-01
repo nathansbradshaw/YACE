@@ -15,6 +15,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut status = use_signal(String::new);
     let mut failure = use_signal(|| None::<String>);
     let mut ready = use_signal(|| None::<(PathBuf, StemManifest)>);
+    let mut transcribed = use_signal(|| None::<(PathBuf, crate::mapping::Transcription)>);
     let mut cancel = use_signal(|| None::<Cancel>);
     use_drop(move || {
         if let Some(cancel) = cancel.peek().as_ref()
@@ -62,17 +63,37 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             if let Some((root,manifest))=ready(){
                 p{"{manifest.frames} stereo frames · 44.1 kHz · source checksums verified"}
                 ul{for asset in &manifest.stems {li{"{asset.id.as_str()}"}}}
+                button{disabled:busy(),onclick:{let root=root.clone();let manifest=manifest.clone();move |_|{
+                    let root=root.clone();let manifest=manifest.clone();let Some(audio)=(studio.source_audio)() else{return};
+                    let output=PathBuf::from(format!("/transcribed/{}",crate::storage::unique_id()));
+                    let(sender,receiver)=futures_channel::oneshot::channel();cancel.set(Some(Rc::new(RefCell::new(Some(sender)))));
+                    busy.set(true);failure.set(None);transcribed.set(None);
+                    dioxus::core::spawn_forever(async move{
+                        let progress=Rc::new(move|label:String|{let mut current=status;current.set(label.clone());let mut global=studio;global.status.set(label);});
+                        let roots=[root];
+                        let task=crate::worker::run_with_progress::<crate::mapping::Transcription>(crate::worker::Task::Transcribe{audio,manifest,wanted:vec!["drums".into(),"guitar".into(),"bass".into()],output:output.clone()},&roots,progress);
+                        futures_util::pin_mut!(task,receiver);
+                        let result=match futures_util::future::select(task,receiver).await{futures_util::future::Either::Left((value,_))=>value,futures_util::future::Either::Right(_)=>Err(anyhow::anyhow!("Generation cancelled; current chart kept"))};
+                        match result{Ok(events)=>{status.set("Instrument detections ready for arrangement".into());transcribed.set(Some((output,events)));},Err(error)=>{crate::storage::clear(&output);failure.set(Some(format!("{error:#}")));}}
+                        busy.set(false);cancel.set(None);
+                    });
+                }},"Detect drums, guitar and bass"}
                 button{onclick:move |_|{
                     let root=root.clone();spawn(async move{
-                        // This explicit export is small for the initial backend
-                        // check; the final generator will archive on its worker.
-                        let result=crate::files::archive(&root).and_then(|bytes|{
-                            let path=root.with_extension("zip");crate::storage::write_owned(&path,bytes)?;
-                            if let Some((old,_,_))=studio.export_ready.replace(Some((path,"separated-parts.zip".into(),DownloadKind::File))){crate::storage::clear(&old);}Ok(())
+                        let path=root.with_extension("zip");
+                        let result=crate::worker::run::<serde_json::Value>(crate::worker::Task::Archive{root:root.clone(),output:path.clone()},&[root]).await.map(|_|{
+                            if let Some((old,_,_))=studio.export_ready.replace(Some((path,"separated-parts.zip".into(),DownloadKind::File))){crate::storage::clear(&old);}
                         });
                         if let Err(error)=result{failure.set(Some(format!("{error:#}")));}
                     });
                 },"Save separated parts…"}
+            }
+            if let Some((root,events))=transcribed(){
+                p{"{events.drums.len()} drum hits · {events.guitar.len()} guitar notes · {events.bass.len()} bass notes"}
+                button{onclick:move |_|{
+                    let path=root.join("transcription.json");
+                    studio.export_ready.set(Some((path,"transcription.json".into(),DownloadKind::File)));
+                },"Save transcription evidence…"}
             }
             button{onclick:move |_|studio.generation_open.set(false),"Close"}
         }

@@ -137,7 +137,8 @@ pub async fn separate(
 fn implementation_hash() -> String {
     let mut hash = Sha256::new();
     let sources: &[&[u8]] = &[
-        include_bytes!("separation.rs"), include_bytes!("audio_decode.rs"),
+        include_bytes!("separation.rs"),
+        include_bytes!("audio_decode.rs"),
         include_bytes!("../Cargo.lock"),
         include_bytes!("../../vendor/demucs-core/src/lib.rs"),
         include_bytes!("../../vendor/demucs-core/src/dsp/stft.rs"),
@@ -151,6 +152,9 @@ fn implementation_hash() -> String {
         include_bytes!("../../vendor/demucs-core/src/weights/load.rs"),
         include_bytes!("../../vendor/demucs-core/src/weights/tensor_store.rs"),
     ];
-    for source in sources { hash.update((source.len() as u64).to_le_bytes()); hash.update(source); }
+    for source in sources {
+        hash.update((source.len() as u64).to_le_bytes());
+        hash.update(source);
+    }
     format!("{:x}", hash.finalize())
 }

@@ -16,6 +16,16 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    Transcribe {
+        audio: PathBuf,
+        manifest: crate::stem_review::StemManifest,
+        wanted: Vec<String>,
+        output: PathBuf,
+    },
+    Archive {
+        root: PathBuf,
+        output: PathBuf,
+    },
     Separate {
         audio: PathBuf,
         output: PathBuf,
@@ -72,6 +82,21 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::Transcribe {
+                audio,
+                manifest,
+                wanted,
+                ..
+            } => std::iter::once(audio.clone())
+                .chain(
+                    manifest
+                        .stems
+                        .iter()
+                        .filter(|stem| wanted.iter().any(|name| name == stem.id.as_str()))
+                        .map(|stem| stem.path.clone()),
+                )
+                .collect(),
+            Self::Archive { .. } => Vec::new(),
             Self::Separate { audio, .. } => vec![audio.clone()],
             Self::Backup { .. } => Vec::new(),
             Self::Tempo { audio } | Self::InspectRecording { audio, .. } => vec![audio.clone()],
@@ -98,9 +123,10 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
-            Self::Separate { .. } => {
+            Self::Separate { .. } | Self::Transcribe { .. } => {
                 anyhow::bail!("Separation requires the asynchronous GPU worker")
             }
+            Self::Archive { .. } => Ok(serde_json::Value::Null),
             Self::InspectRecording { audio, output } => Ok(serde_json::to_value(
                 crate::song_import::local(audio, output)?,
             )?),
@@ -305,6 +331,20 @@ async fn process(input: JsValue) -> Result<JsValue> {
         serde_json::to_value(
             crate::separation::separate(audio, &model, output, &mut Progress).await?,
         )?
+    } else if let Task::Transcribe {
+        audio,
+        manifest,
+        wanted,
+        output,
+    } = &task
+    {
+        let events =
+            crate::transcription::instruments(audio, manifest, wanted, &mut progress).await?;
+        crate::storage::write(
+            output.join("transcription.json"),
+            serde_json::to_vec_pretty(&events)?,
+        )?;
+        serde_json::to_value(events)?
     } else {
         task.execute()?
     };
@@ -315,7 +355,9 @@ async fn process(input: JsValue) -> Result<JsValue> {
         Task::Clean { output, .. } | Task::Export { output, .. } => {
             Some((output.clone(), output.with_extension("zip")))
         }
-        Task::Backup { root, output } => Some((root.clone(), output.clone())),
+        Task::Backup { root, output } | Task::Archive { root, output } => {
+            Some((root.clone(), output.clone()))
+        }
         _ => None,
     };
     if let Some((folder, output)) = archive {
@@ -335,7 +377,10 @@ async fn process(input: JsValue) -> Result<JsValue> {
             files.push(&row);
         }
     }
-    if let Task::InspectRecording { output, .. } | Task::Separate { output, .. } = &task {
+    if let Task::InspectRecording { output, .. }
+    | Task::Separate { output, .. }
+    | Task::Transcribe { output, .. } = &task
+    {
         for (path, bytes) in crate::storage::list(output)? {
             let row = js_sys::Array::new();
             row.push(&path.to_string_lossy().as_ref().into());

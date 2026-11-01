@@ -62,6 +62,11 @@ pub mod mapping;
 pub mod midi;
 pub mod model_assets;
 pub mod models;
+#[path = "../../src/generation_build.rs"]
+pub mod generation_build;
+#[path = "../../src/keyboard_separation_asset.rs"]
+pub mod keyboard_separation;
+pub mod onnx;
 #[path = "../../src/muscriptor.rs"]
 pub mod muscriptor;
 #[path = "../../src/note_groups.rs"]
@@ -115,6 +120,7 @@ pub mod sync_track;
 pub mod tempo_analysis;
 #[path = "../../src/timeline.rs"]
 pub mod timeline;
+pub mod transcription;
 #[path = "../../src/timing.rs"]
 pub mod timing;
 #[path = "../../src/vocal_generation.rs"]

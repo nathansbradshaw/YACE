@@ -32,7 +32,6 @@ const RATE: usize = 16_000;
 const WINDOW: usize = 160_000;
 #[cfg(not(target_arch = "wasm32"))]
 const HOP: usize = 80_000;
-#[cfg(not(target_arch = "wasm32"))]
 const FRAMES: usize = 1_001;
 const KEYS: usize = 88;
 #[cfg(not(target_arch = "wasm32"))]
@@ -219,8 +218,7 @@ pub fn pitch(audio: &Path, model: &Path) -> Result<Vec<PitchNote>> {
         .notes)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn retained_frames(index: usize, windows: usize) -> (usize, usize) {
+pub fn retained_frames(index: usize, windows: usize) -> (usize, usize) {
     if windows == 1 {
         (0, FRAMES)
     } else if index == 0 {
