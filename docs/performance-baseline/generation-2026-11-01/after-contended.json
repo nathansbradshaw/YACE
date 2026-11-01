@@ -1,0 +1,75 @@
+{
+  "chart_parse": {
+    "max_ms": 1.4088749999999999,
+    "median_ms": 0.959167,
+    "samples_ms": [
+      1.4088749999999999,
+      1.006166,
+      0.959167,
+      0.9055,
+      0.9484170000000001
+    ]
+  },
+  "cold_split_ms": 13058.926792,
+  "generation": [
+    {
+      "cache": "cold",
+      "chart_sha256": "f5dea4505f1040bad6a834a874f360354cd80d8064b4e159875683107065ad3a",
+      "note_count": 589,
+      "total_ms": 18138.428915999997
+    },
+    {
+      "cache": "warm",
+      "chart_sha256": "f5dea4505f1040bad6a834a874f360354cd80d8064b4e159875683107065ad3a",
+      "note_count": 589,
+      "total_ms": 6173.79
+    }
+  ],
+  "inference_ms": {
+    "bass": 261.662458,
+    "drums": 140.04575,
+    "guitar": 200.038625
+  },
+  "metadata_ms": 40.318458,
+  "notes_sha256": "ad14d5db8572ffd841d2a630cbd4f53a63d774e3b15d04b4dd478e9b0dcafa8b",
+  "parse_audio_sha256": "4116e98add1b324105924afb9788379813c437c9792dbc3328d6ff2c03b5053a",
+  "schema_version": 1,
+  "scope": "Real default six-stem GPU splitting, CPU transcription and complete local generation. Each complete generation runs in a fresh worker process, matching desktop; queued-job creation is excluded. Cold means no application separation cache, not cold OS/GPU shader caches. The warm song's matching on-disk cache is copied from the cold job before its timer; no in-memory proofs survive between workers. Other repeats are warm same-process observations. Full-song tempo/chart parsing is separate from the short generation fixture. No network requests or source/model writes; outputs removed on exit. Hardware contention uncontrolled.",
+  "source_seconds": 12.0,
+  "source_sha256": "e9890c133a3ed90284adaba91d05197821d8295f8265780de8cdcb025b9e436a",
+  "stem_validation": {
+    "max_ms": 56.883958,
+    "median_ms": 55.639208,
+    "samples_ms": [
+      55.232125,
+      55.639208,
+      55.359917,
+      56.883958,
+      55.687792
+    ]
+  },
+  "tempo_first_ms": 237.869,
+  "tempo_proposal_sha256": "1ca2502cbfab243c4fe4fe3b41a3851d779119417b3cf1eb3f103557adb75a28",
+  "tempo_repeat": {
+    "max_ms": 234.711292,
+    "median_ms": 221.392584,
+    "samples_ms": [
+      218.080208,
+      221.80508400000002,
+      220.45149999999998,
+      221.392584,
+      234.711292
+    ]
+  },
+  "warm_split": {
+    "max_ms": 496.297375,
+    "median_ms": 452.96999999999997,
+    "samples_ms": [
+      496.297375,
+      476.504458,
+      452.96999999999997,
+      368.72329199999996,
+      326.660083
+    ]
+  }
+}
