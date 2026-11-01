@@ -152,7 +152,7 @@ fn same_editor_action_edits_vocals_undoes_and_exports_one_playable_song() {
     assert!(export.join("notes.mid").exists());
     assert!(!export.join("notes.chart").exists());
     assert_eq!(
-        fs::read_to_string(export.join("editor-source/notes.chart")).unwrap(),
+        fs::read_to_string(export.join(".yace/history/editor-source/notes.chart")).unwrap(),
         CHART
     );
     assert_eq!(

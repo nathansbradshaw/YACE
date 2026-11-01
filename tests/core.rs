@@ -482,9 +482,14 @@ fn build_is_transactional_and_never_overwrites_existing_output() {
         lookup_lyrics: false,
     };
     pipeline::build(request()).unwrap();
-    let markers: chart_engine::review_regions::ReviewMap =
-        serde_json::from_slice(&fs::read(output.join("chart-engine-review.json")).unwrap())
-            .unwrap();
+    let markers: chart_engine::review_regions::ReviewMap = serde_json::from_slice(
+        &fs::read(chart_engine::song_layout::path(
+            &output,
+            "chart-engine-review.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(markers.musical_acceptance, "unverified");
     assert_eq!(
         markers.input_sha256["chart"],
@@ -623,9 +628,14 @@ fn midi_enhancement_emits_markers_only_for_added_instruments() {
     .unwrap();
     let result = fs::read(output.join("notes.mid")).unwrap();
     assert_eq!(&result[14..original.len()], &original[14..]);
-    let markers: chart_engine::review_regions::ReviewMap =
-        serde_json::from_slice(&fs::read(output.join("chart-engine-review.json")).unwrap())
-            .unwrap();
+    let markers: chart_engine::review_regions::ReviewMap = serde_json::from_slice(
+        &fs::read(chart_engine::song_layout::path(
+            &output,
+            "chart-engine-review.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     let generated = markers.generated_tracks.unwrap();
     assert!(generated.contains("ExpertDrums"));
     assert!(!generated.contains("ExpertSingle"));

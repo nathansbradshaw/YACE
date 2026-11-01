@@ -81,7 +81,10 @@ pub fn generate_project(
         .keep();
     crate::generation::write_json(&job.join("isolation.json"), manifest)?;
     let lyrics = if request.lookup_lyrics {
-        let existing = request.project.join("source/chart-engine-lyrics.json");
+        let existing = crate::song_layout::resolve(
+            &request.project.join("source"),
+            "chart-engine-lyrics.json",
+        );
         let record = if existing.exists() {
             Some(serde_json::from_slice::<serde_json::Value>(&fs::read(
                 existing,

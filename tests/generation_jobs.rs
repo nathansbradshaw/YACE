@@ -105,8 +105,7 @@ fn guitar_sound_source_is_persisted_and_cannot_retarget_saved_candidates() {
     settings.full_mix_drums = false;
     settings.instruments = vec!["guitar".into()];
     settings.guitar_source = GuitarSource::Other;
-    let root = temp.path().join("job");
-    generation::create(settings.clone(), &root).unwrap();
+    let root = generation::create(settings.clone(), &temp.path().join("job")).unwrap();
     let restored: Request =
         serde_json::from_slice(&fs::read(root.join("request.json")).unwrap()).unwrap();
     assert_eq!(restored.guitar_source, GuitarSource::Other);
@@ -319,12 +318,38 @@ fn failed_jobs_keep_an_import_then_resume_into_an_editable_project() {
     generation::run(&root).unwrap();
     assert_eq!(generation::status(&root).unwrap().state, State::Complete);
     assert!(root.join("song/notes.chart").is_file());
-    let store = Store::new(&root.join("project"));
+    let store = Store::new(&generation::project_path(&root));
     let project = store.load().unwrap();
     assert!(!project.content.tracks["ExpertDrums"].is_empty());
-    let before = fs::read(root.join("project/project.json")).unwrap();
+    let before = fs::read(generation::project_path(&root).join("project.json")).unwrap();
     generation::run(&root).unwrap();
-    assert_eq!(fs::read(root.join("project/project.json")).unwrap(), before);
+    assert_eq!(
+        fs::read(generation::project_path(&root).join("project.json")).unwrap(),
+        before
+    );
+    let song = generation::song_folder(&root).unwrap();
+    let mut visible = fs::read_dir(&song)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    visible.sort();
+    assert_eq!(visible, [".yace", "notes.chart", "song.ini", "song.wav"]);
+    assert!(song.join(".yace/project/project.json").is_file());
+    assert!(song.join(".yace/jobs/generation/worker.lock").is_file());
+    assert_eq!(generation::resolve_job(&song).unwrap(), root);
+    let chart = fs::read(song.join("notes.chart")).unwrap();
+    fs::write(song.join("notes.chart"), b"Externally edited chart").unwrap();
+    assert!(
+        generation::run(&song)
+            .unwrap_err()
+            .to_string()
+            .contains("Published song file changed")
+    );
+    assert_eq!(
+        fs::read(song.join("notes.chart")).unwrap(),
+        b"Externally edited chart"
+    );
+    fs::write(song.join("notes.chart"), chart).unwrap();
 }
 
 #[test]
@@ -445,6 +470,21 @@ fn refusal_and_locking_preserve_existing_data_and_request_identity() {
 }
 
 #[test]
+fn older_flat_jobs_still_resume_without_relocating_their_working_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let original = audio(temp.path());
+    let legacy =
+        generation::create_job(request(&original), &temp.path().join("old-flat-job")).unwrap();
+    assert!(generation::song_folder(&legacy).is_none());
+    saved_events(&legacy);
+    generation::run(&legacy).unwrap();
+    assert_eq!(generation::status(&legacy).unwrap().state, State::Complete);
+    assert!(legacy.join("project/project.json").is_file());
+    assert!(legacy.join("game-song/notes.chart").is_file());
+    generation::run(&legacy).unwrap();
+}
+
+#[test]
 fn invalid_settings_never_create_an_output_folder() {
     let temp = tempfile::tempdir().unwrap();
     let original = audio(temp.path());
@@ -484,7 +524,7 @@ fn non_game_audio_keeps_the_original_and_binds_the_editor_to_compatible_wav() {
     let input: serde_json::Value =
         serde_json::from_slice(&fs::read(root.join("input/source.json")).unwrap()).unwrap();
     assert_eq!(input["original"][1], original_hash);
-    let project = Store::new(&root.join("project")).load().unwrap();
+    let project = Store::new(&generation::project_path(&root)).load().unwrap();
     assert_eq!(project.audio_filename, "song.wav");
     assert_eq!(
         project.audio_sha256,
@@ -511,7 +551,9 @@ fn cli_create_show_and_run_share_the_job_contract_with_paths_containing_spaces()
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    saved_events(&root);
+    let created: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    let job = std::path::PathBuf::from(created["job"].as_str().unwrap());
+    saved_events(&job);
     for action in ["show", "run", "run"] {
         let result = std::process::Command::new(env!("CARGO_BIN_EXE_chart-engine"))
             .args(["generation", action])
@@ -574,11 +616,14 @@ fn local_audio_exports_the_users_metadata_artwork_and_lyric_edits() {
             .contains("Edited lyric")
     );
     assert_eq!(
-        fs::read(root.join("project/source/album.jpg")).unwrap(),
+        fs::read(generation::project_path(&root).join("source/album.jpg")).unwrap(),
         b"artwork copy fixture"
     );
     assert!(
-        root.join("project/source/import-information.json")
-            .is_file()
+        chart_engine::song_layout::resolve(
+            &generation::project_path(&root).join("source"),
+            "import-information.json"
+        )
+        .is_file()
     );
 }

@@ -15,14 +15,42 @@ Rust project, command validation and recovery history.
   a child of a saved project finds the project up to three parents above it.
 - In the browser host, **Open song folder** keeps the existing separate-copy flow.
 
-Desktop collections keep editing copies in `.yace/projects/` under the collection.
-Each source folder has its own stable project directory, so switching away and
-back reopens the same edits and undo history. When opening a single song directly,
-the `.yace` folder lives beside that song. Original charts and audio stay in place.
-Keep `.yace` with your collection when moving or backing it up. Existing saved
-projects open in place; YACE does not reorganize or delete your existing folders.
-Generated jobs retain their `input`, `song`, and `project` folders in
-the generation destination you selected.
+Desktop songs use the usual charting-folder layout: `notes.chart` or `notes.mid`,
+`song.ini`, audio, artwork and optional video are together at the top level. This
+is the song-folder convention used by [OCTAVE](https://octavestudio.tools/reference/file-formats)
+and compatible game editors.
+
+YACE keeps its extra files inside that song's `.yace` folder:
+
+```text
+Artist - Song/
+  notes.chart             chart, or notes.mid for MIDI exports
+  song.ini                song information
+  song.ogg                full mix or backing; instrument stems may sit beside it
+  album.png               optional artwork
+  .yace/
+    project/              editing state, source snapshot and undo checkpoints
+    jobs/                 generation inputs, intermediate results and worker logs
+    audio/                retained stem assets and source-bound manifests
+    analysis/             transcription, generation reports and imported information
+    review/               review markers, decisions and part origins
+    working/              editable masters for game MIDI and vocal documents
+    originals/            archived recording and prior game audio channels
+    history/              retained earlier analysis and export evidence
+    export/               chart and audio routing receipts
+    cache/                reusable separation data
+```
+
+Switching charts, opening a containing folder, or opening a song directly reuses
+the same `.yace/project` editing state. Keep `.yace` when moving or backing up a
+song. Earlier collection workspaces in `.yace/projects` and standalone review
+projects still open with their saved edits and undo history. YACE does not move
+or delete those existing folders.
+
+Editing autosaves YACE's project state. **Export** writes a separate standard song
+folder containing the current edits and its own `.yace` evidence. Original chart
+and audio files remain available. Copying the whole song with `.yace` preserves
+both playable files and the full YACE working project.
 
 Keep the whole review-project folder. It contains the source copy, saved edits
 and undo history. YACE saves chart edits automatically after each successful

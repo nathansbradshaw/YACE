@@ -200,6 +200,54 @@ fn a_part_job_moves_with_its_project_and_resumes_from_the_bound_recording() {
 }
 
 #[test]
+fn managed_song_part_jobs_keep_relative_targets_when_the_song_folder_moves() {
+    let root = tempfile::tempdir().unwrap();
+    let initial = fixture(root.path());
+    let song = root.path().join("Visible Song");
+    fs::create_dir_all(song.join(".yace")).unwrap();
+    let project = song.join(".yace/project");
+    fs::rename(initial.root, &project).unwrap();
+    let store = Store::new(&project.canonicalize().unwrap());
+    let target = parts::Target::capture(&store, &store.load().unwrap(), "ExpertDrums").unwrap();
+    let jobs = chart_engine::song_layout::project_data(&store.root).join("jobs/parts");
+    fs::create_dir_all(&jobs).unwrap();
+    let job = parts::create_job(request(&store, "drums"), &jobs.join("draft"), &target).unwrap();
+    let saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(job.join("editor-target.json")).unwrap()).unwrap();
+    assert_eq!(saved["project"], "../../../project");
+    generation::write_json(
+        &job.join("events.json"),
+        &Transcription {
+            drums: vec![DrumHit {
+                time: 1.0,
+                voice: Voice::Snare,
+                confidence: 0.9,
+            }],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let moved = root.path().join("Moved Song");
+    fs::rename(song, &moved).unwrap();
+    let store = Store::new(&moved.join(".yace/project"));
+    let job = moved.join(".yace/jobs/parts/draft");
+    parts::target(&job)
+        .unwrap()
+        .unwrap()
+        .validate(&store, &store.load().unwrap())
+        .unwrap();
+    generation::run(&job).unwrap();
+    store
+        .apply(Edit {
+            expected_revision: store.load().unwrap().revision,
+            actor: human(),
+            action: Action::ApplyGeneratedPart { job },
+        })
+        .unwrap();
+    assert_eq!(store.load().unwrap().selected_track, "ExpertDrums");
+}
+
+#[test]
 fn applying_a_generated_part_retains_its_stems_for_game_export_and_undo() {
     use chart_engine::stem_review::{AlignmentEvidence, StemId, StemManifest};
     use std::collections::BTreeMap;

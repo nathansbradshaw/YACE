@@ -272,7 +272,10 @@ fn VocalGenerationIssues(studio: Studio, refresh: u64) -> Element {
                 let path = if latest.exists() {
                     latest
                 } else {
-                    root.join("source/chart-engine-vocal-generation.json")
+                    crate::song_layout::resolve(
+                        &root.join("source"),
+                        "chart-engine-vocal-generation.json",
+                    )
                 };
                 if !path.exists() {
                     return Ok(None);

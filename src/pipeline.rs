@@ -2,7 +2,7 @@ pub use crate::song_metadata::{audio_file, ini_fields, song_ini, update_ini};
 use crate::{
     chart::{self, Chart},
     mapping::{self, Transcription},
-    midi, models,
+    midi, models, song_layout,
     timing::TempoMap,
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -48,9 +48,9 @@ pub fn editable_chart_file(folder: &Path) -> Result<PathBuf> {
     if chart.extension().is_some_and(|e| e == "chart") {
         return Ok(chart);
     }
-    let master = folder.join("chart-engine-working/notes.chart");
+    let master = song_layout::resolve(folder, "chart-engine-working").join("notes.chart");
     let binding: serde_json::Value = serde_json::from_slice(
-        &fs::read(folder.join("chart-engine-working/binding.json"))
+        &fs::read(song_layout::resolve(folder, "chart-engine-working").join("binding.json"))
             .context("MIDI-only songs require a YACE editable-master binding")?,
     )?;
     ensure!(
@@ -807,24 +807,85 @@ pub fn metadata(audio: &Path) -> Result<Metadata> {
     })
 }
 
-pub(crate) fn copy_folder(source: &Path, dest: &Path) -> Result<()> {
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
-        let target = dest.join(entry.file_name());
-        ensure!(
-            !ty.is_symlink(),
-            "Source contains a symlink: {}; make an ordinary working copy first",
-            entry.path().display()
-        );
-        if ty.is_dir() {
-            fs::create_dir(&target)?;
-            copy_folder(&entry.path(), &target)?;
-        } else if ty.is_file() {
-            fs::copy(entry.path(), target)?;
-        } else {
-            bail!("Unsupported source file type");
+/// Copy portable song assets and evidence without copying a live editor into
+/// its own source snapshot. Unknown song files remain byte-preserving.
+pub fn copy_song_source(source: &Path, dest: &Path) -> Result<()> {
+    fn copy(source: &Path, dest: &Path, private: bool) -> Result<()> {
+        fs::create_dir_all(dest)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let text = name.to_string_lossy();
+            if private
+                && (text.starts_with(".tmp")
+                    || text.starts_with(".yace-project-")
+                    || matches!(
+                        text.as_ref(),
+                        "project" | "projects" | "jobs" | "cache" | "logs"
+                    ))
+            {
+                continue;
+            }
+            let kind = entry.file_type()?;
+            ensure!(
+                !kind.is_symlink(),
+                "Song source contains a symlink: {}",
+                entry.path().display()
+            );
+            let output = dest.join(&name);
+            if kind.is_dir() {
+                copy(&entry.path(), &output, text == song_layout::DIRECTORY)?;
+            } else {
+                ensure!(kind.is_file(), "Unsupported song source entry");
+                fs::copy(entry.path(), output)?;
+            }
         }
+        Ok(())
+    }
+    copy(source, dest, false)
+}
+
+/// Consolidate copied legacy YACE files in an unpublished song staging folder.
+/// Existing source folders are never changed by this operation.
+pub fn organize_song_stage(stage: &Path) -> Result<()> {
+    song_layout::prepare(stage)?;
+    let entries = fs::read_dir(stage)?.collect::<std::io::Result<Vec<_>>>()?;
+    for entry in entries {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let relative = match name.as_str() {
+            "stems" => PathBuf::from(".yace/audio/stems"),
+            ".yace-audio" => PathBuf::from(".yace/originals/audio"),
+            value if value == "editor-source" || value.starts_with("editor-source-") => {
+                Path::new(".yace/history").join(value)
+            }
+            _ => song_layout::relative(&name),
+        };
+        if relative == Path::new(&name) {
+            continue;
+        }
+        let mut target = stage.join(relative);
+        fs::create_dir_all(target.parent().context("Sidecar needs a parent")?)?;
+        if target.is_dir() && fs::read_dir(&target)?.next().is_none() {
+            fs::remove_dir(&target)?;
+        }
+        if target.exists() {
+            if target.is_file()
+                && entry.file_type()?.is_file()
+                && models::hash_file(&target)? == models::hash_file(&entry.path())?
+            {
+                fs::remove_file(entry.path())?;
+                continue;
+            }
+            let history = stage.join(".yace/history/legacy");
+            fs::create_dir_all(&history)?;
+            target = history.join(&name);
+            let mut number = 1;
+            while target.exists() {
+                target = history.join(format!("{name}-{number}"));
+                number += 1;
+            }
+        }
+        fs::rename(entry.path(), target)?;
     }
     Ok(())
 }
@@ -842,7 +903,7 @@ fn archive_generation_sidecars(stage: &Path, source: Option<&Path>) -> Result<Op
         "chart-engine-keyboard-isolation.json",
         "chart-engine-pro-keys-arrangement.json",
     ] {
-        let path = stage.join(name);
+        let path = song_layout::resolve(stage, name);
         if path.exists() {
             ensure!(path.is_file(), "Generation sidecar must be a file: {name}");
             files.insert(name, models::hash_file(&path)?);
@@ -852,14 +913,14 @@ fn archive_generation_sidecars(stage: &Path, source: Option<&Path>) -> Result<Op
         return Ok(None);
     }
     let id = format!("{:x}", Sha256::digest(serde_json::to_vec(&files)?));
-    let relative = PathBuf::from("chart-engine-history").join(id);
+    let relative = song_layout::relative("chart-engine-history").join(id);
     let history = stage.join(&relative);
     fs::create_dir_all(history.parent().context("History parent missing")?)?;
     // Reject history-name collisions, even when the main files match.
     // An existing entry may contain extra recovery files.
     fs::create_dir(&history).context("Generation history already contains this receipt set")?;
     for name in files.keys() {
-        fs::rename(stage.join(name), history.join(name))?;
+        fs::rename(song_layout::resolve(stage, name), history.join(name))?;
     }
     fs::write(
         history.join("archive-sha256.json"),
@@ -1120,7 +1181,7 @@ pub fn build_with_lyrics(
         "merged_simultaneous_candidates":plan.merged_simultaneous_candidates,
         "merged_octave_collisions":plan.merged_octave_collisions,
         "shortened_releases":plan.shortened_releases,"out_of_range_omitted":plan.out_of_range_omitted,
-        "evidence":"chart-engine-pro-keys-arrangement.json"
+        "evidence":song_layout::relative("chart-engine-pro-keys-arrangement.json")
     }));
     if let Some(plan) = &pro_arrangement {
         warnings.push(format!("Pro Keys register arrangement {}: {} octave adaptations, {} simultaneous unison merges, {} near-simultaneous octave collisions merged, {} shortened source releases; {} candidates omitted for pitch range. Original detections and every arrangement decision are retained for review.", plan.rule_id,plan.octave_adapted_candidates,plan.merged_simultaneous_candidates,plan.merged_octave_collisions,plan.shortened_releases,plan.out_of_range_omitted));
@@ -1150,11 +1211,13 @@ pub fn build_with_lyrics(
         .prefix(".chart-engine-")
         .tempdir_in(parent)?;
     let ini = if let Some(source) = existing {
-        copy_folder(source, stage.path())?;
+        copy_song_source(source, stage.path())?;
         song_ini(source)?
     } else {
         String::new()
     };
+    organize_song_stage(stage.path())?;
+    song_layout::prepare(stage.path())?;
     let previous_generation = archive_generation_sidecars(stage.path(), existing)?;
     if let Some(history) = &previous_generation {
         warnings.push(format!(
@@ -1294,7 +1357,7 @@ pub fn build_with_lyrics(
                     }
                 }
                 fs::write(
-                    stage.path().join("chart-engine-lyrics.json"),
+                    song_layout::path(stage.path(), "chart-engine-lyrics.json"),
                     serde_json::to_vec_pretty(&record)?,
                 )?;
                 warnings.push("Lyrics are database text/line timings; word-level alignment is not implemented. Existing lyric events are preserved.".into());
@@ -1311,7 +1374,7 @@ pub fn build_with_lyrics(
     fs::write(stage.path().join(chart_name), content)?;
     fs::write(stage.path().join("song.ini"), update_ini(&ini, &updates))?;
     fs::write(
-        stage.path().join("chart-engine-transcription.json"),
+        song_layout::path(stage.path(), "chart-engine-transcription.json"),
         serde_json::to_vec_pretty(transcription)?,
     )?;
     if added
@@ -1319,7 +1382,7 @@ pub fn build_with_lyrics(
         .any(|name| name.ends_with("Single") || name == "PART GUITAR")
     {
         fs::write(
-            stage.path().join("chart-engine-melody-source.json"),
+            song_layout::path(stage.path(), "chart-engine-melody-source.json"),
             serde_json::to_vec_pretty(
                 &serde_json::json!({"version":1,"audio_sha256":models::hash_file(&audio_file(stage.path())?)?,"guitar_source":transcription.guitar_source}),
             )?,
@@ -1327,21 +1390,21 @@ pub fn build_with_lyrics(
     }
     if let Some(plan) = &pro_arrangement {
         fs::write(
-            stage.path().join("chart-engine-pro-keys-arrangement.json"),
+            song_layout::path(stage.path(), "chart-engine-pro-keys-arrangement.json"),
             serde_json::to_vec_pretty(&serde_json::json!({"version":1,
-                "source_transcription_sha256":models::hash_file(&stage.path().join("chart-engine-transcription.json"))?,
+                "source_transcription_sha256":models::hash_file(&song_layout::path(stage.path(), "chart-engine-transcription.json"))?,
                 "arrangement":plan}))?,
         )?;
     }
     if let Some(isolation) = &transcription.isolation {
         fs::write(
-            stage.path().join("chart-engine-isolation.json"),
+            song_layout::path(stage.path(), "chart-engine-isolation.json"),
             serde_json::to_vec_pretty(isolation)?,
         )?;
     }
     if let Some(analysis) = &transcription.keyboard_analysis {
         fs::write(
-            stage.path().join("chart-engine-keyboard-isolation.json"),
+            song_layout::path(stage.path(), "chart-engine-keyboard-isolation.json"),
             serde_json::to_vec_pretty(analysis)?,
         )?;
     }
@@ -1353,11 +1416,12 @@ pub fn build_with_lyrics(
     }
     let pro_keys_output =
         chart_name == "notes.chart" && review_generated.iter().any(|t| crate::keys::is_pro(t));
-    let mut report = serde_json::json!({"version":env!("CARGO_PKG_VERSION"),"status":"automatic_draft","output":output,"added":added,"input_sha256":input_hashes,"metadata":meta,"timing":map,"model_catalog":models::assets(),"isolation":transcription.isolation,"isolation_manifest":transcription.isolation.as_ref().map(|_|"chart-engine-isolation.json"),"difficulty_reduction":difficulty_reduction,"charting_rules":rule_report,"review_markers":"chart-engine-review.json","warnings":warnings,"pro_keys_arrangement":pro_arrangement_summary,"pro_keys_ranges":pro_keys_ranges,"game_chart":if pro_keys_output{"notes.mid"}else{chart_name},"editable_master":if pro_keys_output{Some("chart-engine-working/notes.chart")}else{None}});
+    let mut report = serde_json::json!({"version":env!("CARGO_PKG_VERSION"),"status":"automatic_draft","output":output,"added":added,"input_sha256":input_hashes,"metadata":meta,"timing":map,"model_catalog":models::assets(),"isolation":transcription.isolation,"isolation_manifest":transcription.isolation.as_ref().map(|_|song_layout::relative("chart-engine-isolation.json")),"difficulty_reduction":difficulty_reduction,"charting_rules":rule_report,"review_markers":song_layout::relative("chart-engine-review.json"),"warnings":warnings,"pro_keys_arrangement":pro_arrangement_summary,"pro_keys_ranges":pro_keys_ranges,"game_chart":if pro_keys_output{"notes.mid"}else{chart_name},"editable_master":if pro_keys_output{Some(song_layout::relative("chart-engine-working").join("notes.chart"))}else{None}});
     if let Some(analysis) = &transcription.keyboard_analysis {
         report["keyboard_analysis"] = serde_json::to_value(analysis)?;
-        report["keyboard_analysis_manifest"] =
-            serde_json::json!("chart-engine-keyboard-isolation.json");
+        report["keyboard_analysis_manifest"] = serde_json::json!(song_layout::relative(
+            "chart-engine-keyboard-isolation.json"
+        ));
     }
     if transcription
         .keyboard_manifest()?
@@ -1367,7 +1431,7 @@ pub fn build_with_lyrics(
             serde_json::to_value(crate::keyboard_separation::asset())?;
     }
     fs::write(
-        stage.path().join("chart-engine-report.json"),
+        song_layout::path(stage.path(), "chart-engine-report.json"),
         serde_json::to_vec_pretty(&report)?,
     )?;
     let review_chart = if chart_name == "notes.chart" {
@@ -1397,11 +1461,14 @@ pub fn build_with_lyrics(
         ),
         (
             "transcription".into(),
-            models::hash_file(&stage.path().join("chart-engine-transcription.json"))?,
+            models::hash_file(&song_layout::path(
+                stage.path(),
+                "chart-engine-transcription.json",
+            ))?,
         ),
         (
             "generation_receipt".into(),
-            models::hash_file(&stage.path().join("chart-engine-report.json"))?,
+            models::hash_file(&song_layout::path(stage.path(), "chart-engine-report.json"))?,
         ),
         (
             "original_audio".into(),
@@ -1424,7 +1491,7 @@ pub fn build_with_lyrics(
         }
     }
     fs::write(
-        stage.path().join("chart-engine-review.json"),
+        song_layout::path(stage.path(), "chart-engine-review.json"),
         serde_json::to_vec_pretty(&review)?,
     )?;
     ensure!(
@@ -1442,13 +1509,13 @@ pub fn build_with_lyrics(
         let chart = Chart::parse(fs::read_to_string(&master)?)?;
         let (midi, delay) =
             crate::game_export::song_with_ini(&chart, None, &ini_fields(&song_ini(stage.path())?))?;
-        let working = stage.path().join("chart-engine-working");
+        let working = song_layout::path(stage.path(), "chart-engine-working");
         // Existing recovery data must never be overwritten during enhancement.
         ensure!(
-            !working.exists(),
+            !working.exists() || fs::read_dir(&working)?.next().is_none(),
             "Existing working-master archive requires opening its YACE project before adding Pro Keys"
         );
-        fs::create_dir(&working)?;
+        fs::create_dir_all(&working)?;
         fs::write(stage.path().join("notes.mid"), midi)?;
         fs::rename(&master, working.join("notes.chart"))?;
         fs::write(
