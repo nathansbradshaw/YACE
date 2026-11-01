@@ -28,6 +28,7 @@
 
 - [Contributing](../CONTRIBUTING.md)
 - [Run checks](VERIFICATION.md)
+- [Performance audit and repair plans](PERFORMANCE.md)
 - [macOS packaging](PACKAGING.md)
 - [Review markers](REVIEW_MARKERS.md)
 - [Preview formats](GAMEPLAY_VIEW.md)
