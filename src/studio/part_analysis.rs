@@ -43,11 +43,28 @@ fn restore_kit(studio: Studio, mut kit: KitUi, key: RequestKey, epoch: u64) {
     kit.restore_attempt.set(Some((key.clone(), epoch)));
     kit.restoring.set(Some((key.clone(), epoch)));
     spawn(async move {
+        #[cfg(not(target_arch = "wasm32"))]
         let result = tokio::task::spawn_blocking(move || {
             part_analysis::load_project_drum_parts(&store, &project)
                 .map_err(|error| format!("{error:#}"))
         })
-        .await;
+        .await
+        .map_err(|error| error.to_string());
+        #[cfg(target_arch = "wasm32")]
+        let result: Result<_, String> = Ok(async {
+            let audio = store.audio_path(&project)?;
+            crate::worker::run::<Option<part_analysis::DrumPartSet>>(
+                crate::worker::Task::LoadKit {
+                    root: store.root.clone(),
+                    project: Box::new(project.as_ref().clone()),
+                    audio,
+                },
+                std::slice::from_ref(&store.root),
+            )
+            .await
+        }
+        .await
+        .map_err(|error: anyhow::Error| format!("{error:#}")));
         if kit.restoring.peek().as_ref() == Some(&(key.clone(), epoch)) {
             kit.restoring.set(None);
         }
@@ -87,6 +104,7 @@ fn kit_key(studio: Studio) -> Option<RequestKey> {
     Some(RequestKey { root, content })
 }
 /// Picker hint only. The worker verifies every model before any inference.
+#[cfg(not(target_arch = "wasm32"))]
 fn kit_model_directory() -> Option<PathBuf> {
     let mut candidates = vec![crate::generation::default_model_dir().join("larsnet")];
     if let Ok(executable) = std::env::current_exe()
@@ -101,6 +119,7 @@ fn kit_model_directory() -> Option<PathBuf> {
                 .all(|(part, _)| directory.join(format!("{part}.onnx")).is_file())
     })
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn split_kit(studio: Studio, mut kit: KitUi) {
     let Some(key) = kit_key(studio) else { return };
     let Some(store) = studio.store.read().clone() else {
@@ -194,7 +213,7 @@ fn kit_panel(studio: Studio, kit: KitUi) -> Element {
         summary{"Kit isolation"}
         div{class:"part-analysis-kit-heading",
             span{class:"part-analysis-caption",if restoring && !(kit.busy)(){"Loading saved kit…"}else{"Five estimated parts"}}
-            button{class:"studio-tool",disabled:!source_available || (kit.busy)() || pending.is_some(),title:"Choose your local LarsNet ONNX models. CC-BY-NC-4.0 weights; no download or note changes.","data-browser-pick":"folder",onclick:move |_|split_kit(studio,kit),if (kit.busy)(){"Splitting…"}else if has_cache{"Split again…"}else{"Split kit…"}}
+            button{class:"studio-tool",disabled:cfg!(target_arch="wasm32") || !source_available || (kit.busy)() || pending.is_some(),title:if cfg!(target_arch="wasm32"){ "The LarsNet inference backend cannot run in-browser; saved kit audio can still be played" }else{ "Choose your local LarsNet ONNX models. CC-BY-NC-4.0 weights; no download or note changes." },"data-browser-pick":"folder",onclick:move |_|split_kit(studio,kit),if (kit.busy)(){"Splitting…"}else if has_cache{"Split again…"}else{"Split kit…"}}
         }
         p{class:"part-analysis-caption","Local LarsNet models · CC-BY-NC-4.0. Audio only; notes stay unchanged."}
         if !source_available{p{class:"part-analysis-caption","Attach aligned drum audio first."}}
@@ -225,6 +244,8 @@ fn KitTransportClock(studio: Studio) -> Element {
     // Keep frame-clock updates out of the diagnostic report's render scope.
     rsx! {time{"{super::state::clock((studio.playhead)())}"}}
 }
+#[cfg(target_arch = "wasm32")]
+fn split_kit(_studio: Studio, _kit: KitUi) {}
 
 fn snapshot(studio: Studio) -> Option<(Store, std::sync::Arc<Project>, RequestKey)> {
     let store = studio.store.read().clone()?;
@@ -252,10 +273,27 @@ fn start(
     error.set(None);
     spawn(async move {
         let expected = requested.clone();
+        #[cfg(not(target_arch = "wasm32"))]
         let result = tokio::task::spawn_blocking(move || {
             part_analysis::analyze_project(&store, &project).map_err(|e| format!("{e:#}"))
         })
-        .await;
+        .await
+        .map_err(|e| e.to_string());
+        #[cfg(target_arch = "wasm32")]
+        let result: Result<_, String> = Ok(async {
+            let audio = store.audio_path(&project)?;
+            crate::worker::run::<AnalysisReport>(
+                crate::worker::Task::Analyse {
+                    root: store.root.clone(),
+                    project: Box::new(project.as_ref().clone()),
+                    audio,
+                },
+                std::slice::from_ref(&store.root),
+            )
+            .await
+        }
+        .await
+        .map_err(|e: anyhow::Error| format!("{e:#}")));
         busy.set(false);
         // Navigation and listening can continue while analysis runs.
         // Reject the result after edits, stem replacement or a project switch.
@@ -385,11 +423,17 @@ fn save_report(
         }
         let path = file.path().to_owned();
         let output = path.clone();
-        match tokio::task::spawn_blocking(move || {
+        #[cfg(not(target_arch = "wasm32"))]
+        let result = tokio::task::spawn_blocking(move || {
             crate::generation::write_json(&path, report.as_ref())
         })
         .await
-        {
+        .map_err(|e| e.to_string());
+        #[cfg(target_arch = "wasm32")]
+        let result: Result<_, String> = Ok(serde_json::to_vec_pretty(report.as_ref())
+            .map_err(anyhow::Error::from)
+            .and_then(|bytes| Ok(crate::storage::write_new(&path, &bytes)?)));
+        match result {
             Ok(Ok(())) => rfd::download(&output).await,
             Ok(Err(message)) => error.set(Some(format!("{message:#}"))),
             Err(message) => error.set(Some(message.to_string())),

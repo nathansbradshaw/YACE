@@ -76,6 +76,33 @@ pub fn update_ini(original: &str, updates: &BTreeMap<String, String>) -> String 
 use crate::storage as fs;
 use anyhow::{Context, Result};
 use std::path::Path;
+/// Both clients start a manual project with the same validated source chart.
+pub fn blank_song(title: &str, artist: &str, bpm: f64) -> Result<(String, String)> {
+    anyhow::ensure!(
+        !title.trim().is_empty() && !artist.trim().is_empty(),
+        "Enter a title and artist"
+    );
+    anyhow::ensure!(
+        !title.chars().chain(artist.chars()).any(char::is_control),
+        "Title and artist must be single lines"
+    );
+    anyhow::ensure!(
+        bpm.is_finite() && (1. ..=1000.).contains(&bpm),
+        "Tempo must be 1–1000 BPM"
+    );
+    let metadata = BTreeMap::from([
+        ("name".into(), title.trim().into()),
+        ("artist".into(), artist.trim().into()),
+    ]);
+    let ini = update_ini("[song]\n", &metadata);
+    let tempo = (bpm * 1000.).round() as u32;
+    Ok((
+        ini,
+        format!(
+            "[Song]\n{{\n  Resolution = 480\n}}\n[SyncTrack]\n{{\n  0 = B {tempo}\n  0 = TS 4\n}}\n[Events]\n{{\n}}\n[ExpertSingle]\n{{\n}}\n"
+        ),
+    ))
+}
 pub fn song_ini(folder: &Path) -> Result<String> {
     match fs::read_to_string(folder.join("song.ini")) {
         Ok(text) => Ok(text),

@@ -1,5 +1,6 @@
 //! Local, cancellable recognition produces reviewable inputs to the clean core.
 //! Whisper's word timestamps are model estimates, never a cleanliness verdict.
+pub use crate::clean_transcript::{Control, RECOGNITION_WARNING, Recognition, RecognizedSegment};
 use crate::{
     clean::{self, AlignedWord, CleanMode, CleanPlan, CleanPolicy, StemAlignment, WordTimings},
     models, pipeline,
@@ -11,64 +12,12 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
     time::Duration,
 };
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 const MIN_WORD_PROBABILITY: f32 = 0.30;
-pub const RECOGNITION_WARNING: &str = "Automatic English lyric recognition and word timing are estimates. Singing, backing vocals and instruments can cause missed or incorrect words and boundaries. Listen to each edit; zero matches does not establish that a recording is clean.";
-
-#[derive(Default)]
-pub struct Control {
-    cancelled: AtomicBool,
-    message: Mutex<String>,
-}
-impl Control {
-    pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Relaxed);
-    }
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
-    }
-    pub fn message(&self) -> String {
-        self.message.lock().map(|m| m.clone()).unwrap_or_default()
-    }
-    pub(crate) fn update(&self, message: impl Into<String>) {
-        if let Ok(mut current) = self.message.lock() {
-            *current = message.into();
-        }
-    }
-    fn check(&self) -> Result<()> {
-        ensure!(!self.is_cancelled(), "Automatic lyric analysis cancelled");
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RecognizedSegment {
-    pub text: String,
-    pub start_seconds: f64,
-    pub end_seconds: f64,
-    pub mean_token_probability: f32,
-    pub no_speech_probability: f32,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Recognition {
-    pub version: u32,
-    pub backend: String,
-    pub model_sha256: String,
-    pub recognition_audio_sha256: String,
-    pub language: String,
-    pub words: WordTimings,
-    pub segments: Vec<RecognizedSegment>,
-    pub warnings: Vec<String>,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Detection {
     pub recognition: Recognition,

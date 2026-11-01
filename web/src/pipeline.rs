@@ -8,3 +8,10 @@ pub fn copy_folder(from: &Path, to: &Path) -> Result<()> {
     }
     Ok(())
 }
+pub fn destination(path: &Path, _source: Option<&Path>) -> Result<()> {
+    anyhow::ensure!(
+        !crate::storage::exists(path),
+        "Choose a new output folder; existing files are preserved"
+    );
+    Ok(())
+}

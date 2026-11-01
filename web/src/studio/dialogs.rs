@@ -1,5 +1,9 @@
 //! Portable dialog adapter for shared review/vocal file controls.
+use dioxus::prelude::WritableExt;
 use std::path::{Path, PathBuf};
+pub fn output_parent() -> Option<PathBuf> {
+    Some(crate::files::unique_root())
+}
 #[derive(Default)]
 pub struct AsyncFileDialog {
     name: String,
@@ -37,22 +41,38 @@ impl AsyncFileDialog {
         self.pick(true).await
     }
     async fn pick(self, folder: bool) -> Option<FileHandle> {
-        let files = crate::files::pick(false, if folder { ".zip" } else { &self.accept })
-            .await
-            .ok()??;
-        let files = if folder {
-            crate::files::unpack(files).ok()?
-        } else {
-            files
-        };
-        let first = files.first()?.0.clone();
-        let root = crate::files::unique_root();
-        crate::files::mount(&root, files).ok()?;
-        Some(FileHandle(if folder {
-            crate::files::imported_root(&root).ok()?
-        } else {
-            root.join(first)
-        }))
+        let result = async {
+            let Some(files) =
+                crate::files::pick(false, if folder { ".zip" } else { &self.accept }).await?
+            else {
+                return Ok(None);
+            };
+            let files = if folder {
+                crate::files::unpack(files)?
+            } else {
+                files
+            };
+            let first = files
+                .first()
+                .ok_or_else(|| anyhow::anyhow!("The selected archive has no files"))?
+                .0
+                .clone();
+            let root = crate::files::unique_root();
+            crate::files::mount(&root, files)?;
+            Ok::<_, anyhow::Error>(Some(FileHandle(if folder {
+                crate::files::imported_root(&root)?
+            } else {
+                root.join(first)
+            })))
+        }
+        .await;
+        match result {
+            Ok(file) => file,
+            Err(error) => {
+                report(error);
+                None
+            }
+        }
     }
     pub async fn save_file(self) -> Option<FileHandle> {
         Some(FileHandle(crate::files::unique_root().join(
@@ -65,10 +85,26 @@ impl AsyncFileDialog {
     }
 }
 pub async fn download(path: &Path) {
-    if let Ok(bytes) = crate::storage::shared(path) {
-        let _ = crate::files::download(
-            &path.file_name().unwrap_or_default().to_string_lossy(),
-            &bytes,
-        );
+    let result = (|| -> anyhow::Result<()> {
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        if crate::storage::is_file(path) {
+            crate::files::download(&name, &crate::storage::shared(path)?)
+        } else {
+            anyhow::ensure!(
+                !crate::storage::list(path)?.is_empty(),
+                "No export files were produced"
+            );
+            crate::files::download(&format!("{name}.zip"), &crate::files::archive(path)?)
+        }
+    })();
+    if let Err(error) = result {
+        report(error);
+    }
+}
+fn report(error: anyhow::Error) {
+    if let Some(mut studio) = dioxus::prelude::try_consume_context::<super::state::Studio>() {
+        studio
+            .error
+            .set(Some(format!("Local file operation failed: {error:#}")));
     }
 }

@@ -17,6 +17,7 @@ pub struct Media {
     context: AudioContext,
     pub original: Channel,
     stems: BTreeMap<StemId, Channel>,
+    kit: Option<Channel>,
     master: GainNode,
 }
 fn err(value: wasm_bindgen::JsValue) -> anyhow::Error {
@@ -34,7 +35,7 @@ pub async fn duration(bytes: &[u8]) -> Result<f64> {
     result
 }
 /// Use Rust codecs first. Browser-only codecs such as Opus stay local too.
-async fn decode(context: &AudioContext, bytes: &[u8]) -> Result<crate::audio_decode::Pcm> {
+pub async fn decode(context: &AudioContext, bytes: &[u8]) -> Result<crate::audio_decode::Pcm> {
     match crate::audio_decode::decode(bytes).await {
         Ok(pcm) => Ok(pcm),
         Err(rust_error) => {
@@ -73,6 +74,7 @@ async fn decode(context: &AudioContext, bytes: &[u8]) -> Result<crate::audio_dec
             Ok(crate::audio_decode::Pcm {
                 stereo,
                 rate: buffer.sample_rate() as u32,
+                channels: buffer.number_of_channels() as usize,
             })
         }
     }
@@ -138,7 +140,7 @@ impl Media {
             "The recording duration differs from the project"
         );
         let original_waveform = Waveform::from_stereo(&pcm.stereo, pcm.rate);
-        let original = channel(&context, &master, &source, &pcm.wave()?)?;
+        let original = channel(&context, &master, &source, &pcm.float_wave()?)?;
         drop(pcm);
         let mut stems = BTreeMap::new();
         let mut waveforms = BTreeMap::new();
@@ -171,11 +173,24 @@ impl Media {
                 waveforms.insert(asset.id, Waveform::from_stereo(&pcm.stereo, pcm.rate));
                 stems.insert(
                     asset.id,
-                    channel(&context, &master, &asset.path, &pcm.wave()?)?,
+                    channel(&context, &master, &asset.path, &pcm.float_wave()?)?,
                 );
                 drop(pcm);
             }
         }
+        let kit = if let Some(selected) = &doc.kit_audition {
+            let path = crate::part_analysis::prepared_kit_path(store, doc, selected)?;
+            let pcm = decode(&context, crate::storage::shared(&path)?.as_slice()).await?;
+            ensure!(
+                pcm.rate == 44100
+                    && pcm.channels == 2
+                    && pcm.stereo.len() as u64 == selected.frames * 2,
+                "Saved kit audio has another sample clock"
+            );
+            Some(channel(&context, &master, &path, &pcm.float_wave()?)?)
+        } else {
+            None
+        };
         for _ in 0..3000 {
             if original.element.ready_state() >= 1 {
                 break;
@@ -190,6 +205,7 @@ impl Media {
             context,
             original,
             stems,
+            kit,
             master,
         };
         media.set_rate(doc.transport.playback_rate);
@@ -204,7 +220,7 @@ impl Media {
             !media.original.element.seeking(),
             "The browser could not finish seeking the recording"
         );
-        media.mix(&doc.content.stem_mix, 0.7);
+        media.mix(&doc.content.stem_mix, 0.7, doc.kit_audition.is_some());
         let notice = if missing > 0 {
             format!(
                 "{missing} external stems are missing. Attach matching stem files to audition them."
@@ -232,7 +248,10 @@ impl Media {
     }
     pub fn play(&self) -> Result<()> {
         let _ = self.context.resume().map_err(err)?;
-        for channel in std::iter::once(&self.original).chain(self.stems.values()) {
+        for channel in std::iter::once(&self.original)
+            .chain(self.stems.values())
+            .chain(self.kit.iter())
+        {
             let promise = channel.element.play().map_err(err)?;
             wasm_bindgen_futures::spawn_local(async move {
                 let _ = JsFuture::from(promise).await;
@@ -241,35 +260,44 @@ impl Media {
         Ok(())
     }
     pub fn pause(&self) {
-        for channel in std::iter::once(&self.original).chain(self.stems.values()) {
+        for channel in std::iter::once(&self.original)
+            .chain(self.stems.values())
+            .chain(self.kit.iter())
+        {
             let _ = channel.element.pause();
         }
     }
     pub fn seek(&self, position: f64) {
-        for channel in std::iter::once(&self.original).chain(self.stems.values()) {
+        for channel in std::iter::once(&self.original)
+            .chain(self.stems.values())
+            .chain(self.kit.iter())
+        {
             channel.element.set_current_time(position.max(0.));
         }
     }
     pub fn set_rate(&self, rate: f64) {
-        for channel in std::iter::once(&self.original).chain(self.stems.values()) {
+        for channel in std::iter::once(&self.original)
+            .chain(self.stems.values())
+            .chain(self.kit.iter())
+        {
             channel.element.set_playback_rate(rate);
         }
     }
-    pub fn mix(&self, mix: &StemMix, volume: f32) {
+    pub fn mix(&self, mix: &StemMix, volume: f32, kit: bool) {
         self.master.gain().set_value(volume);
         let prepared = mix.prepare(self.stems.keys().copied()).ok();
-        self.original.gain.gain().set_value(
-            if mix.mode == MixMode::Original || self.stems.is_empty() {
-                1.
-            } else {
-                0.
-            },
-        );
+        self.original.gain.gain().set_value(if kit {
+            0.
+        } else if mix.mode == MixMode::Original || self.stems.is_empty() {
+            1.
+        } else {
+            0.
+        });
         for (id, channel) in &self.stems {
             channel
                 .gain
                 .gain()
-                .set_value(if mix.mode == MixMode::Original {
+                .set_value(if kit || mix.mode == MixMode::Original {
                     0.
                 } else {
                     prepared
@@ -279,10 +307,13 @@ impl Media {
                         .unwrap_or(0.)
                 });
         }
+        if let Some(channel) = &self.kit {
+            channel.gain.gain().set_value(if kit { 1. } else { 0. });
+        }
     }
     pub fn synchronize(&self) {
         let position = self.position();
-        for channel in self.stems.values() {
+        for channel in self.stems.values().chain(self.kit.iter()) {
             if channel.element.ready_state() >= 1
                 && (channel.element.current_time() - position).abs() > 0.03
             {

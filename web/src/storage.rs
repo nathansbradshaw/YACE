@@ -95,6 +95,9 @@ pub fn read_to_string(path: impl AsRef<Path>) -> io::Result<String> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
 }
 pub fn write(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> {
+    write_owned(path, bytes.as_ref().to_vec())
+}
+pub fn write_owned(path: impl AsRef<Path>, bytes: Vec<u8>) -> io::Result<()> {
     invalidate(path.as_ref())?;
     DIRTY.with(|dirty| {
         dirty.borrow_mut().insert(path.as_ref().to_owned());
@@ -102,7 +105,7 @@ pub fn write(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> 
     FILES.with(|files| {
         files
             .borrow_mut()
-            .insert(path.as_ref().to_owned(), Arc::new(bytes.as_ref().to_vec()));
+            .insert(path.as_ref().to_owned(), Arc::new(bytes));
     });
     Ok(())
 }
@@ -241,4 +244,103 @@ pub fn unique_id() -> String {
         .unwrap()
         .to_string_lossy()
         .into_owned()
+}
+
+// These read-only filesystem views let the same saved-kit validator run on
+// browser imports. The working set cannot contain symlinks or device files.
+pub struct Metadata {
+    file: bool,
+    length: u64,
+}
+impl Metadata {
+    pub fn is_file(&self) -> bool {
+        self.file
+    }
+    pub fn is_dir(&self) -> bool {
+        !self.file
+    }
+    pub fn len(&self) -> u64 {
+        self.length
+    }
+    pub fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+    pub fn modified(&self) -> io::Result<std::time::SystemTime> {
+        Ok(std::time::UNIX_EPOCH)
+    }
+}
+pub fn symlink_metadata(path: impl AsRef<Path>) -> io::Result<Metadata> {
+    let path = path.as_ref();
+    if is_file(path) {
+        Ok(Metadata {
+            file: true,
+            length: shared(path)?.len() as u64,
+        })
+    } else if exists(path) {
+        Ok(Metadata {
+            file: false,
+            length: 0,
+        })
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Project path is missing",
+        ))
+    }
+}
+pub struct DirEntry(PathBuf);
+impl DirEntry {
+    pub fn path(&self) -> PathBuf {
+        self.0.clone()
+    }
+    pub fn file_name(&self) -> std::ffi::OsString {
+        self.0.file_name().unwrap_or_default().to_owned()
+    }
+    pub fn file_type(&self) -> io::Result<Metadata> {
+        symlink_metadata(&self.0)
+    }
+}
+pub fn read_dir(root: impl AsRef<Path>) -> io::Result<std::vec::IntoIter<io::Result<DirEntry>>> {
+    let root = root.as_ref();
+    if !exists(root) {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Project folder is missing",
+        ));
+    }
+    let children: BTreeSet<_> = list(root)?
+        .iter()
+        .filter_map(|(path, _)| {
+            path.strip_prefix(root)
+                .ok()?
+                .components()
+                .next()
+                .map(|part| root.join(part.as_os_str()))
+        })
+        .collect();
+    Ok(children
+        .into_iter()
+        .map(|path| Ok(DirEntry(path)))
+        .collect::<Vec<_>>()
+        .into_iter())
+}
+pub struct File {
+    bytes: Arc<Vec<u8>>,
+    position: usize,
+}
+impl File {
+    pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+        Ok(Self {
+            bytes: shared(path)?,
+            position: 0,
+        })
+    }
+}
+impl std::io::Read for File {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let count = buffer.len().min(self.bytes.len() - self.position);
+        buffer[..count].copy_from_slice(&self.bytes[self.position..self.position + count]);
+        self.position += count;
+        Ok(count)
+    }
 }

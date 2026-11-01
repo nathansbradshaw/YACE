@@ -1,3 +1,7 @@
+#[path = "../../src/analysis_validation.rs"]
+pub mod analysis_validation;
+#[path = "../../src/archive_codec.rs"]
+pub mod archive_codec;
 pub mod audio_decode;
 #[path = "../../src/bass_analysis.rs"]
 pub mod bass_analysis;
@@ -5,6 +9,8 @@ pub mod bass_analysis;
 pub mod chart;
 #[path = "../../src/clean.rs"]
 pub mod clean;
+#[path = "../../src/clean_transcript.rs"]
+pub mod clean_transcript;
 #[path = "../../src/collaboration.rs"]
 pub mod collaboration;
 #[path = "../../src/collaboration_exchange.rs"]
@@ -13,6 +19,8 @@ pub mod collaboration_exchange;
 pub mod difficulty_links;
 #[path = "../../src/drum_articulation.rs"]
 pub mod drum_articulation;
+#[path = "../../src/drum_parts.rs"]
+pub mod drum_parts;
 #[path = "../../src/editor.rs"]
 pub mod editor;
 #[path = "../../src/editor_validation.rs"]
@@ -24,6 +32,8 @@ pub mod game_export;
 pub mod gameplay_view;
 #[path = "../../src/generated_rules.rs"]
 pub mod generated_rules;
+#[path = "../../src/guitar_attacks.rs"]
+pub mod guitar_attacks;
 #[path = "../../src/key_ranges.rs"]
 pub mod key_ranges;
 #[path = "../../src/keyboard_audio.rs"]
@@ -36,6 +46,8 @@ pub mod keyboard_voicing;
 pub mod keys;
 #[path = "../../src/kit_audition.rs"]
 pub mod kit_audition;
+#[path = "../../src/larsnet_receipt.rs"]
+pub mod larsnet;
 #[path = "../../src/mapping.rs"]
 pub mod mapping;
 #[path = "../../src/midi.rs"]
@@ -58,6 +70,8 @@ pub mod piano_model;
 pub mod pipeline;
 #[path = "../../src/pro_keys.rs"]
 pub mod pro_keys;
+#[path = "../../src/project_portability.rs"]
+pub mod project_portability;
 #[path = "../../src/refine.rs"]
 pub mod refine;
 #[path = "../../src/review.rs"]
@@ -70,6 +84,7 @@ pub mod sections;
 pub mod song_metadata;
 #[path = "../../src/star_power.rs"]
 pub mod star_power;
+pub mod stem_import;
 #[path = "../../src/stem_review.rs"]
 pub mod stem_review;
 pub mod storage;
@@ -90,9 +105,12 @@ pub mod vocal_review;
 pub mod vocals;
 #[path = "../../src/waveform.rs"]
 pub mod waveform;
+pub mod worker;
 
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
-    dioxus::launch(studio::App);
+    if web_sys::window().is_some() {
+        dioxus::launch(studio::App);
+    }
 }

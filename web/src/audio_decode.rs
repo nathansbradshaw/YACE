@@ -8,10 +8,65 @@ use symphonia::core::{
 pub struct Pcm {
     pub stereo: Vec<f32>,
     pub rate: u32,
+    pub channels: usize,
 }
 impl Pcm {
     pub fn duration(&self) -> f64 {
         self.stereo.len() as f64 / 2. / self.rate as f64
+    }
+    /// Windowed-sinc conversion preserves the source clock and filters content
+    /// above the new Nyquist frequency before downsampling analysis audio.
+    pub fn samples(&self, rate: u32, channels: u32) -> Result<Vec<f32>> {
+        ensure!(
+            rate > 0 && self.rate > 0 && [1, 2].contains(&channels),
+            "Invalid PCM format"
+        );
+        let frames = self.stereo.len() / 2;
+        ensure!(frames > 0, "Empty audio");
+        if rate == self.rate {
+            return Ok(if channels == 2 {
+                self.stereo.clone()
+            } else {
+                self.stereo
+                    .chunks_exact(2)
+                    .map(|s| (s[0] + s[1]) * 0.5)
+                    .collect()
+            });
+        }
+        let count =
+            ((frames as u64 * rate as u64 + self.rate as u64 / 2) / self.rate as u64) as usize;
+        let cutoff = (rate as f64 / self.rate as f64).min(1.) * 0.94;
+        let radius = (32. / cutoff).ceil() as i64;
+        let mut out = Vec::with_capacity(count * channels as usize);
+        for frame in 0..count {
+            let position = frame as f64 * self.rate as f64 / rate as f64;
+            let center = position.floor() as i64;
+            let mut sum = [0.; 2];
+            let mut weight = 0.;
+            for index in center - radius..=center + radius {
+                let distance = index as f64 - position;
+                let window = distance / radius as f64;
+                if window.abs() > 1. {
+                    continue;
+                }
+                let x = std::f64::consts::PI * distance * cutoff;
+                let sinc = if x.abs() < 1e-12 { 1. } else { x.sin() / x };
+                let w = sinc
+                    * (0.42
+                        + 0.5 * (std::f64::consts::PI * window).cos()
+                        + 0.08 * (2. * std::f64::consts::PI * window).cos());
+                let i = index.clamp(0, frames as i64 - 1) as usize * 2;
+                sum[0] += self.stereo[i] as f64 * w;
+                sum[1] += self.stereo[i + 1] as f64 * w;
+                weight += w;
+            }
+            if channels == 1 {
+                out.push(((sum[0] + sum[1]) * 0.5 / weight) as f32);
+            } else {
+                out.extend(sum.map(|s| (s / weight) as f32));
+            }
+        }
+        Ok(out)
     }
     pub fn wave(&self) -> Result<Vec<u8>> {
         let size = u32::try_from(
@@ -40,6 +95,40 @@ impl Pcm {
         }
         Ok(out)
     }
+    /// Export processing results without clipping or quantizing float samples.
+    pub fn float_wave(&self) -> Result<Vec<u8>> {
+        ensure!(
+            self.rate > 0
+                && !self.stereo.is_empty()
+                && self.stereo.len().is_multiple_of(2)
+                && self.stereo.iter().all(|v| v.is_finite()),
+            "Invalid stereo PCM"
+        );
+        let size = u32::try_from(
+            self.stereo
+                .len()
+                .checked_mul(4)
+                .context("Audio is too long")?,
+        )?;
+        ensure!(size <= u32::MAX - 36, "Audio exceeds WAV size limit");
+        let mut out = Vec::with_capacity(size as usize + 44);
+        out.extend(b"RIFF");
+        out.extend((size + 36).to_le_bytes());
+        out.extend(b"WAVEfmt ");
+        out.extend(16u32.to_le_bytes());
+        out.extend(3u16.to_le_bytes());
+        out.extend(2u16.to_le_bytes());
+        out.extend(self.rate.to_le_bytes());
+        out.extend((self.rate * 8).to_le_bytes());
+        out.extend(8u16.to_le_bytes());
+        out.extend(32u16.to_le_bytes());
+        out.extend(b"data");
+        out.extend(size.to_le_bytes());
+        for value in &self.stereo {
+            out.extend(value.to_le_bytes());
+        }
+        Ok(out)
+    }
 }
 pub async fn decode(bytes: &[u8]) -> Result<Pcm> {
     let source = MediaSourceStream::new(Box::new(Cursor::new(bytes.to_vec())), Default::default());
@@ -62,6 +151,7 @@ pub async fn decode(bytes: &[u8]) -> Result<Pcm> {
         symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
     let mut stereo = Vec::new();
     let mut rate = 0;
+    let mut source_channels = 0;
     #[cfg(target_arch = "wasm32")]
     let mut packets = 0;
     loop {
@@ -83,6 +173,11 @@ pub async fn decode(bytes: &[u8]) -> Result<Pcm> {
         );
         rate = spec.rate;
         let channels = spec.channels.count();
+        ensure!(
+            source_channels == 0 || source_channels == channels,
+            "Recording changes channel count"
+        );
+        source_channels = channels;
         ensure!(channels > 0, "Recording has no channels");
         let mut buffer = SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
         buffer.copy_interleaved_ref(decoded);
@@ -102,5 +197,9 @@ pub async fn decode(bytes: &[u8]) -> Result<Pcm> {
         rate > 0 && !stereo.is_empty() && stereo.iter().all(|v| v.is_finite()),
         "The recording did not decode to finite audio"
     );
-    Ok(Pcm { stereo, rate })
+    Ok(Pcm {
+        stereo,
+        rate,
+        channels: source_channels,
+    })
 }

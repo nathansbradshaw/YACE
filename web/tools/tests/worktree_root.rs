@@ -23,16 +23,14 @@ impl Drop for Server {
 
 #[test]
 fn one_cached_executable_serves_the_selected_worktree_not_its_compile_directory() {
-    let base = Fixture(
-        std::env::temp_dir().join(format!(
+    let base = Fixture(std::env::temp_dir().join(format!(
             "yace-worktree-test-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
-        )),
-    );
+        )));
     for name in ["first", "second"] {
         let root = base.0.join(name);
         fs::create_dir_all(root.join("web/tools")).unwrap();

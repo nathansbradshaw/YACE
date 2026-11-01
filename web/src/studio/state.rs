@@ -28,6 +28,7 @@ pub struct Studio {
     pub playhead: Signal<f64>,
     pub audio_ready: Signal<bool>,
     pub audio_stalled: Signal<bool>,
+    pub kit_audition_busy: Signal<Option<String>>,
     pub status: Signal<String>,
     pub error: Signal<Option<String>>,
     pub clean_open: Signal<bool>,
@@ -79,6 +80,7 @@ pub fn use_studio() -> Studio {
         playhead: use_signal(|| 0.),
         audio_ready: use_signal(|| false),
         audio_stalled: use_signal(|| false),
+        kit_audition_busy: use_signal(|| None),
         status: use_signal(|| "Open a song folder, song ZIP or saved project".into()),
         error: use_signal(|| None),
         clean_open: use_signal(|| false),
@@ -184,7 +186,11 @@ impl Studio {
                     && let Some(media) = self.media.read().as_ref()
                 {
                     media.set_rate(doc.transport.playback_rate);
-                    media.mix(&doc.content.stem_mix, (self.volume)());
+                    media.mix(
+                        &doc.content.stem_mix,
+                        (self.volume)(),
+                        doc.kit_audition.is_some(),
+                    );
                     if seek {
                         media.seek(doc.transport.position);
                         self.view_start.set(
@@ -237,8 +243,95 @@ impl Studio {
     pub fn update_volume(mut self, value: f32) {
         self.volume.set(value.clamp(0., 1.));
         if let (Some(doc), Some(media)) = (self.snapshot(), self.media.read().as_ref()) {
-            media.mix(&doc.content.stem_mix, (self.volume)());
+            media.mix(
+                &doc.content.stem_mix,
+                (self.volume)(),
+                doc.kit_audition.is_some(),
+            );
         }
+    }
+    pub fn audition_kit_part(mut self, part: String, start: Option<f64>) {
+        let Some(store) = self.store.read().clone() else {
+            return;
+        };
+        if self.kit_audition_busy.read().is_some() {
+            return;
+        }
+        let position = start.unwrap_or_else(|| self.current_audio_position());
+        self.dispatch(Action::Playback { playing: false });
+        self.seek(position);
+        if self
+            .snapshot()
+            .is_some_and(|doc| doc.content.tracks.contains_key("ExpertDrums"))
+        {
+            self.dispatch(Action::SelectTrack {
+                track: "ExpertDrums".into(),
+            });
+        }
+        let Some(doc) = self.snapshot() else { return };
+        self.epoch.set((self.epoch)().wrapping_add(1));
+        let epoch = (self.epoch)();
+        self.kit_audition_busy.set(Some(part.clone()));
+        self.error.set(None);
+        spawn(async move {
+            let result = async {
+                let selected: crate::part_analysis::KitAudition = crate::worker::run(
+                    crate::worker::Task::SelectKit {
+                        root: store.root.clone(),
+                        project: Box::new(doc.as_ref().clone()),
+                        audio: store.audio_path(&doc)?,
+                        part: part.clone(),
+                    },
+                    std::slice::from_ref(&store.root),
+                )
+                .await?;
+                ensure!(
+                    (self.epoch)() == epoch
+                        && self
+                            .store
+                            .read()
+                            .as_ref()
+                            .is_some_and(|s| s.root == store.root),
+                    "Project changed while preparing kit audio"
+                );
+                crate::part_analysis::remember_selection(&store, &doc, selected)?;
+                store.apply(Request {
+                    expected_revision: doc.revision,
+                    actor: Actor {
+                        kind: ActorKind::Human,
+                        name: (self.reviewer)(),
+                    },
+                    action: Action::SetKitAudition { part: Some(part) },
+                })?;
+                self.reload(false);
+                self.dirty.set(true);
+                let current = self.snapshot().context("Project closed")?;
+                let (media, waves, notice) = Media::load(&store, &current).await?;
+                if (self.epoch)() != epoch {
+                    return Ok(());
+                }
+                if let Some(old) = self.media.read().as_ref() {
+                    old.pause();
+                }
+                self.media.set(Some(Rc::new(media)));
+                self.waveforms.set(Some(Arc::new(waves)));
+                self.audio_ready.set(true);
+                self.stem_status.set(notice);
+                self.seek(position);
+                self.dispatch(Action::Playback { playing: true });
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+            if (self.epoch)() == epoch {
+                self.kit_audition_busy.set(None);
+                if let Err(error) = result {
+                    self.dispatch(Action::SetKitAudition { part: None });
+                    self.error.set(Some(format!(
+                        "Kit playback failed; original audio remains available: {error:#}"
+                    )));
+                }
+            }
+        });
     }
     pub fn tick(mut self) {
         let Some(doc) = self.snapshot() else { return };
@@ -249,6 +342,8 @@ impl Studio {
             return;
         };
         let mut position = media.position();
+        self.audio_stalled
+            .set(!media.ended() && media.original.element.ready_state() < 3);
         if let Some(range) = doc.transport.loop_range {
             if position >= range.end {
                 media.seek(range.start);
@@ -274,6 +369,12 @@ impl Studio {
     }
     pub fn create_dialog(self) {
         self.import(true);
+    }
+    pub fn import_song(self) {
+        self.import(false);
+    }
+    pub fn open_zip(self) {
+        self.open_dialog();
     }
     pub fn new_chart(mut self) {
         spawn(async move {
@@ -314,6 +415,10 @@ impl Studio {
             }
         });
     }
+    pub fn cancel_new_chart(mut self, root: &std::path::Path) {
+        crate::storage::clear(root);
+        self.new_song.set(None);
+    }
     pub async fn finish_new_chart(
         mut self,
         root: PathBuf,
@@ -321,33 +426,9 @@ impl Studio {
         artist: String,
         bpm: f64,
     ) -> Result<()> {
-        ensure!(
-            !title.trim().is_empty() && !artist.trim().is_empty(),
-            "Enter a title and artist"
-        );
-        ensure!(
-            !title.chars().chain(artist.chars()).any(char::is_control),
-            "Title and artist must be single lines"
-        );
-        ensure!(
-            bpm.is_finite() && (1. ..=1000.).contains(&bpm),
-            "Tempo must be 1–1000 BPM"
-        );
-        let metadata = BTreeMap::from([
-            ("name".into(), title.trim().into()),
-            ("artist".into(), artist.trim().into()),
-        ]);
-        crate::storage::write(
-            root.join("song.ini"),
-            crate::pipeline::update_ini("[song]\n", &metadata),
-        )?;
-        let tempo = (bpm * 1000.).round() as u32;
-        crate::storage::write(
-            root.join("notes.chart"),
-            format!(
-                "[Song]\n{{\n  Resolution = 480\n}}\n[SyncTrack]\n{{\n  0 = B {tempo}\n  0 = TS 4\n}}\n[Events]\n{{\n}}\n[ExpertSingle]\n{{\n}}\n"
-            ),
-        )?;
+        let (ini, chart) = crate::song_metadata::blank_song(&title, &artist, bpm)?;
+        crate::storage::write(root.join("song.ini"), ini)?;
+        crate::storage::write(root.join("notes.chart"), chart)?;
         self.status.set("Preparing new chart…".into());
         self.open_project(root.clone()).await?;
         crate::storage::clear(&root);
@@ -395,9 +476,44 @@ impl Studio {
             root
         };
         let store = Store::new(&root);
+        if saved_revision.is_none() {
+            self.status
+                .set("Preparing portable project history…".into());
+            let _: Vec<PathBuf> = crate::worker::run(
+                crate::worker::Task::Relocate { root: root.clone() },
+                std::slice::from_ref(&root),
+            )
+            .await?;
+        }
         let mut doc = store.load()?;
         doc.transport.playing = false;
-        doc.kit_audition = None;
+        let mut kit_notice = None;
+        if let Some(selected) = doc.kit_audition.clone() {
+            let prepared = async {
+                let prepared: crate::part_analysis::KitAudition = crate::worker::run(
+                    crate::worker::Task::SelectKit {
+                        root: root.clone(),
+                        project: Box::new(doc.clone()),
+                        audio: store.audio_path(&doc)?,
+                        part: selected.part,
+                    },
+                    std::slice::from_ref(&root),
+                )
+                .await?;
+                crate::part_analysis::remember_selection(&store, &doc, prepared.clone())?;
+                Ok::<_, anyhow::Error>(prepared)
+            }
+            .await;
+            match prepared {
+                Ok(selected) => doc.kit_audition = Some(selected),
+                Err(error) => {
+                    doc.kit_audition = None;
+                    kit_notice = Some(format!(
+                        "Saved kit unavailable; using original audio: {error:#}"
+                    ));
+                }
+            }
+        }
         crate::storage::write(root.join("project.json"), serde_json::to_vec(&doc)?)?;
         // Resolve archived/imported stems by content, never by a server filesystem path.
         restore_stem_aliases(&store, &doc)?;
@@ -442,7 +558,7 @@ impl Studio {
         self.waveforms.set(Some(Arc::new(waves)));
         self.media.set(Some(Rc::new(media)));
         self.audio_ready.set(true);
-        self.stem_status.set(notice);
+        self.stem_status.set(kit_notice.unwrap_or(notice));
         self.status.set("Ready · files stay in this browser".into());
         Ok(())
     }
@@ -484,13 +600,94 @@ impl Studio {
         }
     }
     pub fn attach_stems_dialog(mut self) {
+        let expected_root = self.store.read().as_ref().map(|store| store.root.clone());
+        let keyboard = !self.is_vocal_track()
+            && self.snapshot().is_some_and(|doc| {
+                crate::keys::is_keys(&doc.selected_track) && doc.content.keyboard_stems.is_some()
+            });
         spawn(async move {
             let result = async {
                 let Some(files) = crate::files::pick(true, "").await? else {
                     return Ok(());
                 };
                 let store = self.store.read().clone().context("Open a project")?;
+                ensure!(
+                    Some(&store.root) == expected_root.as_ref(),
+                    "The active project changed; choose stems again"
+                );
                 let doc = self.snapshot().context("Open a project")?;
+                let output = store
+                    .root
+                    .join("assets/stems")
+                    .join(crate::storage::unique_id());
+                let attachment = async {
+                    let Some(manifest) = crate::stem_import::manifest(&files, &doc, &output)?
+                    else {
+                        return Ok(false);
+                    };
+                    self.stem_status
+                        .set("Validating supplied stems locally…".into());
+                    let manifest: StemManifest = crate::worker::run(
+                        crate::worker::Task::ValidateStems {
+                            audio: store.audio_path(&doc)?,
+                            manifest,
+                        },
+                        std::slice::from_ref(&output),
+                    )
+                    .await?;
+                    crate::models::remember_stems(&manifest)?;
+                    let path = output.join("manifest.json");
+                    crate::storage::write(&path, serde_json::to_vec_pretty(&manifest)?)?;
+                    let mut candidate = doc.as_ref().clone();
+                    if keyboard {
+                        candidate.content.keyboard_stems = Some(manifest);
+                    } else {
+                        candidate.content.stems = Some(manifest);
+                    }
+                    candidate.content.stem_mix = Default::default();
+                    candidate.kit_audition = None;
+                    candidate.transport.playing = false;
+                    let (media, waves, notice) = Media::load(&store, &candidate).await?;
+                    ensure!(
+                        self.store
+                            .read()
+                            .as_ref()
+                            .is_some_and(|s| s.root == store.root),
+                        "The active project changed during stem validation"
+                    );
+                    store.apply(Request {
+                        expected_revision: doc.revision,
+                        actor: Actor {
+                            kind: ActorKind::Human,
+                            name: (self.reviewer)(),
+                        },
+                        action: if keyboard {
+                            Action::AttachKeyboardStems { manifest: path }
+                        } else {
+                            Action::AttachStems { manifest: path }
+                        },
+                    })?;
+                    if let Some(old) = self.media.read().as_ref() {
+                        old.pause();
+                    }
+                    self.media.set(Some(Rc::new(media)));
+                    self.waveforms.set(Some(Arc::new(waves)));
+                    self.reload(false);
+                    self.dirty.set(true);
+                    self.audio_ready.set(true);
+                    self.stem_status.set(notice);
+                    self.error.set(None);
+                    Ok::<_, anyhow::Error>(true)
+                }
+                .await;
+                match attachment {
+                    Ok(true) => return Ok(()),
+                    Ok(false) => crate::storage::clear(&output),
+                    Err(error) => {
+                        crate::storage::clear(&output);
+                        return Err(error);
+                    }
+                }
                 let mut matched = 0;
                 for manifest in doc
                     .content
@@ -610,7 +807,7 @@ impl Studio {
     }
 }
 fn restore_stem_aliases(store: &Store, doc: &Project) -> Result<()> {
-    let source = crate::storage::list(&store.root.join("source/stems"))?;
+    let source = crate::storage::list(&store.root)?;
     if source.is_empty() {
         return Ok(());
     }

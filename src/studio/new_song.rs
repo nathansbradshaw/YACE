@@ -11,8 +11,7 @@ pub fn Setup(mut studio: Studio, root: PathBuf, suggested_title: String) -> Elem
     let cancel_root = root.clone();
     let close = use_callback(move |_: ()| {
         if !busy() {
-            crate::storage::clear(&cancel_root);
-            studio.new_song.set(None);
+            studio.cancel_new_chart(&cancel_root);
             studio.error.set(None);
         }
     });

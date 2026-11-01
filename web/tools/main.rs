@@ -19,6 +19,21 @@ fn run(command: &mut Command) -> Result<()> {
     }
     Ok(())
 }
+fn copy_source(from: &Path, to: &Path) -> Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_source(&entry.path(), &to.join(entry.file_name()))?;
+        } else if kind.is_file() {
+            fs::copy(entry.path(), to.join(entry.file_name()))?;
+        } else {
+            return Err("Covered source cannot contain symbolic links".into());
+        }
+    }
+    Ok(())
+}
 fn build(root: &Path) -> Result<()> {
     let target = env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
@@ -42,6 +57,11 @@ fn build(root: &Path) -> Result<()> {
         .args(["--target", "web", "--no-typescript", "--out-dir"])
         .arg(&dist))?;
     fs::copy(root.join("web/index.html"), dist.join("index.html"))?;
+    fs::copy(root.join("web/worker.js"), dist.join("worker.js"))?;
+    copy_source(
+        &root.join("vendor/symphonia-codec-vorbis"),
+        &dist.join("sources/symphonia-codec-vorbis"),
+    )?;
     for name in ["LICENSE", "THIRD_PARTY.md"] {
         fs::copy(root.join(name), dist.join(name))?;
     }

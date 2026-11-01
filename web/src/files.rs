@@ -2,7 +2,6 @@
 use anyhow::{Context, Result, ensure};
 use std::{
     cell::RefCell,
-    io::{Cursor, Read, Write},
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -99,42 +98,7 @@ pub fn unpack(files: Files) -> Result<Files> {
     if files.len() != 1 || !files[0].0.to_ascii_lowercase().ends_with(".zip") {
         return Ok(files);
     }
-    let mut zip = zip::ZipArchive::new(Cursor::new(&files[0].1))?;
-    ensure!(
-        !zip.is_empty() && zip.len() <= 4096,
-        "Invalid archive entry count"
-    );
-    let mut result = Vec::new();
-    let mut total = 0u64;
-    for index in 0..zip.len() {
-        let entry = zip.by_index(index)?;
-        ensure!(!entry.is_symlink(), "Archive symlinks are unsupported");
-        let path = entry
-            .enclosed_name()
-            .context("Archive path leaves the project")?;
-        if entry.is_dir() {
-            continue;
-        }
-        total = total
-            .checked_add(entry.size())
-            .context("Archive size overflow")?;
-        ensure!(
-            total <= 1024 * 1024 * 1024,
-            "Expanded archive exceeds 1 GiB"
-        );
-        let name = path.to_string_lossy().replace('\\', "/");
-        if name.starts_with("__MACOSX/") {
-            continue;
-        }
-        let mut bytes = Vec::new();
-        entry.take(1024 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
-        ensure!(
-            bytes.len() <= 1024 * 1024 * 1024,
-            "Archive entry exceeds 1 GiB"
-        );
-        result.push((name, bytes));
-    }
-    Ok(result)
+    crate::archive_codec::decode(&files[0].1)
 }
 pub fn mount(root: &Path, files: Files) -> Result<()> {
     for (name, bytes) in files {
@@ -148,32 +112,27 @@ pub fn mount(root: &Path, files: Files) -> Result<()> {
         );
         let target = root.join(path);
         ensure!(!crate::storage::is_file(&target), "Duplicate project path");
-        crate::storage::write(target, bytes)?;
+        crate::storage::write_owned(target, bytes)?;
     }
     Ok(())
 }
 pub fn archive(root: &Path) -> Result<Vec<u8>> {
-    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    for (path, bytes) in crate::storage::list(root)? {
-        let name = path
-            .strip_prefix(root)?
-            .to_string_lossy()
-            .replace('\\', "/");
-        let text = path
-            .extension()
-            .and_then(|v| v.to_str())
-            .is_some_and(|v| matches!(v, "json" | "chart" | "ini" | "txt"));
-        zip.start_file(
-            name,
-            zip::write::SimpleFileOptions::default().compression_method(if text {
-                zip::CompressionMethod::Deflated
-            } else {
-                zip::CompressionMethod::Stored
-            }),
-        )?;
-        zip.write_all(&bytes)?;
-    }
-    Ok(zip.finish()?.into_inner())
+    let files = crate::storage::list(root)?
+        .into_iter()
+        .map(|(path, bytes)| {
+            Ok((
+                path.strip_prefix(root)?
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                bytes,
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    crate::archive_codec::encode(
+        files
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+    )
 }
 pub fn download(name: &str, bytes: &[u8]) -> Result<()> {
     let chunks = js_sys::Array::new();

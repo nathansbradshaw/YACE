@@ -2,20 +2,27 @@
 //! Matching and rendering stay in the model-free clean core and CLI contract.
 use super::dialogs as rfd;
 use super::state::Studio;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::clean::RenderRequest;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::clean_recognition;
+use crate::storage as fs;
 use crate::{
     clean::{
-        self, CleanMode, CleanPlan, CleanPolicy, CleanReceipt, MuteRange, RenderRequest,
-        StemAlignment, WordTimings,
+        self, CleanMode, CleanPlan, CleanPolicy, CleanReceipt, MuteRange, StemAlignment,
+        WordTimings,
     },
-    clean_recognition::{self, Control, Recognition},
+    clean_transcript::{self, Control, Recognition},
     editor::{Action, TimeRange},
     models,
 };
-use anyhow::{Context, Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
+use anyhow::Context;
+use anyhow::{Result, ensure};
 use dioxus::prelude::*;
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::Write;
 use std::{
-    fs,
-    io::Write,
     path::{Component, Path, PathBuf},
     sync::Arc,
 };
@@ -134,6 +141,7 @@ fn check_source(path: &Path, hash: &str) -> Result<()> {
     );
     Ok(())
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn save_new(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path
         .parent()
@@ -146,6 +154,10 @@ fn save_new(path: &Path, bytes: &[u8]) -> Result<()> {
         .map_err(|error| error.error)
         .context("Choose a new filename; existing plans are preserved")?;
     Ok(())
+}
+#[cfg(target_arch = "wasm32")]
+fn save_new(path: &Path, bytes: &[u8]) -> Result<()> {
+    Ok(fs::write_new(path, bytes)?)
 }
 
 fn job(
@@ -164,9 +176,15 @@ fn job(
         view.error = None;
     });
     spawn(async move {
+        #[cfg(not(target_arch = "wasm32"))]
         let result = match tokio::task::spawn_blocking(task).await {
             Ok(result) => result,
             Err(error) => Err(error.into()),
+        };
+        #[cfg(target_arch = "wasm32")]
+        let result = {
+            gloo_timers::future::TimeoutFuture::new(0).await;
+            task()
         };
         if !current(data, &source, epoch) {
             return;
@@ -342,6 +360,7 @@ fn build(studio: Studio, data: Signal<View>, source: PathBuf, epoch: u64) {
 
 /// Recognition runs off the UI thread. Source changes and Cancel stop inference;
 /// no result from a previous recording can replace the current panel state.
+#[cfg(not(target_arch = "wasm32"))]
 fn detect_automatic(mut studio: Studio, mut data: Signal<View>, source: PathBuf, epoch: u64) {
     if !current(data, &source, epoch) || data.read().busy.is_some() {
         return;
@@ -471,6 +490,10 @@ fn detect_automatic(mut studio: Studio, mut data: Signal<View>, source: PathBuf,
         }
     });
 }
+#[cfg(target_arch = "wasm32")]
+fn detect_automatic(mut studio: Studio, _data: Signal<View>, _source: PathBuf, _epoch: u64) {
+    studio.error.set(Some("Automatic recognition requires a native model backend. Load supplied word timings or a clean plan.".into()));
+}
 fn render(studio: Studio, data: Signal<View>, source: PathBuf, epoch: u64) {
     let view = data.read().clone();
     let Some(output) = view.output() else { return };
@@ -491,6 +514,7 @@ fn render(studio: Studio, data: Signal<View>, source: PathBuf, epoch: u64) {
         None
     };
     let audio = source.clone();
+    #[cfg(not(target_arch = "wasm32"))]
     job(
         studio,
         data,
@@ -508,6 +532,51 @@ fn render(studio: Studio, data: Signal<View>, source: PathBuf, epoch: u64) {
             Ok(Update::Rendered(receipt, output))
         },
     );
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut data = data;
+        let mut studio = studio;
+        if !current(data, &source, epoch) || data.read().busy.is_some() {
+            return;
+        }
+        data.with_mut(|view| {
+            view.busy = Some("Rendering separate clean audio…".into());
+            view.error = None;
+        });
+        spawn(async move {
+            let task = crate::worker::Task::Clean {
+                audio: audio.clone(),
+                plan,
+                stem,
+                alignment,
+                output: output.clone(),
+            };
+            let result = crate::worker::run::<CleanReceipt>(task, &[])
+                .await
+                .map(|receipt| Update::Rendered(receipt, output.with_extension("zip")));
+            if !current(data, &source, epoch) {
+                fs::clear(&output);
+                return;
+            }
+            data.with_mut(|view| {
+                view.busy = None;
+                match result {
+                    Ok(Update::Rendered(receipt, path)) => {
+                        view.status =
+                            "Clean candidate ready. Download the copy and listen before accepting it.".into();
+                        view.receipt = Some((receipt, path));
+                    }
+                    Ok(_) => unreachable!(),
+                    Err(error) => view.error = Some(format!("{error:#}")),
+                }
+            });
+            if let Some(error) = data.read().error.clone() {
+                studio.error.set(Some(error));
+            } else {
+                studio.status.set(data.read().status.clone());
+            }
+        });
+    }
 }
 
 fn set_range(mut data: Signal<View>, index: usize, change: impl FnOnce(&mut MuteRange)) {
@@ -656,17 +725,18 @@ pub fn CleanPanel(studio: Studio) -> Element {
                         div{class:"form-section",
                             h3{class:"clean-step","1. Find words"}
                             div{class:"clean-actions",
-                                button{class:"action-primary",disabled:policy.validate().is_err(),onclick:move|_|{if let Some(audio)=(studio.source_audio)(){detect_automatic(studio,data,audio,epoch);}},"Find explicit words"}
+                                button{class:"action-primary",disabled:cfg!(target_arch="wasm32") || policy.validate().is_err(),title:if cfg!(target_arch="wasm32"){ "Automatic recognition requires native model backends" }else{ "Recognize lyrics locally" },onclick:move|_|{if let Some(audio)=(studio.source_audio)(){detect_automatic(studio,data,audio,epoch);}},"Find explicit words"}
                                 if plan_valid { button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){save_plan(studio,data,audio,epoch);}},"Save plan…"} }
                             }
-                            p{class:"field-hint","English only · runs locally · 190 MB model download on first use. Finding again replaces your ranges."}
+                            if cfg!(target_arch="wasm32"){p{class:"field-hint","Load word timings or a clean plan to edit and render locally. Automatic recognition is unavailable in this browser build."}}
+                            else{p{class:"field-hint","English only · runs locally · 190 MB model download on first use. Finding again replaces your ranges."}}
                             details { summary { "Use saved files" }
                             div { class: "clean-actions",
                                 button{"data-browser-pick":"file","data-browser-accept":".json",class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){load_words(studio,data,audio,epoch);}},"Load word timings…"}
                                 button{"data-browser-pick":"file","data-browser-accept":".json",class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){load_plan(studio,data,audio,epoch);}},"Load clean plan…"}
                             }
                             }
-                            if let Some(recognition)=&view.recognition{details{summary{"Recognized lyrics · automatic estimates"}p{class:"field-hint","{clean_recognition::RECOGNITION_WARNING}"}p{class:"field-hint","{recognition.words.words.iter().filter_map(|word|word.text.as_deref()).collect::<Vec<_>>().join(\" \")}"}}}
+                            if let Some(recognition)=&view.recognition{details{summary{"Recognized lyrics · automatic estimates"}p{class:"field-hint","{clean_transcript::RECOGNITION_WARNING}"}p{class:"field-hint","{recognition.words.words.iter().filter_map(|word|word.text.as_deref()).collect::<Vec<_>>().join(\" \")}"}}}
                             if let Some(words)=&view.words{p{class:"field-hint","{words.words.len()} words · {words.words.iter().filter(|word|word.text.is_none()).count()} unknown · {words.words.iter().filter(|word|word.start.is_none()).count()} untimed"}}
                             if let Some(path)=&view.word_path{p{class:"clean-path","{path.display()}"}}
                         }
@@ -737,7 +807,10 @@ pub fn CleanPanel(studio: Studio) -> Element {
                     if let Some(error)=&view.error{p{class:"clean-error",role:"alert","{error}"}}
                     if !view.status.is_empty(){p{class:"clean-status",role:"status","{view.status}"}}
                     if !busy && !ready { p { id: "clean-next-step", class: "clean-status", role: "status", "{next_step}" } }
-                    if let Some((receipt,path))=&view.receipt{details{summary{"Last export receipt"}p{class:"clean-path","{path.display()}"}p{class:"field-hint","{receipt.rendered_ranges.len()} ranges · {receipt.unresolved_matches} unresolved matches · {receipt.frames} stereo frames · peak {receipt.output_peak}"}for warning in &receipt.warnings{p{class:"field-hint","{warning}"}}}}
+                    if let Some((receipt,path))=&view.receipt{
+                        if cfg!(target_arch="wasm32") {button{class:"action-primary",onclick:{let path=path.clone();move |_|{let path=path.clone();spawn(async move{rfd::download(&path).await;});}},"Download last rendered copy"}}
+                        details{summary{"Last export receipt"}p{class:"clean-path","{path.display()}"}p{class:"field-hint","{receipt.rendered_ranges.len()} ranges · {receipt.unresolved_matches} unresolved matches · {receipt.frames} stereo frames · peak {receipt.output_peak}"}for warning in &receipt.warnings{p{class:"field-hint","{warning}"}}}
+                    }
 
     }
     }

@@ -18,7 +18,7 @@ required-features = ["browser"]
 default = ["separation", "editor", "vocal-alignment"]
 vocal-alignment = ["dep:practice-acoustic", "dep:whatlang"]
 studio = ["dep:dioxus", "dep:dioxus-document", "dep:tokio", "dep:base64"]
-editor = ["studio", "dioxus/desktop", "dep:rodio", "dep:rfd", "dep:arboard"]
+editor = ["studio", "dioxus/desktop", "dep:rodio", "dep:rfd", "dep:arboard", "dep:zip"]
 browser = ["studio", "dioxus/liveview", "dep:dioxus-liveview", "dep:axum", "dep:tower-http", "dep:getrandom", "dep:zip"]
 separation = ["dep:demucs-core", "dep:burn", "dep:pollster"]
 
@@ -70,5 +70,5 @@ candle-core = { path = "vendor/candle-core" }
 candle-core-legacy = { package = "candle-core", path = "vendor/candle-core-legacy" }
 
 [dev-dependencies]
-zip = { version = "9.1.3", default-features = false }
+zip = { version = "9.1.3", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 candle-core = { version = "=0.10.2", default-features = false }

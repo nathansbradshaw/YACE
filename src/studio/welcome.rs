@@ -9,7 +9,8 @@ pub fn Welcome(mut studio: Studio) -> Element {
                 h1 { "Start a chart project" }
                 p { class: "welcome-intro", "Start with audio, a chart, or a saved project." }
                 div { class: "welcome-actions", onkeydown: move |event| event.stop_propagation(),
-                    button { class: "welcome-action", onclick: move |_| studio.generation_open.set(true),
+                    button {class:"welcome-action",onclick:move |_|studio.new_chart(),Icon{name:"music",size:20}div{strong{"New chart from audio"}span{"Start a blank chart from a recording."}}}
+                    button { class: "welcome-action", disabled:cfg!(target_arch="wasm32"),title:if cfg!(target_arch="wasm32"){ "The current model backends cannot run in-browser" }else{ "Generate a draft from local audio" },onclick: move |_| studio.generation_open.set(true),
                         Icon { name: "music", size: 20 }
                         div { strong { "Import audio" } span { "Generate a chart draft from a recording." } }
                     }
@@ -17,6 +18,7 @@ pub fn Welcome(mut studio: Studio) -> Element {
                         Icon { name: "folder-open", size: 20 }
                         div { strong { "Open song folder" } span { "Edit an existing chart in a separate copy." } }
                     }
+                    button {class:"welcome-action",onclick:move |_|studio.import_song(),Icon{name:"folder-open",size:20}div{strong{"Import song ZIP"}span{"Open an existing chart and its recording."}}}
                     button { class: "welcome-action", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(),
                         Icon { name: "folder-open", size: 20 }
                         div { strong { "Open saved project" } span { if cfg!(feature="browser") {"Open a saved project ZIP."} else {"Continue editing a YACE project."} } }

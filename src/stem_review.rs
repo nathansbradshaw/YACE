@@ -2,15 +2,16 @@
 //! Keep alignment statements as source records; they do not prove separation
 //! quality or correct notes.
 use crate::models;
+use crate::storage as fs;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(not(target_arch = "wasm32"))]
+use std::process::Command;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
     ops::Range,
     path::{Path, PathBuf},
-    process::Command,
     sync::Arc,
 };
 
@@ -163,7 +164,7 @@ impl StemManifest {
     }
     /// Resolve paths relative to this manifest, never to an application's cwd.
     pub fn read(path: &Path) -> Result<Self> {
-        let path = path.canonicalize().context("Stem manifest is missing")?;
+        let path = fs::canonicalize(path).context("Stem manifest is missing")?;
         let mut manifest: Self = serde_json::from_slice(&fs::read(&path)?)?;
         for stem in &mut manifest.stems {
             if stem.path.is_relative() {
@@ -172,7 +173,7 @@ impl StemManifest {
                     .context("Manifest has no parent")?
                     .join(&stem.path);
             }
-            stem.path = stem.path.canonicalize().context("Stem file is missing")?;
+            stem.path = fs::canonicalize(&stem.path).context("Stem file is missing")?;
         }
         Ok(manifest)
     }
@@ -254,7 +255,10 @@ impl StemManifest {
         duration: f64,
     ) -> Result<Self> {
         self.validate_binding(expected_hash, duration)?;
+        #[cfg(not(target_arch = "wasm32"))]
         self.load(source)?;
+        #[cfg(target_arch = "wasm32")]
+        models::validate_stems(self, source)?;
         Ok(self.clone())
     }
     pub fn load(&self, source: &Path) -> Result<LoadedStems> {
@@ -275,14 +279,11 @@ impl StemManifest {
                     .context("Stem frame count overflow")?,
             "Manifest frame count does not match decoded source audio"
         );
-        let source_path = source.canonicalize()?;
+        let source_path = fs::canonicalize(source)?;
         let mut stems = BTreeMap::new();
         let mut resolved = BTreeSet::new();
         for asset in &self.stems {
-            let path = asset
-                .path
-                .canonicalize()
-                .context("Attached stem is missing")?;
+            let path = fs::canonicalize(&asset.path).context("Attached stem is missing")?;
             ensure!(
                 path != source_path && resolved.insert(path.clone()),
                 "Stem files must be distinct from the original and one another"
@@ -313,6 +314,7 @@ impl StemManifest {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn validate_stereo_format(path: &Path) -> Result<()> {
     let output = Command::new("ffprobe")
         .args([
@@ -338,6 +340,14 @@ fn validate_stereo_format(path: &Path) -> Result<()> {
         .context("Stem contains no audio")?;
     ensure!(
         stream["sample_rate"].as_str() == Some("44100") && stream["channels"].as_u64() == Some(2),
+        "Attached stems must already be 44100 Hz stereo; implicit resampling is not alignment evidence"
+    );
+    Ok(())
+}
+#[cfg(target_arch = "wasm32")]
+fn validate_stereo_format(path: &Path) -> Result<()> {
+    ensure!(
+        models::format(path)? == (SAMPLE_RATE, 2),
         "Attached stems must already be 44100 Hz stereo; implicit resampling is not alignment evidence"
     );
     Ok(())

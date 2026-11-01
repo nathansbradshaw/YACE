@@ -1,10 +1,11 @@
 //! Match supplied lyrics against a word policy and build editable clean-audio plans.
 //! Speech recognition and model loading happen outside this module.
+use crate::storage as fs;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 #[cfg(not(target_arch = "wasm32"))]
-use std::{fs, process::Command};
+use std::process::Command;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -614,10 +615,17 @@ fn require_stereo(path: &Path) -> Result<()> {
     );
     Ok(())
 }
+#[cfg(target_arch = "wasm32")]
+fn require_stereo(path: &Path) -> Result<()> {
+    ensure!(
+        crate::models::format(path)?.1 == 2,
+        "Clean renderer requires stereo input; refusing to silently upmix/downmix"
+    );
+    Ok(())
+}
 
 /// Decode using existing FFmpeg helpers, render without touching source files,
 /// then publish an entire new output directory atomically without replacement.
-#[cfg(not(target_arch = "wasm32"))]
 pub fn render(request: RenderRequest<'_>) -> Result<CleanReceipt> {
     request.plan.validate()?;
     crate::pipeline::destination(request.output, None)?;
@@ -659,17 +667,23 @@ pub fn render(request: RenderRequest<'_>) -> Result<CleanReceipt> {
         }
     };
     let clean = render_pcm_stereo(&original, vocal_stem.as_deref(), 44100, request.plan)?;
+    #[cfg(not(target_arch = "wasm32"))]
     let parent = request
         .output
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
+    #[cfg(not(target_arch = "wasm32"))]
     let stage = tempfile::Builder::new()
         .prefix(".chart-engine-clean-")
         .tempdir_in(parent)?;
     let left: Vec<_> = clean.chunks_exact(2).map(|s| s[0]).collect();
     let right: Vec<_> = clean.chunks_exact(2).map(|s| s[1]).collect();
-    let output_audio = stage.path().join("clean.wav");
+    #[cfg(not(target_arch = "wasm32"))]
+    let stage_path = stage.path();
+    #[cfg(target_arch = "wasm32")]
+    let stage_path = request.output;
+    let output_audio = stage_path.join("clean.wav");
     crate::models::write_audio(&output_audio, &left, &right)?;
     let mut warnings = request.plan.warnings.clone();
     warnings.push("This is a rendered clean candidate, not certification that every explicit word is removed. Review all edits and the full recording.".into());
@@ -683,9 +697,9 @@ pub fn render(request: RenderRequest<'_>) -> Result<CleanReceipt> {
     let receipt = CleanReceipt {
         version: 1,
         status: "rendered_candidate_requires_listening_review".into(),
-        source_audio: request.audio.canonicalize()?,
+        source_audio: fs::canonicalize(request.audio)?,
         source_sha256: source_sha256.clone(),
-        vocal_stem: request.vocal_stem.map(Path::canonicalize).transpose()?,
+        vocal_stem: request.vocal_stem.map(fs::canonicalize).transpose()?,
         vocal_stem_sha256: vocal_stem_sha256.clone(),
         alignment,
         output_sha256: crate::models::hash_file(&output_audio)?,
@@ -707,11 +721,11 @@ pub fn render(request: RenderRequest<'_>) -> Result<CleanReceipt> {
         warnings,
     };
     fs::write(
-        stage.path().join("plan.json"),
+        stage_path.join("plan.json"),
         serde_json::to_vec_pretty(request.plan)?,
     )?;
     fs::write(
-        stage.path().join("receipt.json"),
+        stage_path.join("receipt.json"),
         serde_json::to_vec_pretty(&receipt)?,
     )?;
     ensure!(
@@ -724,6 +738,7 @@ pub fn render(request: RenderRequest<'_>) -> Result<CleanReceipt> {
             "Vocal stem changed during rendering; output was not published"
         );
     }
+    #[cfg(not(target_arch = "wasm32"))]
     crate::pipeline::publish(stage.path(), request.output)?;
     Ok(receipt)
 }

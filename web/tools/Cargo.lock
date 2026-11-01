@@ -185,8 +185,6 @@ dependencies = [
 [[package]]
 name = "symphonia-codec-vorbis"
 version = "0.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f025837c309cd69ffef572750b4a2257b59552c5399a5e49707cc5b1b85d1c73"
 dependencies = [
  "log",
  "symphonia-core",

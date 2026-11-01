@@ -27,22 +27,22 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
                 if !artist.is_empty() { span { title: "{artist}", "{artist}" } }
             }
             nav { class: "project-actions", aria_label: "Chart workflow",
-                button { class: "project-generate", onclick: move |_| studio.generation_open.set(true), title: "Generate charts from local audio", Icon { name: "music", size: 15 } "Generate" }
+                button { class: "project-generate", disabled:cfg!(target_arch="wasm32"),onclick: move |_| studio.generation_open.set(true), title: if cfg!(target_arch="wasm32"){ "The current model backends cannot run in-browser" }else{ "Generate charts from local audio" }, Icon { name: "music", size: 15 } "Generate" }
                 button { disabled: !loaded, onclick: move |_| studio.review_open.set(true), title: "Review timed chart flags", Icon { name: "flag", size: 15 } "Review" }
                 button { disabled: !loaded, onclick: move |_| studio.export_dialog(), title: "Export a separate song folder", Icon { name: "export", size: 15 } "Export" }
             }
             button { "popovertarget": "project-tools", aria_label: "More tools", "Tools" Icon { name: "chevron-down", size: 12 } }
         }
         div { id: "project-actions", class: "command-popover project-popover", "popover": "auto", onkeydown: keep_space_local,
+            button { "popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|studio.new_chart(),Icon{name:"music",size:15}"New chart from audio…"}
             button { "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(), Icon { name: "folder-open", size: 15 } "Open saved project…" }
             button { "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(), Icon { name: "file-plus", size: 15 } "Create from song folder…" }
-            if cfg!(feature="browser") {
-                button { "popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.create_dialog(),"Import song ZIP…" }
-                button {disabled:!loaded,"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|{if let Some(store)=studio.store.read().clone(){spawn(async move{super::dialogs::download(&store.root).await;});}},"Save project ZIP…"}
-            }
+            if !cfg!(target_arch="wasm32") {button{"popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.open_zip(),"Import project ZIP…"}}
+            button { "popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.import_song(),"Import song ZIP…" }
+            button {disabled:!loaded,"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|studio.save_project(),"Save project ZIP…"}
         }
         div { id: "project-tools", class: "command-popover tools-popover", "popover": "auto", onkeydown: keep_space_local,
-            button { title: "Assistant for {title}", aria_label: "Chart assistant", disabled: !loaded, "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.assistant_open.set(true), "Chart assistant" }
+            button { title: if cfg!(target_arch="wasm32"){ "The current assistant backends require native runtimes" }else{ "Chart assistant" }, aria_label: "Chart assistant", disabled: !loaded || cfg!(target_arch="wasm32"), "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.assistant_open.set(true), "Chart assistant" }
             button { disabled: !loaded, "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.clean_open.set(true), "Clean audio" }
             button { disabled: !loaded, "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.collaboration_open.set(true), "Collaborate" }
         }
