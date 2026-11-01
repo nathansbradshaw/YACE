@@ -1436,7 +1436,8 @@ pub fn build_with_lyrics(
     if pro_keys_output {
         let master = stage.path().join("notes.chart");
         let chart = Chart::parse(fs::read_to_string(&master)?)?;
-        let (midi, delay) = crate::game_export::song(&chart, None)?;
+        let (midi, delay) =
+            crate::game_export::song_with_ini(&chart, None, &ini_fields(&song_ini(stage.path())?))?;
         let working = stage.path().join("chart-engine-working");
         // Existing recovery data must never be overwritten during enhancement.
         ensure!(

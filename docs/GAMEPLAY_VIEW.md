@@ -11,6 +11,9 @@ changes the cymbal display. **Look ahead** changes how much upcoming material
 is visible without changing the chart.
 
 HOPO and forced-note display uses the supported chart flags and song settings.
+The selection desk edits those flags for whole guitar/bass attacks. MIDI export
+resolves the chart policy into explicit strum/HOPO markers and difficulty-scoped
+Phase Shift tap ranges. Open frets use enhanced-open MIDI notes.
 When the policy is unknown, note caps remain neutral. This is a visual editing
 preview, with no scoring, controller judgment or microphone gameplay.
 

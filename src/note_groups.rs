@@ -132,7 +132,7 @@ impl Snapshot {
             vocals: selected.vocals.clone(),
         })
     }
-    fn validate(&self, project: &Project) -> Result<()> {
+    pub(crate) fn validate(&self, project: &Project) -> Result<()> {
         Self::capture(
             project,
             &Selection {

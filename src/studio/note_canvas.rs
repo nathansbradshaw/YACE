@@ -482,6 +482,11 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
     let geometry = geometry.read();
     let (grid, notes) = &*geometry;
     let active = doc.selected_track == track;
+    let type_markers = if crate::note_types::supported(&track) {
+        crate::note_types::markers(&doc.content.tracks[&track])
+    } else {
+        Default::default()
+    };
     let selected = studio.selection();
     let plot_track = track.clone();
     let double_track = track.clone();
@@ -538,6 +543,9 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
                             onmousedown:move|e:MouseEvent|{e.stop_propagation();gestures.note(&down_track,Some(&down_id),0,note_tick,&e);},
                             if item.note.sustain>0{rect{x:"{x.max(0.0)}",y:"{y+4.0}",width:"{(end.min(width())-x.max(0.0)).max(0.0)}",height:"6",rx:"2",fill,opacity:".55"}}
                             rect{x:"{x}",y:"{y}",width:"14",height:"14",rx:if doc.is_cymbal(&track,&item.note){"1"}else{"3"},fill,stroke,stroke_width:"1.5",role:"button","aria-pressed":is_selected.to_string(),"aria-label":"{lane_name(&track,item.note.lane)} note at {timing.seconds(item.note.tick):.3} seconds",title{"{lane_name(&track,item.note.lane)} · {timing.seconds(item.note.tick):.4}s · {item.id}"}}
+                            if let Some(kind)=type_markers.get(&item.note.tick) {
+                                text {x:"{x+7.}",y:"{y+10.5}",text_anchor:"middle",font_size:"8.5",font_weight:"700",fill:"#0a0c0f",pointer_events:"none",if *kind==crate::note_types::Kind::Tap {"T"}else{"F"}}
+                            }
                             if overridden{rect{x:"{x-1.0}",y:"{y-1.0}",width:"16",height:"16",rx:"3",fill:"none",stroke:"#c889ff",stroke_width:"1",stroke_dasharray:"2 2",pointer_events:"none",title{"Local difficulty override"}}}
                             if item.note.sustain>0{rect{x:"{end-4.0}",y:"{y}",width:"8",height:"14",fill,style:"cursor:ew-resize",onclick:move|e|{e.stop_propagation();studio.dispatch(Action::SelectNote{note_id:Some(id2.clone())});},onmousedown:move|e:MouseEvent|{e.stop_propagation();let mut origin=origin2.clone();origin.start_x=e.page_coordinates().x;origin.start_y=e.page_coordinates().y;origin.resize=true;drag.set(Some(origin));delta.set((0.0,0.0));}}}
                         }} } }

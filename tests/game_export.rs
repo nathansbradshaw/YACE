@@ -104,7 +104,7 @@ fn vocal_game_export_keeps_ticks_tempos_signatures_events_and_exact_offset() {
 #[test]
 fn unsupported_chart_semantics_are_refused_instead_of_lost() {
     for raw in [
-        CHART.replace("480 = N 0 240", "480 = N 0 240\n 480 = N 5 0"),
+        CHART.replace("480 = N 0 240", "480 = N 0 240\n 481 = N 5 0"),
         CHART.replace("[ExpertSingle]", "[ExpertDoubleGuitar]"),
         CHART.replace("Offset = -0.01", "Offset = 0.0005"),
     ] {

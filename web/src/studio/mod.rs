@@ -22,6 +22,8 @@ mod new_song;
 mod note_canvas;
 #[path = "../../../src/studio/note_gestures.rs"]
 mod note_gestures;
+#[path = "../../../src/studio/note_types.rs"]
+mod note_types;
 #[path = "../../../src/studio/parts.rs"]
 mod parts;
 #[path = "../../../src/studio/practice.rs"]
