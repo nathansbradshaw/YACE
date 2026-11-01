@@ -324,6 +324,7 @@ mod native {
                     let id = format!("edit-note-{}", project.next_id);
                     project.next_id = project.next_id.checked_add(1).context("Note ID overflow")?;
                     imported.push(EditorNote {
+                        midi: None,
                         id,
                         note: item.note,
                     });

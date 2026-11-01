@@ -367,6 +367,7 @@ fn erasing_final_vocal_note_is_undoable_and_removes_empty_phrase() {
             player: 1,
         }],
         notes: vec![VocalNote {
+            midi: None,
             start: 480,
             end: 720,
             tone: VocalTone::Pitched { midi: 60 },

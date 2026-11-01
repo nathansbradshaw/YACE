@@ -22,6 +22,7 @@ fn fixture(root: &Path) -> Store {
         .unwrap()
         .into_iter()
         .map(|note| EditorNote {
+            midi: None,
             id: format!("n-{}-{}", note.lane, note.tick),
             note,
         })
@@ -218,6 +219,7 @@ fn articulation_collision_rejects_the_whole_move_without_losing_marker_ids() {
         .get_mut("ExpertDrums")
         .unwrap()
         .push(EditorNote {
+            midi: None,
             id: "destination-accent".into(),
             note: Note {
                 tick: 720,

@@ -124,6 +124,7 @@ fn positive_and_negative_delays_survive_chart_and_bound_midi_reopen_exactly_once
                 player: 1,
             }],
             notes: vec![VocalNote {
+                midi: None,
                 start: 480,
                 end: 720,
                 tone: VocalTone::Pitched { midi: 60 },

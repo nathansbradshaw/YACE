@@ -22,6 +22,7 @@ fn fixture() -> (Project, Chart) {
                     .unwrap()
                     .into_iter()
                     .map(|note| EditorNote {
+                        midi: None,
                         id: format!("{track}-{}-{}", note.lane, note.tick),
                         note,
                     })

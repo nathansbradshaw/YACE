@@ -86,7 +86,11 @@ impl SyncTrack {
         ensure!(
             self.tempos
                 .iter()
-                .all(|t| (t.bpm * 1000. - (t.bpm * 1000.).round()).abs() < 1e-7),
+                .all(|t| (t.bpm * 1000. - (t.bpm * 1000.).round()).abs() < 1e-7
+                    || source
+                        .tempos
+                        .binary_search_by_key(&t.tick, |tempo| tempo.tick)
+                        .is_ok_and(|index| &source.tempos[index] == t)),
             "Use BPM with at most three decimal places"
         );
         ensure!(
@@ -224,11 +228,13 @@ pub fn render(text: String, sync: &Option<SyncTrack>) -> Result<String> {
         .tempos
         .iter()
         .map(|t| {
-            (
-                t.tick,
-                1,
-                format!("  {} = B {:.0}{newline}", t.tick, t.bpm * 1000.),
-            )
+            let milli_bpm = t.bpm * 1000.;
+            let value = if (milli_bpm - milli_bpm.round()).abs() < 1e-7 {
+                format!("{milli_bpm:.0}")
+            } else {
+                milli_bpm.to_string()
+            };
+            (t.tick, 1, format!("  {} = B {value}{newline}", t.tick))
         })
         .collect();
     lines.extend(sync.meters.iter().map(|m| {

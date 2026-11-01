@@ -256,6 +256,7 @@ fn piano_only_song_opens_edits_undoes_and_exports_one_midi_with_bound_recovery_m
             player: 1,
         }],
         notes: vec![chart_engine::vocals::VocalNote {
+            midi: None,
             start: 480,
             end: 800,
             tone: chart_engine::vocals::VocalTone::Pitched { midi: 60 },

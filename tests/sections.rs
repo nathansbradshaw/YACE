@@ -273,6 +273,7 @@ fn section_export_retains_chart_and_midi_events_with_vocal_pitch_uncertainty() {
                     player: 1,
                 }],
                 notes: vec![VocalNote {
+                    midi: None,
                     start: 480,
                     end: 720,
                     tone: VocalTone::Pitched { midi: 60 },

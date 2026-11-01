@@ -98,6 +98,7 @@ pub fn apply(project: &mut Project, selection: &Snapshot, kind: Kind) -> Result<
                 }
             };
             notes.push(EditorNote {
+                midi: None,
                 id,
                 note: Note {
                     tick: *tick,

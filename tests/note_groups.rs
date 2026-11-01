@@ -70,6 +70,7 @@ fn vocals(store: &Store, notes: Vec<VocalNote>) {
 }
 fn syllable(start: u64, end: u64, lyric: Syllable) -> VocalNote {
     VocalNote {
+        midi: None,
         start,
         end,
         tone: VocalTone::Pitched { midi: 60 },
@@ -297,6 +298,7 @@ fn drum_markers_follow_their_gem_and_do_not_affect_other_lanes() {
         .get_mut("ExpertDrums")
         .unwrap()
         .push(chart_engine::editor::EditorNote {
+            midi: None,
             id: "accent".into(),
             note: chart_engine::chart::Note {
                 tick: 960,
@@ -351,6 +353,7 @@ fn shared_fretted_controls_stay_on_the_remaining_chord_and_follow_the_copy() {
     let notes = doc.content.tracks.get_mut("ExpertSingle").unwrap();
     for (id, lane) in [("chord", 1), ("forced", 5)] {
         notes.push(chart_engine::editor::EditorNote {
+            midi: None,
             id: id.into(),
             note: chart_engine::chart::Note {
                 tick: 480,

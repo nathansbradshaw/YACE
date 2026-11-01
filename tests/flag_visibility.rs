@@ -34,6 +34,7 @@ fn fixture(root: &Path) -> Store {
                     .unwrap()
                     .into_iter()
                     .map(|note| EditorNote {
+                        midi: None,
                         id: format!("{track}-{}", note.tick),
                         note,
                     })
@@ -425,6 +426,7 @@ fn vocal_report(store: &Store) -> chart_engine::vocal_generation::Generation {
             ],
             notes: vec![
                 VocalNote {
+                    midi: None,
                     start: 0,
                     end: 240,
                     tone: VocalTone::Pitched { midi: 60 },
@@ -434,6 +436,7 @@ fn vocal_report(store: &Store) -> chart_engine::vocal_generation::Generation {
                     },
                 },
                 VocalNote {
+                    midi: None,
                     start: 10560,
                     end: 10800,
                     tone: VocalTone::Pitched { midi: 60 },
@@ -443,12 +446,14 @@ fn vocal_report(store: &Store) -> chart_engine::vocal_generation::Generation {
                     },
                 },
                 VocalNote {
+                    midi: None,
                     start: 12480,
                     end: 12960,
                     tone: VocalTone::Pitched { midi: 62 },
                     lyric: Syllable::Continue,
                 },
                 VocalNote {
+                    midi: None,
                     start: 24000,
                     end: 24480,
                     tone: VocalTone::Pitched { midi: 64 },

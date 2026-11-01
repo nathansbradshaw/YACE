@@ -1,0 +1,822 @@
+use super::*;
+use crate::{
+    editor::{Action, Actor, ActorKind, Request, Store},
+    note_groups::{self, Selection},
+    sync_track::{self, Meter},
+};
+use midly::{
+    Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind,
+    num::{u4, u7, u15, u24, u28},
+};
+use std::collections::BTreeSet;
+
+type Event = (u64, TrackEventKind<'static>);
+fn on(channel: u8, key: u8, velocity: u8) -> TrackEventKind<'static> {
+    TrackEventKind::Midi {
+        channel: u4::new(channel),
+        message: MidiMessage::NoteOn {
+            key: u7::new(key),
+            vel: u7::new(velocity),
+        },
+    }
+}
+fn off(channel: u8, key: u8, velocity: u8) -> TrackEventKind<'static> {
+    TrackEventKind::Midi {
+        channel: u4::new(channel),
+        message: MidiMessage::NoteOff {
+            key: u7::new(key),
+            vel: u7::new(velocity),
+        },
+    }
+}
+fn span(events: &mut Vec<Event>, start: u64, end: u64, key: u8) {
+    events.extend([(start, on(0, key, 100)), (end, off(0, key, 0))]);
+}
+fn track(name: &'static [u8], mut events: Vec<Event>) -> Vec<TrackEvent<'static>> {
+    events.insert(0, (0, TrackEventKind::Meta(MetaMessage::TrackName(name))));
+    let end = events.iter().map(|e| e.0).max().unwrap_or(0).max(8000);
+    events.push((end, TrackEventKind::Meta(MetaMessage::EndOfTrack)));
+    events.sort_by_key(|e| e.0);
+    let mut previous = 0;
+    events
+        .into_iter()
+        .map(|(tick, kind)| {
+            let delta = tick - previous;
+            previous = tick;
+            TrackEvent {
+                delta: u28::new(delta as u32),
+                kind,
+            }
+        })
+        .collect()
+}
+fn encode(tracks: Vec<Vec<TrackEvent<'static>>>) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    Smf {
+        header: Header::new(Format::Parallel, Timing::Metrical(u15::new(480))),
+        tracks,
+    }
+    .write_std(&mut bytes)
+    .unwrap();
+    bytes
+}
+fn fixture() -> Vec<u8> {
+    let tempo = track(
+        b"TEMPO",
+        vec![
+            (
+                0,
+                TrackEventKind::Meta(MetaMessage::Tempo(u24::new(500001))),
+            ),
+            (
+                960,
+                TrackEventKind::Meta(MetaMessage::Tempo(u24::new(600007))),
+            ),
+            (
+                0,
+                TrackEventKind::Meta(MetaMessage::TimeSignature(7, 3, 36, 8)),
+            ),
+            (
+                960,
+                TrackEventKind::Meta(MetaMessage::TimeSignature(9, 4, 48, 16)),
+            ),
+        ],
+    );
+    let mut guitar = vec![
+        (
+            0,
+            TrackEventKind::Meta(MetaMessage::Text(b"[ENHANCED_OPENS]")),
+        ),
+        (240, on(3, 96, 83)),
+        (360, on(3, 96, 0)),
+        (720, on(2, 97, 75)),
+        (840, off(2, 97, 9)),
+        (0, on(4, 116, 82)),
+        (1920, off(4, 116, 7)),
+        (480, on(5, 103, 80)),
+        (1600, off(5, 103, 6)),
+        (300, on(7, 20, 60)),
+        (400, off(7, 20, 4)),
+        (320, on(1, 120, 74)), // unknown here, not a drum-fill event
+        (
+            240,
+            TrackEventKind::Meta(MetaMessage::Text(b"[unknown author event]")),
+        ),
+        (300, TrackEventKind::SysEx(b"private\x01\xf7")),
+        (310, TrackEventKind::Escape(b"\xf0opaque\xf7")),
+    ];
+    for d in 0..4u8 {
+        span(&mut guitar, 1200, 1320, 59 + 12 * d);
+        span(&mut guitar, 1500, 1620, 62 + 12 * d);
+        span(&mut guitar, 1500, 1501, 65 + 12 * d);
+    }
+    let mut drums = vec![(
+        0,
+        TrackEventKind::Meta(MetaMessage::Text(b"[ENABLE_CHART_DYNAMICS]")),
+    )];
+    span(&mut drums, 240, 300, 95);
+    drums.extend([
+        (480, on(6, 98, 127)),
+        (540, off(6, 98, 8)),
+        (720, on(1, 99, 1)),
+        (780, on(1, 99, 0)),
+    ]);
+    span(&mut drums, 700, 800, 111);
+    for key in [103, 116, 120, 121, 122, 123, 124, 126, 127] {
+        span(&mut drums, 960, 1440, key);
+    }
+    let mut tracks = vec![
+        tempo,
+        track(
+            b"EVENTS",
+            vec![
+                (
+                    0,
+                    TrackEventKind::Meta(MetaMessage::Text(b"[section Intro]")),
+                ),
+                (
+                    240,
+                    TrackEventKind::Meta(MetaMessage::Text(b"[lighting (verse)]")),
+                ),
+            ],
+        ),
+        track(b"PART GUITAR", guitar),
+        track(b"PART DRUMS", drums),
+    ];
+    for name in [b"PART BASS".as_slice(), b"PART KEYS"] {
+        let mut events = Vec::new();
+        for d in 0..4u8 {
+            span(&mut events, 240, 360, 60 + 12 * d);
+        }
+        tracks.push(track(name, events));
+    }
+    for name in [
+        b"PART REAL_KEYS_E".as_slice(),
+        b"PART REAL_KEYS_M",
+        b"PART REAL_KEYS_H",
+        b"PART REAL_KEYS_X",
+    ] {
+        let mut events = Vec::new();
+        for key in [0, 52, 115, 116] {
+            span(&mut events, 240, 960, key);
+        }
+        tracks.push(track(name, events));
+    }
+    let mut vocal = vec![
+        (240, TrackEventKind::Meta(MetaMessage::Lyric(b"Hello"))),
+        (240, on(3, 60, 86)),
+        (480, off(3, 60, 8)),
+        (720, TrackEventKind::Meta(MetaMessage::Lyric(b"World#"))),
+        (720, on(5, 67, 74)),
+        (900, on(5, 67, 0)),
+        (0, on(7, 105, 90)),
+        (1920, off(7, 105, 7)),
+        (0, TrackEventKind::Meta(MetaMessage::Text(b"[mood_play]"))),
+    ];
+    span(&mut vocal, 480, 500, 96);
+    span(&mut vocal, 0, 1920, 116);
+    tracks.push(track(b"PART VOCALS", vocal));
+    for name in [
+        b"HARM1".as_slice(),
+        b"VENUE",
+        b"PART REAL_GUITAR",
+        b"PART GUITAR GHL",
+        b"PART RHYTHM",
+    ] {
+        let mut events = vec![(0, TrackEventKind::Meta(MetaMessage::Text(b"Opaque data")))];
+        span(&mut events, 240, 960, 60);
+        tracks.push(track(name, events));
+    }
+    encode(tracks)
+}
+fn store(root: &Path, bytes: &[u8], delay: i32) -> Store {
+    let song = root.join("song");
+    fs::create_dir(&song).unwrap();
+    fs::write(song.join("notes.mid"), bytes).unwrap();
+    fs::write(
+        song.join("song.ini"),
+        format!("[song]\nname = MIDI fixture\ndelay = {delay}\ncustom = keep\n"),
+    )
+    .unwrap();
+    let samples = vec![0.; 44100 * 12];
+    models::write_audio(&song.join("song.wav"), &samples, &samples).unwrap();
+    Store::create(&song, None, &root.join("project")).unwrap()
+}
+fn apply(store: &Store, action: Action) -> Result<()> {
+    store.apply(Request {
+        expected_revision: store.load()?.revision,
+        actor: Actor {
+            kind: ActorKind::Human,
+            name: "Game MIDI fixture".into(),
+        },
+        action,
+    })?;
+    Ok(())
+}
+fn export(store: &Store, path: &Path) -> Vec<u8> {
+    apply(
+        store,
+        Action::Export {
+            output: path.into(),
+        },
+    )
+    .unwrap();
+    fs::read(path.join("notes.mid")).unwrap()
+}
+fn events(bytes: &[u8], name: &str) -> Vec<(u64, TrackEventKind<'static>)> {
+    // Keep borrowed payloads separate in tests that need them. This helper is
+    // only for numeric MIDI/meta messages, whose midly to_static is lossless.
+    let smf = Smf::parse(bytes).unwrap();
+    let mut result = Vec::new();
+    for track in &smf.tracks {
+        if decode::label(track).as_deref() != Some(name) {
+            continue;
+        }
+        let mut tick = 0;
+        for e in track {
+            tick += u64::from(e.delta.as_int());
+            if matches!(
+                e.kind,
+                TrackEventKind::Midi { .. }
+                    | TrackEventKind::Meta(
+                        MetaMessage::Tempo(_)
+                            | MetaMessage::TimeSignature(..)
+                            | MetaMessage::EndOfTrack
+                    )
+            ) {
+                result.push((tick, e.kind.to_static()));
+            }
+        }
+    }
+    result
+}
+fn chunk<'a>(bytes: &'a [u8], name: &str) -> &'a [u8] {
+    let smf = Smf::parse(bytes).unwrap();
+    let index = smf
+        .tracks
+        .iter()
+        .position(|t| decode::label(t).as_deref() == Some(name))
+        .unwrap();
+    merge::chunks(bytes, smf.tracks.len()).unwrap().1[index]
+}
+
+#[test]
+fn unchanged_game_midi_opens_all_supported_parts_and_roundtrips_exact_bytes() {
+    let original = fixture();
+    for delay in [250, -125] {
+        let root = tempfile::tempdir().unwrap();
+        let store = store(root.path(), &original, delay);
+        let doc = store.load().unwrap();
+        for suffix in ["Single", "DoubleBass", "Drums", "Keyboard", "ProKeys"] {
+            for tier in ["Easy", "Medium", "Hard", "Expert"] {
+                if suffix != "Drums" || tier == "Expert" {
+                    assert!(doc.content.tracks.contains_key(&format!("{tier}{suffix}")));
+                }
+            }
+        }
+        assert_eq!(doc.content.vocals.as_ref().unwrap().notes.len(), 2);
+        assert_eq!(doc.timing(&store).unwrap().offset, delay as f64 / 1000.);
+        let output = root.path().join("export");
+        assert_eq!(export(&store, &output), original);
+        let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+        assert_eq!(export(&reopened, &root.path().join("again")), original);
+        assert_eq!(
+            fs::read(root.path().join("song/notes.mid")).unwrap(),
+            original
+        );
+        assert!(!fs::exists(root.path().join("song/.yace")));
+    }
+}
+
+#[test]
+fn moving_copying_and_undoing_gems_preserves_attributes_unknown_events_and_phrases() {
+    let original = fixture();
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    let doc = store.load().unwrap();
+    let note = doc.content.tracks["ExpertSingle"]
+        .iter()
+        .find(|n| n.note.tick == 240 && n.note.lane == 0)
+        .unwrap();
+    let selection = Selection {
+        track: "ExpertSingle".into(),
+        ids: BTreeSet::from([note.id.clone()]),
+        vocals: BTreeSet::new(),
+    };
+    let clipboard = note_groups::copy(&doc, &doc.timing(&store).unwrap(), &selection).unwrap();
+    apply(
+        &store,
+        Action::UpdateNote {
+            note_id: note.id.clone(),
+            tick: 300,
+            lane: 2,
+            sustain: 120,
+            cymbal: false,
+        },
+    )
+    .unwrap();
+    apply(
+        &store,
+        Action::EditNoteGroup {
+            edit: note_groups::Edit::Paste {
+                track: "ExpertSingle".into(),
+                tick: 1920,
+                clipboard,
+            },
+        },
+    )
+    .unwrap();
+    let output = root.path().join("export");
+    let edited = export(&store, &output);
+    let numeric = events(&edited, "PART GUITAR");
+    assert!(numeric.contains(&(300, on(3, 98, 83))));
+    assert!(numeric.contains(&(420, on(3, 98, 0))));
+    assert!(numeric.contains(&(1920, on(3, 96, 83))));
+    assert!(numeric.contains(&(2040, on(3, 96, 0))));
+    assert!(numeric.contains(&(0, on(4, 116, 82))));
+    assert!(numeric.contains(&(1920, off(4, 116, 7))));
+    assert!(numeric.contains(&(1600, off(5, 103, 6))));
+    assert!(numeric.contains(&(300, on(7, 20, 60))));
+    assert!(numeric.contains(&(8000, TrackEventKind::Meta(MetaMessage::EndOfTrack))));
+    let parsed = Smf::parse(&edited).unwrap();
+    let guitar = parsed
+        .tracks
+        .iter()
+        .find(|t| decode::label(t).as_deref() == Some("PART GUITAR"))
+        .unwrap();
+    assert!(
+        guitar
+            .iter()
+            .any(|e| matches!(e.kind, TrackEventKind::SysEx(b"private\x01\xf7")))
+    );
+    assert!(
+        guitar
+            .iter()
+            .any(|e| matches!(e.kind, TrackEventKind::Escape(b"\xf0opaque\xf7")))
+    );
+    assert!(guitar.iter().any(|e| matches!(
+        e.kind,
+        TrackEventKind::Meta(MetaMessage::Text(b"[unknown author event]"))
+    )));
+    for name in [
+        "TEMPO",
+        "EVENTS",
+        "PART DRUMS",
+        "PART VOCALS",
+        "HARM1",
+        "VENUE",
+        "PART REAL_GUITAR",
+        "PART GUITAR GHL",
+        "PART RHYTHM",
+    ] {
+        assert_eq!(chunk(&edited, name), chunk(&original, name), "{name}");
+    }
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    assert_eq!(export(&reopened, &root.path().join("again")), edited);
+    apply(&store, Action::Undo).unwrap();
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(export(&store, &root.path().join("undo")), original);
+    apply(&store, Action::Redo).unwrap();
+    assert!(
+        events(&export(&store, &root.path().join("redo")), "PART GUITAR")
+            .contains(&(300, on(3, 98, 83)))
+    );
+}
+
+#[test]
+fn vocal_edits_preserve_talkie_pitch_channels_percussion_overdrive_and_phrase_attributes() {
+    let original = fixture();
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    let doc = store.load().unwrap();
+    let mut vocals = doc.content.vocals.clone().unwrap();
+    vocals.notes[0].start = 300;
+    vocals.notes[0].end = 540;
+    vocals.notes[1].start = 750;
+    vocals.notes[1].end = 930;
+    apply(&store, Action::SetVocals { document: vocals }).unwrap();
+    let bytes = export(&store, &root.path().join("export"));
+    let notes = events(&bytes, "PART VOCALS");
+    for event in [
+        (300, on(3, 60, 86)),
+        (540, off(3, 60, 8)),
+        (750, on(5, 67, 74)),
+        (930, on(5, 67, 0)),
+        (0, on(7, 105, 90)),
+        (1920, off(7, 105, 7)),
+        (480, on(0, 96, 100)),
+        (0, on(0, 116, 100)),
+    ] {
+        assert!(notes.contains(&event), "{event:?}");
+    }
+    let smf = Smf::parse(&bytes).unwrap();
+    let view = merge::vocal_view(&smf).unwrap().unwrap();
+    assert_eq!(
+        crate::vocals::import_midi(&view).unwrap().notes[1].start,
+        750
+    );
+    assert_eq!(chunk(&bytes, "HARM1"), chunk(&original, "HARM1"));
+}
+
+#[test]
+fn meter_edit_retains_exact_microsecond_tempos_and_source_meter_counters() {
+    let original = fixture();
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, -125);
+    let before = store.load().unwrap().timing(&store).unwrap();
+    apply(
+        &store,
+        Action::EditSync {
+            edit: sync_track::Edit::PutMeter {
+                previous: Some(Meter {
+                    tick: 960,
+                    numerator: 9,
+                    denominator: 16,
+                }),
+                meter: Meter {
+                    tick: 960,
+                    numerator: 11,
+                    denominator: 32,
+                },
+            },
+        },
+    )
+    .unwrap();
+    let output = root.path().join("export");
+    let bytes = export(&store, &output);
+    let smf = Smf::parse(&bytes).unwrap();
+    let numeric: Vec<_> = smf
+        .tracks
+        .iter()
+        .flat_map(|t| t.iter())
+        .map(|e| e.kind)
+        .collect();
+    for us in [500001, 600007] {
+        assert!(numeric.contains(&TrackEventKind::Meta(MetaMessage::Tempo(u24::new(us)))));
+    }
+    assert!(
+        numeric.contains(&TrackEventKind::Meta(MetaMessage::TimeSignature(
+            11, 5, 48, 16
+        )))
+    );
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    assert_eq!(reopened.load().unwrap().timing(&reopened).unwrap(), before);
+    assert_eq!(chunk(&bytes, "VENUE"), chunk(&original, "VENUE"));
+}
+
+#[test]
+fn shared_star_power_edits_apply_to_all_difficulties_in_one_undo_step() {
+    let original = fixture();
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    apply(
+        &store,
+        Action::EditStarPower {
+            edit: crate::star_power::Edit::Remove {
+                track: "EasySingle".into(),
+                phrase: crate::star_power::Phrase {
+                    start: 0,
+                    end: 1920,
+                },
+            },
+        },
+    )
+    .unwrap();
+    let doc = store.load().unwrap();
+    for tier in ["Easy", "Medium", "Hard", "Expert"] {
+        assert!(doc.content.star_power[&format!("{tier}Single")].is_empty());
+    }
+    let bytes = export(&store, &root.path().join("export"));
+    assert!(!events(&bytes, "PART GUITAR").iter().any(|(_, k)| matches!(k, TrackEventKind::Midi { message: MidiMessage::NoteOn { key, .. }, .. } if key.as_int() == 116)));
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(export(&store, &root.path().join("undo")), original);
+}
+
+#[test]
+fn malformed_ambiguous_or_unsupported_profiles_are_explicit_and_atomic() {
+    let mut overlapping = vec![
+        (240, on(0, 96, 100)),
+        (300, on(0, 96, 100)),
+        (360, off(0, 96, 0)),
+    ];
+    let bad = encode(vec![track(b"PART GUITAR", overlapping.clone())]);
+    assert!(
+        decode::import(&bad, "[song]\n")
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Overlapping")
+    );
+    overlapping = vec![(0, on(0, 101, 100)), (120, off(0, 101, 0))];
+    assert!(decode::import(&encode(vec![track(b"PART DRUMS", overlapping)]), "[song]\n").is_err());
+    assert!(decode::import(&fixture(), "[song]\nmultiplier_note = 103\n").is_err());
+    let extended_meta = encode(vec![track(
+        b"PART GUITAR",
+        vec![(
+            0,
+            TrackEventKind::Meta(MetaMessage::Unknown(0x51, b"\x07\xa1\x20\xff")),
+        )],
+    )]);
+    assert!(decode::import(&extended_meta, "[song]\n").is_err());
+    let mut malformed_tail = encode(vec![track(b"PART GUITAR", vec![])]);
+    let length = u32::from_be_bytes(malformed_tail[18..22].try_into().unwrap());
+    malformed_tail[18..22].copy_from_slice(&(length + 2).to_be_bytes());
+    malformed_tail.extend([0, 0xf1]);
+    assert!(decode::import(&malformed_tail, "[song]\n").is_err());
+    let original = fixture();
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    fs::write(
+        store
+            .root
+            .join("source/.yace/originals/game-midi/notes.mid"),
+        b"tampered",
+    )
+    .unwrap();
+    assert!(
+        apply(
+            &store,
+            Action::Export {
+                output: root.path().join("bad")
+            }
+        )
+        .is_err()
+    );
+    assert!(!fs::exists(root.path().join("bad")));
+    assert_eq!(
+        fs::read(root.path().join("song/notes.mid")).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn unrepresentable_lead_vocals_remain_opaque_and_cannot_be_silently_replaced() {
+    let original = encode(vec![
+        track(
+            b"PART VOCALS",
+            vec![(240, on(3, 60, 86)), (480, off(3, 60, 8))],
+        ),
+        track(b"HARM1", vec![(240, on(1, 64, 90)), (480, off(1, 64, 0))]),
+    ]);
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    let doc = store.load().unwrap();
+    assert!(doc.content.vocals.is_none());
+    assert!(
+        doc.review
+            .coverage_limits
+            .iter()
+            .any(|w| w.contains("not editable"))
+    );
+    assert_eq!(export(&store, &root.path().join("unchanged")), original);
+    let replacement = decode::import(&fixture(), "[song]\n")
+        .unwrap()
+        .vocals
+        .unwrap();
+    apply(
+        &store,
+        Action::SetVocals {
+            document: replacement,
+        },
+    )
+    .unwrap();
+    let error = apply(
+        &store,
+        Action::Export {
+            output: root.path().join("bad"),
+        },
+    )
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("replacing them would lose"));
+    assert!(!fs::exists(root.path().join("bad")));
+}
+
+#[test]
+fn dense_import_and_zero_length_notes_keep_exact_tick_and_note_attributes() {
+    let mut notes = vec![(0, on(2, 96, 70)), (0, on(2, 96, 0))];
+    for i in 1..20000u64 {
+        span(&mut notes, i * 10, i * 10 + 1, 96 + (i % 5) as u8);
+    }
+    let bytes = encode(vec![track(b"PART GUITAR", notes)]);
+    let decoded = decode::import(&bytes, "[song]\n").unwrap();
+    assert_eq!(
+        decoded
+            .chart
+            .notes("ExpertSingle")
+            .unwrap()
+            .iter()
+            .filter(|n| n.lane <= 4)
+            .count(),
+        20000
+    );
+    assert!(
+        decoded
+            .attributes
+            .iter()
+            .any(|a| a.note.tick == 0 && a.attributes.zero_length && a.attributes.off_as_note_on)
+    );
+}
+
+#[test]
+fn phase_shift_ranges_and_forcing_keep_their_inclusive_and_exclusive_boundaries() {
+    use crate::gameplay_view::{self, Technique};
+    let mut notes = vec![
+        (200, TrackEventKind::SysEx(b"PS\0\0\x03\x04\x01\xf7")),
+        (300, TrackEventKind::SysEx(b"PS\0\0\x03\x04\x00\xf7")),
+        (400, TrackEventKind::SysEx(b"PS\0\0\x03\x01\x01\xf7")),
+        (500, TrackEventKind::SysEx(b"PS\0\0\x03\x01\x00\xf7")),
+    ];
+    for (start, key) in [
+        (0, 96),
+        (160, 97),
+        (200, 98),
+        (300, 99),
+        (301, 100),
+        (400, 96),
+        (500, 96),
+        (600, 96),
+    ] {
+        span(&mut notes, start, start + 1, key);
+    }
+    span(&mut notes, 600, 601, 101); // explicit HOPO even on a repeated fret
+    let bytes = encode(vec![track(b"PART GUITAR", notes)]);
+    let decoded = decode::import(&bytes, "[song]\n").unwrap();
+    let notes = decoded.chart.notes("ExpertSingle").unwrap();
+    let policy = gameplay_view::yarg_chart_policy(480, &BTreeMap::new()).unwrap();
+    let gems =
+        gameplay_view::classify_for_midi("ExpertSingle", &notes, &decoded.chart.timing, &policy)
+            .unwrap();
+    let technique = |tick| gems.iter().find(|g| g.tick == tick).unwrap().technique;
+    assert_eq!(technique(200), Some(Technique::Tap));
+    assert_eq!(technique(300), Some(Technique::Tap));
+    assert_ne!(technique(301), Some(Technique::Tap));
+    assert_eq!(technique(600), Some(Technique::Hopo));
+    assert!(notes.iter().any(|n| n.tick == 400 && n.lane == 7));
+    assert!(notes.iter().any(|n| n.tick == 500 && n.lane == 0));
+}
+
+#[test]
+fn drum_and_pro_keys_edits_keep_dynamics_and_opaque_ranges() {
+    let original = fixture();
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    let doc = store.load().unwrap();
+    let cymbal = doc.content.tracks["ExpertDrums"]
+        .iter()
+        .find(|n| n.note.tick == 480 && n.note.lane == 2)
+        .unwrap();
+    let selection = Selection {
+        track: "ExpertDrums".into(),
+        ids: BTreeSet::from([cymbal.id.clone()]),
+        vocals: BTreeSet::new(),
+    };
+    let snapshot = note_groups::Snapshot::capture(&doc, &selection).unwrap();
+    apply(
+        &store,
+        Action::EditNoteGroup {
+            edit: note_groups::Edit::Move {
+                selection: snapshot,
+                ticks: 60,
+                rows: 0,
+            },
+        },
+    )
+    .unwrap();
+    let doc = store.load().unwrap();
+    let piano = doc.content.tracks["ExpertProKeys"]
+        .iter()
+        .find(|n| n.note.lane == 52)
+        .unwrap();
+    apply(
+        &store,
+        Action::UpdateNote {
+            note_id: piano.id.clone(),
+            tick: 300,
+            lane: 53,
+            sustain: 600,
+            cymbal: false,
+        },
+    )
+    .unwrap();
+    let bytes = export(&store, &root.path().join("export"));
+    let notes = events(&bytes, "PART DRUMS");
+    assert!(notes.contains(&(540, on(6, 98, 127))));
+    assert!(notes.contains(&(600, off(6, 98, 8))));
+    assert!(notes.contains(&(720, on(1, 99, 1))));
+    let decoded = decode::import(&bytes, "[song]\n").unwrap();
+    let drums = decoded.chart.notes("ExpertDrums").unwrap();
+    assert!(drums.iter().any(|n| n.tick == 540 && n.lane == 66));
+    assert!(drums.iter().any(|n| n.tick == 540 && n.lane == 35));
+    assert!(!drums.iter().any(|n| n.tick == 720 && n.lane == 67));
+    assert!(drums.iter().any(|n| n.tick == 720 && n.lane == 42));
+    assert!(drums.iter().any(|n| n.tick == 240 && n.lane == 32));
+    let piano = events(&bytes, "PART REAL_KEYS_X");
+    assert!(piano.contains(&(240, on(0, 0, 100))));
+    assert!(piano.contains(&(960, off(0, 0, 0))));
+    assert!(piano.contains(&(300, on(0, 53, 100))));
+}
+
+#[test]
+fn zero_length_gems_survive_edit_export_without_becoming_a_tick_long() {
+    let original = encode(vec![track(
+        b"PART GUITAR",
+        vec![(240, on(2, 96, 80)), (240, on(2, 96, 0))],
+    )]);
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    let doc = store.load().unwrap();
+    let note = doc.content.tracks["ExpertSingle"]
+        .iter()
+        .find(|n| n.note.lane == 0)
+        .unwrap();
+    apply(
+        &store,
+        Action::UpdateNote {
+            note_id: note.id.clone(),
+            tick: 300,
+            lane: 1,
+            sustain: 0,
+            cymbal: false,
+        },
+    )
+    .unwrap();
+    let bytes = export(&store, &root.path().join("export"));
+    let numeric = events(&bytes, "PART GUITAR");
+    assert!(numeric.contains(&(300, on(2, 97, 80))));
+    assert!(numeric.contains(&(300, on(2, 97, 0))));
+    let decoded = decode::import(&bytes, "[song]\n").unwrap();
+    assert_eq!(
+        decoded
+            .chart
+            .notes("ExpertSingle")
+            .unwrap()
+            .iter()
+            .find(|n| n.lane == 1)
+            .unwrap()
+            .sustain,
+        0
+    );
+}
+
+#[test]
+fn overlapping_tom_markers_toggle_instead_of_becoming_a_union() {
+    let mut notes = vec![
+        (100, on(0, 110, 100)),
+        (400, off(0, 110, 0)),
+        (200, on(1, 110, 100)),
+        (500, off(1, 110, 0)),
+    ];
+    for tick in [240, 360, 480] {
+        span(&mut notes, tick, tick + 1, 98);
+    }
+    let decoded = decode::import(&encode(vec![track(b"PART DRUMS", notes)]), "[song]\n").unwrap();
+    let notes = decoded.chart.notes("ExpertDrums").unwrap();
+    for tick in [240, 360] {
+        assert!(notes.iter().any(|n| n.tick == tick && n.lane == 66));
+    }
+    assert!(!notes.iter().any(|n| n.tick == 480 && n.lane == 66));
+}
+
+#[test]
+fn empty_supported_parts_expose_their_existing_phrases_before_new_notes_are_authored() {
+    let original = encode(vec![track(
+        b"PART DRUMS",
+        vec![(0, on(4, 116, 83)), (960, off(4, 116, 7))],
+    )]);
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    let doc = store.load().unwrap();
+    assert!(doc.content.tracks["ExpertDrums"].is_empty());
+    let source = Chart::parse(doc.chart_text(&store).unwrap()).unwrap();
+    assert_eq!(
+        crate::star_power::current(&doc, &source, "ExpertDrums").unwrap(),
+        [crate::star_power::Phrase { start: 0, end: 960 }]
+    );
+    apply(
+        &store,
+        Action::AddNote {
+            track: "ExpertDrums".into(),
+            tick: 240,
+            lane: 0,
+            sustain: 0,
+            cymbal: false,
+        },
+    )
+    .unwrap();
+    let bytes = export(&store, &root.path().join("with-note"));
+    assert!(events(&bytes, "PART DRUMS").contains(&(0, on(4, 116, 83))));
+    apply(
+        &store,
+        Action::EditStarPower {
+            edit: crate::star_power::Edit::Remove {
+                track: "ExpertDrums".into(),
+                phrase: crate::star_power::Phrase { start: 0, end: 960 },
+            },
+        },
+    )
+    .unwrap();
+    assert!(
+        !events(&export(&store, &root.path().join("removed")), "PART DRUMS")
+            .contains(&(0, on(4, 116, 83)))
+    );
+}
