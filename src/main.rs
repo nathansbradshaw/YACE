@@ -372,11 +372,14 @@ enum GenerationCommand {
 
 #[derive(Subcommand)]
 enum EditorCommand {
-    /// Copy a .chart song into a recoverable editing project.
+    /// Copy a .chart or game MIDI song into a recoverable editing project.
     Create {
         song: PathBuf,
         #[arg(long)]
         markers: Option<PathBuf>,
+        /// Choose chart or midi when both standard source files exist.
+        #[arg(long)]
+        chart_source: Option<chart_engine::song_files::source_choice::Source>,
         #[arg(short, long)]
         output: PathBuf,
     },
@@ -1042,10 +1045,15 @@ fn main() -> Result<()> {
             EditorCommand::Create {
                 song,
                 markers,
+                chart_source,
                 output,
             } => {
-                let store =
-                    chart_engine::editor::Store::create(&song, markers.as_deref(), &output)?;
+                let store = chart_engine::editor::Store::create_with_source(
+                    &song,
+                    markers.as_deref(),
+                    &output,
+                    chart_source,
+                )?;
                 print(&store.inspect()?)?;
             }
             EditorCommand::Show { project } => {

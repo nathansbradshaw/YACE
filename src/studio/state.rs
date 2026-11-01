@@ -320,6 +320,7 @@ pub struct Studio {
     pub library: Signal<Option<crate::chart_library::Library>>,
     pub library_busy: Signal<bool>,
     pub library_selected: Signal<Option<usize>>,
+    pub source_choice: Signal<Option<super::source_choice::Prompt>>,
     pub timing: Signal<Option<TempoMap>>,
     pub playhead: Signal<f64>,
     pub audio_ready: Signal<bool>,
@@ -1047,7 +1048,7 @@ impl Studio {
         self.import_zip(false);
     }
     fn import_zip(mut self, project: bool) {
-        spawn(async move {
+        dioxus::core::spawn_forever(async move {
             let Some(input) = rfd::AsyncFileDialog::new()
                 .set_title(if project {
                     "Open project ZIP"
@@ -1070,17 +1071,32 @@ impl Studio {
             };
             let input = input.path().to_owned();
             let output = output.path().to_owned();
-            let result = tokio::task::spawn_blocking(move || {
+            let result: Result<Option<Store>> = async {
                 if project {
-                    crate::project_files::import(&input, &output)
-                } else {
-                    crate::project_files::import_song(&input, &output)
+                    return Ok(Some(
+                        tokio::task::spawn_blocking(move || {
+                            crate::project_files::import(&input, &output)
+                        })
+                        .await??,
+                    ));
                 }
-            })
+                let source =
+                    tokio::task::spawn_blocking(move || crate::project_files::unpack_song(&input))
+                        .await??;
+                let Some(choice) = self.choose_chart_source(source.path()).await? else {
+                    return Ok(None);
+                };
+                Ok(Some(
+                    tokio::task::spawn_blocking(move || {
+                        Store::create_with_source(source.path(), None, &output, Some(choice))
+                    })
+                    .await??,
+                ))
+            }
             .await;
             match result {
-                Ok(Ok(store)) => self.open_project(store.root).await,
-                Ok(Err(error)) => self.error.set(Some(format!("{error:#}"))),
+                Ok(Some(store)) => self.open_project(store.root).await,
+                Ok(None) => (),
                 Err(error) => self.error.set(Some(error.to_string())),
             }
         });
@@ -1246,7 +1262,27 @@ impl Studio {
         }
         self.library_busy.set(true);
         self.status.set(format!("Opening {}…", item.title));
-        let opened = tokio::task::spawn_blocking(move || library.open(&item)).await;
+        let source = if library
+            .project_path(&item)
+            .is_ok_and(|p| p.join("project.json").is_file())
+        {
+            None
+        } else {
+            match self.choose_chart_source(&item.path).await {
+                Ok(Some(source)) => Some(source),
+                Ok(None) => {
+                    self.library_busy.set(false);
+                    return;
+                }
+                Err(error) => {
+                    self.library_busy.set(false);
+                    self.error.set(Some(format!("{error:#}")));
+                    return;
+                }
+            }
+        };
+        let opened =
+            tokio::task::spawn_blocking(move || library.open_with_source(&item, source)).await;
         match opened {
             Ok(Ok(path)) => {
                 let current = self
@@ -1295,8 +1331,19 @@ impl Studio {
             };
             let song = song.path().to_owned();
             let output = output.path().to_owned();
-            let result =
-                tokio::task::spawn_blocking(move || Store::create(&song, None, &output)).await;
+            let choice = match self.choose_chart_source(&song).await {
+                Ok(Some(choice)) => choice,
+                Ok(None) => return,
+                Err(error) => {
+                    let mut studio = self;
+                    studio.error.set(Some(format!("{error:#}")));
+                    return;
+                }
+            };
+            let result = tokio::task::spawn_blocking(move || {
+                Store::create_with_source(&song, None, &output, Some(choice))
+            })
+            .await;
             match result {
                 Ok(Ok(store)) => self.open_project(store.root).await,
                 Ok(Err(error)) => {
@@ -1669,6 +1716,7 @@ pub fn use_studio() -> Studio {
         library: use_signal(|| None),
         library_busy: use_signal(|| false),
         library_selected: use_signal(|| None),
+        source_choice: use_signal(|| None),
         timing: use_signal(|| None),
         playhead: use_signal(|| 0.0),
         audio_ready: use_signal(|| false),

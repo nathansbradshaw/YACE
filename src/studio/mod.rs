@@ -30,6 +30,7 @@ mod selection;
 mod selection_desk;
 mod sheet;
 mod shortcuts;
+mod source_choice;
 mod star_power;
 pub mod state;
 mod stems;
@@ -157,6 +158,7 @@ pub(crate) fn App() -> Element {
         if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
         collaboration::Collaboration{studio}
         assistant::Assistant{studio}
+        source_choice::SourceChoice{studio}
         {browser_files()}
     }
 }

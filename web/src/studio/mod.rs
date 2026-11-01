@@ -47,6 +47,8 @@ mod selection_desk;
 mod sheet;
 #[path = "../../../src/studio/shortcuts.rs"]
 mod shortcuts;
+#[path = "../../../src/studio/source_choice.rs"]
+mod source_choice;
 #[path = "../../../src/studio/star_power.rs"]
 mod star_power;
 mod state;
@@ -180,6 +182,7 @@ pub fn App() -> Element {
         button{onclick:move |_|{let mut s=studio;s.saved_projects.set(None);},"Close"}
     }}
     clean::CleanPanel{studio}
+    source_choice::SourceChoice{studio}
     if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
     if (studio.generation_open)(){modal::Modal{id:"browser-generation",label:"Browser generation",onclose:move |_|{let mut s=studio;s.generation_open.set(false);},h2{"Generation unavailable"}p{"The current model backends require native runtimes. Generation is disabled in this static build. Open a chart or add parts and notes manually."}button{onclick:move |_|{let mut s=studio;s.generation_open.set(false);},"Close generation"}}}
     }}

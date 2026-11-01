@@ -95,6 +95,11 @@ pub fn import(path: &Path, output: &Path) -> Result<Store> {
     Ok(Store::new(&output))
 }
 pub fn import_song(path: &Path, output: &Path) -> Result<Store> {
+    let source = unpack_song(path)?;
+    Store::create(source.path(), None, output)
+}
+/// Keep the staged ZIP alive while the UI asks which chart source to edit.
+pub fn unpack_song(path: &Path) -> Result<tempfile::TempDir> {
     let files = archive_codec::decode(&fs::read(path)?)?;
     let marker = if files
         .iter()
@@ -111,5 +116,5 @@ pub fn import_song(path: &Path, output: &Path) -> Result<Store> {
         fs::create_dir_all(path.parent().context("Invalid song path")?)?;
         crate::storage::write_new(path, &bytes)?;
     }
-    Store::create(source.path(), None, output)
+    Ok(source)
 }
