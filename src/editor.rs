@@ -890,6 +890,11 @@ impl Store {
                     .join("game-notes.mid"),
             )?;
             fs::copy(&editable_master, stage.path().join("source/notes.chart"))?;
+            // The verified working .chart already carries the audio offset.
+            // Only this editing snapshot drops MIDI's duplicate delay field.
+            let ini = stage.path().join("source/song.ini");
+            let raw = pipeline::song_ini(&stage.path().join("source"))?;
+            fs::write(ini, crate::game_export::ini_with_delay(&raw, 0))?;
         }
         let source_audio = pipeline::audio_file(&stage.path().join("source"))?;
         let duration = pipeline::metadata(&source_audio)?.duration;
@@ -1983,24 +1988,22 @@ impl Store {
             fs::rename(stage.join("notes.chart"), archive.join("notes.chart"))?;
             let ini = stage.join("song.ini");
             fs::write(ini, crate::game_export::ini_with_delay(&raw, delay))?;
+            let working = song_layout::path(stage, "chart-engine-working");
+            if fs::exists(&working) {
+                fs::rename(&working, archive.join("chart-engine-working"))?;
+            }
+            fs::create_dir(&working)?;
+            fs::write(working.join("notes.chart"), &text)?;
+            fs::write(
+                working.join("binding.json"),
+                serde_json::to_vec_pretty(
+                    &serde_json::json!({"version":1,"master_sha256":hash(text.as_bytes()),"midi_sha256":exported_chart_sha256}),
+                )?,
+            )?;
             if let Some(vocals) = &doc.content.vocals {
                 fs::write(
                     song_layout::path(stage, "chart-engine-vocals.json"),
                     serde_json::to_vec_pretty(vocals)?,
-                )?;
-            }
-            if doc.content.tracks.keys().any(|t| crate::keys::is_pro(t)) {
-                let working = song_layout::path(stage, "chart-engine-working");
-                if fs::exists(&working) {
-                    fs::rename(&working, archive.join("chart-engine-working"))?;
-                }
-                fs::create_dir(&working)?;
-                fs::write(working.join("notes.chart"), &text)?;
-                fs::write(
-                    working.join("binding.json"),
-                    serde_json::to_vec_pretty(
-                        &serde_json::json!({"version":1,"master_sha256":hash(text.as_bytes()),"midi_sha256":exported_chart_sha256}),
-                    )?,
                 )?;
             }
         }

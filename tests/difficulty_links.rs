@@ -621,8 +621,14 @@ fn expert_section_rework_updates_lowers_preserves_remote_notes_and_scopes_review
             output: output.clone(),
         },
     );
-    let report: serde_json::Value =
-        serde_json::from_slice(&fs::read(output.join("editor-review.json")).unwrap()).unwrap();
+    let report: serde_json::Value = serde_json::from_slice(
+        &fs::read(chart_engine::song_layout::path(
+            &output,
+            "editor-review.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(report["musical_acceptance"], "unverified");
     assert!(report["difficulty_link_state"]["links"]["EasySingle"].is_object());
     assert_eq!(

@@ -386,7 +386,7 @@ fn detected_timing_survives_job_recovery_arrangement_and_export() {
     fs::remove_file(&original).unwrap();
     saved_events(&job);
     generation::run(&job).unwrap();
-    let store = Store::new(&job.join("project"));
+    let store = Store::new(&generation::project_path(&job));
     let project = store.load().unwrap();
     assert_eq!(project.timing(&store).unwrap(), map);
     assert!(
@@ -482,6 +482,71 @@ fn older_flat_jobs_still_resume_without_relocating_their_working_files() {
     assert!(legacy.join("project/project.json").is_file());
     assert!(legacy.join("game-song/notes.chart").is_file());
     generation::run(&legacy).unwrap();
+}
+
+#[test]
+fn unfinished_song_job_resumes_after_moving_its_cache_and_rejects_changed_stems() {
+    use chart_engine::stem_review::{AlignmentEvidence, StemId, StemManifest};
+    let temp = tempfile::tempdir().unwrap();
+    let original = audio(temp.path());
+    let song = temp.path().join("Song");
+    let job = generation::create(request(&original), &song).unwrap();
+    assert!(generation::run(&job).is_err()); // Import finishes before missing-model failure.
+    fs::remove_file(original).unwrap();
+    let cache = song.join(".yace/cache/separation/synthetic");
+    fs::create_dir_all(&cache).unwrap();
+    let source = job.join("input/source.wav");
+    let mut files = std::collections::BTreeMap::new();
+    for id in StemId::ALL {
+        let path = cache.join(format!("{}.wav", id.as_str()));
+        fs::copy(&source, &path).unwrap();
+        files.insert(id, path);
+    }
+    let mut manifest = StemManifest::build(&source, files, AlignmentEvidence {
+        method: "synthetic_silent_channels".into(),
+        details: "Known silent channels share the source's exact sample clock; this tests recovery and not model quality.".into(),
+    }).unwrap();
+    for asset in &mut manifest.stems {
+        asset.path = std::path::PathBuf::from("../../cache/separation/synthetic")
+            .join(format!("{}.wav", asset.id.as_str()));
+    }
+    generation::write_json(&job.join("isolation.json"), &manifest).unwrap();
+    generation::write_json(
+        &job.join("events.json"),
+        &Transcription {
+            drums: vec![DrumHit {
+                time: 1.0,
+                voice: Voice::Snare,
+                confidence: 0.9,
+            }],
+            isolation: Some(manifest),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let moved = temp.path().join("Moved Song");
+    fs::rename(song, &moved).unwrap();
+    let job = generation::resolve_job(&moved).unwrap();
+    let drum_audio = moved.join(".yace/cache/separation/synthetic/drums.wav");
+    let expected = fs::read(&drum_audio).unwrap();
+    fs::write(&drum_audio, b"modified cached audio").unwrap();
+    assert!(generation::run(&moved).is_err());
+    assert!(!moved.join("notes.chart").exists());
+    fs::write(&drum_audio, expected).unwrap();
+    generation::run(&moved).unwrap();
+    assert_eq!(generation::status(&job).unwrap().state, State::Complete);
+    assert!(moved.join("notes.chart").is_file());
+    assert!(moved.join("drums.wav").is_file());
+    let store = Store::new(&generation::project_path(&job));
+    let project = store.load().unwrap();
+    project
+        .content
+        .stems
+        .as_ref()
+        .unwrap()
+        .load(&store.audio_path(&project).unwrap())
+        .unwrap();
+    generation::run(&moved).unwrap();
 }
 
 #[test]

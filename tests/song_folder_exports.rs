@@ -42,11 +42,11 @@ fn managed_project_snapshot_does_not_copy_itself_or_mutable_song_state() {
             "Copied mutable {name}"
         );
     }
-    assert!(
-        !fs::read_to_string(store.root.join("project.json"))
-            .unwrap()
-            .contains(".tmp")
+    assert_eq!(
+        store.load().unwrap().original_folder,
+        source.canonicalize().unwrap()
     );
+    assert_eq!(store.root, output.canonicalize().unwrap());
 }
 
 #[test]

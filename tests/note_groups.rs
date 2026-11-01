@@ -597,7 +597,7 @@ fn pasted_groups_export_with_the_original_timing_and_vocal_uncertainty() {
     )
     .unwrap();
     let chart = chart_engine::chart::Chart::parse(
-        fs::read_to_string(output.join("editor-source/notes.chart")).unwrap(),
+        fs::read_to_string(output.join(".yace/history/editor-source/notes.chart")).unwrap(),
     )
     .unwrap();
     assert!(

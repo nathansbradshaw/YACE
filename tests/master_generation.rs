@@ -155,10 +155,13 @@ fn additive_build_reduces_missing_rows_from_authored_master_and_preserves_source
     })
     .unwrap();
     let text = fs::read_to_string(output.join("notes.chart")).unwrap();
-    let archives: Vec<_> = fs::read_dir(output.join("chart-engine-history"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .collect();
+    let archives: Vec<_> = fs::read_dir(chart_engine::song_layout::path(
+        &output,
+        "chart-engine-history",
+    ))
+    .unwrap()
+    .map(|entry| entry.unwrap().path())
+    .collect();
     assert_eq!(archives.len(), 1);
     assert_eq!(
         fs::read(archives[0].join("chart-engine-report.json")).unwrap(),
@@ -192,9 +195,14 @@ fn additive_build_reduces_missing_rows_from_authored_master_and_preserves_source
     }
     assert!(receipt["difficulty_reduction"]["EasySingle"].is_null());
     assert!(receipt["difficulty_reduction"]["ExpertSingle"].is_null());
-    let markers: chart_engine::review_regions::ReviewMap =
-        serde_json::from_slice(&fs::read(output.join("chart-engine-review.json")).unwrap())
-            .unwrap();
+    let markers: chart_engine::review_regions::ReviewMap = serde_json::from_slice(
+        &fs::read(chart_engine::song_layout::path(
+            &output,
+            "chart-engine-review.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     assert!(
         !markers
             .regions

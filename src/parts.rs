@@ -376,9 +376,12 @@ mod native {
             ),
         )?;
         if job.join("isolation.json").exists() {
-            fs::copy(
-                job.join("isolation.json"),
-                crate::song_layout::path(stage.path(), "chart-engine-isolation.json"),
+            let manifest = crate::stem_review::StemManifest::read(&job.join("isolation.json"))?;
+            generation::write_song_manifest(
+                job,
+                stage.path(),
+                "chart-engine-isolation.json",
+                &manifest,
             )?;
         }
         let supplied = request

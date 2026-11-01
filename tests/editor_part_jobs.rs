@@ -152,7 +152,9 @@ fn vocal_only_jobs_need_no_instrumental_detections_or_invented_notes() {
     assert_eq!(draft.timing(&container).unwrap(), timing);
     assert!(draft.content.tracks.values().all(Vec::is_empty));
     assert!(draft.content.vocals.is_none());
-    assert!(!job.join("song/chart-engine-lyrics.json").exists());
+    assert!(
+        !chart_engine::song_layout::path(&job.join("song"), "chart-engine-lyrics.json").exists()
+    );
 }
 
 #[test]
@@ -201,6 +203,7 @@ fn a_part_job_moves_with_its_project_and_resumes_from_the_bound_recording() {
 
 #[test]
 fn managed_song_part_jobs_keep_relative_targets_when_the_song_folder_moves() {
+    use chart_engine::stem_review::{AlignmentEvidence, StemId, StemManifest};
     let root = tempfile::tempdir().unwrap();
     let initial = fixture(root.path());
     let song = root.path().join("Visible Song");
@@ -215,6 +218,33 @@ fn managed_song_part_jobs_keep_relative_targets_when_the_song_folder_moves() {
     let saved: serde_json::Value =
         serde_json::from_slice(&fs::read(job.join("editor-target.json")).unwrap()).unwrap();
     assert_eq!(saved["project"], "../../../project");
+    assert!(generation::run(&job).is_err()); // Preserve the imported recording before model failure.
+    let cache =
+        chart_engine::song_layout::project_data(&store.root).join("cache/separation/synthetic");
+    fs::create_dir_all(&cache).unwrap();
+    let source = job.join("input/source.wav");
+    let mut files = std::collections::BTreeMap::new();
+    for id in StemId::ALL {
+        let path = cache.join(format!("{}.wav", id.as_str()));
+        fs::copy(&source, &path).unwrap();
+        files.insert(id, path);
+    }
+    let mut manifest = StemManifest::build(
+        &source,
+        files,
+        AlignmentEvidence {
+            method: "synthetic_part_channels".into(),
+            details:
+                "Known silent stems share the fixture clock and exercise unfinished-job recovery."
+                    .into(),
+        },
+    )
+    .unwrap();
+    for asset in &mut manifest.stems {
+        asset.path = std::path::PathBuf::from("../../../cache/separation/synthetic")
+            .join(format!("{}.wav", asset.id.as_str()));
+    }
+    generation::write_json(&job.join("isolation.json"), &manifest).unwrap();
     generation::write_json(
         &job.join("events.json"),
         &Transcription {
@@ -223,12 +253,14 @@ fn managed_song_part_jobs_keep_relative_targets_when_the_song_folder_moves() {
                 voice: Voice::Snare,
                 confidence: 0.9,
             }],
+            isolation: Some(manifest),
             ..Default::default()
         },
     )
     .unwrap();
     let moved = root.path().join("Moved Song");
     fs::rename(song, &moved).unwrap();
+    fs::remove_dir_all(root.path().join("song")).unwrap();
     let store = Store::new(&moved.join(".yace/project"));
     let job = moved.join(".yace/jobs/parts/draft");
     parts::target(&job)
@@ -245,6 +277,14 @@ fn managed_song_part_jobs_keep_relative_targets_when_the_song_folder_moves() {
         })
         .unwrap();
     assert_eq!(store.load().unwrap().selected_track, "ExpertDrums");
+    let project = store.load().unwrap();
+    project
+        .content
+        .stems
+        .as_ref()
+        .unwrap()
+        .load(&store.audio_path(&project).unwrap())
+        .unwrap();
 }
 
 #[test]
@@ -307,7 +347,11 @@ fn applying_a_generated_part_retains_its_stems_for_game_export_and_undo() {
     let retained = imported.content.stems.as_ref().unwrap();
     assert_eq!(retained.ids().len(), 6);
     for asset in &retained.stems {
-        assert!(asset.path.starts_with(store.root.join("source/stems")));
+        assert!(
+            asset
+                .path
+                .starts_with(store.root.join("source/.yace/audio/stems"))
+        );
     }
     store
         .apply(Edit {
@@ -338,8 +382,10 @@ fn applying_a_generated_part_retains_its_stems_for_game_export_and_undo() {
             },
         })
         .unwrap();
-    let receipt: serde_json::Value =
-        serde_json::from_slice(&fs::read(output.join("yace-audio.json")).unwrap()).unwrap();
+    let receipt: serde_json::Value = serde_json::from_slice(
+        &fs::read(chart_engine::song_layout::path(&output, "yace-audio.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(receipt["mode"], "instrument_stems");
     assert!(output.join("drums.wav").is_file());
     assert!(output.join("keys.wav").is_file());

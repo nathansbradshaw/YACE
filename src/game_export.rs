@@ -347,18 +347,24 @@ pub fn song_with_ini(
     vocals: Option<&VocalChart>,
     ini: &BTreeMap<String, String>,
 ) -> Result<(Vec<u8>, i64)> {
-    let delay = chart.timing.offset * 1000.;
-    ensure!(
-        delay.abs() <= i32::MAX as f64 && (delay - delay.round()).abs() < 0.000001,
-        "Chart Offset cannot be preserved exactly in MIDI song.ini delay"
-    );
+    let delay = chart_delay(chart)?;
     let midi = chart_ticks_to_midi(chart, ini)?;
     let midi = if let Some(vocals) = vocals {
         crate::vocals::append_midi(&midi, vocals)?
     } else {
         midi
     };
-    Ok((midi, delay.round() as i64))
+    Ok((midi, delay))
+}
+
+/// The bound working master and game MIDI must use the same exact audio clock.
+pub(crate) fn chart_delay(chart: &Chart) -> Result<i64> {
+    let delay = chart.timing.offset * 1000.;
+    ensure!(
+        delay.abs() <= i32::MAX as f64 && (delay - delay.round()).abs() < 0.000001,
+        "Chart Offset cannot be preserved exactly in MIDI song.ini delay"
+    );
+    Ok(delay.round() as i64)
 }
 
 pub fn ini_with_delay(raw: &str, delay: i64) -> String {

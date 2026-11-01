@@ -668,7 +668,7 @@ fn native_combined_drum_guitar_bass_preserves_source_binding_through_build() {
         lookup_lyrics: false,
     })
     .unwrap();
-    let saved_path = output.join("chart-engine-transcription.json");
+    let saved_path = chart_engine::song_layout::path(&output, "chart-engine-transcription.json");
     let saved: Transcription = serde_json::from_slice(&fs::read(&saved_path).unwrap()).unwrap();
     saved.validate().unwrap();
     assert_eq!(
@@ -679,9 +679,14 @@ fn native_combined_drum_guitar_bass_preserves_source_binding_through_build() {
     for track in ["ExpertDrums", "ExpertSingle", "ExpertDoubleBass"] {
         assert!(!chart.notes(track).unwrap().is_empty());
     }
-    let _: chart_engine::review_regions::ReviewMap =
-        serde_json::from_slice(&fs::read(output.join("chart-engine-review.json")).unwrap())
-            .unwrap();
+    let _: chart_engine::review_regions::ReviewMap = serde_json::from_slice(
+        &fs::read(chart_engine::song_layout::path(
+            &output,
+            "chart-engine-review.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(models::hash_file(&audio).unwrap(), source_sha);
     assert_eq!(
         models::hash_file(&manifest_path).unwrap(),

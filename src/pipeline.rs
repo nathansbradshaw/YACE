@@ -41,7 +41,7 @@ pub fn chart_file(folder: &Path) -> Result<PathBuf> {
     }
 }
 
-/// A generated Pro Keys song has one authoritative game MIDI and a separately
+/// A generated MIDI song has one authoritative game MIDI and a separately
 /// archived editable master. Refuse mismatched pairs rather than edit stale data.
 pub fn editable_chart_file(folder: &Path) -> Result<PathBuf> {
     let chart = chart_file(folder)?;
@@ -64,9 +64,24 @@ pub fn editable_chart_file(folder: &Path) -> Result<PathBuf> {
 
 pub fn validate_existing(folder: &Path) -> Result<()> {
     let fields = ini_fields(&song_ini(folder)?);
-    if let Some(delay) = fields.get("delay") {
+    let delay = fields
+        .get("delay")
+        .map(|delay| delay.parse::<f64>().context("Invalid legacy delay"))
+        .transpose()?
+        .unwrap_or(0.0);
+    let binding = song_layout::resolve(folder, "chart-engine-working").join("binding.json");
+    if folder.join("notes.mid").is_file() && binding.exists() {
+        // Verify the pair before trusting its original chart offset. Unbound
+        // legacy MIDI delays still have no editable timing witness.
+        let master = editable_chart_file(folder)?;
+        let chart = Chart::parse(fs::read_to_string(master)?)?;
         ensure!(
-            delay.parse::<f64>().context("Invalid legacy delay")? == 0.0,
+            delay == crate::game_export::chart_delay(&chart)? as f64,
+            "Game MIDI delay does not match its bound editable master"
+        );
+    } else {
+        ensure!(
+            delay == 0.0,
             "Nonzero legacy song.ini delay is not yet supported; refusing to misalign notes"
         );
     }
