@@ -1,5 +1,74 @@
 # Browser workflow acceptance — 2026-10-30
 
+The 2026-11-01 static-client parity run is recorded below. Older LiveView
+measurements in this document describe that earlier harness, not the published
+static application's architecture or current feature limits.
+
+## Static-client parity run — 2026-11-01
+
+Application source: `6457510` (its final change keeps native manual setup mounted
+until project/audio loading finishes). Native and browser use the same Rust
+commands, note/review rules, song preparation, export and clean-audio processing.
+The canonical native bundle retains its existing name, identifier and local
+models; private validation recordings, model weights and artifacts remain out of Git.
+
+The actual browser ran the complete 243.880-second recording at 100% to
+`ended == true`, with both recording and supplied drum channel stopped at
+243.88. A project backup was prepared on a Rust worker during uninterrupted
+playback. Track switching also retained the playback clock.
+
+Actual application checks included:
+
+- MP3 tags and embedded cover, manual field edits, cover replacement, and 100 BPM
+  manual chart creation. The native and browser chart/INI files matched exactly;
+  their encoded source recording was unchanged. Explicit catalogue lookup in the
+  browser found the full song's album, year, genre and cover without audio upload.
+- A two-song collection with identical song names, switching and separate undo
+  histories. Folder discovery now reads metadata and retains File handles, loading
+  recording bytes only for the selected song.
+- Guitar timing and Tap edits, manual Keys and Pro Keys notes with undo/redo,
+  and a manual vocal note retaining explicit missing-lyric status. Native import
+  exposed the same vocal timing and pitch; native edit/Undo restored it exactly.
+- Real supplied aligned drums, attachment Undo/Redo and actual audio-channel
+  replacement. Undo removed the obsolete stem channel; Redo restored the retained
+  source-bound stem rather than playing an earlier attachment.
+- All five saved native kit components in the browser at 75%, switching without
+  restarting the recording. Only three audio elements remained mounted. A portable
+  backup opened natively with its Snare selection and 75% speed intact. New
+  separation stayed disabled under the approved browser AI exception.
+- A browser proposal imported, independently approved and merged natively. A
+  conflicting browser edit produced explicit note choices and a new proposal;
+  merge before approval was rejected. Fresh native approval returned in a review
+  bundle and the browser merged it while preserving newly authored Keys, Pro Keys
+  and vocals. These were labeled engineering tests, not musical approvals.
+- Actual native and browser clean-panel renders of the same bound plan. The native
+  panel output matched shared native DSP exactly; the browser's 10,755,108 stereo
+  frames had zero source-frame lag and maximum sample difference 0.00000054.
+  Real MP3 and Vorbis decoding tests also preserve float headroom above full scale.
+- Final playable exports from both actual applications had byte-identical MIDI,
+  editable master, vocal JSON, INI and original Ogg. The original recording hash
+  remained `4116e98add1b324105924afb9788379813c437c9792dbc3328d6ff2c03b5053a`.
+  The partial drum attachment was retained for editing; the game-audio receipt
+  retained one original mix, avoiding duplicate game playback.
+
+Private evidence includes `Head On A Plate project (6).zip` (native kit roundtrip),
+`Head On A Plate project (7).zip` (authored parts/review history),
+`Head On A Plate reviewed (6).zip`, the native `native-final-export` folder,
+and `clean-copy (1).zip` compared with the native clean-panel output.
+
+The full default local suite passed 665 tests with 47 explicit fixture/model
+ignores. Subsequent fixes passed all 16 collaboration and four portability tests,
+including regressions for an imported project's first checkpoint and preserving
+new local parts during review. Eight static-tool tests, strict native/browser
+Clippy, release builds and strict bundle signature verification passed.
+
+No throwaway GitHub repository or remote review test commits were created.
+Authenticated GitHub writes were not exercised: the user excluded that test.
+Protocol tests cover concurrent publication, checksums, permissions, source
+binding and idempotency; the actual browser anonymously reached GitHub and
+rejected an unrelated source-code repository. Musical accuracy, acoustic latency,
+controller/game acceptance and other browser engines remain separate evaluations.
+
 This records functional acceptance, not musical approval or parity with OCTAVE
 or Moonscraper. Source music and generated artifacts stay out of the repository.
 

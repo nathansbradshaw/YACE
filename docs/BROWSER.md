@@ -36,7 +36,10 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
 ## Open, edit, save and export
 
 - **New chart from audio** opens the native file picker, then asks for title,
-  artist and starting tempo. Local audio analysis proposes tempo changes across
+  artist and starting tempo. Recording tags and embedded covers populate editable
+  album, year and genre fields. Choose a local cover or explicitly look up matching
+  release information and cover art; lookup shares metadata, never audio.
+  Local audio analysis proposes tempo changes across
   the recording; **Use detected tempo map** is selected when a pulse is measured.
   Edit the starting BPM or clear this option for constant timing. Review the
   detected markers with **Timing**, especially the first beat and half/double-time
@@ -46,7 +49,11 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
   songs require their matching editable-master binding, as on desktop.
   **Open charting folder** uses the operating system's folder picker, finds charts
   up to three folders deep and exposes a chart switcher. Separate editing copies
-  preserve source files and distinguish same-named songs.
+  preserve source files and distinguish same-named songs. Discovery keeps local
+  file handles and reads small INI files; recording/stem bytes load only for the
+  selected song and are released from the collection snapshot after opening.
+  A selected song is bounded to 4096 files and 1 GiB, independently of the
+  collection's total recording size (up to 100,000 selected file handles).
   **Open saved project** opens a project ZIP with review and undo history.
 - Pick tracks, select/place/erase notes, edit timing and song sections, work with
   difficulty links, author vocals, and undo/redo using the shared Rust commands.
@@ -60,6 +67,7 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
   song ZIP using the same Rust export validation as the desktop app. Download
   the prepared ZIP using its explicit download button. A game
   export does not replace a project backup.
+  Backup and game-export preparation run on Rust workers so playback can continue.
 
 Files stay on the user's computer. Browser file inputs open the native picker;
 there is no custom workspace file browser and no upload endpoint. ZIP imports
@@ -113,6 +121,8 @@ adds missing events and never forces a branch update. A competing push triggers
 a new validated pull. Incoming proposals still require explicit review and
 merge. Native Git/shared-folder tools remain available on desktop; choosing a
 local browser folder does not establish synchronization.
+Review/analysis files also use an explicit prepared-file download button, so
+asynchronous work cannot silently lose a download to browser activation rules.
 Static hosting does not supply accounts, roles, live shared cursors or a team
 server.
 
