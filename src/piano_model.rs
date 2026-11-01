@@ -147,6 +147,11 @@ impl Transcriber {
         let windows = (padded - WINDOW) / HOP + 1;
         let mut values: [Vec<f32>; 6] = std::array::from_fn(|_| Vec::new());
         for index in 0..windows {
+            crate::generation_progress::units(
+                format!("Detecting piano notes · window {} of {windows}", index + 1),
+                index,
+                windows,
+            );
             let start = index * HOP;
             let mut waveform = vec![0.; WINDOW];
             if start < audio.len() {

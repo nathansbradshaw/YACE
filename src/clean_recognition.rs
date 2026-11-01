@@ -38,8 +38,10 @@ impl Control {
         self.message.lock().map(|m| m.clone()).unwrap_or_default()
     }
     pub(crate) fn update(&self, message: impl Into<String>) {
+        let message = message.into();
+        crate::generation_progress::detail(&message);
         if let Ok(mut current) = self.message.lock() {
-            *current = message.into();
+            *current = message;
         }
     }
     fn check(&self) -> Result<()> {

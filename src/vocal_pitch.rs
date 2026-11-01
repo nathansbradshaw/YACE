@@ -139,6 +139,15 @@ pub fn infer_pcm(pcm: &[f32], model: &Path, cancelled: &dyn Fn() -> bool) -> Res
     let count = (pcm.len() / HOP).max(1);
     let mut frames = Vec::with_capacity(count);
     for start in (0..count).step_by(CHUNK_FRAMES) {
+        crate::generation_progress::units(
+            format!(
+                "Detecting vocal contour · chunk {} of {}",
+                start / CHUNK_FRAMES + 1,
+                count.div_ceil(CHUNK_FRAMES)
+            ),
+            start,
+            count,
+        );
         ensure!(!cancelled(), "Vocal pitch analysis cancelled");
         let end = (start + CHUNK_FRAMES).min(count);
         let left = start.saturating_sub(LEFT_FRAMES);

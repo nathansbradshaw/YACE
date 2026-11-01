@@ -183,3 +183,101 @@ fn a_part_job_moves_with_its_project_and_resumes_from_the_bound_recording() {
         .unwrap();
     assert_eq!(store.load().unwrap().selected_track, "ExpertDrums");
 }
+
+#[test]
+fn applying_a_generated_part_retains_its_stems_for_game_export_and_undo() {
+    use chart_engine::stem_review::{AlignmentEvidence, StemId, StemManifest};
+    use std::collections::BTreeMap;
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let before = store.load().unwrap();
+    assert!(before.content.stems.is_none());
+    let target = parts::Target::capture(&store, &before, "ExpertDrums").unwrap();
+    let job = parts::create_job(
+        request(&store, "drums"),
+        &root.path().join("part-job"),
+        &target,
+    )
+    .unwrap();
+    generation::write_json(
+        &job.join("events.json"),
+        &Transcription {
+            drums: vec![DrumHit {
+                time: 1.5,
+                voice: Voice::Kick,
+                confidence: 0.9,
+            }],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    generation::run(&job).unwrap();
+    let audio = store.audio_path(&before).unwrap();
+    let mut files = BTreeMap::new();
+    for id in StemId::ALL {
+        let path = root.path().join(format!("{}-separated.wav", id.as_str()));
+        fs::copy(&audio, &path).unwrap();
+        files.insert(id, path);
+    }
+    let manifest = StemManifest::build(&audio, files, AlignmentEvidence {
+        method: "synthetic_silent_channels".into(),
+        details: "Silent channels of the exact fixture length, testing persistence and routing rather than model separation.".into(),
+    }).unwrap();
+    let path = root.path().join("generated-stems.json");
+    generation::write_json(&path, &manifest).unwrap();
+    let generated = Store::new(&job.join("project"));
+    generated
+        .apply(Edit {
+            expected_revision: generated.load().unwrap().revision,
+            actor: human(),
+            action: Action::AttachStems { manifest: path },
+        })
+        .unwrap();
+    store
+        .apply(Edit {
+            expected_revision: before.revision,
+            actor: human(),
+            action: Action::ApplyGeneratedPart { job: job.clone() },
+        })
+        .unwrap();
+    let imported = store.load().unwrap();
+    let retained = imported.content.stems.as_ref().unwrap();
+    assert_eq!(retained.ids().len(), 6);
+    for asset in &retained.stems {
+        assert!(asset.path.starts_with(store.root.join("source/stems")));
+    }
+    store
+        .apply(Edit {
+            expected_revision: imported.revision,
+            actor: human(),
+            action: Action::Undo,
+        })
+        .unwrap();
+    assert!(store.load().unwrap().content.stems.is_none());
+    store
+        .apply(Edit {
+            expected_revision: store.load().unwrap().revision,
+            actor: human(),
+            action: Action::Redo,
+        })
+        .unwrap();
+    fs::remove_dir_all(&job).unwrap();
+    for asset in manifest.stems {
+        fs::remove_file(asset.path).unwrap();
+    }
+    let output = root.path().join("game-export");
+    store
+        .apply(Edit {
+            expected_revision: store.load().unwrap().revision,
+            actor: human(),
+            action: Action::Export {
+                output: output.clone(),
+            },
+        })
+        .unwrap();
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(output.join("yace-audio.json")).unwrap()).unwrap();
+    assert_eq!(receipt["mode"], "instrument_stems");
+    assert!(output.join("drums.wav").is_file());
+    assert!(output.join("keys.wav").is_file());
+}

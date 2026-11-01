@@ -18,10 +18,72 @@ use std::{
 
 const CSS: &str = include_str!("../../assets/generation.css");
 
+fn stage_title(stage: &str) -> &str {
+    match stage {
+        "queued" => "Ready to start",
+        "import" | "decode" => "Preparing recording",
+        "models" => "Preparing transcription models",
+        "separation" => "Separating instrument recordings",
+        "transcription" => "Detecting notes",
+        "chart" => "Arranging chart difficulties",
+        "vocals" => "Detecting vocal pitch and lyrics",
+        "editor" => "Preparing editing project",
+        "game_export" => "Preparing game files",
+        "complete" => "Draft ready",
+        "stopped" => "Generation stopped",
+        other => other,
+    }
+}
+
+fn worker_log_tail(root: &Path) -> String {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = fs::File::open(root.join("worker.log")) else {
+        return String::new();
+    };
+    let Ok(size) = file.metadata().map(|metadata| metadata.len()) else {
+        return String::new();
+    };
+    let offset = size.saturating_sub(8192);
+    if file.seek(SeekFrom::Start(offset)).is_err() {
+        return String::new();
+    }
+    let mut bytes = Vec::new();
+    if file.take(8192).read_to_end(&mut bytes).is_err() {
+        return String::new();
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let text = if offset > 0 {
+        text.split_once('\n').map_or("", |(_, tail)| tail)
+    } else {
+        &text
+    };
+    text.lines()
+        .rev()
+        .take(12)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use dioxus::core::Mutation;
+    #[test]
+    fn activity_preview_is_bounded_and_keeps_the_latest_worker_output() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(worker_log_tail(root.path()), "");
+        let log = (0..1000)
+            .map(|line| format!("worker activity line {line}\n"))
+            .collect::<String>();
+        fs::write(root.path().join("worker.log"), log).unwrap();
+        let tail = worker_log_tail(root.path());
+        assert_eq!(tail.lines().count(), 12);
+        assert!(tail.ends_with("worker activity line 999"));
+        assert!(!tail.contains("line 987"));
+    }
     mod fixture {
         use crate as chart_engine;
         include!(concat!(
@@ -137,6 +199,9 @@ struct View {
     busy: bool,
     root: Option<PathBuf>,
     status: Option<Status>,
+    progress: Option<crate::generation_progress::Progress>,
+    started_ms: Option<u64>,
+    log_tail: String,
     error: Option<String>,
     notice: String,
     worker: Option<Rc<RefCell<Worker>>>,
@@ -173,6 +238,9 @@ impl Default for View {
             busy: false,
             root: None,
             status: None,
+            progress: None,
+            started_ms: None,
+            log_tail: String::new(),
             error: None,
             notice: String::new(),
             worker: None,
@@ -287,7 +355,11 @@ fn fail(mut data: Signal<View>, error: impl std::fmt::Display) {
 }
 
 fn local_file(mut data: Signal<View>) {
-    data.write().busy = true;
+    data.with_mut(|view| {
+        view.busy = true;
+        view.started_ms = Some(crate::generation_progress::now_ms());
+        view.notice = "Reading audio information and estimating tempo…".into();
+    });
     spawn(async move {
         let selected = rfd::AsyncFileDialog::new()
             .set_title("Import an audio recording")
@@ -421,6 +493,9 @@ fn launch_worker(mut data: Signal<View>, root: PathBuf) -> Result<()> {
         })));
         v.busy = true;
         v.error = None;
+        v.progress = None;
+        v.started_ms = Some(crate::generation_progress::now_ms());
+        v.log_tail.clear();
     });
     Ok(())
 }
@@ -445,6 +520,8 @@ fn generate(mut data: Signal<View>) {
         v.busy = true;
         v.error = None;
         v.status = None;
+        v.progress = None;
+        v.started_ms = Some(crate::generation_progress::now_ms());
         v.notice = "Creating generation job…".into();
     });
     spawn(async move {
@@ -545,18 +622,18 @@ fn recover(mut data: Signal<View>) {
         };
         let root = folder.path().to_owned();
         let read_root = root.clone();
-        let loaded = tokio::task::spawn_blocking(
-            move || -> Result<(Request, Status, Option<crate::parts::Target>)> {
-                Ok((
-                    serde_json::from_slice(&fs::read(read_root.join("request.json"))?)?,
-                    generation::status(&read_root)?,
-                    crate::parts::target(&read_root)?,
-                ))
-            },
-        )
+        let loaded = tokio::task::spawn_blocking(move || -> Result<_> {
+            Ok((
+                serde_json::from_slice::<Request>(&fs::read(read_root.join("request.json"))?)?,
+                generation::status(&read_root)?,
+                crate::parts::target(&read_root)?,
+                crate::generation_progress::read(&read_root).ok(),
+                worker_log_tail(&read_root),
+            ))
+        })
         .await;
         match loaded {
-            Ok(Ok((request, status, target))) => data.with_mut(|v| {
+            Ok(Ok((request, status, target, progress, log_tail))) => data.with_mut(|v| {
                 let Source::Audio { path } = request.source;
                 v.target = target;
                 v.applied = false;
@@ -587,6 +664,9 @@ fn recover(mut data: Signal<View>) {
                     .to_string_lossy()
                     .into_owned();
                 v.root = Some(root);
+                v.started_ms = progress.as_ref().map(|progress| progress.started_ms);
+                v.progress = progress;
+                v.log_tail = log_tail;
                 v.error = status.error.clone();
                 v.status = Some(status);
                 v.busy = false;
@@ -601,6 +681,7 @@ fn recover(mut data: Signal<View>) {
 #[component]
 pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut data = use_signal(View::default);
+    let mut now_ms = use_signal(crate::generation_progress::now_ms);
     use_effect(move || {
         let Some(track) = (studio.generation_target)() else {
             return;
@@ -622,6 +703,9 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     use_future(move || async move {
         loop {
             tokio::time::sleep(Duration::from_millis(350)).await;
+            if data.peek().busy {
+                now_ms.set(crate::generation_progress::now_ms());
+            }
             let (root, worker) = {
                 let v = data.read();
                 (v.root.clone(), v.worker.clone())
@@ -631,10 +715,21 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             };
             let exit = worker.borrow_mut().child.try_wait();
             let read_root = root.clone();
-            if let Ok(Ok(status)) =
-                tokio::task::spawn_blocking(move || generation::status(&read_root)).await
+            if let Ok(Ok((status, progress, log_tail))) =
+                tokio::task::spawn_blocking(move || -> Result<_> {
+                    Ok((
+                        generation::status(&read_root)?,
+                        crate::generation_progress::read(&read_root).ok(),
+                        worker_log_tail(&read_root),
+                    ))
+                })
+                .await
             {
-                data.write().status = Some(status);
+                data.with_mut(|view| {
+                    view.status = Some(status);
+                    view.progress = progress;
+                    view.log_tail = log_tail;
+                });
             }
             let stopped = match exit {
                 Ok(Some(_)) => true,
@@ -697,8 +792,40 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         }
     });
     let view = data.read().clone();
+    let elapsed = view
+        .started_ms
+        .map(|start| {
+            let end = if view.busy {
+                now_ms()
+            } else {
+                view.progress
+                    .as_ref()
+                    .map_or(now_ms(), |progress| progress.updated_ms)
+            };
+            let seconds = end.saturating_sub(start) / 1000;
+            format!("{}:{:02}", seconds / 60, seconds % 60)
+        })
+        .unwrap_or_else(|| "0:00".into());
+    let progress = view.progress.as_ref().filter(|progress| {
+        view.status
+            .as_ref()
+            .is_some_and(|status| status.stage == progress.stage)
+    });
+    let detail = progress
+        .map(|progress| progress.detail.clone())
+        .or_else(|| view.status.as_ref().map(|status| status.detail.clone()))
+        .unwrap_or_else(|| view.notice.clone());
     if !(studio.generation_open)() {
-        return rsx! {};
+        return if view.busy {
+            rsx! {
+                style { "{CSS}" }
+                button { class: "generation-running", onclick: move |_| studio.generation_open.set(true),
+                    aria_label: "Show generation progress", strong { "Generation · {elapsed}" } span { "{detail}" }
+                }
+            }
+        } else {
+            rsx! {}
+        };
     }
     let busy = view.busy;
     let saved = view.root.is_some();
@@ -869,8 +996,20 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         p { class: "field-hint", if replaces_part { "This replaces {part_title}. Undo restores the previous notes." } else { "The draft is ready to add to this chart." } }
                     }
                     if let Some(status)=&view.status{
-                        div{class:"generation-progress",role:"status",strong{"{status.stage}"}span{"{status.detail}"}if busy{progress{aria_label:"Generating charts"}}}
+                        div{class:"generation-progress",role:"status",aria_live:"polite",
+                            strong{"{stage_title(&status.stage)}"}
+                            span{"{detail}"}
+                            if busy {
+                                span { "Elapsed {elapsed} · completed work is saved for retry" }
+                                if let Some(progress) = progress && let (Some(done), Some(total)) = (progress.completed, progress.total) {
+                                    progress { aria_label:"Current generation step", max:"{total}", value:"{done}" }
+                                } else { progress { aria_label:"Current generation step" } }
+                            }
+                        }
+                    } else if busy {
+                        div { class:"generation-progress", role:"status", span { "{detail}" } span { "Elapsed {elapsed}" } progress { aria_label:"Preparing generation" } }
                     }
+                    if !view.log_tail.is_empty() { details { summary { "Recent worker activity" } pre { class:"generation-log", "{view.log_tail}" } } }
                     if let Some(root)=&view.root{p{class:"generation-path","Saved job: {root.display()}"}p{class:"generation-path","Detailed log: {log_path}"}}
                     if let Some(error)=&view.error{div{class:"generation-error",role:"alert","{error}"}}
                     p{class:"generation-footnote","Listen through the draft before exporting."}

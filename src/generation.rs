@@ -422,7 +422,9 @@ fn update(
     current.stage = stage.into();
     current.detail = detail.into();
     current.error = error;
-    write_json(&root.join("job.json"), &current)
+    write_json(&root.join("job.json"), &current)?;
+    crate::generation_progress::stage(stage, &current.detail);
+    Ok(())
 }
 
 /// Only called after the child has exited; the same lock prevents cancelling a
@@ -471,6 +473,7 @@ pub fn run(root: &Path) -> Result<()> {
         Store::new(&root.join("project")).load()?;
         return Ok(());
     }
+    let _progress = crate::generation_progress::begin(root);
     let result = run_inner(root);
     if let Err(error) = &result {
         let current = status(root)?;
@@ -984,14 +987,7 @@ fn run_inner(root: &Path) -> Result<()> {
             project = store.load()?;
         }
     }
-    if (project.content.vocals.is_some()
-        || project
-            .content
-            .tracks
-            .keys()
-            .any(|t| crate::keys::is_pro(t)))
-        && !root.join("game-song").exists()
-    {
+    if !root.join("game-song").exists() {
         update(
             root,
             State::Running,

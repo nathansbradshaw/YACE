@@ -26,6 +26,30 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
                 strong { title: "{title}", "{title}" }
                 if !artist.is_empty() { span { title: "{artist}", "{artist}" } }
             }
+            if !cfg!(feature = "browser") {
+                if let Some(library) = (studio.library)() {
+                    label { class: "chart-library-picker", title: "{library.root.display()}",
+                        span { "Charts " }
+                        select {
+                            aria_label: "Switch chart in charting folder",
+                            disabled: (studio.library_busy)(),
+                            value: (studio.library_selected)().map_or(String::new(), |index| index.to_string()),
+                            onchange: move |event| {
+                                #[cfg(not(feature = "browser"))]
+                                if let Ok(index) = event.value().parse::<usize>() {
+                                    spawn(async move { studio.open_library_chart(index).await; });
+                                }
+                                #[cfg(feature = "browser")]
+                                let _ = event;
+                            },
+                            option { value: "", disabled: true, "Choose a chart ({library.entries.len()})" }
+                            for (index, item) in library.entries.iter().enumerate() {
+                                option { value: "{index}", "{item.title} · {item.path.strip_prefix(&library.root).unwrap_or(&item.path).display()}" }
+                            }
+                        }
+                    }
+                }
+            }
             nav { class: "project-actions", aria_label: "Chart workflow",
                 button { class: "project-generate", onclick: move |_| studio.generation_open.set(true), title: "Generate charts from local audio", Icon { name: "music", size: 15 } "Generate" }
                 button { disabled: !loaded, onclick: move |_| studio.review_open.set(true), title: "Review timed chart flags", Icon { name: "flag", size: 15 } "Review" }
@@ -34,8 +58,10 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
             button { "popovertarget": "project-tools", aria_label: "More tools", "Tools" Icon { name: "chevron-down", size: 12 } }
         }
         div { id: "project-actions", class: "command-popover project-popover", "popover": "auto", onkeydown: keep_space_local,
-            button { "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(), Icon { name: "folder-open", size: 15 } "Open saved project…" }
-            button { "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(), Icon { name: "file-plus", size: 15 } "Create from song folder…" }
+            button { disabled: (studio.library_busy)(), "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(), Icon { name: "folder-open", size: 15 } if cfg!(feature="browser") { "Open saved project…" } else { "Open project or charting folder…" } }
+            if cfg!(feature="browser") {
+                button { "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(), Icon { name: "file-plus", size: 15 } "Create from song folder…" }
+            }
             if cfg!(feature="browser") {
                 button { "popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.create_dialog(),"Import song ZIP…" }
                 button {disabled:!loaded,"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|{if let Some(store)=studio.store.read().clone(){spawn(async move{super::dialogs::download(&store.root).await;});}},"Save project ZIP…"}

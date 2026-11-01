@@ -16,6 +16,9 @@ use std::{
 
 pub const SAMPLE_RATE: u32 = 44_100;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod game_audio;
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum StemId {
