@@ -8,8 +8,9 @@ in place. When it finishes, select **Add** or **Replace** to apply the draft;
 Undo restores the previous notes. If that part changed during generation,
 YACE keeps both versions and refuses to overwrite your edits.
 
-Part jobs are saved in the review project's `generation-jobs` folder. Keep that
-folder with the project to retain generation evidence and recovery files.
+Part jobs are saved under the song's `.yace/jobs/parts` folder. Keep `.yace` with
+the song to retain generation evidence and recovery files. Older jobs in a
+review project's `generation-jobs` folder remain readable.
 
 1. **Choose audio.** Select a local recording. Expand **Song details** to check
    the title, artist and detected tempos. The detected tempo map is used by
@@ -65,16 +66,26 @@ Each generated song has one destination folder:
 
 ```text
 Song chart/
-  input/       preserved recording and import information
-  project/     editing project, source snapshot, retained stems and undo history
-  game-song/   game export, with separate audio channels when stems are complete
-  song/        generated chart before manual edits
-  request.json, job.json, progress.json, worker.log
+  notes.chart or notes.mid
+  song.ini
+  song.wav and optional guitar/bass/drums/vocals/keys audio
+  album.png or album.jpg when supplied
+  .yace/
+    project/            editing state, source snapshot, retained stems and undo
+    jobs/generation/    import, settings, intermediate results, progress and logs
+    cache/separation/   reusable instrument separation
+    analysis/, audio/, review/, working/, originals/, history/, export/
 ```
 
-Open the destination folder or its `project` child to continue editing. Export
-again after making edits; `game-song` is the initial generated draft. Stem caches
-are reusable acceleration data; the editing project retains its own audio copies.
+The visible files are the initial generated game draft. Open that song folder to
+continue editing; its existing `.yace/project` is found automatically. Export
+again after making edits. Stem caches are reusable acceleration data; the editing
+project retains its own audio copies.
+
+The worker publishes chart files after their audio and metadata are ready. Retry
+checks already published files and refuses to replace files changed by a person.
+Old generation folders containing `input`, `song`, `project` and `game-song`
+directly still open and resume with their original layout.
 
 ## Options
 

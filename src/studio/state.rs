@@ -1312,16 +1312,26 @@ impl Studio {
                 .await
             {
                 Ok(Ok(library)) => {
-                    if library.entries.len() != 1
-                        || library.entries[0].kind != crate::chart_library::Kind::Project
-                    {
+                    if library.entries.len() != 1 {
                         self.library.set(Some(library));
                         self.library_selected.set(None);
                         self.status
                             .set("Choose a chart from the charting folder".into());
                         return;
                     }
-                    library.entries[0].path.clone()
+                    match tokio::task::spawn_blocking(move || library.open(&library.entries[0]))
+                        .await
+                    {
+                        Ok(Ok(project)) => project,
+                        Ok(Err(error)) => {
+                            self.error.set(Some(format!("{error:#}")));
+                            return;
+                        }
+                        Err(error) => {
+                            self.error.set(Some(error.to_string()));
+                            return;
+                        }
+                    }
                 }
                 Ok(Err(error)) => {
                     self.error.set(Some(format!("{error:#}")));

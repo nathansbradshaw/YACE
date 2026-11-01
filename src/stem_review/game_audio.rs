@@ -1,5 +1,6 @@
 //! Retain source-bound stems and route complete sets to game instrument channels.
 use super::{StemId, StemManifest};
+use crate::song_layout;
 use crate::storage as fs;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -49,7 +50,7 @@ pub fn retain_in(source_folder: &Path, manifest: &StemManifest) -> Result<StemMa
             "{} stem changed before retention",
             asset.id.as_str()
         );
-        let folder = source_folder.join("stems").join(&asset.sha256);
+        let folder = source_folder.join(".yace/audio/stems").join(&asset.sha256);
         fs::create_dir_all(&folder)?;
         let target = folder.join(format!(
             "{}.{}",
@@ -95,6 +96,7 @@ pub fn filename(id: StemId) -> &'static str {
 
 /// A partial set cannot replace the recording without dropping instruments.
 pub fn write(source: &Path, manifest: Option<&StemManifest>, stage: &Path) -> Result<Receipt> {
+    song_layout::prepare(stage)?;
     let original_sha256 = crate::models::hash_file(source)?;
     let mut receipt = Receipt {
         version: 1,
@@ -107,7 +109,10 @@ pub fn write(source: &Path, manifest: Option<&StemManifest>, stage: &Path) -> Re
     let Some(manifest) =
         manifest.filter(|manifest| manifest.ids() == StemId::ALL.into_iter().collect())
     else {
-        fs::write(stage.join(RECEIPT), serde_json::to_vec_pretty(&receipt)?)?;
+        fs::write(
+            song_layout::path(stage, RECEIPT),
+            serde_json::to_vec_pretty(&receipt)?,
+        )?;
         return Ok(receipt);
     };
     #[cfg(not(target_arch = "wasm32"))]
@@ -115,7 +120,7 @@ pub fn write(source: &Path, manifest: Option<&StemManifest>, stage: &Path) -> Re
     #[cfg(target_arch = "wasm32")]
     let duration = crate::models::duration(source)?;
     manifest.validate_source(source, &receipt.original_sha256, duration)?;
-    let saved = stage.join(".yace-audio");
+    let saved = stage.join(".yace/originals/audio");
     fs::create_dir_all(&saved)?;
     let original_name = format!(
         "original.{}",
@@ -130,7 +135,7 @@ pub fn write(source: &Path, manifest: Option<&StemManifest>, stage: &Path) -> Re
         crate::models::hash_file(&original_path)? == receipt.original_sha256,
         "Recording changed during export"
     );
-    receipt.original_audio = Some(Path::new(".yace-audio").join(original_name));
+    receipt.original_audio = Some(Path::new(".yace/originals/audio").join(original_name));
 
     // Move every recognized source channel out of the game's top-level scan.
     // Keeping a full mix beside separated channels would play the music twice.
@@ -222,13 +227,16 @@ pub fn write(source: &Path, manifest: Option<&StemManifest>, stage: &Path) -> Re
     }
     receipt.mode = "instrument_stems".into();
     receipt.detail = "Independent guitar, bass, drums, vocals and keys channels; song.wav contains only the other-instruments stem. Original recording is archived. Game mute-on-miss depends on game settings. Separation quality and Rock Band console packaging are unverified.".into();
-    fs::write(stage.join(RECEIPT), serde_json::to_vec_pretty(&receipt)?)?;
+    fs::write(
+        song_layout::path(stage, RECEIPT),
+        serde_json::to_vec_pretty(&receipt)?,
+    )?;
     Ok(receipt)
 }
 
 /// Reopening our game export uses the archived recording for its original clock.
 pub fn restore_recording(folder: &Path) -> Result<()> {
-    let path = folder.join(RECEIPT);
+    let path = song_layout::resolve(folder, RECEIPT);
     if !fs::is_file(&path) {
         return Ok(());
     }
@@ -243,7 +251,16 @@ pub fn restore_recording(folder: &Path) -> Result<()> {
             .all(|component| matches!(component, std::path::Component::Normal(_))),
         "Invalid original audio path"
     );
+    let relocated = original
+        .strip_prefix(".yace-audio")
+        .ok()
+        .map(|relative| folder.join(".yace/originals/audio").join(relative));
     let original = folder.join(original);
+    let original = if original.is_file() {
+        original
+    } else {
+        relocated.unwrap_or(original)
+    };
     ensure!(
         crate::models::hash_file(&original)? == receipt.original_sha256,
         "Archived recording changed"
@@ -263,7 +280,12 @@ pub fn restore_recording(folder: &Path) -> Result<()> {
             fs::remove_file(path)?;
         }
     }
-    let channels = folder.join(".yace-audio/source-channels");
+    let current_channels = folder.join(".yace/originals/audio/source-channels");
+    let channels = if fs::exists(&current_channels) {
+        current_channels
+    } else {
+        folder.join(".yace-audio/source-channels")
+    };
     if fs::exists(&channels) {
         for entry in fs::read_dir(channels)? {
             let entry = entry?;

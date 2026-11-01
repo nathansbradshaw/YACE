@@ -163,7 +163,11 @@ fn build_project(root: &Path, audio: &Path, events: &Transcription) -> Store {
     .unwrap();
     assert!(song.join("notes.mid").is_file());
     let evidence: serde_json::Value = serde_json::from_slice(
-        &fs::read(song.join("chart-engine-pro-keys-arrangement.json")).unwrap(),
+        &fs::read(chart_engine::song_layout::path(
+            &song,
+            "chart-engine-pro-keys-arrangement.json",
+        ))
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(evidence["arrangement"]["out_of_range_omitted"], 0);
@@ -178,13 +182,17 @@ fn build_project(root: &Path, audio: &Path, events: &Transcription) -> Store {
         evidence["source_transcription_sha256"]
             .as_str()
             .is_some_and(|sha| sha
-                == models::hash_file(&song.join("chart-engine-transcription.json")).unwrap())
+                == models::hash_file(&chart_engine::song_layout::path(
+                    &song,
+                    "chart-engine-transcription.json"
+                ))
+                .unwrap())
     );
     assert!(!song.join("notes.chart").exists());
     assert!(
         pipeline::editable_chart_file(&song)
             .unwrap()
-            .ends_with("chart-engine-working/notes.chart")
+            .ends_with(".yace/working/notes.chart")
     );
     Store::create(&song, None, &root.join("project")).unwrap()
 }
@@ -279,7 +287,11 @@ fn piano_only_song_opens_edits_undoes_and_exports_one_midi_with_bound_recovery_m
             .notes,
         vocals.notes
     );
-    assert!(export.join("editor-source/notes.chart").is_file());
+    assert!(
+        export
+            .join(".yace/history/editor-source/notes.chart")
+            .is_file()
+    );
     let reopened = Store::create(&export, None, &root.path().join("reopened")).unwrap();
     assert!(
         reopened.load().unwrap().content.tracks["ExpertProKeys"]

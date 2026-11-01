@@ -388,10 +388,51 @@ fn validate_vocal_cache(
 }
 
 pub fn status(root: &Path) -> Result<Status> {
+    let root = resolve_job(root)?;
     Ok(serde_json::from_slice(&fs::read(root.join("job.json"))?)?)
 }
 
-pub fn create(mut request: Request, output: &Path) -> Result<PathBuf> {
+/// Accept both the standard song folder and an explicit saved job directory.
+pub fn resolve_job(selected: &Path) -> Result<PathBuf> {
+    for root in [selected.to_owned(), selected.join(".yace/jobs/generation")] {
+        if root.join("job.json").is_file() {
+            return Ok(root.canonicalize()?);
+        }
+    }
+    anyhow::bail!("No saved generation job found in {}", selected.display())
+}
+
+/// New song jobs keep their complete working set beneath the song's `.yace`.
+/// A marker distinguishes them from older flat jobs and explicit part jobs.
+pub fn song_folder(root: &Path) -> Option<PathBuf> {
+    crate::song_layout::song_for_job(root)
+}
+
+pub fn project_path(root: &Path) -> PathBuf {
+    crate::song_layout::project_for_job(root)
+}
+
+pub fn create(request: Request, output: &Path) -> Result<PathBuf> {
+    request.validate()?;
+    pipeline::destination(output, None)?;
+    let parent = output
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let stage = tempfile::tempdir_in(parent)?;
+    let job = stage.path().join(".yace/jobs/generation");
+    fs::create_dir_all(job.parent().context("Job folder needs a parent")?)?;
+    create_job(request, &job)?;
+    write_json(
+        &job.join("song-layout.json"),
+        &serde_json::json!({"version":1,"layout":"standard_song_folder"}),
+    )?;
+    pipeline::publish(stage.path(), output)?;
+    resolve_job(output)
+}
+
+/// Explicit internal job creation used by add-part operations and old job tools.
+pub fn create_job(mut request: Request, output: &Path) -> Result<PathBuf> {
     request.validate()?;
     let Source::Audio { path } = &mut request.source;
     *path = path.canonicalize()?;
@@ -430,6 +471,309 @@ struct Input {
     original: Option<(String, String)>,
 }
 
+fn owned_root(root: &Path) -> Result<Option<PathBuf>> {
+    if let Some(song) = song_folder(root) {
+        return Ok(Some(song.canonicalize()?));
+    }
+    if let Some(target) = crate::parts::target(root)? {
+        let project = target.project.canonicalize()?;
+        let job = root.canonicalize()?;
+        if job.starts_with(&project) {
+            return Ok(Some(project));
+        }
+        if let Ok(private) = crate::song_layout::project_data(&project).canonicalize()
+            && job.starts_with(&private)
+        {
+            return Ok(Some(private));
+        }
+    }
+    Ok(None)
+}
+
+fn separation_cache(root: &Path) -> Result<PathBuf> {
+    if let Some(target) = crate::parts::target(root)? {
+        return Ok(crate::song_layout::project_data(&target.project).join("cache/separation"));
+    }
+    Ok(song_folder(root).map_or_else(
+        || root.join(".yace/cache/separation"),
+        |song| song.join(".yace/cache/separation"),
+    ))
+}
+
+fn portable_manifest(
+    root: &Path,
+    manifest: &crate::stem_review::StemManifest,
+) -> Result<crate::stem_review::StemManifest> {
+    portable_manifest_at(root, root, manifest)
+}
+
+fn portable_manifest_at(
+    root: &Path,
+    base: &Path,
+    manifest: &crate::stem_review::StemManifest,
+) -> Result<crate::stem_review::StemManifest> {
+    let Some(song) = owned_root(root)? else {
+        return Ok(manifest.clone());
+    };
+    let base = base.canonicalize()?;
+    let mut portable = manifest.clone();
+    for asset in &mut portable.stems {
+        let resolved = if asset.path.is_relative() {
+            base.join(&asset.path)
+        } else {
+            asset.path.clone()
+        };
+        let target = resolved
+            .canonicalize()
+            .with_context(|| format!("Saved {} stem is unavailable", asset.id.as_str()))?;
+        if target.starts_with(&song) {
+            let base_parts = base.components().collect::<Vec<_>>();
+            let target_parts = target.components().collect::<Vec<_>>();
+            let shared = base_parts
+                .iter()
+                .zip(&target_parts)
+                .take_while(|(left, right)| left == right)
+                .count();
+            let mut relative = PathBuf::new();
+            for _ in shared..base_parts.len() {
+                relative.push("..");
+            }
+            for component in &target_parts[shared..] {
+                relative.push(component.as_os_str());
+            }
+            asset.path = relative;
+        } else if asset.path.is_relative() {
+            asset.path = target;
+        }
+    }
+    Ok(portable)
+}
+
+pub(crate) fn write_song_manifest(
+    root: &Path,
+    song: &Path,
+    name: &str,
+    manifest: &crate::stem_review::StemManifest,
+) -> Result<()> {
+    let destination = crate::song_layout::path(song, name);
+    let portable = portable_manifest_at(
+        root,
+        destination
+            .parent()
+            .context("Manifest needs a parent folder")?,
+        manifest,
+    )?;
+    write_json(&destination, &portable)
+}
+
+fn resolve_manifest(root: &Path, manifest: &mut crate::stem_review::StemManifest) -> Result<()> {
+    for asset in &mut manifest.stems {
+        if asset.path.is_relative() {
+            asset.path = root
+                .join(&asset.path)
+                .canonicalize()
+                .with_context(|| format!("Saved {} stem is unavailable", asset.id.as_str()))?;
+        }
+    }
+    Ok(())
+}
+
+fn write_job_manifest(
+    root: &Path,
+    name: &str,
+    manifest: &crate::stem_review::StemManifest,
+) -> Result<()> {
+    write_json(&root.join(name), &portable_manifest(root, manifest)?)
+}
+
+fn read_events(root: &Path, bytes: &[u8]) -> Result<Transcription> {
+    let mut events: Transcription = serde_json::from_slice(bytes)?;
+    for manifest in events
+        .isolation
+        .iter_mut()
+        .chain(events.keyboard_analysis.iter_mut())
+    {
+        resolve_manifest(root, manifest)?;
+    }
+    Ok(events)
+}
+
+fn write_events(root: &Path, events: &Transcription) -> Result<()> {
+    let mut portable = events.clone();
+    for manifest in portable
+        .isolation
+        .iter_mut()
+        .chain(portable.keyboard_analysis.iter_mut())
+    {
+        *manifest = portable_manifest(root, manifest)?;
+    }
+    write_json(&root.join("events.json"), &portable)
+}
+
+#[derive(Serialize, Deserialize)]
+struct Publication {
+    version: u32,
+    files: std::collections::BTreeMap<PathBuf, String>,
+}
+
+fn game_files(folder: &Path) -> Result<std::collections::BTreeMap<PathBuf, String>> {
+    fn collect(
+        base: &Path,
+        folder: &Path,
+        files: &mut std::collections::BTreeMap<PathBuf, String>,
+    ) -> Result<()> {
+        for entry in fs::read_dir(folder)? {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            ensure!(!kind.is_symlink(), "Game export contains a symlink");
+            if kind.is_dir() {
+                collect(base, &entry.path(), files)?;
+            } else {
+                ensure!(kind.is_file(), "Unsupported game export asset");
+                let relative = entry.path().strip_prefix(base)?.to_owned();
+                ensure!(
+                    relative
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_))),
+                    "Invalid game export path"
+                );
+                for reserved in [
+                    ".yace/project",
+                    ".yace/projects",
+                    ".yace/jobs",
+                    ".yace/cache",
+                    ".yace/logs",
+                ] {
+                    ensure!(
+                        !relative.starts_with(reserved),
+                        "Game export contains reserved YACE state"
+                    );
+                }
+                files.insert(relative, models::hash_file(&entry.path())?);
+            }
+        }
+        Ok(())
+    }
+    let mut files = std::collections::BTreeMap::new();
+    collect(folder, folder, &mut files)?;
+    ensure!(
+        files.contains_key(Path::new("notes.chart")) || files.contains_key(Path::new("notes.mid")),
+        "Game export has no chart"
+    );
+    Ok(files)
+}
+
+fn verify_published_song(root: &Path, song: &Path) -> Result<()> {
+    let publication: Publication =
+        serde_json::from_slice(&fs::read(root.join("publication.json"))?)?;
+    ensure!(
+        publication.version == 1,
+        "Unsupported song publication receipt"
+    );
+    ensure!(
+        publication.files == game_files(&root.join("game-song"))?,
+        "Saved game export changed after publication"
+    );
+    for (relative, expected) in &publication.files {
+        let target = song.join(relative);
+        ensure!(
+            !fs::symlink_metadata(&target)?.file_type().is_symlink(),
+            "Published song asset became a symlink"
+        );
+        ensure!(
+            models::hash_file(&target)? == *expected,
+            "Published song file changed: {}. Keep your edits and export the project to a new folder.",
+            relative.display()
+        );
+    }
+    Ok(())
+}
+
+fn publish_song_files(root: &Path, song: &Path) -> Result<()> {
+    let source = root.join("game-song");
+    let files = game_files(&source)?;
+    let receipt = root.join("publication.json");
+    if receipt.is_file() {
+        let previous: Publication = serde_json::from_slice(&fs::read(&receipt)?)?;
+        ensure!(
+            previous.version == 1 && previous.files == files,
+            "Saved game export changed during publication; existing song files were kept"
+        );
+    }
+    // Check every existing destination first. A retry never overwrites a user's
+    // edits, even if only part of the previous publication reached disk.
+    for (relative, expected) in &files {
+        let target = song.join(relative);
+        match fs::symlink_metadata(&target) {
+            Ok(metadata) => {
+                ensure!(
+                    metadata.is_file() && !metadata.file_type().is_symlink(),
+                    "Song destination is not a regular file: {}",
+                    relative.display()
+                );
+                ensure!(
+                    models::hash_file(&target)? == *expected,
+                    "Song file already exists with different content: {}. Existing files were kept.",
+                    relative.display()
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    write_json(
+        &receipt,
+        &Publication {
+            version: 1,
+            files: files.clone(),
+        },
+    )?;
+    let mut ordered = files.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|(path, _)| matches!(path.to_str(), Some("notes.chart" | "notes.mid")));
+    for (relative, expected) in ordered {
+        let mut parent = song.to_owned();
+        for component in relative
+            .parent()
+            .context("Asset needs a parent")?
+            .components()
+        {
+            parent.push(component.as_os_str());
+            match fs::symlink_metadata(&parent) {
+                Ok(metadata) => ensure!(
+                    metadata.is_dir() && !metadata.file_type().is_symlink(),
+                    "Song destination contains a symlink or non-directory"
+                ),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    fs::create_dir(&parent)?
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        let target = song.join(relative);
+        if target.exists() {
+            continue;
+        }
+        let mut temporary = tempfile::NamedTempFile::new_in(&parent)?;
+        std::io::copy(
+            &mut fs::File::open(source.join(relative))?,
+            temporary.as_file_mut(),
+        )?;
+        temporary.as_file().sync_all()?;
+        ensure!(
+            models::hash_file(temporary.path())? == *expected,
+            "Game export changed while publishing the song"
+        );
+        if let Err(error) = temporary.persist_noclobber(&target) {
+            ensure!(
+                error.error.kind() == std::io::ErrorKind::AlreadyExists
+                    && models::hash_file(&target)? == *expected,
+                "Song destination changed during publication; existing files were kept"
+            );
+        }
+    }
+    verify_published_song(root, song)
+}
+
 fn update(
     root: &Path,
     state: State,
@@ -450,6 +794,8 @@ fn update(
 /// Only called after the child has exited; the same lock prevents cancelling a
 /// still-running headless worker or racing another window's recovery operation.
 pub fn mark_interrupted(root: &Path, cancelled: bool) -> Result<()> {
+    let root = resolve_job(root)?;
+    let root = root.as_path();
     let lock = fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -476,6 +822,8 @@ pub fn mark_interrupted(root: &Path, cancelled: bool) -> Result<()> {
 }
 
 pub fn run(root: &Path) -> Result<()> {
+    let root = resolve_job(root)?;
+    let root = root.as_path();
     let lock = fs::OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -490,7 +838,10 @@ pub fn run(root: &Path) -> Result<()> {
         "Generation settings changed on disk. Create a new job instead of resuming."
     );
     if current.state == State::Complete {
-        Store::new(&root.join("project")).load()?;
+        Store::new(&project_path(root)).load()?;
+        if let Some(song) = song_folder(root) {
+            verify_published_song(root, &song)?;
+        }
         return Ok(());
     }
     let _progress = crate::generation_progress::begin(root);
@@ -704,19 +1055,16 @@ fn run_inner(root: &Path) -> Result<()> {
             let plan = pipeline::prepare_keyboard_isolation(
                 &audio,
                 &request.model_dir,
-                &root
-                    .parent()
-                    .context("Job needs a parent folder")?
-                    .join(".chart-engine-stem-cache"),
+                &separation_cache(root)?,
                 &request.instruments,
                 request.keyboard_sound,
                 request.piano_quality,
             )?;
             if let Some(analysis) = &plan.keyboard_analysis {
-                write_json(&root.join("keyboard-analysis-isolation.json"), analysis)?;
+                write_job_manifest(root, "keyboard-analysis-isolation.json", analysis)?;
             }
             let path = root.join("isolation.json");
-            write_json(&path, &plan.primary)?;
+            write_job_manifest(root, "isolation.json", &plan.primary)?;
             Some(path)
         } else {
             None
@@ -730,9 +1078,9 @@ fn run_inner(root: &Path) -> Result<()> {
         )?;
         let keyboard_analysis_path = root.join("keyboard-analysis-isolation.json");
         let transcription = if vocals_only {
-            let isolation = serde_json::from_slice::<crate::stem_review::StemManifest>(&fs::read(
+            let isolation = crate::stem_review::StemManifest::read(
                 manifest.as_ref().context("Vocals require aligned stems")?,
-            )?)?;
+            )?;
             isolation.validate_source(
                 &audio,
                 &input.sha256,
@@ -765,7 +1113,7 @@ fn run_inner(root: &Path) -> Result<()> {
                     .collect::<Vec<_>>(),
             )?
         };
-        write_json(&events_path, &transcription)?;
+        write_events(root, &transcription)?;
     }
     if vocals_only && !root.join("song").exists() {
         crate::parts::vocal_song(root, &audio, &request, &timing)?;
@@ -779,7 +1127,7 @@ fn run_inner(root: &Path) -> Result<()> {
             None,
         )?;
         let event_bytes = fs::read(&events_path)?;
-        let mut transcription: Transcription = serde_json::from_slice(&event_bytes)?;
+        let mut transcription = read_events(root, &event_bytes)?;
         ensure!(
             !request.instruments.iter().any(|i| i == "guitar")
                 || transcription.guitar_source == request.guitar_source,
@@ -828,7 +1176,7 @@ fn run_inner(root: &Path) -> Result<()> {
                     fs::read(&events_path)? == previous,
                     "Bass events changed during refresh; previous analysis retained"
                 );
-                write_json(&events_path, &refreshed)?;
+                write_events(root, &refreshed)?;
                 transcription = refreshed;
             }
         }
@@ -861,6 +1209,22 @@ fn run_inner(root: &Path) -> Result<()> {
                 .as_ref()
                 .and_then(|info| info.lyrics.as_ref()),
         )?;
+        if owned_root(root)?.is_some() {
+            for (name, manifest) in [
+                (
+                    "chart-engine-isolation.json",
+                    transcription.isolation.as_ref(),
+                ),
+                (
+                    "chart-engine-keyboard-isolation.json",
+                    transcription.keyboard_analysis.as_ref(),
+                ),
+            ] {
+                if let Some(manifest) = manifest {
+                    write_song_manifest(root, &root.join("song"), name, manifest)?;
+                }
+            }
+        }
     }
     for name in ["album.jpg", "album.png"] {
         if input_dir.join(name).is_file() && !root.join("song").join(name).exists() {
@@ -868,7 +1232,11 @@ fn run_inner(root: &Path) -> Result<()> {
         }
     }
     if let Some(info) = &request.song_info {
-        write_json(&root.join("song/import-information.json"), info)?;
+        crate::song_layout::prepare(&root.join("song"))?;
+        write_json(
+            &crate::song_layout::path(&root.join("song"), "import-information.json"),
+            info,
+        )?;
     }
     if request.instruments.iter().any(|s| s == "vocals") {
         update(
@@ -893,7 +1261,7 @@ fn run_inner(root: &Path) -> Result<()> {
             );
             let result: crate::vocal_generation::Generation =
                 serde_json::from_slice(&fs::read(vocal_dir.join("generation.json"))?)?;
-            let events: Transcription = serde_json::from_slice(&fs::read(&events_path)?)?;
+            let events = read_events(root, &fs::read(&events_path)?)?;
             let isolation = events
                 .isolation
                 .as_ref()
@@ -923,7 +1291,8 @@ fn run_inner(root: &Path) -> Result<()> {
             }
             result
         } else {
-            let lyrics_path = root.join("song/chart-engine-lyrics.json");
+            let lyrics_path =
+                crate::song_layout::resolve(&root.join("song"), "chart-engine-lyrics.json");
             let value: Option<serde_json::Value> = lyrics_path
                 .exists()
                 .then(|| -> Result<_> { Ok(serde_json::from_slice(&fs::read(&lyrics_path)?)?) })
@@ -964,7 +1333,7 @@ fn run_inner(root: &Path) -> Result<()> {
         // The .chart remains the working master. The editor exports a single
         // MIDI containing its current instrument notes plus this vocal document.
         write_json(
-            &root.join("song/chart-engine-vocal-generation.json"),
+            &crate::song_layout::path(&root.join("song"), "chart-engine-vocal-generation.json"),
             &result,
         )?;
         if let Some(chart) = &result.chart {
@@ -973,7 +1342,10 @@ fn run_inner(root: &Path) -> Result<()> {
                 pipeline::editable_chart_file(&root.join("song"))?,
             )?)?;
             crate::game_export::song_with_vocals(&instrument_chart, chart)?;
-            write_json(&root.join("song/chart-engine-vocals.json"), chart)?;
+            write_json(
+                &crate::song_layout::path(&root.join("song"), "chart-engine-vocals.json"),
+                chart,
+            )?;
         }
     }
     update(
@@ -983,12 +1355,19 @@ fn run_inner(root: &Path) -> Result<()> {
         "Preparing the editable review project",
         None,
     )?;
-    if !root.join("project").exists() {
-        Store::create(&root.join("song"), None, &root.join("project"))?;
+    let project_root = project_path(root);
+    if !project_root.exists() {
+        fs::create_dir_all(
+            project_root
+                .parent()
+                .context("Project needs a parent folder")?,
+        )?;
+        Store::create(&root.join("song"), None, &project_root)?;
     }
-    let store = Store::new(&root.join("project"));
+    let store = Store::new(&project_root);
     let mut project = store.load()?;
-    let vocal_report = root.join("song/chart-engine-vocal-generation.json");
+    let vocal_report =
+        crate::song_layout::resolve(&root.join("song"), "chart-engine-vocal-generation.json");
     if project.content.vocal_review.is_none() && vocal_report.is_file() {
         let report: crate::vocal_generation::Generation =
             serde_json::from_slice(&fs::read(&vocal_report)?)?;
@@ -1030,6 +1409,9 @@ fn run_inner(root: &Path) -> Result<()> {
             },
         })?;
     }
+    if let Some(song) = song_folder(root) {
+        publish_song_files(root, &song)?;
+    }
     update(
         root,
         State::Complete,
@@ -1037,6 +1419,222 @@ fn run_inner(root: &Path) -> Result<()> {
         "Draft ready. Listen, review and edit before exporting.",
         None,
     )
+}
+
+#[cfg(test)]
+mod manifest_portability_tests {
+    use super::*;
+    use crate::stem_review::{AlignmentEvidence, StemId, StemManifest};
+
+    #[test]
+    fn owned_stems_move_with_new_song_jobs_while_external_and_legacy_paths_stay_absolute() {
+        let directory = tempfile::tempdir().unwrap();
+        let song = directory.path().join("Song");
+        let job = song.join(".yace/jobs/generation");
+        let cache = song.join(".yace/cache/separation/synthetic");
+        fs::create_dir_all(job.join("input")).unwrap();
+        fs::create_dir_all(&cache).unwrap();
+        write_json(
+            &job.join("song-layout.json"),
+            &serde_json::json!({"version":1}),
+        )
+        .unwrap();
+        let source = job.join("input/source.wav");
+        models::write_audio(&source, &[0.; 64], &[0.; 64]).unwrap();
+        let external = directory.path().join("external-vocals.wav");
+        fs::copy(&source, &external).unwrap();
+        let mut files = std::collections::BTreeMap::new();
+        for id in [StemId::Drums, StemId::Piano] {
+            let path = cache.join(format!("{}.wav", id.as_str()));
+            fs::copy(&source, &path).unwrap();
+            files.insert(id, path);
+        }
+        files.insert(StemId::Vocals, external.clone());
+        let manifest = StemManifest::build(&source, files, AlignmentEvidence {
+            method: "synthetic_clock_fixture".into(),
+            details: "Silent source and stems share exactly 64 stereo frames; no separation model is involved.".into(),
+        }).unwrap();
+        let events = Transcription {
+            isolation: Some(manifest.clone()),
+            keyboard_analysis: Some(manifest.clone()),
+            ..Default::default()
+        };
+        write_job_manifest(&job, "isolation.json", &manifest).unwrap();
+        write_job_manifest(&job, "keyboard-analysis-isolation.json", &manifest).unwrap();
+        write_events(&job, &events).unwrap();
+        let draft = job.join("song");
+        fs::create_dir(&draft).unwrap();
+        crate::song_layout::prepare(&draft).unwrap();
+        write_song_manifest(&job, &draft, "chart-engine-isolation.json", &manifest).unwrap();
+        let saved: Transcription =
+            serde_json::from_slice(&fs::read(job.join("events.json")).unwrap()).unwrap();
+        for manifest in saved.isolation.iter().chain(saved.keyboard_analysis.iter()) {
+            for asset in &manifest.stems {
+                if asset.id == StemId::Vocals {
+                    assert_eq!(asset.path, external.canonicalize().unwrap());
+                } else {
+                    assert!(asset.path.is_relative());
+                }
+            }
+        }
+        let legacy = directory.path().join("legacy-job");
+        fs::create_dir(&legacy).unwrap();
+        write_events(&legacy, &events).unwrap();
+        let saved: Transcription =
+            serde_json::from_slice(&fs::read(legacy.join("events.json")).unwrap()).unwrap();
+        assert!(
+            saved
+                .isolation
+                .unwrap()
+                .stems
+                .iter()
+                .all(|asset| asset.path.is_absolute())
+        );
+        let moved = directory.path().join("Moved Song");
+        fs::rename(&song, &moved).unwrap();
+        let job = moved.join(".yace/jobs/generation");
+        let source = job.join("input/source.wav");
+        let events = read_events(&job, &fs::read(job.join("events.json")).unwrap()).unwrap();
+        for manifest in events
+            .isolation
+            .iter()
+            .chain(events.keyboard_analysis.iter())
+        {
+            manifest
+                .validate_source(&source, &manifest.source_audio_sha256, 64. / 44100.)
+                .unwrap();
+        }
+        for name in ["isolation.json", "keyboard-analysis-isolation.json"] {
+            let manifest = StemManifest::read(&job.join(name)).unwrap();
+            manifest
+                .validate_source(&source, &manifest.source_audio_sha256, 64. / 44100.)
+                .unwrap();
+        }
+        let song_manifest = StemManifest::read(&crate::song_layout::path(
+            &job.join("song"),
+            "chart-engine-isolation.json",
+        ))
+        .unwrap();
+        song_manifest
+            .validate_source(&source, &song_manifest.source_audio_sha256, 64. / 44100.)
+            .unwrap();
+        let project = moved.join(".yace/project");
+        fs::create_dir(&project).unwrap();
+        let part = moved.join(".yace/jobs/parts/draft");
+        fs::create_dir_all(&part).unwrap();
+        write_json(
+            &part.join("editor-target.json"),
+            &crate::parts::Target {
+                version: 1,
+                project: PathBuf::from("../../../project"),
+                track: "ExpertDrums".into(),
+                audio_sha256: manifest.source_audio_sha256.clone(),
+                source_chart_sha256: "a".repeat(64),
+                timing: TempoMap::constant(120.).unwrap(),
+                fingerprint: "b".repeat(64),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            separation_cache(&part).unwrap(),
+            moved.canonicalize().unwrap().join(".yace/cache/separation")
+        );
+        write_events(&part, &events).unwrap();
+        let saved: Transcription =
+            serde_json::from_slice(&fs::read(part.join("events.json")).unwrap()).unwrap();
+        assert!(
+            saved
+                .isolation
+                .as_ref()
+                .unwrap()
+                .stems
+                .iter()
+                .filter(|asset| asset.id != StemId::Vocals)
+                .all(|asset| asset.path.is_relative())
+        );
+        let moved_again = directory.path().join("Moved Again");
+        fs::rename(moved, &moved_again).unwrap();
+        let part = moved_again.join(".yace/jobs/parts/draft");
+        let events = read_events(&part, &fs::read(part.join("events.json")).unwrap()).unwrap();
+        let source = moved_again.join(".yace/jobs/generation/input/source.wav");
+        for manifest in events
+            .isolation
+            .iter()
+            .chain(events.keyboard_analysis.iter())
+        {
+            manifest
+                .validate_source(&source, &manifest.source_audio_sha256, 64. / 44100.)
+                .unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+
+    #[test]
+    fn interrupted_publication_resumes_but_changed_user_files_block_all_new_writes() {
+        let directory = tempfile::tempdir().unwrap();
+        let song = directory.path().join("Song");
+        let job = song.join(".yace/jobs/generation");
+        let export = job.join("game-song");
+        fs::create_dir_all(export.join(".yace/review")).unwrap();
+        fs::write(export.join("notes.chart"), b"authored chart bytes").unwrap();
+        fs::write(export.join("song.ini"), b"[song]\nname = Test\n").unwrap();
+        fs::write(export.join("song.ogg"), b"opaque audio bytes").unwrap();
+        fs::write(
+            export.join(".yace/review/editor-review.json"),
+            b"retained evidence",
+        )
+        .unwrap();
+        // Simulate a previous attempt which wrote only metadata before stopping.
+        fs::copy(export.join("song.ini"), song.join("song.ini")).unwrap();
+        write_json(
+            &job.join("publication.json"),
+            &Publication {
+                version: 1,
+                files: game_files(&export).unwrap(),
+            },
+        )
+        .unwrap();
+        publish_song_files(&job, &song).unwrap();
+        verify_published_song(&job, &song).unwrap();
+        assert_eq!(
+            fs::read(song.join("notes.chart")).unwrap(),
+            b"authored chart bytes"
+        );
+        assert!(song.join(".yace/review/editor-review.json").is_file());
+        fs::remove_file(song.join("song.ogg")).unwrap();
+        fs::write(song.join("notes.chart"), b"new human edits").unwrap();
+        assert!(publish_song_files(&job, &song).is_err());
+        assert!(
+            !song.join("song.ogg").exists(),
+            "Preflight must reject conflicts before publishing more files"
+        );
+        assert_eq!(
+            fs::read(song.join("notes.chart")).unwrap(),
+            b"new human edits"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publication_refuses_symlinked_directories_and_never_writes_outside_the_song() {
+        let directory = tempfile::tempdir().unwrap();
+        let song = directory.path().join("Song");
+        let job = song.join(".yace/jobs/generation");
+        let export = job.join("game-song");
+        fs::create_dir_all(export.join("assets")).unwrap();
+        fs::write(export.join("notes.chart"), b"chart").unwrap();
+        fs::write(export.join("assets/video.mp4"), b"asset").unwrap();
+        let outside = directory.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, song.join("assets")).unwrap();
+        assert!(publish_song_files(&job, &song).is_err());
+        assert!(!outside.join("video.mp4").exists());
+        assert!(!song.join("notes.chart").exists());
+    }
 }
 
 #[cfg(test)]

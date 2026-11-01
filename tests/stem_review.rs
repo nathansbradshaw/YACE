@@ -318,11 +318,19 @@ fn primary_attachment_never_retargets_keyboard_analysis_and_both_export() {
     )
     .unwrap();
     assert_same_stems(
-        &StemManifest::read(&export.join("chart-engine-keyboard-isolation.json")).unwrap(),
+        &StemManifest::read(&chart_engine::song_layout::path(
+            &export,
+            "chart-engine-keyboard-isolation.json",
+        ))
+        .unwrap(),
         &keyboard,
     );
     assert_same_stems(
-        &StemManifest::read(&export.join("chart-engine-isolation.json")).unwrap(),
+        &StemManifest::read(&chart_engine::song_layout::path(
+            &export,
+            "chart-engine-isolation.json",
+        ))
+        .unwrap(),
         &replacement,
     );
     apply(&store, Action::Undo).unwrap();
@@ -458,16 +466,27 @@ fn generated_attachments_open_and_export_current_stems_without_blocking_original
     )
     .unwrap();
     assert_same_stems(
-        &StemManifest::read(&exported.join("chart-engine-isolation.json")).unwrap(),
+        &StemManifest::read(&chart_engine::song_layout::path(
+            &exported,
+            "chart-engine-isolation.json",
+        ))
+        .unwrap(),
         &current,
     );
     let archived: StemManifest = serde_json::from_slice(
-        &fs::read(exported.join("editor-source/chart-engine-isolation.json")).unwrap(),
+        &fs::read(exported.join(".yace/history/editor-source/chart-engine-isolation.json"))
+            .unwrap(),
     )
     .unwrap();
     assert_eq!(archived, manifest);
-    let report: serde_json::Value =
-        serde_json::from_slice(&fs::read(exported.join("editor-review.json")).unwrap()).unwrap();
+    let report: serde_json::Value = serde_json::from_slice(
+        &fs::read(chart_engine::song_layout::path(
+            &exported,
+            "editor-review.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(report["stem_mix_requested"]["mode"], "stems");
     assert_eq!(
         models::hash_file(&exported.join("song.wav")).unwrap(),
@@ -582,9 +601,12 @@ fn retained_attachments_and_undo_survive_cache_removal_and_project_move() {
     let doc = store.load().unwrap();
     for asset in &doc.content.stems.as_ref().unwrap().stems {
         assert!(
-            asset
-                .path
-                .starts_with(moved.canonicalize().unwrap().join("source/stems"))
+            asset.path.starts_with(
+                moved
+                    .canonicalize()
+                    .unwrap()
+                    .join("source/.yace/audio/stems")
+            )
         );
         assert_eq!(models::hash_file(&asset.path).unwrap(), asset.sha256);
     }
@@ -654,8 +676,14 @@ fn full_game_export_routes_each_part_once_and_roundtrips_the_original_recording(
         },
     )
     .unwrap();
-    let receipt: chart_engine::stem_review::game_audio::Receipt =
-        serde_json::from_slice(&fs::read(exported.join("yace-audio.json")).unwrap()).unwrap();
+    let receipt: chart_engine::stem_review::game_audio::Receipt = serde_json::from_slice(
+        &fs::read(chart_engine::song_layout::path(
+            &exported,
+            "yace-audio.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(receipt.mode, "instrument_stems");
     assert_eq!(receipt.files.len(), 6);
     for asset in &manifest.stems {
@@ -665,7 +693,7 @@ fn full_game_export_routes_each_part_once_and_roundtrips_the_original_recording(
     assert!(!exported.join("crowd.ogg").exists());
     assert!(
         exported
-            .join(".yace-audio/source-channels/crowd.ogg")
+            .join(".yace/originals/audio/source-channels/crowd.ogg")
             .is_file()
     );
     assert_ne!(

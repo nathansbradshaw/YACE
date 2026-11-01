@@ -477,7 +477,7 @@ fn note_edits_undo_reopen_and_export_preserve_events_other_tracks_and_originals(
         fs::read(export.join("song.wav")).unwrap(),
         fs::read(root.path().join("song/song.wav")).unwrap()
     );
-    assert!(export.join("editor-review.json").exists());
+    assert!(chart_engine::song_layout::path(&export, "editor-review.json").exists());
     assert!(
         store
             .apply(Request {

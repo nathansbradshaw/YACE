@@ -346,11 +346,20 @@ fn mixed_generation_retains_both_real_source_bound_manifest_sidecars() {
         lookup_lyrics: false,
     })
     .unwrap();
-    let primary: StemManifest =
-        serde_json::from_slice(&std::fs::read(out.join("chart-engine-isolation.json")).unwrap())
-            .unwrap();
+    let primary: StemManifest = serde_json::from_slice(
+        &std::fs::read(chart_engine::song_layout::path(
+            &out,
+            "chart-engine-isolation.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     let analysis: StemManifest = serde_json::from_slice(
-        &std::fs::read(out.join("chart-engine-keyboard-isolation.json")).unwrap(),
+        &std::fs::read(chart_engine::song_layout::path(
+            &out,
+            "chart-engine-keyboard-isolation.json",
+        ))
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(
@@ -363,11 +372,18 @@ fn mixed_generation_retains_both_real_source_bound_manifest_sidecars() {
     );
     assert_eq!(
         report["keyboard_analysis_manifest"],
-        "chart-engine-keyboard-isolation.json"
+        serde_json::to_value(chart_engine::song_layout::relative(
+            "chart-engine-keyboard-isolation.json"
+        ))
+        .unwrap()
     );
     assert!(out.join("notes.mid").is_file());
     let saved: Transcription = serde_json::from_slice(
-        &std::fs::read(out.join("chart-engine-transcription.json")).unwrap(),
+        &std::fs::read(chart_engine::song_layout::path(
+            &out,
+            "chart-engine-transcription.json",
+        ))
+        .unwrap(),
     )
     .unwrap();
     saved.validate().unwrap();
@@ -927,7 +943,11 @@ fn native_piano_production_pipeline_preserves_evidence_and_builds_playable_draft
         .unwrap();
         assert!(output.join("notes.mid").is_file());
         let saved: Transcription = serde_json::from_slice(
-            &std::fs::read(output.join("chart-engine-transcription.json")).unwrap(),
+            &std::fs::read(chart_engine::song_layout::path(
+                &output,
+                "chart-engine-transcription.json",
+            ))
+            .unwrap(),
         )
         .unwrap();
         saved.validate().unwrap();
@@ -1205,7 +1225,11 @@ fn native_approved_synth_clip_transcribes_exports_and_reloads_full_evidence() {
     .unwrap();
     assert!(song.join("notes.mid").is_file());
     let saved: Transcription = serde_json::from_slice(
-        &std::fs::read(song.join("chart-engine-transcription.json")).unwrap(),
+        &std::fs::read(chart_engine::song_layout::path(
+            &song,
+            "chart-engine-transcription.json",
+        ))
+        .unwrap(),
     )
     .unwrap();
     saved.validate().unwrap();

@@ -176,11 +176,24 @@ mod native {
                 || request.guitar_source == store.guitar_source(&project)?,
             "Keep the chart's existing Guitar sound source"
         );
-        let job = generation::create(request, output)?;
+        let job = generation::create_job(request, output)?;
         let mut saved_target = target.clone();
-        if job.parent().and_then(Path::parent) == Some(target.project.as_path()) {
-            saved_target.project = PathBuf::from("../..");
+        let project = target.project.canonicalize()?;
+        let job_parts = job.components().collect::<Vec<_>>();
+        let project_parts = project.components().collect::<Vec<_>>();
+        let shared = job_parts
+            .iter()
+            .zip(&project_parts)
+            .take_while(|(left, right)| left == right)
+            .count();
+        let mut relative = PathBuf::new();
+        for _ in shared..job_parts.len() {
+            relative.push("..");
         }
+        for component in &project_parts[shared..] {
+            relative.push(component.as_os_str());
+        }
+        saved_target.project = relative;
         generation::write_json(&job.join("editor-target.json"), &saved_target)?;
         Ok(job)
     }
@@ -218,7 +231,7 @@ mod native {
                     || request.guitar_source == store.guitar_source(project)?,
                 "Draft uses a different Guitar sound source"
             );
-            let generated_store = Store::new(&job.join("project"));
+            let generated_store = Store::new(&generation::project_path(job));
             let generated = generated_store.load()?;
             ensure!(
                 generated.audio_sha256 == target.audio_sha256
@@ -336,6 +349,7 @@ mod native {
         timing: &TempoMap,
     ) -> Result<()> {
         let stage = tempfile::tempdir_in(job)?;
+        crate::song_layout::prepare(stage.path())?;
         let extension = audio
             .extension()
             .and_then(|value| value.to_str())
@@ -362,9 +376,12 @@ mod native {
             ),
         )?;
         if job.join("isolation.json").exists() {
-            fs::copy(
-                job.join("isolation.json"),
-                stage.path().join("chart-engine-isolation.json"),
+            let manifest = crate::stem_review::StemManifest::read(&job.join("isolation.json"))?;
+            generation::write_song_manifest(
+                job,
+                stage.path(),
+                "chart-engine-isolation.json",
+                &manifest,
             )?;
         }
         let supplied = request
@@ -380,7 +397,10 @@ mod native {
             crate::pipeline::lyrics(&meta)?
         };
         if let Some(lyrics) = lyrics {
-            generation::write_json(&stage.path().join("chart-engine-lyrics.json"), &lyrics)?;
+            generation::write_json(
+                &crate::song_layout::path(stage.path(), "chart-engine-lyrics.json"),
+                &lyrics,
+            )?;
         }
         crate::pipeline::publish(stage.path(), &job.join("song"))
     }

@@ -42,12 +42,18 @@ pub struct Library {
 }
 
 fn entry(path: &Path) -> Option<Entry> {
-    if is_file(path.join("job.json")) && is_file(path.join("project/project.json")) {
-        return entry(&path.join("project"));
+    if is_file(path.join("job.json")) {
+        let project = crate::song_layout::project_for_job(path);
+        if is_file(project.join("project.json")) {
+            return entry(&project);
+        }
     }
     let kind = if is_file(path.join("project.json")) {
         Kind::Project
-    } else if is_file(path.join("notes.chart")) || is_file(path.join("notes.mid")) {
+    } else if is_file(path.join("notes.chart"))
+        || is_file(path.join("notes.mid"))
+        || is_file(path.join(".yace/project/project.json"))
+    {
         Kind::Song
     } else {
         return None;
@@ -56,6 +62,13 @@ fn entry(path: &Path) -> Option<Entry> {
         path.join("source")
     } else {
         path.to_owned()
+    };
+    let metadata_path = if is_file(metadata_path.join("song.ini")) {
+        metadata_path
+    } else if is_file(path.join(".yace/project/source/song.ini")) {
+        path.join(".yace/project/source")
+    } else {
+        metadata_path
     };
     let fields = crate::pipeline::song_ini(&metadata_path)
         .ok()
@@ -105,8 +118,9 @@ pub fn discover(selected: &Path) -> Result<Library> {
     }
     for ancestor in root.ancestors().skip(1).take(SEARCH_DEPTH) {
         if is_file(ancestor.join("project.json"))
+            || is_file(ancestor.join(".yace/project/project.json"))
             || (is_file(ancestor.join("job.json"))
-                && is_file(ancestor.join("project/project.json")))
+                && is_file(crate::song_layout::project_for_job(ancestor).join("project.json")))
         {
             return Ok(Library {
                 root: ancestor.to_owned(),
@@ -169,12 +183,16 @@ fn scan(root: &Path, remaining: usize, out: &mut Vec<Entry>) -> Result<()> {
 }
 
 impl Library {
-    /// Projects stay beside a single song, or beneath the selected collection.
-    /// A path digest prevents similarly named songs from sharing edit history.
+    /// Keep each song's editing state with that song. Earlier collection workspaces
+    /// remain authoritative when they already contain saved edits.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn project_path(&self, item: &Entry) -> Result<PathBuf> {
         if item.kind == Kind::Project {
             return Ok(item.path.clone());
+        }
+        let managed = item.path.join(".yace/project");
+        if managed.join("project.json").is_file() {
+            return Ok(managed);
         }
         let base = if self.root == item.path {
             self.root
@@ -220,7 +238,7 @@ impl Library {
                 return Ok(candidate);
             }
         }
-        Ok(preferred)
+        Ok(managed)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -299,7 +317,7 @@ mod tests {
         }
     }
     #[test]
-    fn duplicate_song_names_get_stable_distinct_workspaces_outside_sources() {
+    fn duplicate_song_names_keep_separate_private_workspaces_inside_each_song() {
         let dir = tempfile::tempdir().unwrap();
         touch(&dir.path().join("artist-a/song/notes.chart"));
         touch(&dir.path().join("artist-b/song/notes.chart"));
@@ -314,14 +332,49 @@ mod tests {
                 .project_path(&library.entries[0])
                 .unwrap()
         );
-        assert!(a.starts_with(dir.path().canonicalize().unwrap().join(".yace/projects")));
-        assert!(!a.starts_with(&library.entries[0].path));
+        assert_eq!(a, library.entries[0].path.join(".yace/project"));
+        assert_eq!(b, library.entries[1].path.join(".yace/project"));
         let single = discover(&library.entries[0].path).unwrap();
+        assert_eq!(single.project_path(&single.entries[0]).unwrap(), a);
+    }
+
+    #[test]
+    fn earlier_collection_workspaces_are_reused_without_replacing_saved_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir.path().join("artist/song/notes.chart"));
+        let library = discover(dir.path()).unwrap();
+        let identity = "artist/song";
+        let hash = format!("{:x}", Sha256::digest(identity.as_bytes()));
+        let legacy = dir
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join(".yace/projects")
+            .join(format!("song-{}", &hash[..16]));
+        touch(&legacy.join("project.json"));
+        assert_eq!(library.project_path(&library.entries[0]).unwrap(), legacy);
+        let single = discover(&library.entries[0].path).unwrap();
+        assert_eq!(single.project_path(&single.entries[0]).unwrap(), legacy);
+    }
+
+    #[test]
+    fn private_generated_state_and_visible_song_are_one_library_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(&dir.path().join("song/notes.chart"));
+        touch(&dir.path().join("song/.yace/project/project.json"));
+        touch(&dir.path().join("song/.yace/project/source/notes.chart"));
+        touch(
+            &dir.path()
+                .join("song/.yace/jobs/generation/song/notes.chart"),
+        );
+        let library = discover(dir.path()).unwrap();
+        assert_eq!(library.entries.len(), 1);
+        assert!(library.entries[0].path.ends_with("song"));
         assert!(
-            !single
-                .project_path(&single.entries[0])
+            library
+                .project_path(&library.entries[0])
                 .unwrap()
-                .starts_with(&library.entries[0].path)
+                .ends_with("song/.yace/project")
         );
     }
     #[cfg(unix)]

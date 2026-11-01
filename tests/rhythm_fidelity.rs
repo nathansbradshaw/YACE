@@ -259,9 +259,16 @@ fn melody_audition_identity_survives_open_export_and_legacy_generation_evidence(
     let doc = store.load().unwrap();
     assert_eq!(store.guitar_source(&doc).unwrap(), GuitarSource::Other);
     // Earlier source-choice projects contain the bound transcription but no route sidecar.
-    fs::remove_file(store.root.join("source/chart-engine-melody-source.json")).unwrap();
+    fs::remove_file(chart_engine::song_layout::resolve(
+        &store.root.join("source"),
+        "chart-engine-melody-source.json",
+    ))
+    .unwrap();
     assert_eq!(store.guitar_source(&doc).unwrap(), GuitarSource::Other);
-    let source = store.root.join("source/chart-engine-transcription.json");
+    let source = chart_engine::song_layout::resolve(
+        &store.root.join("source"),
+        "chart-engine-transcription.json",
+    );
     let original = fs::read(&source).unwrap();
     fs::write(&source, br#"{"unrelated_legacy_metadata":true}"#).unwrap();
     assert_eq!(store.guitar_source(&doc).unwrap(), GuitarSource::Guitar);
@@ -289,7 +296,10 @@ fn melody_audition_identity_survives_open_export_and_legacy_generation_evidence(
         reopened.guitar_source(&reopened.load().unwrap()).unwrap(),
         GuitarSource::Other
     );
-    let binding = reopened.root.join("source/chart-engine-melody-source.json");
+    let binding = chart_engine::song_layout::resolve(
+        &reopened.root.join("source"),
+        "chart-engine-melody-source.json",
+    );
     let mut value: serde_json::Value =
         serde_json::from_slice(&fs::read(&binding).unwrap()).unwrap();
     value["audio_sha256"] = serde_json::json!("0".repeat(64));

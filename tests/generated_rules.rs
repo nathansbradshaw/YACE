@@ -427,9 +427,14 @@ fn export_gate_rejects_generated_errors_before_publication_and_spares_authored_t
         std::fs::read_to_string(source.join("notes.chart")).unwrap(),
         original
     );
-    let map: chart_engine::review_regions::ReviewMap =
-        serde_json::from_slice(&std::fs::read(output.join("chart-engine-review.json")).unwrap())
-            .unwrap();
+    let map: chart_engine::review_regions::ReviewMap = serde_json::from_slice(
+        &std::fs::read(chart_engine::song_layout::path(
+            &output,
+            "chart-engine-review.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     assert!(
         map.checks_performed
             .contains(&chart_engine::review_regions::Reason::SustainOverlap)
