@@ -223,6 +223,7 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
             .filter(|n| (66..=68).contains(&n.lane))
             .map(|n| (n.tick, n.lane - 64))
             .collect();
+        let mut solo_boundaries = Vec::new();
         for line in rows(body) {
             let (tick, body) = event(line)?;
             let fields: Vec<_> = body.split_whitespace().collect();
@@ -266,12 +267,50 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
                     }
                 }
                 ["S", "2", duration] => note(events, tick, duration.parse()?, 116, 100)?,
+                ["E", ..] => {
+                    let text = body[1..].trim();
+                    let text = if text.starts_with('"') {
+                        quoted(text)?
+                    } else {
+                        text.to_owned()
+                    };
+                    match text.as_str() {
+                        "solo" => solo_boundaries.push((tick, true)),
+                        "soloend" => solo_boundaries.push((tick, false)),
+                        _ => bail!(
+                            "Unsupported event in {}: {body}; source project retained",
+                            section.name
+                        ),
+                    }
+                }
                 _ => bail!(
                     "Unsupported event in {}: {body}; source project retained",
                     section.name
                 ),
             }
         }
+        // Local text events need not be ordered in the source. At an adjacent
+        // boundary, close the previous solo before opening the next one.
+        solo_boundaries.sort_unstable();
+        let mut solo_start = None;
+        for (tick, starts) in solo_boundaries {
+            if starts {
+                ensure!(
+                    solo_start.replace(tick).is_none(),
+                    "Overlapping solo starts in {}",
+                    section.name
+                );
+            } else {
+                let start = solo_start
+                    .take()
+                    .with_context(|| format!("Solo end without a start in {}", section.name))?;
+                ensure!(tick > start, "Empty solo in {}", section.name);
+                // Pro Keys uses MIDI 115; other supported instruments use 103.
+                let key = if suffix == "ProKeys" { 115 } else { 103 };
+                note(events, start, tick - start, key, 100)?;
+            }
+        }
+        ensure!(solo_start.is_none(), "Unclosed solo in {}", section.name);
     }
     // Shared drum markers/starpower from multiple difficulties must not become
     // duplicate simultaneous note-ons in the MIDI track.
@@ -281,7 +320,7 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
         // Drum tom/star-power markers are shared across difficulty tracks.
         // Union their intervals so overlapping profiles cannot turn one marker
         // off while another profile is still holding it.
-        for key in [110, 111, 112, 116] {
+        for key in [103, 110, 111, 112, 115, 116] {
             let mut spans = Vec::new();
             // Derive spans from all onset/end pairs with an overlap counter,
             // rather than pairing one onset with the first off event.
