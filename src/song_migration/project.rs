@@ -147,6 +147,18 @@ pub(super) fn prepare(
     old_song: &Path,
     new_song: &Path,
 ) -> Result<()> {
+    prepare_with_audio_recovery(project, old_project, old_song, new_song, None)
+}
+
+/// An optional source is accepted only for repairing a mismatched audio copy
+/// whose exact original bytes are still independently hash-bound by the project.
+pub(super) fn prepare_with_audio_recovery(
+    project: &Path,
+    old_project: &Path,
+    old_song: &Path,
+    new_song: &Path,
+    recovery: Option<&Path>,
+) -> Result<()> {
     let project = ordinary_path(project)?;
     let old_project = ordinary_path(old_project)?;
     let old_song = ordinary_path(old_song)?;
@@ -187,23 +199,54 @@ pub(super) fn prepare(
         ),
         "Invalid project recording filename"
     );
-    for (file, expected) in [
-        (
-            PathBuf::from("source/notes.chart"),
-            &original.source_chart_sha256,
-        ),
-        (
-            Path::new("source").join(&original.audio_filename),
-            &original.audio_sha256,
-        ),
-    ] {
+    let chart = Path::new("source/notes.chart");
+    ensure!(
+        models::hash_file(&old_project.join(chart))? == original.source_chart_sha256
+            && models::hash_file(&project.join(chart))? == original.source_chart_sha256,
+        "Immutable project source chart changed during migration"
+    );
+    let audio_file = Path::new("source").join(&original.audio_filename);
+    let old_audio = old_project.join(&audio_file);
+    let staged_audio = project.join(&audio_file);
+    let old_audio_hash = models::hash_file(&old_audio)?;
+    ensure!(
+        models::hash_file(&staged_audio)? == old_audio_hash,
+        "Staged source audio no longer matches its original project copy"
+    );
+    if old_audio_hash != original.audio_sha256 {
+        let recovery = recovery.context(
+            "Immutable project source audio changed; an exact verified recovery is required",
+        )?;
+        let recovery = ordinary_path(recovery)?;
         ensure!(
-            models::hash_file(&old_project.join(&file))? == *expected
-                && models::hash_file(&project.join(&file))? == *expected,
-            "Immutable project source changed during migration: {}",
-            file.display()
+            fs::symlink_metadata(&recovery)?.is_file()
+                && models::hash_file(&recovery)? == original.audio_sha256,
+            "Recovery audio does not match the project's saved source checksum"
         );
+        let mut replacement = tempfile::NamedTempFile::new_in(
+            staged_audio
+                .parent()
+                .context("Source audio needs a parent")?,
+        )?;
+        std::io::copy(&mut fs::File::open(&recovery)?, replacement.as_file_mut())?;
+        replacement.as_file().sync_all()?;
+        ensure!(
+            models::hash_file(replacement.path())? == original.audio_sha256,
+            "Recovery audio changed during copying"
+        );
+        ensure!(
+            models::hash_file(&old_audio)? == old_audio_hash
+                && models::hash_file(&staged_audio)? == old_audio_hash,
+            "Project audio changed while preparing its verified recovery"
+        );
+        replacement
+            .persist(&staged_audio)
+            .map_err(|error| error.error)?;
     }
+    ensure!(
+        models::hash_file(&staged_audio)? == original.audio_sha256,
+        "Immutable project source audio changed during migration"
+    );
 
     // Validate every retained checkpoint before changing staged references.
     let checkpoints = project.join("checkpoints");
@@ -461,6 +504,112 @@ mod tests {
             fs::read(staged.join(".yace/project/project.json")).unwrap(),
             before
         );
+        assert!(!staged.join(".yace/audio/stems").exists());
+    }
+
+    #[test]
+    fn verified_recovery_repairs_only_the_staged_audio_and_keeps_saved_identity_and_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let (old, song, staged, _) = setup(&root);
+        let source = Path::new("source/song.ogg");
+        let original_audio = fs::read(old.join(source)).unwrap();
+        let recovery = root.join("input-recording.ogg");
+        fs::write(&recovery, &original_audio).unwrap();
+        let changed_audio = b"A different encoding of the recording";
+        fs::write(old.join(source), changed_audio).unwrap();
+        fs::write(staged.join(".yace/project").join(source), changed_audio).unwrap();
+        let original_document = fs::read(old.join("project.json")).unwrap();
+        let before: Project = serde_json::from_slice(&original_document).unwrap();
+        assert!(prepare(&staged.join(".yace/project"), &old, &song, &staged).is_err());
+        assert_eq!(
+            fs::read(staged.join(".yace/project").join(source)).unwrap(),
+            changed_audio
+        );
+        prepare_with_audio_recovery(
+            &staged.join(".yace/project"),
+            &old,
+            &song,
+            &staged,
+            Some(&recovery),
+        )
+        .unwrap();
+        let store = Store::new(&staged.join(".yace/project"));
+        let restored = store.load().unwrap();
+        assert_eq!(restored.audio_sha256, before.audio_sha256);
+        assert_eq!(restored.source_chart_sha256, before.source_chart_sha256);
+        assert_eq!(restored.revision, before.revision);
+        assert_eq!(restored.content.tracks, before.content.tracks);
+        assert_eq!(restored.undo.len(), before.undo.len());
+        assert_eq!(restored.redo.len(), before.redo.len());
+        assert_eq!(fs::read(store.root.join(source)).unwrap(), original_audio);
+        assert_eq!(fs::read(old.join(source)).unwrap(), changed_audio);
+        assert_eq!(
+            fs::read(old.join("project.json")).unwrap(),
+            original_document
+        );
+        assert_eq!(fs::read(recovery).unwrap(), original_audio);
+        store
+            .apply(Request {
+                expected_revision: restored.revision,
+                actor: Actor {
+                    kind: ActorKind::Human,
+                    name: "Recovered audio undo".into(),
+                },
+                action: Action::Undo,
+            })
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().content.tracks["ExpertSingle"].len() + 1,
+            restored.content.tracks["ExpertSingle"].len()
+        );
+    }
+
+    #[test]
+    fn wrong_recovery_or_changed_staging_audio_cannot_replace_staged_source_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let (old, song, staged, _) = setup(&root);
+        let source = Path::new("source/song.ogg");
+        let correct = fs::read(old.join(source)).unwrap();
+        let recovery = root.join("recovery.ogg");
+        fs::write(&recovery, b"Not the bound recording").unwrap();
+        let changed = b"Original encoding was replaced";
+        fs::write(old.join(source), changed).unwrap();
+        let staged_audio = staged.join(".yace/project").join(source);
+        fs::write(&staged_audio, changed).unwrap();
+        let document = fs::read(staged.join(".yace/project/project.json")).unwrap();
+        let error = prepare_with_audio_recovery(
+            &staged.join(".yace/project"),
+            &old,
+            &song,
+            &staged,
+            Some(&recovery),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("Recovery audio does not match"));
+        assert_eq!(fs::read(&staged_audio).unwrap(), changed);
+        assert_eq!(
+            fs::read(staged.join(".yace/project/project.json")).unwrap(),
+            document
+        );
+        fs::write(&recovery, correct).unwrap();
+        fs::write(&staged_audio, b"A separate staged edit").unwrap();
+        let error = prepare_with_audio_recovery(
+            &staged.join(".yace/project"),
+            &old,
+            &song,
+            &staged,
+            Some(&recovery),
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Staged source audio no longer matches")
+        );
+        assert_eq!(fs::read(&staged_audio).unwrap(), b"A separate staged edit");
+        assert_eq!(fs::read(old.join(source)).unwrap(), changed);
         assert!(!staged.join(".yace/audio/stems").exists());
     }
 

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 #[command(about = "Plan or apply a backed-up migration to standard YACE song folders")]
 struct Args {
     /// A charting library, song, or old generation wrapper. Never scans backups.
-    #[arg(required_unless_present = "restore")]
+    #[arg(required_unless_present_any = ["restore", "finalize"])]
     roots: Vec<PathBuf>,
     /// Apply the plan; without this flag nothing is changed.
     #[arg(long)]
@@ -18,9 +18,19 @@ struct Args {
     /// Restore exact originals, retaining the migrated folders in this backup.
     #[arg(long, conflicts_with_all = ["apply", "backup", "roots"])]
     restore: Option<PathBuf>,
+    /// Finish reports/cache aliases for already-completed items after interruption.
+    #[arg(long, conflicts_with_all = ["apply", "backup", "roots", "restore"])]
+    finalize: Option<PathBuf>,
 }
 fn main() -> Result<()> {
     let args = Args::parse();
+    if let Some(backup) = args.finalize {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&chart_engine::song_migration::finalize(&backup)?)?
+        );
+        return Ok(());
+    }
     if let Some(backup) = args.restore {
         chart_engine::song_migration::restore(&backup)?;
         println!(

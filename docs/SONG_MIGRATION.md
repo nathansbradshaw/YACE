@@ -35,6 +35,11 @@ a relative compatibility link at the old cache path for historical witnesses.
 Incomplete jobs, changed files, symlinks inside selected songs, conflicting
 destinations and active kit auditions are rejected before replacement.
 
+If a project recording was changed, repair is allowed only from that job's saved
+input when its bytes match the project's original SHA-256 and import receipt.
+Only the staged project is repaired; the changed recording remains in the exact
+original-folder backup, and the repair is recorded in the migration journal.
+
 Every migrated project is loaded again from its final path and through library
 discovery. Saved chart content, settings, revision and undo/redo contents must
 match the original. Completed jobs additionally verify their publication hashes.
@@ -49,3 +54,14 @@ cargo run --locked --release --no-default-features --bin migrate-songs -- \
 Restoration verifies original backup hashes and retains migrated folders as
 `migrated-before-restore` rather than overwriting them. Per-item journals also
 support restoration if the final batch report was never written.
+
+If one song stops a batch, finalize reports and legacy-cache links for the songs
+that already completed, without retrying or changing the unfinished songs:
+
+```sh
+cargo run --locked --release --no-default-features --bin migrate-songs -- \
+  --finalize '/path/to/Backups/library-migration-001'
+```
+
+The report lists both completed and remaining folders. A remaining song can then
+be migrated separately into another new backup directory after its issue is fixed.

@@ -6,12 +6,14 @@ use crate::{chart_library, editor, models, pipeline};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 #[cfg(target_os = "macos")]
 use std::process::Command;
 use std::{
     collections::BTreeMap,
     fs,
     fs::File,
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
 
@@ -33,6 +35,57 @@ pub struct Report {
     pub version: u32,
     pub backup: PathBuf,
     pub completed: Vec<Value>,
+    #[serde(default)]
+    pub remaining: Vec<PathBuf>,
+}
+
+#[derive(Serialize)]
+struct AudioRecovery {
+    source: PathBuf,
+    original_sha256: String,
+    expected_sha256: String,
+}
+
+fn recoverable_audio(item: &Item) -> Result<Option<AudioRecovery>> {
+    let Some(project) = &item.project else {
+        return Ok(None);
+    };
+    let store = editor::Store::new(project);
+    let doc = store.load()?;
+    let original_sha256 = models::hash_file(&store.audio_path(&doc)?)?;
+    if original_sha256 == doc.audio_sha256 {
+        return Ok(None);
+    }
+    ensure!(
+        item.generated_wrapper,
+        "Project source audio changed and no saved generation input is available"
+    );
+    let job = crate::generation::resolve_job(&item.song)?;
+    let saved: Value = serde_json::from_slice(&fs::read(job.join("input/source.json"))?)?;
+    let filename = saved["filename"]
+        .as_str()
+        .context("Saved recording filename is missing")?;
+    ensure!(
+        matches!(
+            Path::new(filename)
+                .components()
+                .collect::<Vec<_>>()
+                .as_slice(),
+            [std::path::Component::Normal(_)]
+        ),
+        "Invalid saved recording filename"
+    );
+    let source = job.join("input").join(filename);
+    ensure!(
+        saved["sha256"].as_str() == Some(doc.audio_sha256.as_str())
+            && models::hash_file(&source)? == doc.audio_sha256,
+        "Changed project audio has no exact hash-matched saved recording"
+    );
+    Ok(Some(AudioRecovery {
+        source,
+        original_sha256,
+        expected_sha256: doc.audio_sha256,
+    }))
 }
 
 /// Inventory only. Song/project boundaries keep immutable snapshots out of the plan.
@@ -156,9 +209,10 @@ fn clone_folder(from: &Path, to: &Path) -> Result<()> {
 }
 
 fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
-    let mut file = File::create_new(path)?;
+    let mut file = BufWriter::with_capacity(256 * 1024, File::create_new(path)?);
     serde_json::to_writer_pretty(&mut file, value)?;
-    file.sync_all()?;
+    file.flush()?;
+    file.get_ref().sync_all()?;
     Ok(())
 }
 
@@ -182,10 +236,15 @@ fn strip_stem_paths(value: &mut Value) {
 }
 
 fn fingerprint(path: &Path) -> Result<Value> {
+    fingerprint_with_audio(path, None)
+}
+
+fn fingerprint_with_audio(path: &Path, verified_recovery: Option<&Path>) -> Result<Value> {
     let store = editor::Store::new(path);
     let doc = store.load()?;
     ensure!(
-        models::hash_file(&store.audio_path(&doc)?)? == doc.audio_sha256,
+        models::hash_file(verified_recovery.unwrap_or(&store.audio_path(&doc)?))?
+            == doc.audio_sha256,
         "Project source audio changed"
     );
     let mut value = serde_json::to_value(&doc)?;
@@ -205,7 +264,12 @@ fn fingerprint(path: &Path) -> Result<Value> {
             let content: editor::Content = serde_json::from_slice(&fs::read(file)?)?;
             let mut content = serde_json::to_value(content)?;
             strip_stem_paths(&mut content);
-            contents.push(content);
+            // Compare normalized content identities without retaining dozens of
+            // complete note maps in memory and duplicating them in the journal.
+            contents.push(Value::String(format!(
+                "{:x}",
+                Sha256::digest(serde_json::to_vec(&content)?)
+            )));
         }
         value[name] = json!(contents);
     }
@@ -269,6 +333,7 @@ pub fn apply(plan: &Plan, backup: &Path) -> Result<Report> {
         version: 1,
         backup: backup.clone(),
         completed: vec![],
+        remaining: plan.items.iter().map(|item| item.song.clone()).collect(),
     };
     for (index, item) in plan.items.iter().enumerate() {
         eprintln!(
@@ -287,7 +352,19 @@ pub fn apply(plan: &Plan, backup: &Path) -> Result<Report> {
         if let Some(external_before) = &external_before {
             write_json(&unit.join("original-shared-files.json"), external_before)?;
         }
-        let expected = item.project.as_ref().map(|p| fingerprint(p)).transpose()?;
+        let audio_recovery = recoverable_audio(item)?;
+        let expected = item
+            .project
+            .as_ref()
+            .map(|p| {
+                fingerprint_with_audio(
+                    p,
+                    audio_recovery
+                        .as_ref()
+                        .map(|recovery| recovery.source.as_path()),
+                )
+            })
+            .transpose()?;
         let stage = unit.join("prepared");
         clone_folder(&item.song, &stage)?;
         let managed = stage.join(".yace/project");
@@ -307,12 +384,18 @@ pub fn apply(plan: &Plan, backup: &Path) -> Result<Report> {
             }
         }
         if managed.join("project.json").is_file() {
-            project::prepare(
-                &managed,
-                item.project.as_deref().unwrap(),
-                &item.song,
-                &stage,
-            )?;
+            let original = item.project.as_deref().unwrap();
+            if let Some(recovery) = &audio_recovery {
+                project::prepare_with_audio_recovery(
+                    &managed,
+                    original,
+                    &item.song,
+                    &stage,
+                    Some(&recovery.source),
+                )?;
+            } else {
+                project::prepare(&managed, original, &item.song, &stage)?;
+            }
         } else {
             fs::create_dir_all(stage.join(".yace"))?;
             editor::Store::create(&item.song, None, &managed)?;
@@ -358,7 +441,7 @@ pub fn apply(plan: &Plan, backup: &Path) -> Result<Report> {
         }
         write_json(
             &unit.join("ready.json"),
-            &json!({"song":item.song,"project_before":expected,"project_after":prepared}),
+            &json!({"song":item.song,"project_before":expected,"project_after":prepared,"audio_recovery":audio_recovery}),
         )?;
         let original = unit.join("original");
         fs::rename(&item.song, &original).context("Cannot retain original song in backup")?;
@@ -399,13 +482,70 @@ pub fn apply(plan: &Plan, backup: &Path) -> Result<Report> {
             return Err(anyhow::Error::from(error)
                 .context("Shared project backup failed; original song restored"));
         }
-        let completed = json!({"song":item.song,"backup":original,"project":item.song.join(".yace/project"),"verified":true});
+        let completed = json!({"song":item.song,"backup":original,"project":item.song.join(".yace/project"),"verified":true,"audio_recovery":audio_recovery});
         write_json(&unit.join("complete.json"), &completed)?;
         report.completed.push(completed);
+        report.remaining.retain(|song| song != &item.song);
         eprintln!("Verified {}", item.song.display());
     }
     consolidate_caches(plan, &backup)?;
     write_json(&backup.join("report.json"), &report)?;
+    Ok(report)
+}
+
+/// Finish journals and cache aliases for completed items after an interrupted batch.
+/// Unfinished song folders are reported and never migrated by this operation.
+pub fn finalize(backup: &Path) -> Result<Report> {
+    let plan: Plan = serde_json::from_slice(&fs::read(backup.join("plan.json"))?)?;
+    ensure!(plan.version == 1, "Unsupported migration backup");
+    let mut completed_items = Vec::new();
+    let mut report = Report {
+        version: 1,
+        backup: backup.canonicalize()?,
+        completed: vec![],
+        remaining: vec![],
+    };
+    for (index, item) in plan.items.iter().enumerate() {
+        let unit = backup.join(format!("{index:03}"));
+        if !unit.join("complete.json").is_file() || unit.join("restored.json").is_file() {
+            report.remaining.push(item.song.clone());
+            continue;
+        }
+        let _locks = locks(item)?;
+        let expected: BTreeMap<PathBuf, String> =
+            serde_json::from_slice(&fs::read(unit.join("original-files.json"))?)?;
+        ensure!(
+            inventory(&unit.join("original"))? == expected,
+            "Original backup changed"
+        );
+        let ready: Value = serde_json::from_slice(&fs::read(unit.join("ready.json"))?)?;
+        ensure!(
+            fingerprint(&item.song.join(".yace/project"))? == ready["project_after"],
+            "Migrated project changed since batch completion"
+        );
+        let library = chart_library::discover(&item.song)?;
+        ensure!(
+            library.entries.len() == 1
+                && library.open(&library.entries[0])? == item.song.join(".yace/project"),
+            "Migrated project cannot reopen"
+        );
+        report.completed.push(serde_json::from_slice(&fs::read(
+            unit.join("complete.json"),
+        )?)?);
+        completed_items.push(item.clone());
+    }
+    if !backup.join("caches.json").exists() {
+        consolidate_caches(
+            &Plan {
+                version: 1,
+                items: completed_items,
+            },
+            backup,
+        )?;
+    }
+    if !backup.join("report.json").exists() {
+        write_json(&backup.join("report.json"), &report)?;
+    }
     Ok(report)
 }
 
@@ -488,7 +628,6 @@ fn consolidate_caches(plan: &Plan, backup: &Path) -> Result<()> {
     let parents: std::collections::BTreeSet<_> = plan
         .items
         .iter()
-        .filter(|item| item.generated_wrapper)
         .filter_map(|item| item.song.parent().map(Path::to_owned))
         .collect();
     let mut cache_report = Vec::new();
@@ -734,6 +873,89 @@ mod tests {
         restore(&backup).unwrap();
         assert_eq!(inventory(&song).unwrap(), original_song);
         assert_eq!(inventory(&shared).unwrap(), original_shared);
+    }
+
+    #[test]
+    fn interrupted_batch_finalizes_completed_items_and_leaves_bad_song_untouched() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let good = root.join("A valid project");
+        let bad = root.join("Z changed project");
+        saved_project(&good);
+        saved_project(&bad);
+        fs::write(bad.join("source/song.ogg"), b"changed recording").unwrap();
+        let original_good = inventory(&good).unwrap();
+        let original_bad = inventory(&bad).unwrap();
+        let plan = plan(&[good.clone(), bad.clone()]).unwrap();
+        let backup = root.join("backup");
+        assert!(apply(&plan, &backup).is_err());
+        let report = finalize(&backup).unwrap();
+        assert_eq!(report.completed.len(), 1);
+        assert_eq!(report.remaining, vec![bad.clone()]);
+        assert!(backup.join("report.json").is_file());
+        assert_eq!(inventory(&bad).unwrap(), original_bad);
+        restore(&backup).unwrap();
+        assert_eq!(inventory(&good).unwrap(), original_good);
+        assert_eq!(inventory(&bad).unwrap(), original_bad);
+    }
+
+    #[test]
+    fn damaged_project_audio_recovers_only_from_exact_saved_input_and_original_is_backed_up() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let song = root.join("Song");
+        fs::create_dir(&song).unwrap();
+        let store = saved_project(&song.join("project"));
+        let doc = store.load().unwrap();
+        let expected_audio = fs::read(store.audio_path(&doc).unwrap()).unwrap();
+        fs::create_dir(song.join("input")).unwrap();
+        fs::write(song.join("input/source.ogg"), &expected_audio).unwrap();
+        fs::write(
+            song.join("input/source.json"),
+            serde_json::to_vec(&json!({"filename":"source.ogg","sha256":doc.audio_sha256}))
+                .unwrap(),
+        )
+        .unwrap();
+        fs::write(store.audio_path(&doc).unwrap(), b"changed source snapshot").unwrap();
+        fs::write(
+            song.join("request.json"),
+            br#"{"source":{"type":"youtube"}}"#,
+        )
+        .unwrap();
+        crate::generation::write_json(
+            &song.join("job.json"),
+            &crate::generation::Status {
+                version: 1,
+                state: crate::generation::State::Complete,
+                stage: "complete".into(),
+                detail: "Existing job".into(),
+                request_sha256: models::hash_file(&song.join("request.json")).unwrap(),
+                error: None,
+            },
+        )
+        .unwrap();
+        let original = inventory(&song).unwrap();
+        let plan = plan(std::slice::from_ref(&song)).unwrap();
+        let backup = root.join("backup");
+        let report = apply(&plan, &backup).unwrap();
+        assert_eq!(
+            report.completed[0]["audio_recovery"]["expected_sha256"],
+            doc.audio_sha256
+        );
+        assert_eq!(inventory(&backup.join("000/original")).unwrap(), original);
+        assert_eq!(
+            fs::read(song.join(".yace/project/source/song.ogg")).unwrap(),
+            expected_audio
+        );
+        assert_eq!(
+            editor::Store::new(&song.join(".yace/project"))
+                .load()
+                .unwrap()
+                .revision,
+            doc.revision
+        );
+        restore(&backup).unwrap();
+        assert_eq!(inventory(&song).unwrap(), original);
     }
 
     #[test]
