@@ -109,9 +109,16 @@ fn cached_source_rejects_same_length_tampering_and_recovers_after_restoration() 
     let original = store.load().unwrap();
     let expected = original.chart_text(&store).unwrap();
     let source = store.root.join("source/notes.chart");
+    let modified = fs::metadata(&source).unwrap().modified().unwrap();
     let replacement = CHART.replace("Original", "Tampered");
     assert_eq!(replacement.len(), CHART.len());
     fs::write(&source, replacement).unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&source)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(modified))
+        .unwrap();
     // A clone shares cached source data; it must still check actual current bytes.
     assert!(
         original
