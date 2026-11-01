@@ -254,6 +254,10 @@ pub enum Action {
     Playback {
         playing: bool,
     },
+    /// Freeze the audio cursor and playback state in one saved command.
+    Pause {
+        seconds: f64,
+    },
     SetPlaybackRate {
         rate: f64,
     },
@@ -808,6 +812,7 @@ impl Store {
         fs::create_dir(stage.path().join("source"))?;
         fs::create_dir(stage.path().join("checkpoints"))?;
         pipeline::copy_folder(song, &stage.path().join("source"))?;
+        crate::stem_review::game_audio::restore_recording(&stage.path().join("source"))?;
         if editable_master != song.join("notes.chart") {
             fs::rename(
                 stage.path().join("source/notes.mid"),
@@ -820,6 +825,22 @@ impl Store {
         let source_audio = pipeline::audio_file(&stage.path().join("source"))?;
         let duration = pipeline::metadata(&source_audio)?.duration;
         Self::new(stage.path()).initialize(song, markers, duration)?;
+        let staged = Self::new(stage.path());
+        let mut project = staged.load()?;
+        for manifest in project
+            .content
+            .stems
+            .iter_mut()
+            .chain(project.content.keyboard_stems.iter_mut())
+        {
+            match crate::stem_review::game_audio::retain(stage.path(), manifest) {
+                Ok(retained) => *manifest = retained,
+                Err(error) => project.review.coverage_limits.push(format!(
+                    "Stems could not be retained: {error:#}. Original recording remains available."
+                )),
+            }
+        }
+        staged.save(&project)?;
         pipeline::publish(stage.path(), output)?;
         Ok(Self::new(&output.canonicalize()?))
     }
@@ -1040,7 +1061,8 @@ impl Store {
         if let Some(project) = crate::storage::cached_project(&self.root) {
             return Ok(project.as_ref().clone());
         }
-        let doc: Project = serde_json::from_slice(&fs::read(self.root.join("project.json"))?)?;
+        let mut doc: Project = serde_json::from_slice(&fs::read(self.root.join("project.json"))?)?;
+        self.resolve_stem_paths(&mut doc.content);
         ensure!(doc.version == 1, "Unsupported editor project version");
         for manifest in doc
             .content
@@ -1100,15 +1122,19 @@ impl Store {
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn save(&self, project: &Project) -> Result<()> {
+        let mut portable = project.clone();
+        self.portable_stem_paths(&mut portable.content);
         let mut tmp = tempfile::NamedTempFile::new_in(&self.root)?;
-        tmp.write_all(&serde_json::to_vec_pretty(project)?)?;
+        tmp.write_all(&serde_json::to_vec_pretty(&portable)?)?;
         tmp.as_file().sync_all()?;
         tmp.persist(self.root.join("project.json"))?;
         Ok(())
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn checkpoint(&self, content: &Content) -> Result<String> {
-        let bytes = serde_json::to_vec(content)?;
+        let mut portable = content.clone();
+        self.portable_stem_paths(&mut portable);
+        let bytes = serde_json::to_vec(&portable)?;
         let id = hash(&bytes);
         let path = self.root.join("checkpoints").join(format!("{id}.json"));
         if !path.exists() {
@@ -1127,7 +1153,47 @@ impl Store {
         );
         let bytes = fs::read(self.root.join("checkpoints").join(format!("{id}.json")))?;
         ensure!(hash(&bytes) == id, "Checkpoint checksum mismatch");
-        Ok(serde_json::from_slice(&bytes)?)
+        let mut content = serde_json::from_slice(&bytes)?;
+        self.resolve_stem_paths(&mut content);
+        Ok(content)
+    }
+    fn resolve_stem_paths(&self, content: &mut Content) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let root = self
+            .root
+            .canonicalize()
+            .unwrap_or_else(|_| self.root.clone());
+        #[cfg(target_arch = "wasm32")]
+        let root = self.root.clone();
+        for manifest in content
+            .stems
+            .iter_mut()
+            .chain(content.keyboard_stems.iter_mut())
+        {
+            for asset in &mut manifest.stems {
+                if !fs::is_absolute(&asset.path) {
+                    asset.path = root.join(&asset.path);
+                }
+            }
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn portable_stem_paths(&self, content: &mut Content) {
+        let root = self
+            .root
+            .canonicalize()
+            .unwrap_or_else(|_| self.root.clone());
+        for manifest in content
+            .stems
+            .iter_mut()
+            .chain(content.keyboard_stems.iter_mut())
+        {
+            for asset in &mut manifest.stems {
+                if let Ok(relative) = asset.path.strip_prefix(&root) {
+                    asset.path = relative.to_owned();
+                }
+            }
+        }
     }
     pub fn apply(&self, request: Request) -> Result<Applied> {
         self.apply_guarded(request, |_| Ok(()))
@@ -1280,6 +1346,14 @@ impl Store {
                 doc.transport.position = *seconds;
             }
             Action::Playback { playing } => doc.transport.playing = *playing,
+            Action::Pause { seconds } => {
+                ensure!(
+                    seconds.is_finite() && (0.0..=doc.duration).contains(seconds),
+                    "Pause position is outside recording"
+                );
+                doc.transport.position = *seconds;
+                doc.transport.playing = false;
+            }
             Action::SetPlaybackRate { rate } => {
                 ensure!(
                     rate.is_finite() && (0.5..=1.5).contains(rate),
@@ -1523,11 +1597,14 @@ impl Store {
             }
             Action::AttachStems { manifest } | Action::AttachKeyboardStems { manifest } => {
                 let manifest = crate::stem_review::StemManifest::read(manifest)?;
-                let manifest = Some(manifest.validate_source(
+                let manifest = manifest.validate_source(
                     &self.audio_path(&doc)?,
                     &doc.audio_sha256,
                     doc.duration,
-                )?);
+                )?;
+                #[cfg(not(target_arch = "wasm32"))]
+                let manifest = crate::stem_review::game_audio::retain(&self.root, &manifest)?;
+                let manifest = Some(manifest);
                 if matches!(&request.action, Action::AttachKeyboardStems { .. }) {
                     doc.content.keyboard_stems = manifest;
                 } else {
@@ -1849,21 +1926,37 @@ impl Store {
             )?,
         )?;
         if let Some(manifest) = &doc.content.stems {
+            #[cfg(not(target_arch = "wasm32"))]
+            let manifest = {
+                let mut retained = crate::stem_review::game_audio::retain_in(stage, manifest)?;
+                for asset in &mut retained.stems {
+                    asset.path = asset.path.strip_prefix(stage.canonicalize()?)?.to_owned();
+                }
+                retained
+            };
             fs::write(
                 stage.join("chart-engine-isolation.json"),
-                serde_json::to_vec_pretty(manifest)?,
+                serde_json::to_vec_pretty(&manifest)?,
             )?;
         }
         if let Some(manifest) = &doc.content.keyboard_stems {
+            #[cfg(not(target_arch = "wasm32"))]
+            let manifest = {
+                let mut retained = crate::stem_review::game_audio::retain_in(stage, manifest)?;
+                for asset in &mut retained.stems {
+                    asset.path = asset.path.strip_prefix(stage.canonicalize()?)?.to_owned();
+                }
+                retained
+            };
             fs::write(
                 stage.join("chart-engine-keyboard-isolation.json"),
-                serde_json::to_vec_pretty(manifest)?,
+                serde_json::to_vec_pretty(&manifest)?,
             )?;
         }
         let fingerprint = hash(text.as_bytes());
         let timing = doc.timing(self)?;
         let history:Vec<_>=doc.content.decisions.iter().map(|d|serde_json::json!({"decision":d,"applies_to_current_notes":doc.region_fingerprint(&d.region_id,&d.track,&timing).is_ok_and(|hash|hash==d.region_content_sha256)})).collect();
-        let report = serde_json::json!({"version":1,"project_revision":doc.revision,"chart_sha256":fingerprint,"audio_sha256":doc.audio_sha256,"exported_by":actor,"source_review_evidence_is_stale":doc.review.input_sha256.get("chart")!=Some(&fingerprint),"source_review":doc.review,"current_decisions":doc.current_decisions(&timing),"decision_history":history,"hidden_flags":doc.content.hidden_flags,"vocal_review":doc.content.vocal_review,"difficulty_links":crate::difficulty_links::snapshot(doc,&timing),"difficulty_link_state":doc.content.difficulty_links,"stems":doc.content.stems,"stem_mix_requested":doc.content.stem_mix,"stem_mix_scope":"Review preference only; exported song audio is unchanged and playback revalidates stem files","musical_acceptance":"unverified"});
+        let report = serde_json::json!({"version":1,"project_revision":doc.revision,"chart_sha256":fingerprint,"audio_sha256":doc.audio_sha256,"exported_by":actor,"source_review_evidence_is_stale":doc.review.input_sha256.get("chart")!=Some(&fingerprint),"source_review":doc.review,"current_decisions":doc.current_decisions(&timing),"decision_history":history,"hidden_flags":doc.content.hidden_flags,"vocal_review":doc.content.vocal_review,"difficulty_links":crate::difficulty_links::snapshot(doc,&timing),"difficulty_link_state":doc.content.difficulty_links,"stems":doc.content.stems,"stem_mix_requested":doc.content.stem_mix,"stem_mix_scope":"Review preference only; game audio routes complete primary stem sets independently; see yace-audio.json","musical_acceptance":"unverified"});
         fs::write(
             stage.join("editor-review.json"),
             serde_json::to_vec_pretty(&{
@@ -1881,6 +1974,12 @@ impl Store {
                 "pro_keys_ranges":doc.content.tracks.iter().filter(|(t,_)|crate::keys::is_pro(t)).map(|(t,notes)| Ok((t.clone(),crate::key_ranges::plan(&notes.iter().map(|n|n.note.clone()).collect::<Vec<_>>())?))).collect::<Result<BTreeMap<_,_>>>()?,
                 "musical_acceptance":"unverified"
             }))?,
+        )?;
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::stem_review::game_audio::write(
+            &self.audio_path(doc)?,
+            doc.content.stems.as_ref(),
+            stage,
         )?;
         Ok(())
     }

@@ -112,6 +112,9 @@ pub(crate) fn App() -> Element {
         #[cfg(feature = "browser")]
         let project = initial_project();
         if let Some(path) = project {
+            #[cfg(not(feature = "browser"))]
+            studio.open_library(path).await;
+            #[cfg(feature = "browser")]
             studio.open_project(path).await;
         }
         let mut count = 0;
@@ -130,7 +133,6 @@ pub(crate) fn App() -> Element {
         if let Some(doc) = studio.snapshot()
             && doc.transport.playing
         {
-            studio.seek(studio.current_audio_position());
             studio.dispatch(Action::Playback { playing: false });
         }
         if let Some(store) = studio.store.read().as_ref() {

@@ -8,6 +8,16 @@ use chart_engine::{
 };
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
 
+fn assert_same_stems(actual: &StemManifest, expected: &StemManifest) {
+    let mut actual = actual.clone();
+    let mut expected = expected.clone();
+    // Retained/exported copies change locations, while bytes and provenance stay.
+    for asset in actual.stems.iter_mut().chain(expected.stems.iter_mut()) {
+        asset.path = asset.id.as_str().into();
+    }
+    assert_eq!(actual, expected);
+}
+
 fn mix(stems: &[(StemId, StemChannel)]) -> StemMix {
     StemMix {
         mode: MixMode::Stems,
@@ -297,8 +307,8 @@ fn primary_attachment_never_retargets_keyboard_analysis_and_both_export() {
     )
     .unwrap();
     let project = store.load().unwrap();
-    assert_eq!(project.content.stems.as_ref(), Some(&replacement));
-    assert_eq!(project.content.keyboard_stems.as_ref(), Some(&keyboard));
+    assert_same_stems(project.content.stems.as_ref().unwrap(), &replacement);
+    assert_same_stems(project.content.keyboard_stems.as_ref().unwrap(), &keyboard);
     let export = root.path().join("export");
     apply(
         &store,
@@ -307,19 +317,28 @@ fn primary_attachment_never_retargets_keyboard_analysis_and_both_export() {
         },
     )
     .unwrap();
-    assert_eq!(
-        StemManifest::read(&export.join("chart-engine-keyboard-isolation.json")).unwrap(),
-        keyboard
+    assert_same_stems(
+        &StemManifest::read(&export.join("chart-engine-keyboard-isolation.json")).unwrap(),
+        &keyboard,
     );
-    assert_eq!(
-        StemManifest::read(&export.join("chart-engine-isolation.json")).unwrap(),
-        replacement
+    assert_same_stems(
+        &StemManifest::read(&export.join("chart-engine-isolation.json")).unwrap(),
+        &replacement,
     );
     apply(&store, Action::Undo).unwrap();
-    assert_eq!(store.load().unwrap().content.stems.as_ref(), Some(&primary));
-    assert_eq!(
-        store.load().unwrap().content.keyboard_stems.as_ref(),
-        Some(&keyboard)
+    assert_same_stems(
+        store.load().unwrap().content.stems.as_ref().unwrap(),
+        &primary,
+    );
+    assert_same_stems(
+        store
+            .load()
+            .unwrap()
+            .content
+            .keyboard_stems
+            .as_ref()
+            .unwrap(),
+        &keyboard,
     );
 }
 #[test]
@@ -348,7 +367,7 @@ fn attachment_and_mixer_are_durable_undoable_and_never_approve_or_modify_notes()
     apply(&store, Action::SetStemMix { mix: solo.clone() }).unwrap();
     let project = store.load().unwrap();
     assert_eq!(project.content.stem_mix, solo);
-    assert_eq!(project.content.stems, Some(manifest));
+    assert_same_stems(project.content.stems.as_ref().unwrap(), &manifest);
     assert!(project.content.decisions.is_empty());
     assert_eq!(project.chart_hash(&store).unwrap(), chart);
     assert_eq!(
@@ -400,7 +419,10 @@ fn generated_attachments_open_and_export_current_stems_without_blocking_original
     let sidecar = song.join("chart-engine-isolation.json");
     fs::write(&sidecar, serde_json::to_vec(&manifest).unwrap()).unwrap();
     let store = Store::create(&song, None, &root.path().join("auto-project")).unwrap();
-    assert_eq!(store.load().unwrap().content.stems, Some(manifest.clone()));
+    assert_same_stems(
+        store.load().unwrap().content.stems.as_ref().unwrap(),
+        &manifest,
+    );
     assert_eq!(store.load().unwrap().content.stem_mix, StemMix::default());
     let mut current = manifest.clone();
     current.stems.retain(|asset| asset.id == StemId::Drums);
@@ -435,9 +457,9 @@ fn generated_attachments_open_and_export_current_stems_without_blocking_original
         },
     )
     .unwrap();
-    assert_eq!(
-        StemManifest::read(&exported.join("chart-engine-isolation.json")).unwrap(),
-        current
+    assert_same_stems(
+        &StemManifest::read(&exported.join("chart-engine-isolation.json")).unwrap(),
+        &current,
     );
     let archived: StemManifest = serde_json::from_slice(
         &fs::read(exported.join("editor-source/chart-engine-isolation.json")).unwrap(),
@@ -453,9 +475,9 @@ fn generated_attachments_open_and_export_current_stems_without_blocking_original
     );
     assert_eq!(models::hash_file(&source).unwrap(), original_hash);
     let reopened = Store::create(&exported, None, &root.path().join("roundtrip")).unwrap();
-    assert_eq!(
-        reopened.load().unwrap().content.stems,
-        Some(current.clone())
+    assert_same_stems(
+        reopened.load().unwrap().content.stems.as_ref().unwrap(),
+        &current,
     );
     assert_eq!(
         reopened.load().unwrap().content.stem_mix,
@@ -526,4 +548,142 @@ fn generated_attachments_open_and_export_current_stems_without_blocking_original
             .stems
             .is_some()
     );
+}
+
+#[test]
+fn retained_attachments_and_undo_survive_cache_removal_and_project_move() {
+    let root = tempfile::tempdir().unwrap();
+    let (song, _, manifest) = write_fixture(root.path());
+    let project_path = root.path().join("project");
+    let store = Store::create(&song, None, &project_path).unwrap();
+    let path = root.path().join("stems.json");
+    fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    apply(&store, Action::AttachStems { manifest: path }).unwrap();
+    apply(
+        &store,
+        Action::SetStemMix {
+            mix: mix(&[(
+                StemId::Drums,
+                StemChannel {
+                    solo: true,
+                    ..Default::default()
+                },
+            )]),
+        },
+    )
+    .unwrap();
+    for asset in &manifest.stems {
+        fs::remove_file(&asset.path).unwrap();
+    }
+    fs::remove_dir_all(&song).unwrap();
+    let moved = root.path().join("moved-project");
+    fs::rename(project_path, &moved).unwrap();
+    let store = Store::new(&moved);
+    let doc = store.load().unwrap();
+    for asset in &doc.content.stems.as_ref().unwrap().stems {
+        assert!(
+            asset
+                .path
+                .starts_with(moved.canonicalize().unwrap().join("source/stems"))
+        );
+        assert_eq!(models::hash_file(&asset.path).unwrap(), asset.sha256);
+    }
+    doc.content
+        .stems
+        .as_ref()
+        .unwrap()
+        .load(&store.audio_path(&doc).unwrap())
+        .unwrap();
+    apply(&store, Action::Undo).unwrap();
+    apply(&store, Action::Undo).unwrap();
+    assert!(store.load().unwrap().content.stems.is_none());
+    apply(&store, Action::Redo).unwrap();
+    let doc = store.load().unwrap();
+    doc.content
+        .stems
+        .as_ref()
+        .unwrap()
+        .load(&store.audio_path(&doc).unwrap())
+        .unwrap();
+}
+
+#[test]
+fn full_game_export_routes_each_part_once_and_roundtrips_the_original_recording() {
+    let root = tempfile::tempdir().unwrap();
+    let (song, source, _) = write_fixture(root.path());
+    let mut files = BTreeMap::new();
+    let mut original = vec![0.0; 44100];
+    for (index, id) in StemId::ALL.into_iter().enumerate() {
+        let mut pcm = vec![0.0; 44100];
+        pcm[4400 * (index + 1)] = 0.03 * (index + 1) as f32;
+        for (combined, sample) in original.iter_mut().zip(&pcm) {
+            *combined += sample;
+        }
+        let path = root.path().join(format!("six-{}.wav", id.as_str()));
+        models::write_audio(&path, &pcm, &pcm).unwrap();
+        files.insert(id, path);
+    }
+    fs::remove_file(&source).unwrap();
+    models::write_audio(&source, &original, &original).unwrap();
+    let manifest = StemManifest::build(
+        &source,
+        files,
+        AlignmentEvidence {
+            method: "synthetic_separate_impulses".into(),
+            details: "Each part has a different known impulse position; the original is their sum."
+                .into(),
+        },
+    )
+    .unwrap();
+    fs::write(
+        song.join("chart-engine-isolation.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        song.join("crowd.ogg"),
+        b"unrelated source channel kept in archive",
+    )
+    .unwrap();
+    let store = Store::create(&song, None, &root.path().join("project")).unwrap();
+    let exported = root.path().join("exported");
+    apply(
+        &store,
+        Action::Export {
+            output: exported.clone(),
+        },
+    )
+    .unwrap();
+    let receipt: chart_engine::stem_review::game_audio::Receipt =
+        serde_json::from_slice(&fs::read(exported.join("yace-audio.json")).unwrap()).unwrap();
+    assert_eq!(receipt.mode, "instrument_stems");
+    assert_eq!(receipt.files.len(), 6);
+    for asset in &manifest.stems {
+        let target = exported.join(chart_engine::stem_review::game_audio::filename(asset.id));
+        assert_eq!(models::hash_file(&target).unwrap(), asset.sha256);
+    }
+    assert!(!exported.join("crowd.ogg").exists());
+    assert!(
+        exported
+            .join(".yace-audio/source-channels/crowd.ogg")
+            .is_file()
+    );
+    assert_ne!(
+        models::hash_file(&exported.join("song.wav")).unwrap(),
+        manifest.source_audio_sha256
+    );
+    assert_eq!(
+        models::hash_file(&exported.join(receipt.original_audio.unwrap())).unwrap(),
+        manifest.source_audio_sha256
+    );
+    let reopened = Store::create(&exported, None, &root.path().join("reopened")).unwrap();
+    let doc = reopened.load().unwrap();
+    assert_eq!(doc.audio_sha256, manifest.source_audio_sha256);
+    assert_same_stems(doc.content.stems.as_ref().unwrap(), &manifest);
+    doc.content
+        .stems
+        .as_ref()
+        .unwrap()
+        .load(&reopened.audio_path(&doc).unwrap())
+        .unwrap();
 }

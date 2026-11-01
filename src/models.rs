@@ -268,6 +268,7 @@ pub fn fetch_required(dir: &Path, wanted: &[&str]) -> Result<()> {
             continue;
         }
         let target = dir.join(&asset.filename);
+        crate::generation_progress::detail(format!("Verifying {} model", asset.id));
         if target.exists() {
             ensure!(
                 hash_file(&target)? == asset.sha256,
@@ -278,9 +279,39 @@ pub fn fetch_required(dir: &Path, wanted: &[&str]) -> Result<()> {
             continue;
         }
         eprintln!("Downloading {} ({})", asset.id, asset.license);
+        crate::generation_progress::detail(format!("Downloading {} model", asset.id));
         let mut temp = tempfile::NamedTempFile::new_in(dir)?;
         let mut response = client.get(&asset.url).send()?.error_for_status()?;
-        std::io::copy(&mut response, &mut temp)?;
+        let total = response
+            .content_length()
+            .and_then(|size| usize::try_from(size).ok());
+        let mut copied = 0usize;
+        let mut reported = 0usize;
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let count = response.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            temp.write_all(&buffer[..count])?;
+            copied += count;
+            if copied.saturating_sub(reported) >= 4 * 1024 * 1024 {
+                crate::generation_progress::units(
+                    format!(
+                        "Downloading {} · {} MiB{}",
+                        asset.id,
+                        copied / (1024 * 1024),
+                        total
+                            .map(|bytes| format!(" / {} MiB", bytes / (1024 * 1024)))
+                            .unwrap_or_default()
+                    ),
+                    copied,
+                    total.unwrap_or(0),
+                );
+                reported = copied;
+            }
+        }
+        crate::generation_progress::detail(format!("Checking downloaded {} model", asset.id));
         temp.flush()?;
         ensure!(
             hash_file(temp.path())? == asset.sha256,
@@ -534,6 +565,15 @@ pub fn drums_with_recovery(audio: &Path, model: &Path) -> Result<(Vec<DrumHit>, 
             (core + 20 * 44100).min(samples.len()) as f64 / 44100.0,
             samples.len() as f64 / 44100.0
         );
+        crate::generation_progress::units(
+            format!(
+                "Transcribing drums · {:.0}/{:.0} seconds",
+                (core + 20 * 44100).min(samples.len()) as f64 / 44100.0,
+                samples.len() as f64 / 44100.0
+            ),
+            (core + 20 * 44100).min(samples.len()),
+            samples.len(),
+        );
     }
     Ok(supported_drum_peaks(
         &activations,
@@ -761,6 +801,15 @@ fn pitch_activations(audio: &Path, model: &Path) -> Result<PitchActivations> {
             "Pitch: {:.1}/{:.1} seconds",
             (start + HOP).min(original) as f64 / 22050.0,
             original as f64 / 22050.0
+        );
+        crate::generation_progress::units(
+            format!(
+                "Detecting instrument pitches · {:.0}/{:.0} seconds",
+                (start + HOP).min(original) as f64 / 22050.0,
+                original as f64 / 22050.0
+            ),
+            (start + HOP).min(original),
+            original,
         );
     }
     let duration = original as f64 / 22050.0;
@@ -1354,10 +1403,20 @@ pub fn separate(audio: &Path, model: &Path, dir: &Path) -> Result<()> {
         fn on_event(&mut self, event: ForwardEvent) {
             match event {
                 ForwardEvent::ChunkStarted { index, total } => {
-                    eprintln!("Separation: chunk {}/{total}", index + 1)
+                    eprintln!("Separation: chunk {}/{total}", index + 1);
+                    crate::generation_progress::units(
+                        format!("Separating instruments · chunk {} of {total}", index + 1),
+                        index,
+                        total,
+                    );
                 }
                 ForwardEvent::ChunkDone { index, total } => {
-                    eprintln!("Separation: completed {}/{total}", index + 1)
+                    eprintln!("Separation: completed {}/{total}", index + 1);
+                    crate::generation_progress::units(
+                        format!("Separated {} of {total} chunks", index + 1),
+                        index + 1,
+                        total,
+                    );
                 }
                 _ => {}
             }
@@ -1367,6 +1426,7 @@ pub fn separate(audio: &Path, model: &Path, dir: &Path) -> Result<()> {
     let left: Vec<_> = data.iter().step_by(2).copied().collect();
     let right: Vec<_> = data.iter().skip(1).step_by(2).copied().collect();
     eprintln!("Separating six stems with demucs-rs");
+    crate::generation_progress::detail("Loading the six-part separation model onto the GPU");
     let bytes = fs::read(model)?;
     let demucs = Demucs::<Wgpu>::from_bytes(ModelOptions::SixStem, &bytes, Default::default())
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -1387,6 +1447,7 @@ pub fn separate(audio: &Path, model: &Path, dir: &Path) -> Result<()> {
         "Separator returned truncated or nonfinite audio; no complete cache can be published"
     );
     fs::create_dir_all(dir)?;
+    crate::generation_progress::detail("Saving all six separated instrument recordings");
     for stem in stems {
         write_audio(
             &dir.join(format!("{}.wav", stem.id.as_str())),

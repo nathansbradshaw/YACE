@@ -29,3 +29,32 @@ stem for close timing edits or vocal-only cleaning.
 
 Stem separation uses local models. Their terms are in
 [THIRD_PARTY.md](../THIRD_PARTY.md).
+
+## Keep stems and export game audio
+
+New projects and manually attached stems keep their own verified copies in
+`source/stems/`, alongside the source recording. Project state and undo snapshots
+refer to those copies with relative paths, so moving a project or clearing the
+separator cache does not remove its instrument audio.
+
+Exporting a complete six-part primary separation writes `guitar.wav`, `bass.wav`,
+`drums.wav`, `vocals.wav` and `keys.wav`. `song.wav` contains only the remaining
+instruments. YARG can mute each part separately when its mute-on-miss setting is
+enabled. The editor's solo/gain settings do not change those exports. A separate
+high-quality keyboard analysis is retained for review but is not mixed into the
+primary separation, which would duplicate instruments.
+
+The original recording and prior source channels stay in `.yace-audio/`, outside
+the game's top-level audio scan. Reopening an export restores the original
+recording for editing. `yace-audio.json` records the routing. A partial separation
+keeps the original audio instead of replacing it with an incomplete song; missing
+or changed attachments must be repaired before exporting their files.
+
+This is a song-folder export for compatible games. Rock Band console packages
+and separation quality still need their own tooling and listening/playtesting.
+
+The routing follows YARG's `YARG.Core/Audio/AudioHelpers.cs` and
+`YARG.Core/Song/Entries/Ini/SongEntry.IniBase.cs` in its YARG.Core repository.
+Mute-on-miss behavior is implemented in the game repository's
+`Assets/Script/Gameplay/GameManager.Audio.cs` (`ChangeStemMuteState`). This source
+check establishes supported filenames and settings, not a completed game playtest.

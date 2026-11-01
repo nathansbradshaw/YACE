@@ -39,6 +39,7 @@ fn cancels_kit_autoplay(action: &Action) -> bool {
             | Action::AttachStems { .. }
             | Action::AttachKeyboardStems { .. }
             | Action::Playback { playing: false }
+            | Action::Pause { .. }
             | Action::SetPlaybackRate { .. }
     )
 }
@@ -316,6 +317,9 @@ impl Drop for WindowLock {
 pub struct Studio {
     pub doc: Signal<Option<Arc<Project>>>,
     pub store: Signal<Option<Store>>,
+    pub library: Signal<Option<crate::chart_library::Library>>,
+    pub library_busy: Signal<bool>,
+    pub library_selected: Signal<Option<usize>>,
     pub timing: Signal<Option<TempoMap>>,
     pub playhead: Signal<f64>,
     pub audio_ready: Signal<bool>,
@@ -385,6 +389,34 @@ impl Studio {
         self.doc.read().clone()
     }
     pub fn dispatch(mut self, action: Action) {
+        // Stop sound before reading, validating or saving a project. Large charts
+        // and a busy disk must never delay a musician's pause command.
+        let action = if matches!(
+            action,
+            Action::Playback { playing: false } | Action::Pause { .. }
+        ) {
+            let seconds = if let Some(audio) = self.audio.read().as_ref() {
+                audio.player.pause();
+                audio.position()
+            } else {
+                (self.playhead)()
+            };
+            let seconds = if let Action::Pause { seconds } = action {
+                seconds
+            } else {
+                self.snapshot()
+                    .map_or(seconds, |doc| seconds.clamp(0.0, doc.duration))
+            };
+            self.playhead.set(seconds);
+            Action::Pause { seconds }
+        } else {
+            action
+        };
+        let paused_at = if let Action::Pause { seconds } = &action {
+            Some(*seconds)
+        } else {
+            None
+        };
         if cancels_kit_autoplay(&action) {
             self.kit_audition_epoch
                 .set((self.kit_audition_epoch)().wrapping_add(1));
@@ -410,6 +442,7 @@ impl Studio {
             action,
             Action::Seek { .. }
                 | Action::Playback { .. }
+                | Action::Pause { .. }
                 | Action::SetPlaybackRate { .. }
                 | Action::SetLoop { .. }
                 | Action::SelectRegion { .. }
@@ -435,6 +468,18 @@ impl Studio {
             Err(error) => {
                 self.error.set(Some(format!("{error:#}")));
                 self.reload(false);
+                // A revision conflict can reject saving the pause. Keep the
+                // local transport stopped while the user resolves that error.
+                let current = self.doc.read().clone();
+                if let Some(seconds) = paused_at
+                    && let Some(doc) = current
+                {
+                    let mut doc = (*doc).clone();
+                    doc.transport.playing = false;
+                    doc.transport.position = seconds.clamp(0.0, doc.duration);
+                    self.playhead.set(doc.transport.position);
+                    self.doc.set(Some(Arc::new(doc)));
+                }
             }
         }
     }
@@ -614,9 +659,6 @@ impl Studio {
     }
     pub fn toggle_playback(self) {
         if let Some(doc) = self.snapshot() {
-            if doc.transport.playing {
-                self.seek(self.current_audio_position());
-            }
             self.dispatch(Action::Playback {
                 playing: !doc.transport.playing,
             });
@@ -957,17 +999,99 @@ impl Studio {
         }
     }
     pub fn open_dialog(self) {
-        spawn(async move {
+        // Opening a chart removes the welcome screen. Keep its load task owned
+        // by the app so audio preparation and library cleanup can finish.
+        dioxus::core::spawn_forever(async move {
             if let Some(path) = rfd::AsyncFileDialog::new()
-                .set_title("Open saved YACE review project")
+                .set_title("Open a YACE project or charting folder (searches 3 levels)")
                 .pick_folder()
                 .await
             {
+                #[cfg(feature = "browser")]
                 self.open_project(path.path().to_owned()).await;
+                #[cfg(not(feature = "browser"))]
+                self.open_library(path.path().to_owned()).await;
             }
         });
     }
+    #[cfg(not(feature = "browser"))]
+    pub async fn open_library(mut self, path: PathBuf) {
+        if (self.library_busy)() {
+            return;
+        }
+        self.library_busy.set(true);
+        self.status
+            .set("Finding charts (up to 3 folders deep)…".into());
+        let found =
+            tokio::task::spawn_blocking(move || crate::chart_library::discover(&path)).await;
+        self.library_busy.set(false);
+        match found {
+            Ok(Ok(library)) => {
+                let single = library.entries.len() == 1;
+                self.status.set(format!(
+                    "Found {} charts · choose a chart to edit",
+                    library.entries.len()
+                ));
+                self.library.set(Some(library));
+                self.library_selected.set(None);
+                if single {
+                    self.open_library_chart(0).await;
+                }
+            }
+            Ok(Err(error)) => self.error.set(Some(format!("{error:#}"))),
+            Err(error) => self.error.set(Some(error.to_string())),
+        }
+    }
+    #[cfg(not(feature = "browser"))]
+    pub async fn open_library_chart(mut self, index: usize) {
+        if (self.library_busy)() {
+            return;
+        }
+        let Some(library) = self.library.read().clone() else {
+            return;
+        };
+        let Some(item) = library.entries.get(index).cloned() else {
+            return;
+        };
+        if self
+            .snapshot()
+            .is_some_and(|project| project.transport.playing)
+        {
+            self.dispatch(Action::Playback { playing: false });
+        }
+        self.library_busy.set(true);
+        self.status.set(format!("Opening {}…", item.title));
+        let opened = tokio::task::spawn_blocking(move || library.open(&item)).await;
+        match opened {
+            Ok(Ok(path)) => {
+                let current = self
+                    .store
+                    .read()
+                    .as_ref()
+                    .is_some_and(|store| store.root == path);
+                if !current {
+                    self.open_project(path.clone()).await;
+                }
+                if self
+                    .store
+                    .read()
+                    .as_ref()
+                    .is_some_and(|store| store.root == path)
+                {
+                    self.library_selected.set(Some(index));
+                }
+            }
+            Ok(Err(error)) => self.error.set(Some(format!("{error:#}"))),
+            Err(error) => self.error.set(Some(error.to_string())),
+        }
+        self.library_busy.set(false);
+    }
     pub fn create_dialog(self) {
+        #[cfg(not(feature = "browser"))]
+        {
+            self.open_dialog();
+        }
+        #[cfg(feature = "browser")]
         spawn(async move {
             let Some(song) = rfd::AsyncFileDialog::new()
                 .set_title("Open song folder (.chart or MIDI)")
@@ -1023,6 +1147,39 @@ impl Studio {
         });
     }
     pub async fn open_project(mut self, path: PathBuf) {
+        self.library_selected.set(None);
+        // Command-line opens and generation recovery may point to a containing
+        // folder rather than the saved project itself.
+        #[cfg(not(feature = "browser"))]
+        let path = if path.join("project.json").is_file() {
+            path
+        } else {
+            let selected = path.clone();
+            match tokio::task::spawn_blocking(move || crate::chart_library::discover(&selected))
+                .await
+            {
+                Ok(Ok(library)) => {
+                    if library.entries.len() != 1
+                        || library.entries[0].kind != crate::chart_library::Kind::Project
+                    {
+                        self.library.set(Some(library));
+                        self.library_selected.set(None);
+                        self.status
+                            .set("Choose a chart from the charting folder".into());
+                        return;
+                    }
+                    library.entries[0].path.clone()
+                }
+                Ok(Err(error)) => {
+                    self.error.set(Some(format!("{error:#}")));
+                    return;
+                }
+                Err(error) => {
+                    self.error.set(Some(error.to_string()));
+                    return;
+                }
+            }
+        };
         self.kit_audition_epoch
             .set((self.kit_audition_epoch)().wrapping_add(1));
         self.kit_autoplay.set(None);
@@ -1109,7 +1266,6 @@ impl Studio {
         if let Some(previous) = self.snapshot()
             && previous.transport.playing
         {
-            self.seek((self.playhead)());
             self.dispatch(Action::Playback { playing: false });
         }
         if let Some(old) = self.store.read().as_ref() {
@@ -1119,6 +1275,7 @@ impl Studio {
         self.audio.set(None);
         self.lock.set(Some(lock));
         self.store.set(Some(store));
+        self.library_selected.set(None);
         self.timing.set(Some(timing));
         self.view_start
             .set((doc.transport.current_position(doc.duration) - 0.5).max(0.0));
@@ -1223,6 +1380,7 @@ impl Studio {
                     a.action,
                     Action::Seek { .. }
                         | Action::Playback { .. }
+                        | Action::Pause { .. }
                         | Action::SetPlaybackRate { .. }
                         | Action::SetLoop { .. }
                         | Action::SelectRegion { .. }
@@ -1313,6 +1471,9 @@ pub fn use_studio() -> Studio {
     Studio {
         doc: use_signal(|| None),
         store: use_signal(|| None),
+        library: use_signal(|| None),
+        library_busy: use_signal(|| false),
+        library_selected: use_signal(|| None),
         timing: use_signal(|| None),
         playhead: use_signal(|| 0.0),
         audio_ready: use_signal(|| false),
@@ -1678,6 +1839,7 @@ mod tests {
     #[test]
     fn explicit_pause_or_normal_audio_choice_cancels_pending_kit_autoplay() {
         assert!(cancels_kit_autoplay(&Action::Playback { playing: false }));
+        assert!(cancels_kit_autoplay(&Action::Pause { seconds: 1.25 }));
         assert!(cancels_kit_autoplay(&Action::SetPlaybackRate { rate: 0.5 }));
         assert!(cancels_kit_autoplay(&Action::SetStemMix {
             mix: Default::default()
