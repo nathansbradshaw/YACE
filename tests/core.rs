@@ -105,7 +105,7 @@ fn empty_chart_track_keeps_its_special_events() {
 }
 
 #[test]
-fn anchors_and_duplicate_sections_fail_instead_of_guessing() {
+fn invalid_anchors_and_duplicate_sections_fail_instead_of_guessing() {
     assert!(Chart::parse(base_chart().replace("0 = B 120000", "0 = A 123456")).is_err());
     assert!(Chart::parse(format!("{}[Song]\n{{\n}}\n", base_chart())).is_err());
 }
