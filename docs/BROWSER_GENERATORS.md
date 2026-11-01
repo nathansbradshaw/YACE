@@ -61,6 +61,16 @@ through the browser app, using the actual downloaded checkpoints:
   again for each generated project path.
 - The actual native picker reused the desktop pitch checkpoint and rejected an
   invalid local model. No file was sent to an inference service.
+- Recoverable generation now freezes the recording, timing, requested parts and
+  engine identity, checkpoints before/after stages and lists retained jobs after
+  reload. In the actual browser a vocal-only job reused the chart's verified
+  stems, completed, applied through the shared source/timing/part guards, and
+  Undo restored the previous part while other tracks retained their counts.
+  Reload recovered the complete job and its draft. Cancelling a full-song job
+  during separation retained the source chart and exposed Resume remaining stages.
+- A downloaded separated-parts archive now contains a relative-path
+  `stem-manifest.json`. The explicit actual-download comparison again passed
+  against native output; the six source clocks and hashes remained valid.
 
 Regression coverage includes shared native decoding tests, native library tests,
 static-tool audio tests and strict WASM/native Clippy. Explicit ignored tests in
@@ -71,9 +81,8 @@ they require named private input paths and never fabricate inference results.
 
 - Positive keyboard inference and native comparison, full-song vocal review,
   browser recognition/lyric alignment and the remaining optional detector modes.
-- Finish recoverable browser generation jobs and generating a selected part into
-  an existing chart. The desktop's request/status protocol and source/timing/edit
-  guards are now shared; the browser job-stage/restore UI still needs completion.
+- Complete full-song cancellation/resume and edited-target conflict checks for
+  recoverable browser generation jobs; the excerpt apply/Undo/reload path passed.
 - Complete 243.880-second generator workflow, project recovery/backup and playable
   export in the actual browser, plus native interchange validation.
 - Full regression checks, final source rebase, push/merge and public static deploy

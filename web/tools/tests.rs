@@ -112,12 +112,20 @@ fn actual_browser_separation_matches_the_native_model_and_source_clock() {
     let browser =
         std::env::var_os("YACE_BROWSER_STEMS_ZIP").expect("actual browser-generated download");
     let mut zip = zip::ZipArchive::new(fs::File::open(browser).unwrap()).unwrap();
+    let manifest = if zip
+        .file_names()
+        .any(|name| name.is_ok_and(|name| name == "stem-manifest.json"))
+    {
+        "stem-manifest.json"
+    } else {
+        "manifest.json"
+    };
     let mut read = |name: &str| {
         let mut bytes = Vec::new();
         zip.by_name(name).unwrap().read_to_end(&mut bytes).unwrap();
         bytes
     };
-    let ours: serde_json::Value = serde_json::from_slice(&read("manifest.json")).unwrap();
+    let ours: serde_json::Value = serde_json::from_slice(&read(manifest)).unwrap();
     let theirs: serde_json::Value =
         serde_json::from_slice(&fs::read(native.join("stem-manifest.json")).unwrap()).unwrap();
     assert_eq!(ours["source_audio_sha256"], theirs["source_audio_sha256"]);

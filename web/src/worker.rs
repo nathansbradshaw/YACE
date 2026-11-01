@@ -16,6 +16,10 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    GenerationStage {
+        root: PathBuf,
+        stage: crate::generation::Stage,
+    },
     Vocals {
         audio: PathBuf,
         manifest: crate::stem_review::StemManifest,
@@ -39,6 +43,8 @@ pub enum Task {
         audio: PathBuf,
         manifest: crate::stem_review::StemManifest,
         wanted: Vec<String>,
+        #[serde(default)]
+        guitar_source: crate::mapping::GuitarSource,
         output: PathBuf,
     },
     Archive {
@@ -101,6 +107,9 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::GenerationStage { root, stage } => {
+                crate::generation::audio_paths(root, *stage).unwrap_or_default()
+            }
             Self::Vocals {
                 audio, manifest, ..
             } => std::iter::once(audio.clone())
@@ -124,6 +133,7 @@ impl Task {
                 audio,
                 manifest,
                 wanted,
+                guitar_source,
                 ..
             } => std::iter::once(audio.clone())
                 .chain(
@@ -132,7 +142,8 @@ impl Task {
                         .iter()
                         .filter(|stem| {
                             wanted.iter().any(|name| {
-                                name == stem.id.as_str()
+                                (name == "guitar" && stem.id == guitar_source.stem())
+                                    || (name != "guitar" && name == stem.id.as_str())
                                     || ((name == "piano" || name == "pro_piano")
                                         && ["piano", "drums", "bass", "vocals"]
                                             .contains(&stem.id.as_str()))
@@ -227,6 +238,7 @@ impl Task {
             Self::Separate { .. }
             | Self::Transcribe { .. }
             | Self::CacheModel { .. }
+            | Self::GenerationStage { .. }
             | Self::Vocals { .. } => {
                 anyhow::bail!("Separation requires the asynchronous GPU worker")
             }
@@ -397,6 +409,21 @@ async fn process(input: JsValue) -> Result<JsValue> {
             .as_string()
             .context("Missing worker task")?,
     )?;
+    if let Task::GenerationStage { root, stage } = &task {
+        crate::generation::audio_paths(root, *stage)?;
+    }
+    // Keep the original allocations alive while processing. Unchanged audio
+    // copied into the resulting project can refer back to these inputs rather
+    // than crossing the worker boundary a second time.
+    let input_audio: Vec<_> = task
+        .audio()
+        .into_iter()
+        .map(|path| {
+            let bytes = crate::storage::shared(&path)?;
+            Ok((path, bytes))
+        })
+        .collect::<Result<_>>()?;
+    crate::storage::acknowledge(crate::storage::pending(Path::new("/"))?);
     drop(input);
     for path in task.audio() {
         if crate::models::format(&path).is_ok() {
@@ -411,39 +438,26 @@ async fn process(input: JsValue) -> Result<JsValue> {
             }
         }
     }
-    let result = if let Task::Separate { audio, output } = &task {
-        struct Progress;
-        impl demucs_core::listener::ForwardListener for Progress {
-            fn on_event(&mut self, event: demucs_core::listener::ForwardEvent) {
-                use demucs_core::listener::ForwardEvent;
-                match event {
-                    ForwardEvent::ChunkStarted { index, total } => progress(format!(
-                        "Separating vocals and instruments · chunk {} of {total}",
-                        index + 1
-                    )),
-                    ForwardEvent::ChunkDone { index, total } => {
-                        progress(format!("Separated {} of {total} chunks", index + 1))
-                    }
-                    _ => {}
-                }
-            }
-        }
-        let weights = crate::model_assets::load("separation", &mut progress).await?;
-        let model = PathBuf::from("/models/htdemucs_6s.safetensors");
-        crate::storage::write_owned(&model, weights)?;
-        progress("Preparing the browser GPU and native separation model".into());
-        serde_json::to_value(
-            crate::separation::separate(audio, &model, output, &mut Progress).await?,
-        )?
+    let result = if let Task::GenerationStage { root, stage } = &task {
+        serde_json::to_value(crate::generation::run_stage(root, *stage, &mut progress).await?)?
+    } else if let Task::Separate { audio, output } = &task {
+        serde_json::to_value(crate::separation::run(audio, output, &mut progress).await?)?
     } else if let Task::Transcribe {
         audio,
         manifest,
         wanted,
+        guitar_source,
         output,
     } = &task
     {
-        let events =
-            crate::transcription::instruments(audio, manifest, wanted, &mut progress).await?;
+        let events = crate::transcription::instruments(
+            audio,
+            manifest,
+            wanted,
+            *guitar_source,
+            &mut progress,
+        )
+        .await?;
         crate::storage::write(
             output.join("transcription.json"),
             serde_json::to_vec_pretty(&events)?,
@@ -498,14 +512,28 @@ async fn process(input: JsValue) -> Result<JsValue> {
             files.push(&row);
         }
     }
-    if let Task::Vocals { output, .. }
+    if let Task::GenerationStage { root: output, .. }
+    | Task::Vocals { output, .. }
     | Task::BuildDraft { output, .. }
     | Task::InspectRecording { output, .. }
     | Task::Separate { output, .. }
     | Task::Transcribe { output, .. } = &task
     {
-        let mut aliases = BTreeMap::new();
-        for (path, bytes) in crate::storage::list(output)? {
+        let mut aliases: BTreeMap<_, JsValue> = input_audio
+            .iter()
+            .map(|(path, bytes)| {
+                (
+                    std::sync::Arc::as_ptr(bytes),
+                    JsValue::from(path.to_string_lossy().as_ref()),
+                )
+            })
+            .collect();
+        let changed = if matches!(task, Task::GenerationStage { .. }) {
+            crate::storage::pending(output)?
+        } else {
+            crate::storage::list(output)?
+        };
+        for (path, bytes) in changed {
             let row = js_sys::Array::new();
             row.push(&path.to_string_lossy().as_ref().into());
             if let Some(source) = aliases.get(&std::sync::Arc::as_ptr(&bytes)) {
@@ -536,6 +564,22 @@ fn progress(label: String) {
     if let Err(error) = result {
         web_sys::console::error_1(&format!("{error:#}").into());
     }
+}
+
+fn remember_verified_manifest(
+    audio: &Path,
+    manifest: &crate::stem_review::StemManifest,
+) -> Result<()> {
+    // These identities were checked against complete decoded clocks and hashes
+    // by this dedicated worker before its atomic result was transferred.
+    crate::models::remember_verified_hash(
+        &crate::storage::shared(audio)?,
+        &manifest.source_audio_sha256,
+    );
+    for asset in &manifest.stems {
+        crate::models::remember_verified_hash(&crate::storage::shared(&asset.path)?, &asset.sha256);
+    }
+    crate::models::remember_stems(manifest)
 }
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn start_worker() {
@@ -657,13 +701,26 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
     roots: &[PathBuf],
     progress: Rc<dyn Fn(String)>,
 ) -> Result<T> {
+    let bound_audio = task.audio();
     let mut selected = BTreeMap::new();
     for root in roots {
         for (path, bytes) in crate::storage::list(root)? {
+            if matches!(task, Task::GenerationStage { .. })
+                && path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|extension| {
+                        ["wav", "ogg", "opus", "mp3", "flac", "m4a"]
+                            .contains(&extension.to_ascii_lowercase().as_str())
+                    })
+                && !bound_audio.contains(&path)
+            {
+                continue;
+            }
             selected.insert(path, bytes);
         }
     }
-    for path in task.audio() {
+    for path in &bound_audio {
         selected.insert(path.clone(), crate::storage::shared(path)?);
     }
     if let Task::LoadKit { audio, project, .. } | Task::SelectKit { audio, project, .. } = &task {
@@ -707,6 +764,14 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
         let response = exchange(&input, progress.clone()).await?;
         match field(&response, "kind")?.as_string().as_deref() {
             Some("done") => {
+                for path in &bound_audio {
+                    let original = selected.get(path).context("Missing bound worker input")?;
+                    ensure!(
+                        crate::storage::shared(path)
+                            .is_ok_and(|current| std::sync::Arc::ptr_eq(&current, original)),
+                        "Input audio changed during local processing; current files and chart were kept"
+                    );
+                }
                 if let Task::LoadKit {
                     root,
                     project,
@@ -753,7 +818,11 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
                     );
                     if let Some(source) = row.get(1).as_string() {
                         ensure!(
-                            published.contains(&source),
+                            published.contains(&source)
+                                || bound_audio
+                                    .iter()
+                                    .any(|path| path.to_string_lossy() == source
+                                        && selected.contains_key(path)),
                             "Worker returned an invalid file alias"
                         );
                         crate::storage::copy(source, &path)?;
@@ -765,6 +834,42 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
                     }
                     published.insert(path);
                 }
+                match &task {
+                    Task::Separate { audio, .. } | Task::ValidateStems { audio, .. } => {
+                        let manifest = serde_json::from_str::<crate::stem_review::StemManifest>(
+                            &field(&response, "value")?
+                                .as_string()
+                                .context("Missing verified stem result")?,
+                        )?;
+                        remember_verified_manifest(audio, &manifest)?;
+                    }
+                    Task::GenerationStage {
+                        root,
+                        stage: crate::generation::Stage::Separate,
+                    } => {
+                        let crate::generation::Source::Audio { path } =
+                            crate::generation::read_request(root)?.source;
+                        remember_verified_manifest(&path, &crate::generation::isolation(root)?)?;
+                    }
+                    Task::GenerationStage {
+                        root,
+                        stage: crate::generation::Stage::Build,
+                    } => {
+                        let store =
+                            crate::editor::Store::new(&crate::generation::project_path(root));
+                        let doc = store.load()?;
+                        let audio = store.audio_path(&doc)?;
+                        for manifest in doc
+                            .content
+                            .stems
+                            .iter()
+                            .chain(doc.content.keyboard_stems.iter())
+                        {
+                            remember_verified_manifest(&audio, manifest)?;
+                        }
+                    }
+                    _ => {}
+                }
                 return Ok(result);
             }
             Some("decode") => {
@@ -774,7 +879,7 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
                         .context("Missing decoder request")?,
                 );
                 ensure!(
-                    task.audio().contains(&path) && supplied.insert(path.clone()),
+                    bound_audio.contains(&path) && supplied.insert(path.clone()),
                     "Worker requested invalid or repeated decoding"
                 );
                 let pcm =

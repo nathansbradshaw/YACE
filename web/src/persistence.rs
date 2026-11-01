@@ -80,6 +80,7 @@ struct TransactionGuard {
     tx: IdbTransaction,
     _callbacks: Vec<Closure<dyn FnMut(web_sys::Event)>>,
     rx: Option<futures_channel::oneshot::Receiver<Result<(), String>>>,
+    finished: bool,
 }
 impl TransactionGuard {
     fn new(tx: IdbTransaction) -> Self {
@@ -103,19 +104,26 @@ impl TransactionGuard {
             tx,
             _callbacks: vec![done, fail],
             rx: Some(rx),
+            finished: false,
         }
     }
     async fn finish(&mut self) -> Result<()> {
-        self.rx
+        let result = self
+            .rx
             .take()
             .context("Transaction already awaited")?
             .await
             .context("Storage transaction interrupted")?
-            .map_err(anyhow::Error::msg)
+            .map_err(anyhow::Error::msg);
+        self.finished = true;
+        result
     }
 }
 impl Drop for TransactionGuard {
     fn drop(&mut self) {
+        if !self.finished {
+            let _ = self.tx.abort();
+        }
         self.tx.set_oncomplete(None);
         self.tx.set_onabort(None);
         self.tx.set_onerror(None);
@@ -186,7 +194,7 @@ async fn save_snapshot(
         }
         let hash = hashes
             .entry(std::sync::Arc::as_ptr(bytes))
-            .or_insert_with(|| format!("{:x}", Sha256::digest(bytes.as_slice())));
+            .or_insert_with(|| crate::models::hash_shared(bytes));
         if written.insert(hash.clone()) {
             store
                 .put_with_key(
@@ -310,6 +318,7 @@ async fn read_bytes(
             format!("{:x}", Sha256::digest(bytes.as_slice())) == hash,
             "Saved file checksum differs; existing working copy kept"
         );
+        crate::models::remember_verified_hash(&bytes, hash);
         blocks.insert(hash.into(), bytes.clone());
         Ok(bytes)
     } else {
@@ -358,4 +367,46 @@ pub async fn projects() -> Result<Vec<crate::chart_library::Entry>> {
             .then(a.path.cmp(&b.path))
     });
     Ok(entries)
+}
+
+/// Only frozen request metadata is read; choosing a job loads its audio later.
+pub async fn jobs() -> Result<Vec<(PathBuf, String)>> {
+    let db = Database(open().await?);
+    let tx = db.0.transaction_with_str("files").map_err(error)?;
+    let store = tx.object_store("files").map_err(error)?;
+    let keys = request(store.get_all_keys().map_err(error)?).await?;
+    let mut rows = Vec::new();
+    let mut blocks = std::collections::BTreeMap::new();
+    for key in js_sys::Array::from(&keys)
+        .iter()
+        .filter_map(|key| key.as_string())
+    {
+        let Some(root) = key.strip_prefix("manifest:") else {
+            continue;
+        };
+        let marker = request(
+            store
+                .get(&format!("file:{root}/browser-job-input.json").into())
+                .map_err(error)?,
+        )
+        .await?;
+        if marker.is_undefined() {
+            continue;
+        }
+        let value = request(
+            store
+                .get(&format!("file:{root}/request.json").into())
+                .map_err(error)?,
+        )
+        .await?;
+        ensure!(!value.is_undefined(), "Saved generation request is missing");
+        let bytes = read_bytes(&store, value, &mut blocks).await?;
+        let job: crate::generation::Request = serde_json::from_slice(&bytes)?;
+        rows.push((
+            PathBuf::from(root),
+            format!("{} — {}", job.artist, job.title),
+        ));
+    }
+    rows.sort_by(|a, b| b.0.cmp(&a.0));
+    Ok(rows)
 }

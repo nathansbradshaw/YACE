@@ -8,6 +8,34 @@ use demucs_core::{Demucs, ModelOptions, listener::ForwardListener};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
+pub async fn run(
+    audio: &Path,
+    output: &Path,
+    progress: &mut impl FnMut(String),
+) -> Result<crate::stem_review::StemManifest> {
+    struct Progress<'a, F>(&'a mut F);
+    impl<F: FnMut(String)> ForwardListener for Progress<'_, F> {
+        fn on_event(&mut self, event: demucs_core::listener::ForwardEvent) {
+            use demucs_core::listener::ForwardEvent;
+            match event {
+                ForwardEvent::ChunkStarted { index, total } => (self.0)(format!(
+                    "Separating vocals and instruments · chunk {} of {total}",
+                    index + 1
+                )),
+                ForwardEvent::ChunkDone { index, total } => {
+                    (self.0)(format!("Separated {} of {total} chunks", index + 1))
+                }
+                _ => {}
+            }
+        }
+    }
+    let weights = crate::model_assets::load("separation", progress).await?;
+    let model = Path::new("/models/htdemucs_6s.safetensors");
+    crate::storage::write_owned(model, weights)?;
+    progress("Preparing the browser GPU and native separation model".into());
+    separate(audio, model, output, &mut Progress(progress)).await
+}
+
 /// Validate the exact existing checkpoint before allocating GPU model tensors.
 pub fn validate_model(bytes: &[u8]) -> Result<()> {
     let expected = crate::models::assets()
@@ -127,14 +155,13 @@ pub async fn separate(
     manifest.validate_binding(&manifest.source_audio_sha256, frames as f64 / 44100.)?;
     crate::models::remember_stems(&manifest)?;
     manifest.validate_source(audio, &manifest.source_audio_sha256, frames as f64 / 44100.)?;
-    crate::storage::write(
-        output.join("manifest.json"),
-        serde_json::to_vec_pretty(&manifest)?,
-    )?;
+    let mut portable=manifest.clone();
+    for stem in &mut portable.stems {stem.path=stem.path.strip_prefix(output)?.to_owned();}
+    crate::storage::write(output.join("stem-manifest.json"),serde_json::to_vec_pretty(&portable)?)?;
     Ok(manifest)
 }
 
-fn implementation_hash() -> String {
+pub fn implementation_hash() -> String {
     let mut hash = Sha256::new();
     let sources: &[&[u8]] = &[
         include_bytes!("separation.rs"),

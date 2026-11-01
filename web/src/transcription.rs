@@ -11,6 +11,7 @@ pub async fn instruments(
     audio: &Path,
     manifest: &crate::stem_review::StemManifest,
     wanted: &[String],
+    guitar_source: crate::mapping::GuitarSource,
     progress: &mut impl FnMut(String),
 ) -> Result<crate::mapping::Transcription> {
     ensure!(
@@ -39,6 +40,7 @@ pub async fn instruments(
     };
     let mut out = crate::mapping::Transcription {
         isolation: Some(manifest.clone()),
+        guitar_source,
         ..Default::default()
     };
     if wanted.iter().any(|n| n == "drums") {
@@ -53,11 +55,11 @@ pub async fn instruments(
             Some(crate::drum_articulation::Source::from_manifest(manifest)?);
     }
     if wanted.iter().any(|n| n == "guitar") {
-        let path = stem("guitar")?;
+        let path = stem(guitar_source.stem().as_str())?;
         let inference = models::postprocessing::guitar_from_activations(
             pitch_activations(&path, progress).await?,
             &models::decode(&path, 11025, 1)?,
-            Default::default(),
+            guitar_source,
         );
         out.guitar = inference
             .candidates
