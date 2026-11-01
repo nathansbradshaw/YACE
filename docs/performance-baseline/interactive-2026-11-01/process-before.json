@@ -1,0 +1,156 @@
+{
+  "algorithms": {
+    "tempo": [
+      {
+        "queries_per_sample": 4096,
+        "seconds_conversion": {
+          "max_ms": 0.004416,
+          "p50_ms": 0.004292,
+          "p95_ms": 0.004334,
+          "samples": 20
+        },
+        "tempo_events": 1
+      },
+      {
+        "queries_per_sample": 4096,
+        "seconds_conversion": {
+          "max_ms": 0.22716699999999998,
+          "p50_ms": 0.172292,
+          "p95_ms": 0.210375,
+          "samples": 20
+        },
+        "tempo_events": 100
+      },
+      {
+        "queries_per_sample": 4096,
+        "seconds_conversion": {
+          "max_ms": 1.709792,
+          "p50_ms": 1.338084,
+          "p95_ms": 1.676667,
+          "samples": 20
+        },
+        "tempo_events": 1000
+      },
+      {
+        "queries_per_sample": 4096,
+        "seconds_conversion": {
+          "max_ms": 15.757457999999998,
+          "p50_ms": 14.373166999999999,
+          "p95_ms": 15.741874999999999,
+          "samples": 20
+        },
+        "tempo_events": 10000
+      }
+    ],
+    "waveform": {
+      "audio_seconds": 60,
+      "build": {
+        "max_ms": 1.324667,
+        "p50_ms": 0.8795419999999999,
+        "p95_ms": 1.250292,
+        "samples": 20
+      },
+      "pcm_bytes": 21168000,
+      "viewport_1400px": {
+        "max_ms": 0.462584,
+        "p50_ms": 0.342542,
+        "p95_ms": 0.431208,
+        "samples": 20
+      }
+    }
+  },
+  "audio": null,
+  "command_help_process": {
+    "max_ms": 6.509709,
+    "p50_ms": 5.576541,
+    "p95_ms": 6.151125,
+    "samples": 20
+  },
+  "executable_sha256": "bc633034a49063621e06f421ff427c5034cb2538e235743474adc29aa65d87e1",
+  "fixtures": [
+    {
+      "apply_process": {
+        "playback_pause": {
+          "max_ms": 12.076958000000001,
+          "p50_ms": 9.925208,
+          "p95_ms": 11.981209,
+          "samples": 20
+        },
+        "seek": {
+          "max_ms": 10.742458,
+          "p50_ms": 10.017166,
+          "p95_ms": 10.497167,
+          "samples": 20
+        },
+        "select_track": {
+          "max_ms": 10.769625,
+          "p50_ms": 10.018417,
+          "p95_ms": 10.589583,
+          "samples": 20
+        },
+        "update_note": {
+          "max_ms": 10.912208,
+          "p50_ms": 10.045208,
+          "p95_ms": 10.843333,
+          "samples": 20
+        }
+      },
+      "audit_entries": 7,
+      "note_count": 7,
+      "project_bytes": 6186,
+      "project_sha256": "4b4607f847fbca5d6735591908ee9cbb7d7ae8ed397420f44750bce28ba12cc2",
+      "show_process": {
+        "max_ms": 6.069792,
+        "p50_ms": 5.583208,
+        "p95_ms": 5.985959,
+        "samples": 20
+      },
+      "source_chart_sha256": "5b8a7a228fba08c07ae8e421ec24bc6e92209cc28690745a1e9e8dc02b6f425b",
+      "track_count": 2
+    },
+    {
+      "apply_process": {
+        "playback_pause": {
+          "max_ms": 56.5235,
+          "p50_ms": 49.515958,
+          "p95_ms": 51.678208000000005,
+          "samples": 20
+        },
+        "seek": {
+          "max_ms": 59.079042,
+          "p50_ms": 49.548375,
+          "p95_ms": 52.798833,
+          "samples": 20
+        },
+        "select_track": {
+          "max_ms": 51.181667,
+          "p50_ms": 49.482583,
+          "p95_ms": 51.003083,
+          "samples": 20
+        },
+        "update_note": {
+          "max_ms": 94.828625,
+          "p50_ms": 79.111417,
+          "p95_ms": 88.06637500000001,
+          "samples": 20
+        }
+      },
+      "audit_entries": 6,
+      "note_count": 13601,
+      "project_bytes": 10288932,
+      "project_sha256": "7feb8dd5f5e83630653386e5f1fbbb4cacda04ee53947e397d6474876471c7a9",
+      "show_process": {
+        "max_ms": 85.53045800000001,
+        "p50_ms": 84.438833,
+        "p95_ms": 85.469875,
+        "samples": 20
+      },
+      "source_chart_sha256": "7e2300633a8af340baed76b28d5db67cdcc27972f37740380fcf99f62b75a76d",
+      "track_count": 12
+    }
+  ],
+  "samples": 20,
+  "schema_version": 1,
+  "scope": "CLI process wall times include process startup and captured stdout, not UI paint or dispatch reload. Metadata-only copies do not measure audio, export, undo restore, or model inference. Warm filesystem cache; system contention uncontrolled. Percentiles are descriptive, not confidence intervals.",
+  "warmups": 2
+}
