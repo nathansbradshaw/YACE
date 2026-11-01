@@ -340,14 +340,19 @@ pub fn cached_separation(
     model_dir: &Path,
     cache_root: &Path,
 ) -> Result<crate::stem_review::StemManifest> {
-    let model = models::verified(model_dir, "separation")?;
-    isolation_cached_with(
-        audio,
-        &model,
-        cache_root,
-        models::separation_identity(&model)?,
-        models::separate,
-    )
+    // The identity already hashes the current model. Compare that same digest
+    // with the pinned catalog rather than hashing the full weights twice here.
+    let asset = models::assets()
+        .into_iter()
+        .find(|asset| asset.id == "separation")
+        .context("Missing separation model catalog entry")?;
+    let model = model_dir.join(asset.filename);
+    let identity = models::separation_identity(&model)?;
+    ensure!(
+        identity.model_sha256 == asset.sha256,
+        "Separation model checksum mismatch"
+    );
+    isolation_cached_with(audio, &model, cache_root, identity, models::separate)
 }
 
 pub fn cached_keyboard_separation(
@@ -355,12 +360,14 @@ pub fn cached_keyboard_separation(
     model_dir: &Path,
     cache_root: &Path,
 ) -> Result<crate::stem_review::StemManifest> {
-    let model = crate::keyboard_separation::verified(model_dir)?;
+    let model = crate::keyboard_separation::resolved_model_path(model_dir)?;
+    // identity verifies both pinned byte length and hash before reuse/inference.
+    let identity = crate::keyboard_separation::identity(&model)?;
     isolation_cached_with(
         audio,
         &model,
         cache_root,
-        crate::keyboard_separation::identity(&model)?,
+        identity,
         crate::keyboard_separation::separate,
     )
 }
