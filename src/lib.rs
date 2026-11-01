@@ -26,6 +26,8 @@ pub mod sections;
 pub mod song_files;
 pub mod song_layout;
 pub mod song_metadata;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod song_migration;
 pub mod star_power;
 pub mod storage;
 #[cfg(feature = "studio")]

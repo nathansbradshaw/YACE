@@ -392,6 +392,41 @@ pub fn status(root: &Path) -> Result<Status> {
     Ok(serde_json::from_slice(&fs::read(root.join("job.json"))?)?)
 }
 
+/// Older private jobs saved their YouTube import settings. Resume those jobs
+/// from their verified local import without rewriting the original request.
+pub fn read_request(selected: &Path) -> Result<Request> {
+    let root = resolve_job(selected)?;
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("request.json"))?)?;
+    if value["source"]["type"] == "youtube" {
+        #[derive(Deserialize)]
+        struct SavedAudio {
+            filename: String,
+            sha256: String,
+        }
+        let input: SavedAudio = serde_json::from_slice(&fs::read(root.join("input/source.json"))?)?;
+        ensure!(
+            matches!(
+                Path::new(&input.filename)
+                    .components()
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                [std::path::Component::Normal(_)]
+            ),
+            "Invalid saved import filename"
+        );
+        let path = root.join("input").join(input.filename);
+        ensure!(
+            models::hash_file(&path)?.eq_ignore_ascii_case(&input.sha256),
+            "Saved import changed; the legacy request was kept unchanged"
+        );
+        value["source"] = serde_json::to_value(Source::Audio {
+            path: path.canonicalize()?,
+        })?;
+    }
+    Ok(serde_json::from_value(value)?)
+}
+
 /// Accept both the standard song folder and an explicit saved job directory.
 pub fn resolve_job(selected: &Path) -> Result<PathBuf> {
     for root in [selected.to_owned(), selected.join(".yace/jobs/generation")] {
@@ -774,6 +809,11 @@ fn publish_song_files(root: &Path, song: &Path) -> Result<()> {
     verify_published_song(root, song)
 }
 
+/// Migration freezes a fresh export of the current project before recording it.
+pub(crate) fn record_publication(root: &Path, song: &Path) -> Result<()> {
+    publish_song_files(root, song)
+}
+
 fn update(
     root: &Path,
     state: State,
@@ -860,7 +900,7 @@ pub fn run(root: &Path) -> Result<()> {
 }
 
 fn run_inner(root: &Path) -> Result<()> {
-    let request: Request = serde_json::from_slice(&fs::read(root.join("request.json"))?)?;
+    let request = read_request(root)?;
     // Use the saved input on retry. The original file may have moved or been deleted.
     let timing = if crate::parts::target(root)?.is_some() {
         crate::parts::timing(root, request.bpm)?
@@ -1419,6 +1459,72 @@ fn run_inner(root: &Path) -> Result<()> {
         "Draft ready. Listen, review and edit before exporting.",
         None,
     )
+}
+
+#[cfg(test)]
+mod legacy_request_tests {
+    use super::*;
+
+    #[test]
+    fn youtube_job_uses_its_verified_import_without_changing_request_or_identity() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("input")).unwrap();
+        let source = root.path().join("input/source.wav");
+        fs::write(&source, b"saved imported recording").unwrap();
+        write_json(
+            &root.path().join("input/source.json"),
+            &serde_json::json!({
+                "filename":"source.wav","sha256":models::hash_file(&source).unwrap(),
+                "original":["source.m4a","a".repeat(64)],"metadata":{"name":"Preserved metadata"}
+            }),
+        )
+        .unwrap();
+        let request = serde_json::json!({
+            "source":{"type":"youtube","url":"https://example.invalid/original","prepared":"/missing/old/import"},
+            "bpm":120.0,"title":"Saved song","artist":"Saved artist","instruments":["drums"],
+            "model_dir":"/missing/old/models","full_mix_drums":true
+        });
+        let bytes = serde_json::to_vec_pretty(&request).unwrap();
+        fs::write(root.path().join("request.json"), &bytes).unwrap();
+        let identity = models::hash_file(&root.path().join("request.json")).unwrap();
+        write_json(
+            &root.path().join("job.json"),
+            &Status {
+                version: 1,
+                state: State::Complete,
+                stage: "complete".into(),
+                detail: "Retained draft".into(),
+                request_sha256: identity.clone(),
+                error: None,
+            },
+        )
+        .unwrap();
+        let loaded = read_request(root.path()).unwrap();
+        let Source::Audio { path } = loaded.source;
+        assert_eq!(path, source.canonicalize().unwrap());
+        assert_eq!(loaded.title, "Saved song");
+        assert_eq!(fs::read(root.path().join("request.json")).unwrap(), bytes);
+        assert_eq!(status(root.path()).unwrap().request_sha256, identity);
+        fs::write(&source, b"different imported recording").unwrap();
+        assert!(
+            read_request(root.path())
+                .unwrap_err()
+                .to_string()
+                .contains("Saved import changed")
+        );
+        assert_eq!(fs::read(root.path().join("request.json")).unwrap(), bytes);
+        write_json(
+            &root.path().join("input/source.json"),
+            &serde_json::json!({"filename":"../outside.wav","sha256":"a".repeat(64)}),
+        )
+        .unwrap();
+        assert!(
+            read_request(root.path())
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid saved import filename")
+        );
+    }
 }
 
 #[cfg(test)]

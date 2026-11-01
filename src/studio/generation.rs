@@ -719,7 +719,7 @@ fn recover(mut data: Signal<View>) {
         let loaded = tokio::task::spawn_blocking(move || -> Result<_> {
             let read_root = generation::resolve_job(&selected)?;
             Ok((
-                serde_json::from_slice::<Request>(&fs::read(read_root.join("request.json"))?)?,
+                generation::read_request(&read_root)?,
                 generation::status(&read_root)?,
                 crate::parts::target(&read_root)?,
                 crate::generation_progress::read(&read_root).ok(),
