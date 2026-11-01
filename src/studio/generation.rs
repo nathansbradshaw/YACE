@@ -454,11 +454,11 @@ fn lookup_song(mut data: Signal<View>) {
                 view.lyrics,
             )?;
             let preview = info.artwork.as_deref().and_then(cover_data);
-            Ok((info, preview))
+            Ok((metadata, info, preview))
         })
         .await;
         match result {
-            Ok(Ok((info, preview))) => data.with_mut(|v| { v.info = Some(info); v.cover_preview = preview; v.busy = false; v.notice = "Lookup complete. Review song details and sources; edit the title or artist and retry if needed.".into(); }),
+            Ok(Ok((metadata, info, preview))) => data.with_mut(|v| { v.artist = metadata.artist; v.info = Some(info); v.cover_preview = preview; v.busy = false; v.notice = "Lookup complete. Review song details and sources; edit the title or artist and retry if needed.".into(); }),
             Ok(Err(error)) => fail(data, format!("{error:#}")),
             Err(error) => fail(data, error),
         }
@@ -1006,7 +1006,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         }
                         p{class:"field-hint","Filled in from the recording. Editing BPM switches to a constant tempo."}
                         div { class:"generation-actions",
-                            button { class:"action-secondary", disabled:view.audio.is_none() || view.title.trim().is_empty() || view.artist.trim().is_empty(), onclick:move |_|lookup_song(data), "Look up song info & cover art" }
+                            button { class:"action-secondary", disabled:view.audio.is_none() || view.title.trim().is_empty(), onclick:move |_|lookup_song(data), "Look up song info & cover art" }
                             button { class:"action-secondary", disabled:view.audio.is_none(), onclick:move |_|choose_artwork(data), "Choose cover art…" }
                             if view.info.as_ref().is_some_and(|info| info.artwork.is_some()) { button { class:"action-secondary", onclick:move |_|data.with_mut(|v| { v.cover_preview = None; if let Some(info) = &mut v.info { info.artwork = None; info.artwork_source.clear(); } }), "Clear cover art" } }
                         }

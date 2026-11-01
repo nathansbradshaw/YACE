@@ -5,8 +5,10 @@ MP3, WAV, FLAC, Ogg, Opus, M4A and other FFmpeg-readable recordings are supporte
 YACE reads embedded tags and cover art locally and measures the audio's pulse.
 An untagged `Artist - Title` filename supplies editable title/artist suggestions.
 
-Expand **Song details** to edit the title and artist, then select **Look up song
-info & cover art**. This sends title, artist, album and duration to MusicBrainz,
+Expand **Song details** to edit the title, then select **Look up song
+info & cover art**. If the artist is missing, title and duration can fill an
+unambiguous artist match; enter the artist to narrow ambiguous results.
+This sends title, artist, album and duration to MusicBrainz,
 the Apple music catalogue and, when lyrics are enabled, LRCLIB. It downloads
 available covers from the Cover Art Archive. Audio is never uploaded.
 Existing album/year/genre, lyrics and chosen artwork take priority. Clear a
