@@ -940,7 +940,12 @@ pub fn build_with_lyrics(
     let chart_doc = source_chart
         .as_ref()
         .filter(|p| p.extension().is_some_and(|e| e == "chart"))
-        .map(|p| -> Result<Chart> { Chart::parse(fs::read_to_string(p)?) })
+        .map(|p| -> Result<Chart> {
+            crate::song_files::timing::apply_ini(
+                Chart::parse(fs::read_to_string(p)?)?,
+                &song_ini(existing.context("Missing source song")?)?,
+            )
+        })
         .transpose()?;
     let midi_bytes = source_chart
         .as_ref()
@@ -950,7 +955,12 @@ pub fn build_with_lyrics(
     let map = if let Some(chart) = &chart_doc {
         chart.timing.clone()
     } else if let Some(bytes) = &midi_bytes {
-        midi::timing(bytes)?
+        let mut map = midi::timing(bytes)?;
+        map.offset = crate::song_files::timing::legacy_delay(&song_ini(
+            existing.context("Missing source song")?,
+        )?)?
+        .unwrap_or(0.0);
+        map
     } else {
         timing.context("New songs require --bpm; automatic beat tracking is not ported yet")?
     };
@@ -1083,7 +1093,7 @@ pub fn build_with_lyrics(
     let stage = tempfile::Builder::new()
         .prefix(".chart-engine-")
         .tempdir_in(parent)?;
-    let ini = if let Some(source) = existing {
+    let mut ini = if let Some(source) = existing {
         copy_song_source(source, stage.path())?;
         song_ini(source)?
     } else {
@@ -1091,6 +1101,14 @@ pub fn build_with_lyrics(
     };
     organize_song_stage(stage.path())?;
     song_layout::prepare(stage.path())?;
+    if chart_doc.is_some() && crate::song_files::timing::legacy_delay(&ini)?.is_some() {
+        crate::song_files::timing::retain_original(
+            stage.path(),
+            &fs::read_to_string(source_chart.as_ref().context("Missing source chart")?)?,
+            &ini,
+        )?;
+        ini = crate::game_export::ini_with_delay(&ini, 0);
+    }
     let previous_generation = archive_generation_sidecars(stage.path(), existing)?;
     if let Some(history) = &previous_generation {
         warnings.push(format!(

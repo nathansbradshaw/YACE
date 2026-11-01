@@ -1,16 +1,22 @@
 //! Shared song import, source-copy and sidecar layout rules.
-use crate::{
-    chart::Chart,
-    models, song_layout,
-    song_metadata::{ini_fields, song_ini},
-    storage as fs,
-};
+use crate::{chart::Chart, models, song_layout, song_metadata::song_ini, storage as fs};
 use anyhow::{Context, Result, bail, ensure};
 use std::path::{Path, PathBuf};
+#[path = "song_files/timing.rs"]
+pub mod timing;
 /// Prepare an unpublished editing snapshot using the same rules on both clients.
 pub fn prepare_editable_source(song: &Path, dest: &Path) -> Result<()> {
     validate_existing(song)?;
     let master = editable_chart_file(song)?;
+    let ini = song_ini(song)?;
+    let legacy_chart = master == song.join("notes.chart") && timing::legacy_delay(&ini)?.is_some();
+    let original = legacy_chart
+        .then(|| fs::read_to_string(&master))
+        .transpose()?;
+    let normalized = original
+        .as_ref()
+        .map(|raw| timing::apply_ini(Chart::parse(raw.clone())?, &ini).map(|chart| chart.raw))
+        .transpose()?;
     copy_song_source(song, dest)?;
     organize_song_stage(dest)?;
     crate::stem_review::game_audio::restore_recording(dest)?;
@@ -23,6 +29,17 @@ pub fn prepare_editable_source(song: &Path, dest: &Path) -> Result<()> {
         fs::write(
             dest.join("song.ini"),
             crate::game_export::ini_with_delay(&song_ini(dest)?, 0),
+        )?;
+    }
+    if let Some(raw) = original {
+        timing::retain_original(dest, &raw, &ini)?;
+        fs::write(
+            dest.join("notes.chart"),
+            normalized.context("Missing normalized chart")?,
+        )?;
+        fs::write(
+            dest.join("song.ini"),
+            crate::game_export::ini_with_delay(&ini, 0),
         )?;
     }
     Ok(())
@@ -66,12 +83,7 @@ pub fn editable_chart_file(folder: &Path) -> Result<PathBuf> {
 }
 
 pub fn validate_existing(folder: &Path) -> Result<()> {
-    let fields = ini_fields(&song_ini(folder)?);
-    let delay = fields
-        .get("delay")
-        .map(|delay| delay.parse::<f64>().context("Invalid legacy delay"))
-        .transpose()?
-        .unwrap_or(0.0);
+    let delay = timing::legacy_delay(&song_ini(folder)?)?.unwrap_or(0.0);
     let binding = song_layout::resolve(folder, "chart-engine-working").join("binding.json");
     if fs::is_file(folder.join("notes.mid")) && fs::exists(&binding) {
         // Verify the pair before trusting its original chart offset. Unbound
@@ -79,13 +91,8 @@ pub fn validate_existing(folder: &Path) -> Result<()> {
         let master = editable_chart_file(folder)?;
         let chart = Chart::parse(fs::read_to_string(master)?)?;
         ensure!(
-            delay == crate::game_export::chart_delay(&chart)? as f64,
+            (delay * 1000.0 - crate::game_export::chart_delay(&chart)? as f64).abs() < 0.000001,
             "Game MIDI delay does not match its bound editable master"
-        );
-    } else {
-        ensure!(
-            delay == 0.0,
-            "Nonzero legacy song.ini delay is not yet supported; refusing to misalign notes"
         );
     }
     Ok(())

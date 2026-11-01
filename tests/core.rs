@@ -532,12 +532,12 @@ fn build_is_transactional_and_never_overwrites_existing_output() {
 }
 
 #[test]
-fn empty_transcription_and_legacy_delay_leave_no_output() {
+fn empty_transcription_and_invalid_legacy_delay_leave_no_output() {
     let temp = tempfile::tempdir().unwrap();
     let source = temp.path().join("source");
     fs::create_dir(&source).unwrap();
     fs::write(source.join("notes.chart"), base_chart()).unwrap();
-    fs::write(source.join("song.ini"), "[song]\ndelay = 50\n").unwrap();
+    fs::write(source.join("song.ini"), "[song]\ndelay = NaN\n").unwrap();
     let audio = source.join("song.ogg");
     fs::write(&audio, b"fixture").unwrap();
     let output = temp.path().join("out");
