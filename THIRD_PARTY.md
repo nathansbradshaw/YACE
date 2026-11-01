@@ -35,6 +35,12 @@ Research-only source checkouts and private recordings are not included.
 
 ## Intentional port changes
 
+The static browser client includes the official ONNX Runtime Web 1.22.0 WASM
+distribution (MIT). Its original license, third-party notices, package integrity
+and source revision are retained in [web/runtime/README.md](web/runtime/README.md).
+YACE calls that runtime through Rust bindings; the included JavaScript is the
+upstream platform runtime. Model weights retain their separate terms above.
+
 OAF Drums attribution above records the conversion publisher's license and
 checkpoint claims; a converter's license does not relicense an original
 checkpoint. Magenta's Apache-2.0 source license and E-GMD's CC-BY-4.0 dataset

@@ -32,6 +32,13 @@ Do not mark a row passed from compilation alone. Record the revision, fixture,
 actual application actions, downloaded/exported results, and any limitations.
 Keep private recordings, transcripts and generated receipts outside Git.
 
+During generator integration, inspect each fetched desktop change before
+rebasing and rerun the affected browser workflow. The integration through
+`578f9a8` includes shared solo, drum-detail, rhythm/co-op, six-fret and five-lane
+Keys MIDI fixes. Native library migration is an OS filesystem maintenance tool;
+browser imports must still recover its resulting project layout, exact saved
+audio and editing history. A successful rebase alone does not verify that path.
+
 See [the dated acceptance evidence](BROWSER_ACCEPTANCE.md) for revisions, private
 artifacts, test coverage and limits. This gate concerns the supported YACE
 clients; it does not claim feature completeness against OCTAVE/Moonscraper or

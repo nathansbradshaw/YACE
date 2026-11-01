@@ -20,6 +20,7 @@ struct Job {
 #[derive(Clone)]
 struct View {
     title: String,
+    requested: String,
     status: Status,
     summary: generation::Summary,
     part: Option<String>,
@@ -34,6 +35,7 @@ fn view(root: &std::path::Path) -> Result<View> {
     };
     Ok(View {
         title: format!("{} — {}", request.artist, request.title),
+        requested: request.instruments.join(", "),
         status: generation::status(root)?,
         summary: generation::summary(root)?,
         part,
@@ -248,21 +250,26 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                             let metadata=crate::pipeline::Metadata{name:studio.metadata_value("name"),artist:studio.metadata_value("artist"),album:studio.metadata_value("album"),year:studio.metadata_value("year"),genre:studio.metadata_value("genre"),duration:doc.duration};
                             let request=generation::Request{source:generation::Source::Audio{path:store.audio_path(&doc)?},bpm:timing.tempos[0].bpm,tempo_map:Some(timing),title:metadata.name.clone(),artist:metadata.artist.clone(),instruments,guitar_source:store.guitar_source(&doc)?,keyboard_sound:Default::default(),piano_quality:Default::default(),vocal_language:Default::default(),model_dir:"/models".into(),fetch_models:true,full_mix_drums:false,standard_drums:false,lyrics:false,song_info:None};
                             let root=PathBuf::from(format!("/generation-jobs/{}",crate::storage::unique_id()));
+                            let created=async{
                             if let Some(track)=(studio.generation_target)(){let target=crate::parts::Target::capture(&store,&doc,&track)?;crate::parts::create_job(request,&root,&target)?;}else{generation::create_job(request,&root)?;}
                             generation::freeze(&root,metadata)?;
                             if let Some(manifest)=&doc.content.stems{generation::reuse_stems(&root,manifest)?;}
                             let revision=generation::checkpoint(&root,None).await?;
-                            Ok::<_,anyhow::Error>(Job{root,revision})
+                            Ok::<_,anyhow::Error>(Job{root:root.clone(),revision})
+                            }.await;
+                            if created.is_err(){crate::storage::clear(&root);}
+                            created
                         }.await;
                         match result{Ok(created)=>{runner.job.set(Some(created.clone()));runner.view.set(view(&created.root).ok());runner.start(studio,created);},Err(failure)=>{error.set(Some(format!("{failure:#}")));busy.set(false);}}
                     });
                 },"Generate selected parts"}
-            }else{button{disabled:busy(),onclick:move |_|{studio.generation_open.set(false);studio.new_chart();},"Choose recording…"}}
+            }else{button{disabled:busy(),onclick:move |_|{studio.generation_after_import.set(true);studio.generation_open.set(false);studio.new_chart();},"Choose recording…"}}
             if busy()&&stop.read().is_some(){button{onclick:move |_|{if let Some(control)=stop.read().as_ref(){control.0.set(true);if let Some(sender)=control.1.borrow_mut().take(){let _=sender.send(());}}},"Cancel generation"}}
             if !status().is_empty(){p{role:"status","{status}"}}
             if let Some(failure)=error(){p{role:"alert","{failure}"}}
             if let (Some(handle),Some(result))=(job(),current()){
                 h3{"{result.title}"}
+                p{"Saved job parts: {result.requested}"}
                 p{"{result.status.detail}"}
                 if let Some(frames)=result.summary.frames{p{"{frames} stereo frames · source checksums verified"}}
                 ul{for(part,count)in &result.summary.instruments{li{"{part}: {count} detections"}}}
@@ -270,7 +277,8 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 if result.status.state!=State::Complete{button{disabled:busy(),onclick:{let handle=handle.clone();move |_|runner.start(studio,handle.clone())},"Resume remaining stages"}}
                 if result.status.state==State::Complete{
                     if let Some(part)=result.part{
-                        button{disabled:busy()||error.read().is_some(),onclick:{let root=handle.root.clone();move |_|{
+                        button{disabled:busy(),onclick:{let root=handle.root.clone();move |_|{
+                            error.set(None);
                             let result=async_apply(studio,root.clone());let mut runner=runner;busy.set(true);
                             spawn(async move{match result.await{Ok(())=>{studio.generation_open.set(false);studio.generation_target.set(None);},Err(failure)=>runner.error.set(Some(format!("{failure:#}")))}runner.busy.set(false);});
                         }},"Apply generated {part}"}

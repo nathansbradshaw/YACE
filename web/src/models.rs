@@ -22,39 +22,13 @@ pub fn assets() -> Vec<ModelAsset> {
 pub fn hash_file(path: &Path) -> Result<String> {
     Ok(hash_shared(&crate::storage::shared(path)?))
 }
-type HashEntry = (std::sync::Weak<Vec<u8>>, String);
-thread_local! {static HASHES:std::cell::RefCell<std::collections::BTreeMap<usize,HashEntry>>=std::cell::RefCell::default();}
 pub fn hash_shared(bytes: &std::sync::Arc<Vec<u8>>) -> String {
-    let key = std::sync::Arc::as_ptr(bytes) as usize;
-    if let Some(hash) = HASHES.with(|cache| {
-        cache.borrow().get(&key).and_then(|(weak, hash)| {
-            weak.upgrade()
-                .filter(|old| std::sync::Arc::ptr_eq(old, bytes))
-                .map(|_| hash.clone())
-        })
-    }) {
-        return hash;
-    }
-    let hash = format!("{:x}", Sha256::digest(bytes.as_slice()));
-    remember_verified_hash(bytes, &hash);
-    hash
+    crate::audio_identity::hash(bytes)
 }
 /// Call only after hashing these bytes or receiving their verified worker output.
 /// Weak ownership prevents allocator address reuse from confusing identities.
 pub(crate) fn remember_verified_hash(bytes: &std::sync::Arc<Vec<u8>>, hash: &str) {
-    if bytes.len() < 65536 {
-        return;
-    }
-    HASHES.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if cache.len() > 4096 {
-            cache.retain(|_, (weak, _)| weak.strong_count() > 0);
-        }
-        cache.insert(
-            std::sync::Arc::as_ptr(bytes) as usize,
-            (std::sync::Arc::downgrade(bytes), hash.into()),
-        );
-    });
+    crate::audio_identity::remember_verified(bytes, hash);
 }
 thread_local! { static PCM: std::cell::RefCell<std::collections::BTreeMap<PathBuf,(String,crate::audio_decode::Pcm)>> = std::cell::RefCell::default(); }
 thread_local! { static STEMS: std::cell::RefCell<std::collections::BTreeSet<String>> = std::cell::RefCell::default(); }

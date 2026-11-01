@@ -70,7 +70,20 @@ through the browser app, using the actual downloaded checkpoints:
   during separation retained the source chart and exposed Resume remaining stages.
 - A downloaded separated-parts archive now contains a relative-path
   `stem-manifest.json`. The explicit actual-download comparison again passed
-  against native output; the six source clocks and hashes remained valid.
+  against native output; the six source clocks and hashes remained valid. The
+  native transcription CLI also loaded that downloaded manifest and produced
+  the expected 23/22/15 drum/guitar/bass detections.
+- The real 243.880-second recording completed all four browser job stages after
+  cancellation/reload/resume. All six stems contain 10,755,108 stereo frames.
+  Inference retained 1,435 drum, 2,086 guitar and 971 bass detections, plus 298
+  vocal notes with 466 issues. The generated project opened with twelve
+  difficulty tracks, three linked families and source-bound vocal review.
+  Whole-song playback/export/recovery acceptance is still in progress.
+- The full-song run exposed an incomplete worker input transfer: unused encoded
+  stems were still required to validate the complete manifest. Keeping those
+  encoded inputs fixed detection, and the saved separation resumed successfully.
+  Only the required parts are decoded. Existing audio copied into the built
+  project returns as verified aliases rather than repeated byte arrays.
 
 Regression coverage includes shared native decoding tests, native library tests,
 static-tool audio tests and strict WASM/native Clippy. Explicit ignored tests in

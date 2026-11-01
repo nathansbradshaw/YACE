@@ -11,6 +11,9 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[path = "../src/audio_decode.rs"]
 mod audio_decode;
 #[cfg(test)]
+#[path = "../src/audio_identity.rs"]
+mod audio_identity;
+#[cfg(test)]
 #[path = "../../src/recording_metadata.rs"]
 mod recording_metadata;
 #[cfg(test)]

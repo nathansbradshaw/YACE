@@ -714,6 +714,9 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
                             .contains(&extension.to_ascii_lowercase().as_str())
                     })
                 && !bound_audio.contains(&path)
+                // All six encoded assets are needed to validate the source
+                // manifest, even when this stage decodes only one part.
+                && !path.starts_with(root.join("stems"))
             {
                 continue;
             }

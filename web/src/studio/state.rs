@@ -72,6 +72,7 @@ pub struct Studio {
     pub star_power_open: Signal<bool>,
     pub star_power_target: Signal<Option<crate::star_power::Phrase>>,
     pub generation_target: Signal<Option<String>>,
+    pub generation_after_import: Signal<bool>,
     pub new_song: Signal<Option<(PathBuf, String)>>,
     pub vocal_note: Signal<Option<usize>>,
     pub group: Signal<crate::note_groups::Selection>,
@@ -132,6 +133,7 @@ pub fn use_studio() -> Studio {
         star_power_open: use_signal(|| false),
         star_power_target: use_signal(|| None),
         generation_target: use_signal(|| None),
+        generation_after_import: use_signal(|| false),
         new_song: use_signal(|| None),
         vocal_note: use_signal(|| None),
         group: use_signal(Default::default),
@@ -517,6 +519,7 @@ impl Studio {
                 let Some(mut files) =
                     crate::files::pick(false, ".ogg,.opus,.mp3,.flac,.wav,.m4a").await?
                 else {
+                    self.generation_after_import.set(false);
                     return Ok(());
                 };
                 let (name, bytes) = files.pop().context("Choose a recording")?;
@@ -546,6 +549,7 @@ impl Studio {
             }
             .await;
             if let Err(error) = result {
+                self.generation_after_import.set(false);
                 self.error.set(Some(format!("{error:#}")));
             }
         });
@@ -553,6 +557,7 @@ impl Studio {
     pub fn cancel_new_chart(mut self, root: &std::path::Path) {
         crate::storage::clear(root);
         self.new_song.set(None);
+        self.generation_after_import.set(false);
     }
     pub async fn prepare_new_chart(
         self,
@@ -608,6 +613,9 @@ impl Studio {
         crate::storage::clear(&root);
         self.new_song.set(None);
         self.library_selected.set(None);
+        if self.generation_after_import.replace(false) {
+            self.generation_open.set(true);
+        }
         Ok(())
     }
     pub fn import(mut self, folder: bool) {
