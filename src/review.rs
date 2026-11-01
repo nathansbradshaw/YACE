@@ -975,7 +975,7 @@ pub fn run(
     pipeline::destination(output, None)?;
     let chart_path = folder.join("notes.chart");
     let chart = Chart::parse(fs::read_to_string(&chart_path)?)?;
-    let event_path = folder.join("chart-engine-transcription.json");
+    let event_path = crate::song_layout::resolve(folder, "chart-engine-transcription.json");
     let mut events: Transcription = serde_json::from_slice(&fs::read(&event_path)?)?;
     events.validate()?;
     let original = pipeline::audio_file(folder)?;
@@ -1045,7 +1045,7 @@ pub fn run(
     if let Some(path) = bass_audio {
         inputs.insert("bass_audio".into(), models::hash_file(path)?);
     }
-    let receipt_path = folder.join("chart-engine-report.json");
+    let receipt_path = crate::song_layout::resolve(folder, "chart-engine-report.json");
     let generated_tracks: Option<BTreeSet<String>> = if receipt_path.exists() {
         let receipt: serde_json::Value = serde_json::from_slice(&fs::read(&receipt_path)?)?;
         inputs.insert(

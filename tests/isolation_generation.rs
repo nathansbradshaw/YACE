@@ -435,13 +435,18 @@ fn build_retains_source_binding_and_authored_notes_with_legacy_events_still_supp
     );
     let sidecar = pipeline::read_isolation(
         &output.join("song.wav"),
-        &output.join("chart-engine-isolation.json"),
+        &chart_engine::song_layout::path(&output, "chart-engine-isolation.json"),
     )
     .unwrap();
     assert_eq!(sidecar, isolation);
-    let review: chart_engine::review_regions::ReviewMap =
-        serde_json::from_slice(&fs::read(output.join("chart-engine-review.json")).unwrap())
-            .unwrap();
+    let review: chart_engine::review_regions::ReviewMap = serde_json::from_slice(
+        &fs::read(chart_engine::song_layout::path(
+            &output,
+            "chart-engine-review.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     assert!(
         review
             .coverage_limits

@@ -32,8 +32,8 @@ Stem separation uses local models. Their terms are in
 
 ## Keep stems and export game audio
 
-New projects and manually attached stems keep their own verified copies in
-`source/stems/`, alongside the source recording. Project state and undo snapshots
+New projects and manually attached stems keep their own verified copies inside
+the song's `.yace` working data. Project state and undo snapshots
 refer to those copies with relative paths, so moving a project or clearing the
 separator cache does not remove its instrument audio.
 
@@ -44,11 +44,16 @@ enabled. The editor's solo/gain settings do not change those exports. A separate
 high-quality keyboard analysis is retained for review but is not mixed into the
 primary separation, which would duplicate instruments.
 
-The original recording and prior source channels stay in `.yace-audio/`, outside
+The original recording and prior source channels stay in `.yace/originals/audio/`, outside
 the game's top-level audio scan. Reopening an export restores the original
-recording for editing. `yace-audio.json` records the routing. A partial separation
+recording for editing. `.yace/export/yace-audio.json` records the routing. Retained
+export stems and manifests live in `.yace/audio`. A partial separation
 keeps the original audio instead of replacing it with an incomplete song; missing
 or changed attachments must be repaired before exporting their files.
+
+Earlier exports using `.yace-audio` and top-level sidecars remain readable. New
+exports consolidate YACE-specific files under `.yace`, while playable instrument
+audio keeps the usual top-level names.
 
 This is a song-folder export for compatible games. Rock Band console packages
 and separation quality still need their own tooling and listening/playtesting.

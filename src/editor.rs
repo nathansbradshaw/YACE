@@ -4,6 +4,7 @@ use crate::{
     chart::{Chart, Note},
     models, pipeline,
     review_regions::ReviewMap,
+    song_layout,
 };
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -856,7 +857,17 @@ impl Store {
     }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn create(song: &Path, markers: Option<&Path>, output: &Path) -> Result<Self> {
-        pipeline::destination(output, Some(song))?;
+        let parent = output
+            .parent()
+            .context("Editing project needs a parent folder")?;
+        let managed = output.file_name().is_some_and(|name| name == "project")
+            && parent
+                .file_name()
+                .is_some_and(|name| name == song_layout::DIRECTORY)
+            && parent.canonicalize()? == song.canonicalize()?.join(song_layout::DIRECTORY);
+        // A managed editing copy is the one permitted child of a song. Its
+        // source copier excludes mutable .yace state to prevent recursion.
+        pipeline::destination(output, (!managed).then_some(song))?;
         pipeline::validate_existing(song)?;
         let editable_master = pipeline::editable_chart_file(song)?;
         let parent = output
@@ -866,16 +877,24 @@ impl Store {
         let stage = tempfile::tempdir_in(parent)?;
         fs::create_dir(stage.path().join("source"))?;
         fs::create_dir(stage.path().join("checkpoints"))?;
-        pipeline::copy_folder(song, &stage.path().join("source"))?;
+        pipeline::copy_song_source(song, &stage.path().join("source"))?;
+        pipeline::organize_song_stage(&stage.path().join("source"))?;
         crate::stem_review::game_audio::restore_recording(&stage.path().join("source"))?;
         if editable_master != song.join("notes.chart") {
             fs::rename(
                 stage.path().join("source/notes.mid"),
                 stage
                     .path()
-                    .join("source/chart-engine-working/game-notes.mid"),
+                    .join("source")
+                    .join(song_layout::relative("chart-engine-working"))
+                    .join("game-notes.mid"),
             )?;
             fs::copy(&editable_master, stage.path().join("source/notes.chart"))?;
+            // The verified working .chart already carries the audio offset.
+            // Only this editing snapshot drops MIDI's duplicate delay field.
+            let ini = stage.path().join("source/song.ini");
+            let raw = pipeline::song_ini(&stage.path().join("source"))?;
+            fs::write(ini, crate::game_export::ini_with_delay(&raw, 0))?;
         }
         let source_audio = pipeline::audio_file(&stage.path().join("source"))?;
         let duration = pipeline::metadata(&source_audio)?.duration;
@@ -911,7 +930,7 @@ impl Store {
         let source_hash = hash(chart.raw.as_bytes());
         let audio = pipeline::audio_file(&self.root.as_path().join("source"))?;
         let audio_hash = models::hash_file(&audio)?;
-        let embedded_markers = song.join("chart-engine-review.json");
+        let embedded_markers = song_layout::resolve(song, "chart-engine-review.json");
         let markers = markers
             .or_else(|| fs::is_file(&embedded_markers).then_some(embedded_markers.as_path()));
         let mut review = if let Some(path) = markers {
@@ -941,8 +960,8 @@ impl Store {
         // Let the original recording open even if attached stems are missing.
         // The audio worker checks stem files before offering playback.
         let stems = match (|| -> Result<Option<crate::stem_review::StemManifest>> {
-            let isolation = song.join("chart-engine-isolation.json");
-            let transcription = song.join("chart-engine-transcription.json");
+            let isolation = song_layout::resolve(song, "chart-engine-isolation.json");
+            let transcription = song_layout::resolve(song, "chart-engine-transcription.json");
             let (mut manifest, base) = if fs::is_file(&isolation) {
                 (
                     serde_json::from_slice::<crate::stem_review::StemManifest>(&fs::read(
@@ -981,8 +1000,8 @@ impl Store {
             }
         };
         let keyboard_stems = match (|| -> Result<Option<crate::stem_review::StemManifest>> {
-            let sidecar = song.join("chart-engine-keyboard-isolation.json");
-            let transcription = song.join("chart-engine-transcription.json");
+            let sidecar = song_layout::resolve(song, "chart-engine-keyboard-isolation.json");
+            let transcription = song_layout::resolve(song, "chart-engine-transcription.json");
             let (value, base) = if fs::is_file(&sidecar) {
                 (serde_json::from_slice(&fs::read(&sidecar)?)?, sidecar)
             } else if fs::is_file(&transcription) {
@@ -1069,7 +1088,8 @@ impl Store {
                 track_origins: Default::default(),
                 tracks,
                 vocals: {
-                    let path = self.root.as_path().join("source/chart-engine-vocals.json");
+                    let path =
+                        song_layout::resolve(&self.root.join("source"), "chart-engine-vocals.json");
                     if fs::exists(&path) {
                         Some(serde_json::from_slice(&fs::read(path)?)?)
                     } else {
@@ -1138,7 +1158,8 @@ impl Store {
     /// Immutable source routing is separate from undoable note content. Legacy
     /// projects infer it from the exact generation evidence copied into source/.
     pub fn guitar_source(&self, doc: &Project) -> Result<crate::mapping::GuitarSource> {
-        let binding = self.root.join("source/chart-engine-melody-source.json");
+        let binding =
+            song_layout::resolve(&self.root.join("source"), "chart-engine-melody-source.json");
         if fs::is_file(&binding) {
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
@@ -1154,7 +1175,8 @@ impl Store {
             );
             return Ok(binding.guitar_source);
         }
-        let path = self.root.join("source/chart-engine-transcription.json");
+        let path =
+            song_layout::resolve(&self.root.join("source"), "chart-engine-transcription.json");
         if !fs::is_file(&path) {
             return Ok(Default::default());
         }
@@ -1879,7 +1901,14 @@ impl Store {
     /// Write the same validated game export into a native or browser staging area.
     pub fn write_export(&self, doc: &Project, stage: &Path, actor: &Actor) -> Result<()> {
         let source = self.root.join("source");
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            pipeline::copy_song_source(&source, stage)?;
+            pipeline::organize_song_stage(stage)?;
+        }
+        #[cfg(target_arch = "wasm32")]
         pipeline::copy_folder(&source, stage)?;
+        song_layout::prepare(stage)?;
         ensure!(
             models::hash_file(&self.audio_path(doc)?)? == doc.audio_sha256,
             "Source audio snapshot changed"
@@ -1931,16 +1960,16 @@ impl Store {
             }
             fs::write(stage.join("song.ini"), pipeline::update_ini(&raw, &updates))?;
             fs::write(
-                stage.join("chart-engine-part-origins.json"),
+                song_layout::path(stage, "chart-engine-part-origins.json"),
                 serde_json::to_vec_pretty(&doc.content.track_origins)?,
             )?;
         }
         // Preserve source generation evidence, but don't present it as a fresh
         // audit of edited notes. Export decisions separately with fingerprints.
-        let mut archive = stage.join("editor-source");
+        let mut archive = stage.join(".yace/history/editor-source");
         let mut archive_index = 1;
         while fs::exists(&archive) {
-            archive = stage.join(format!("editor-source-{archive_index}"));
+            archive = stage.join(format!(".yace/history/editor-source-{archive_index}"));
             archive_index += 1;
         }
         fs::create_dir(&archive)?;
@@ -1959,24 +1988,22 @@ impl Store {
             fs::rename(stage.join("notes.chart"), archive.join("notes.chart"))?;
             let ini = stage.join("song.ini");
             fs::write(ini, crate::game_export::ini_with_delay(&raw, delay))?;
+            let working = song_layout::path(stage, "chart-engine-working");
+            if fs::exists(&working) {
+                fs::rename(&working, archive.join("chart-engine-working"))?;
+            }
+            fs::create_dir(&working)?;
+            fs::write(working.join("notes.chart"), &text)?;
+            fs::write(
+                working.join("binding.json"),
+                serde_json::to_vec_pretty(
+                    &serde_json::json!({"version":1,"master_sha256":hash(text.as_bytes()),"midi_sha256":exported_chart_sha256}),
+                )?,
+            )?;
             if let Some(vocals) = &doc.content.vocals {
                 fs::write(
-                    stage.join("chart-engine-vocals.json"),
+                    song_layout::path(stage, "chart-engine-vocals.json"),
                     serde_json::to_vec_pretty(vocals)?,
-                )?;
-            }
-            if doc.content.tracks.keys().any(|t| crate::keys::is_pro(t)) {
-                let working = stage.join("chart-engine-working");
-                if fs::exists(&working) {
-                    fs::rename(&working, archive.join("chart-engine-working"))?;
-                }
-                fs::create_dir(&working)?;
-                fs::write(working.join("notes.chart"), &text)?;
-                fs::write(
-                    working.join("binding.json"),
-                    serde_json::to_vec_pretty(
-                        &serde_json::json!({"version":1,"master_sha256":hash(text.as_bytes()),"midi_sha256":exported_chart_sha256}),
-                    )?,
                 )?;
             }
         }
@@ -1989,13 +2016,13 @@ impl Store {
             "chart-engine-keyboard-isolation.json",
             "chart-engine-pro-keys-arrangement.json",
         ] {
-            let path = stage.join(name);
+            let path = song_layout::resolve(stage, name);
             if fs::exists(&path) {
                 fs::rename(path, archive.join(name))?;
             }
         }
         fs::write(
-            stage.join("chart-engine-melody-source.json"),
+            song_layout::path(stage, "chart-engine-melody-source.json"),
             serde_json::to_vec_pretty(
                 &serde_json::json!({"version":1,"audio_sha256":models::hash_file(&pipeline::audio_file(stage)?)?,"guitar_source":self.guitar_source(doc)?}),
             )?,
@@ -2004,13 +2031,17 @@ impl Store {
             #[cfg(not(target_arch = "wasm32"))]
             let manifest = {
                 let mut retained = crate::stem_review::game_audio::retain_in(stage, manifest)?;
+                let base = song_layout::path(stage, "chart-engine-isolation.json")
+                    .parent()
+                    .context("Isolation needs a parent")?
+                    .canonicalize()?;
                 for asset in &mut retained.stems {
-                    asset.path = asset.path.strip_prefix(stage.canonicalize()?)?.to_owned();
+                    asset.path = asset.path.strip_prefix(&base)?.to_owned();
                 }
                 retained
             };
             fs::write(
-                stage.join("chart-engine-isolation.json"),
+                song_layout::path(stage, "chart-engine-isolation.json"),
                 serde_json::to_vec_pretty(&manifest)?,
             )?;
         }
@@ -2018,13 +2049,17 @@ impl Store {
             #[cfg(not(target_arch = "wasm32"))]
             let manifest = {
                 let mut retained = crate::stem_review::game_audio::retain_in(stage, manifest)?;
+                let base = song_layout::path(stage, "chart-engine-keyboard-isolation.json")
+                    .parent()
+                    .context("Isolation needs a parent")?
+                    .canonicalize()?;
                 for asset in &mut retained.stems {
-                    asset.path = asset.path.strip_prefix(stage.canonicalize()?)?.to_owned();
+                    asset.path = asset.path.strip_prefix(&base)?.to_owned();
                 }
                 retained
             };
             fs::write(
-                stage.join("chart-engine-keyboard-isolation.json"),
+                song_layout::path(stage, "chart-engine-keyboard-isolation.json"),
                 serde_json::to_vec_pretty(&manifest)?,
             )?;
         }
@@ -2033,7 +2068,7 @@ impl Store {
         let history:Vec<_>=doc.content.decisions.iter().map(|d|serde_json::json!({"decision":d,"applies_to_current_notes":doc.region_fingerprint(&d.region_id,&d.track,&timing).is_ok_and(|hash|hash==d.region_content_sha256)})).collect();
         let report = serde_json::json!({"version":1,"project_revision":doc.revision,"chart_sha256":fingerprint,"audio_sha256":doc.audio_sha256,"exported_by":actor,"source_review_evidence_is_stale":doc.review.input_sha256.get("chart")!=Some(&fingerprint),"source_review":doc.review,"current_decisions":doc.current_decisions(&timing),"decision_history":history,"hidden_flags":doc.content.hidden_flags,"vocal_review":doc.content.vocal_review,"difficulty_links":crate::difficulty_links::snapshot(doc,&timing),"difficulty_link_state":doc.content.difficulty_links,"stems":doc.content.stems,"stem_mix_requested":doc.content.stem_mix,"stem_mix_scope":"Review preference only; game audio routes complete primary stem sets independently; see yace-audio.json","musical_acceptance":"unverified"});
         fs::write(
-            stage.join("editor-review.json"),
+            song_layout::path(stage, "editor-review.json"),
             serde_json::to_vec_pretty(&{
                 let mut report = report;
                 report["keyboard_stems"] = serde_json::to_value(&doc.content.keyboard_stems)?;
@@ -2041,7 +2076,7 @@ impl Store {
             })?,
         )?;
         fs::write(
-            stage.join("game-export.json"),
+            song_layout::path(stage, "game-export.json"),
             serde_json::to_vec_pretty(&serde_json::json!({
                 "version":1,"source_chart_sha256":fingerprint,"exported_chart_sha256":exported_chart_sha256,
                 "format":if midi_export{"midi"}else{"chart"},"vocals":doc.content.vocals.is_some(),

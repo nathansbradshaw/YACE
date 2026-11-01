@@ -515,7 +515,10 @@ pub fn analyze_project(store: &Store, project: &Project) -> Result<AnalysisRepor
         "Project recording changed"
     );
     let chart = Chart::parse(project.chart_text(store)?)?;
-    let event_path = store.root.join("source/chart-engine-transcription.json");
+    let event_path = crate::song_layout::resolve(
+        &store.root.join("source"),
+        "chart-engine-transcription.json",
+    );
     let (events, hash) = if event_path.is_file() {
         let bytes = fs::read(&event_path)?;
         (

@@ -260,8 +260,14 @@ fn hidden_state_does_not_change_approval_or_reappear_after_note_edits() {
             output: output.clone(),
         },
     );
-    let report: serde_json::Value =
-        serde_json::from_slice(&fs::read(output.join("editor-review.json")).unwrap()).unwrap();
+    let report: serde_json::Value = serde_json::from_slice(
+        &fs::read(chart_engine::song_layout::path(
+            &output,
+            "editor-review.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(report["hidden_flags"].as_array().unwrap().len(), 1);
     assert_eq!(report["musical_acceptance"], "unverified");
 }
@@ -640,8 +646,14 @@ fn vocal_decisions_hide_persist_export_and_undo_independently() {
             output: output.clone(),
         },
     );
-    let report: serde_json::Value =
-        serde_json::from_slice(&fs::read(output.join("editor-review.json")).unwrap()).unwrap();
+    let report: serde_json::Value = serde_json::from_slice(
+        &fs::read(chart_engine::song_layout::path(
+            &output,
+            "editor-review.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(
         report["vocal_review"]["regions"].as_array().unwrap().len(),
         2

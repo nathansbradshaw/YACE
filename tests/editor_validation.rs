@@ -433,8 +433,14 @@ fn export_distinguishes_stale_history_from_current_decisions() {
             },
         })
         .unwrap();
-    let report: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(output.join("editor-review.json")).unwrap()).unwrap();
+    let report: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(chart_engine::song_layout::path(
+            &output,
+            "editor-review.json",
+        ))
+        .unwrap(),
+    )
+    .unwrap();
     let current = report["current_decisions"]
         .as_array()
         .unwrap()

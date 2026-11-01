@@ -18,6 +18,7 @@ pub mod note_types;
 pub mod parts;
 pub mod review_git;
 pub mod sections;
+pub mod song_layout;
 pub mod song_metadata;
 pub mod star_power;
 pub mod storage;

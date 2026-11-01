@@ -286,7 +286,7 @@ impl View {
             piano: instrument == "piano",
             pro_piano: instrument == "pro_piano",
             vocals: instrument == "vocals",
-            parent: Some(store.root.join("generation-jobs")),
+            parent: Some(crate::song_layout::project_data(&store.root).join("jobs/parts")),
             name: format!(
                 "{}-{instrument}",
                 std::time::SystemTime::now()
@@ -632,20 +632,21 @@ fn recover(mut data: Signal<View>) {
             data.write().busy = false;
             return;
         };
-        let root = folder.path().to_owned();
-        let read_root = root.clone();
+        let selected = folder.path().to_owned();
         let loaded = tokio::task::spawn_blocking(move || -> Result<_> {
+            let read_root = generation::resolve_job(&selected)?;
             Ok((
                 serde_json::from_slice::<Request>(&fs::read(read_root.join("request.json"))?)?,
                 generation::status(&read_root)?,
                 crate::parts::target(&read_root)?,
                 crate::generation_progress::read(&read_root).ok(),
                 worker_log_tail(&read_root),
+                read_root,
             ))
         })
         .await;
         match loaded {
-            Ok(Ok((request, status, target, progress, log_tail))) => data.with_mut(|v| {
+            Ok(Ok((request, status, target, progress, log_tail, root))) => data.with_mut(|v| {
                 let Source::Audio { path } = request.source;
                 v.target = target;
                 v.applied = false;
@@ -774,7 +775,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 studio
                     .status
                     .set("Generated chart draft · opening review project".into());
-                studio.open_project(root.join("project")).await;
+                studio.open_project(generation::project_path(&root)).await;
                 studio.generation_open.set(false);
             } else {
                 let stopped_root = root.clone();
@@ -903,7 +904,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         if view.worker.is_some(){button{class:"action-secondary",onclick:move|_|{if let Some(worker)=data.read().worker.clone(){worker.borrow_mut().cancel();}},"Cancel"}}
                         if saved&&!busy&&!complete{button{class:"action-primary",onclick:move|_|{let root=data.read().root.clone();if let Some(root)=root && let Err(error)=launch_worker(data,root){fail(data,format!("{error:#}"));}},"Resume generation"}}
                         if complete && part_mode { button { class: "action-primary", disabled: busy || view.applied, onclick: move |_| apply_part(studio, data), if view.applied { "Applied" } else if replaces_part { "Replace {part_title}" } else { "Add {part_title}" } } }
-                        if complete && !part_mode{button{class:"action-primary",onclick:move|_|{spawn(async move{let root=data.read().root.clone();if let Some(root)=root{studio.open_project(root.join("project")).await;studio.generation_open.set(false);}});},"Open generated chart"}}
+                        if complete && !part_mode{button{class:"action-primary",onclick:move|_|{spawn(async move{let root=data.read().root.clone();if let Some(root)=root{studio.open_project(generation::project_path(&root)).await;studio.generation_open.set(false);}});},"Open generated chart"}}
                         if !saved{button{class:"action-primary",disabled:busy||!can_generate,title:"{validation}",aria_describedby: if !busy && !can_generate { Some("generation-validation") } else { None },onclick:move|_|generate(data),if busy{"Working…"}else if part_mode{"Generate part"}else{"Generate charts"}}}
                     }
                  },
@@ -1030,7 +1031,11 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         div { class:"generation-progress", role:"status", span { "{detail}" } span { "Elapsed {elapsed}" } progress { aria_label:"Preparing generation" } }
                     }
                     if !view.log_tail.is_empty() { details { summary { "Recent worker activity" } pre { class:"generation-log", "{view.log_tail}" } } }
-                    if let Some(root)=&view.root{p{class:"generation-path","Saved job: {root.display()}"}p{class:"generation-path","Detailed log: {log_path}"}}
+                    if let Some(root)=&view.root{
+                        if let Some(song)=generation::song_folder(root){p{class:"generation-path","Song folder: {song.display()}"}}
+                        else{p{class:"generation-path","Saved job: {root.display()}"}}
+                        p{class:"generation-path","Detailed log: {log_path}"}
+                    }
                     if let Some(error)=&view.error{div{class:"generation-error",role:"alert","{error}"}}
                     p{class:"generation-footnote","Listen through the draft before exporting."}
                     if !saved && !busy && !can_generate {
