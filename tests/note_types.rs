@@ -234,6 +234,7 @@ fn imported_ids_and_foreign_flags_remain_safe() {
         .get_mut("ExpertSingle")
         .unwrap()
         .push(EditorNote {
+            midi: None,
             id: "foreign".into(),
             note: Note {
                 tick: 480,

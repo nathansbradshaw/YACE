@@ -22,6 +22,7 @@ fn vocal() -> VocalChart {
         }],
         notes: vec![
             VocalNote {
+                midi: None,
                 start: 480,
                 end: 720,
                 tone: VocalTone::Pitched { midi: 60 },
@@ -31,6 +32,7 @@ fn vocal() -> VocalChart {
                 },
             },
             VocalNote {
+                midi: None,
                 start: 1080,
                 end: 1400,
                 tone: VocalTone::Pitched { midi: 62 },

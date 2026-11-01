@@ -46,6 +46,7 @@ fn fixture() -> (Project, Chart) {
                     .into_iter()
                     .enumerate()
                     .map(|(i, note)| EditorNote {
+                        midi: None,
                         id: format!("{track}-{i}"),
                         note,
                     })
@@ -196,6 +197,7 @@ fn supported_keyboard_source_sections_cannot_be_silently_omitted() {
         project.content.tracks.insert(
             track.into(),
             vec![EditorNote {
+                midi: None,
                 id: format!("{track}-0"),
                 note: chart.notes(track).unwrap().remove(0),
             }],
@@ -236,6 +238,7 @@ fn rejects_corrupt_transport_source_scope_and_note_identity() {
                 .get_mut("ExpertSingle")
                 .unwrap()
                 .push(EditorNote {
+                    midi: None,
                     id: "new".into(),
                     note: Note {
                         tick: 480,
@@ -366,6 +369,7 @@ fn decisions_apply_only_to_the_reviewed_track_and_local_content() {
         .get_mut("ExpertSingle")
         .unwrap()
         .push(EditorNote {
+            midi: None,
             id: "remote-note".into(),
             note: Note {
                 tick: 3000,

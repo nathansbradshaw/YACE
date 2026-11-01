@@ -41,6 +41,8 @@ pub struct VocalNote {
     pub end: u64,
     pub tone: VocalTone,
     pub lyric: Syllable,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi: Option<crate::song_files::game_midi::NoteAttributes>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +107,13 @@ impl VocalChart {
         );
         for note in &self.notes {
             span(note.start, note.end)?;
+            if let Some(midi) = &note.midi {
+                midi.validate()?;
+                ensure!(
+                    !midi.zero_length,
+                    "Playable vocals require positive duration"
+                );
+            }
             if let VocalTone::Pitched { midi } = note.tone {
                 ensure!(
                     (36..=84).contains(&midi),
@@ -249,39 +258,54 @@ pub fn append_midi(original: &[u8], vocals: &VocalChart) -> Result<Vec<u8>> {
         1,
         TrackEventKind::Meta(MetaMessage::TrackName(b"PART VOCALS")),
     )];
-    let mut push_note = |start: u64, end: u64, key: u8| {
-        events.push((
-            start,
-            3,
-            TrackEventKind::Midi {
-                channel: u4::new(0),
-                message: MidiMessage::NoteOn {
-                    key: u7::new(key),
-                    vel: u7::new(100),
+    let mut push_note =
+        |start: u64,
+         end: u64,
+         key: u8,
+         attributes: Option<&crate::song_files::game_midi::NoteAttributes>| {
+            events.push((
+                start,
+                3,
+                TrackEventKind::Midi {
+                    channel: u4::new(attributes.map_or(0, |a| a.channel)),
+                    message: MidiMessage::NoteOn {
+                        key: u7::new(key),
+                        vel: u7::new(attributes.map_or(100, |a| a.velocity)),
+                    },
                 },
-            },
-        ));
-        events.push((
-            end,
-            0,
-            TrackEventKind::Midi {
-                channel: u4::new(0),
-                message: MidiMessage::NoteOff {
-                    key: u7::new(key),
-                    vel: u7::new(0),
+            ));
+            events.push((
+                end,
+                0,
+                TrackEventKind::Midi {
+                    channel: u4::new(attributes.map_or(0, |a| a.channel)),
+                    message: if attributes.is_some_and(|a| a.off_as_note_on) {
+                        MidiMessage::NoteOn {
+                            key: u7::new(key),
+                            vel: u7::new(0),
+                        }
+                    } else {
+                        MidiMessage::NoteOff {
+                            key: u7::new(key),
+                            vel: u7::new(attributes.map_or(0, |a| a.off_velocity)),
+                        }
+                    },
                 },
-            },
-        ));
-    };
+            ));
+        };
     for phrase in &vocals.phrases {
-        push_note(phrase.start, phrase.end, 104 + phrase.player);
+        push_note(phrase.start, phrase.end, 104 + phrase.player, None);
     }
     for note in &vocals.notes {
         let key = match note.tone {
             VocalTone::Pitched { midi } => midi,
-            VocalTone::Talkie { .. } => 60,
+            VocalTone::Talkie { .. } => note
+                .midi
+                .as_ref()
+                .and_then(|a| a.talkie_pitch)
+                .unwrap_or(60),
         };
-        push_note(note.start, note.end, key);
+        push_note(note.start, note.end, key, note.midi.as_ref());
     }
     for (note, lyric) in vocals.notes.iter().zip(&lyrics) {
         let metadata = match note.lyric {
@@ -435,13 +459,15 @@ pub fn import_midi(bytes: &[u8]) -> Result<VocalChart> {
                         "Unsupported vocal MIDI note {key}; retain source MIDI"
                     );
                     ensure!(
-                        active.insert((channel.as_int(), key), tick).is_none(),
+                        active
+                            .insert((channel.as_int(), key), (tick, vel.as_int()))
+                            .is_none(),
                         "Overlapping same-key vocal MIDI notes"
                     );
                 }
                 MidiMessage::NoteOff { key, .. } | MidiMessage::NoteOn { key, .. } => {
                     let key = key.as_int();
-                    let start = active
+                    let (start, velocity) = active
                         .remove(&(channel.as_int(), key))
                         .context("Unmatched vocal note-off")?;
                     ensure!(start < tick, "Zero-length vocal event");
@@ -452,7 +478,23 @@ pub fn import_midi(bytes: &[u8]) -> Result<VocalChart> {
                             player: key - 104,
                         });
                     } else {
-                        notes.push((start, tick, key));
+                        let (off_velocity, off_as_note_on) = match message {
+                            MidiMessage::NoteOff { vel, .. } => (vel.as_int(), false),
+                            _ => (0, true),
+                        };
+                        notes.push((
+                            start,
+                            tick,
+                            key,
+                            crate::song_files::game_midi::NoteAttributes {
+                                channel: channel.as_int(),
+                                velocity,
+                                off_velocity,
+                                off_as_note_on,
+                                zero_length: false,
+                                talkie_pitch: None,
+                            },
+                        ));
                     }
                 }
                 _ => bail!("Unsupported vocal MIDI message; retain source MIDI"),
@@ -463,7 +505,7 @@ pub fn import_midi(bytes: &[u8]) -> Result<VocalChart> {
     ensure!(active.is_empty(), "Unterminated vocal MIDI notes");
     notes.sort_unstable();
     out.phrases.sort_by_key(|p| p.start);
-    for (start, end, midi) in notes {
+    for (start, end, midi, mut attributes) in notes {
         let mut text = lyrics
             .remove(&start)
             .context("Vocal note lacks an exactly aligned syllable/continuation")?;
@@ -494,7 +536,12 @@ pub fn import_midi(bytes: &[u8]) -> Result<VocalChart> {
             }
             (Syllable::Text { text, join_next }, tone)
         };
+        if matches!(tone, VocalTone::Talkie { .. }) && midi != 60 {
+            attributes.talkie_pitch = Some(midi);
+        }
+        let metadata = (!attributes.is_default()).then_some(attributes);
         out.notes.push(VocalNote {
+            midi: metadata,
             start,
             end,
             tone,

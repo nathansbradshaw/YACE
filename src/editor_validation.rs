@@ -174,6 +174,9 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
     for (track, notes) in &project.content.tracks {
         let mut positions = BTreeSet::new();
         for item in notes {
+            if let Some(midi) = &item.midi {
+                midi.validate()?;
+            }
             ensure!(
                 !item.id.is_empty() && note_ids.insert(item.id.as_str()),
                 "Empty or duplicate note ID"

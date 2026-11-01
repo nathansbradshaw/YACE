@@ -111,6 +111,8 @@ pub struct Actor {
 pub struct EditorNote {
     pub id: String,
     pub note: Note,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi: Option<crate::song_files::game_midi::NoteAttributes>,
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -599,7 +601,11 @@ impl Project {
     fn next_note(&mut self, note: Note) -> EditorNote {
         let id = format!("edit-note-{}", self.next_id);
         self.next_id += 1;
-        EditorNote { id, note }
+        EditorNote {
+            midi: None,
+            id,
+            note,
+        }
     }
     fn validate_notes(&self, store: &Store) -> Result<()> {
         let timing = self.timing(store)?;
@@ -637,6 +643,7 @@ impl Project {
         cymbal: bool,
     ) -> Result<()> {
         ensure!(self.content.tracks.contains_key(track), "Unknown track");
+        let preserved_midi = id.and_then(|id| self.find_note(id).and_then(|(_, n)| n.midi.clone()));
         let old = id
             .map(|id| {
                 self.find_note(id)
@@ -696,6 +703,7 @@ impl Project {
         if let Some(note) = note {
             let mut added = if let Some(id) = id {
                 EditorNote {
+                    midi: preserved_midi,
                     id: id.into(),
                     note: note.clone(),
                 }
@@ -937,6 +945,11 @@ impl Store {
                 BTreeSet::new(),
             )?
         };
+        review
+            .coverage_limits
+            .extend(crate::song_files::game_midi::warnings(
+                &self.root.join("source"),
+            )?);
         // Let the original recording open even if attached stems are missing.
         // The audio worker checks stem files before offering playback.
         let stems = match (|| -> Result<Option<crate::stem_review::StemManifest>> {
@@ -1015,6 +1028,8 @@ impl Store {
                 None
             }
         };
+        let midi_attributes =
+            crate::song_files::game_midi::attributes(&self.root.join("source"), &chart)?;
         let tracks: BTreeMap<_, _> = chart
             .sections
             .iter()
@@ -1025,6 +1040,10 @@ impl Store {
                     .into_iter()
                     .enumerate()
                     .map(|(i, n)| EditorNote {
+                        midi: midi_attributes
+                            .get(&s.name)
+                            .and_then(|attrs| attrs.get(&(n.tick, n.lane)))
+                            .cloned(),
                         id: format!(
                             "note-{}",
                             hash(format!("{source_hash}:{}:{i}:{n:?}", s.name).as_bytes())
@@ -1386,7 +1405,11 @@ impl Store {
             }
             Action::EditStarPower { edit } => {
                 let source = self.source_chart(&doc)?;
-                crate::star_power::apply(&mut doc, &source, edit)?;
+                if crate::song_files::game_midi::exists(&self.root.join("source")) {
+                    crate::song_files::game_midi::edit_star_power(&mut doc, &source, edit)?;
+                } else {
+                    crate::star_power::apply(&mut doc, &source, edit)?;
+                }
             }
             Action::EditSync { edit } => {
                 let source = self.source_chart(&doc)?;
@@ -1952,14 +1975,23 @@ impl Store {
         fs::create_dir(&archive)?;
         let mut exported_chart_sha256 = hash(text.as_bytes());
         let midi_export = doc.content.vocals.is_some()
-            || doc.content.tracks.keys().any(|t| crate::keys::is_pro(t));
+            || doc.content.tracks.keys().any(|t| crate::keys::is_pro(t))
+            || crate::song_files::game_midi::exists(&source);
         if midi_export {
             let raw = pipeline::song_ini(stage)?;
-            let (midi, delay) = crate::game_export::song_with_ini(
-                &Chart::parse(text.clone())?,
+            let chart = Chart::parse(text.clone())?;
+            let fields = pipeline::ini_fields(&raw);
+            let (generated, delay) =
+                crate::game_export::song_with_ini(&chart, doc.content.vocals.as_ref(), &fields)?;
+            let midi = crate::song_files::game_midi::export(
+                &source,
+                stage,
+                &chart,
                 doc.content.vocals.as_ref(),
-                &pipeline::ini_fields(&raw),
-            )?;
+                &doc.content.tracks,
+                &generated,
+            )?
+            .unwrap_or(generated);
             exported_chart_sha256 = hash(&midi);
             fs::write(stage.join("notes.mid"), midi)?;
             fs::rename(stage.join("notes.chart"), archive.join("notes.chart"))?;

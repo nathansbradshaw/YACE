@@ -168,6 +168,7 @@ fn draft(store: &Store, job: &Path, track: &str) {
                         player: 1,
                     }],
                     notes: vec![VocalNote {
+                        midi: None,
                         start: 480,
                         end: 960,
                         tone: VocalTone::Pitched { midi: 60 },

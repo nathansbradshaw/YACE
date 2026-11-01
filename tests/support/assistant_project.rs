@@ -31,6 +31,7 @@ pub(crate) fn fixture(root: &Path) -> Store {
                     .unwrap()
                     .into_iter()
                     .map(|note| EditorNote {
+                        midi: None,
                         id: format!("{track}-{}", note.tick),
                         note,
                     })

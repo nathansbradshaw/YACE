@@ -145,6 +145,7 @@ mod tests {
             }],
             notes: vec![
                 VocalNote {
+                    midi: None,
                     start: 0,
                     end: 480,
                     tone: VocalTone::Pitched { midi: 60 },
@@ -154,6 +155,7 @@ mod tests {
                     },
                 },
                 VocalNote {
+                    midi: None,
                     start: 480,
                     end: 1440,
                     tone: VocalTone::Talkie { lenient: false },

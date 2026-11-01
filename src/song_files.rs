@@ -2,11 +2,27 @@
 use crate::{chart::Chart, models, song_layout, song_metadata::song_ini, storage as fs};
 use anyhow::{Context, Result, bail, ensure};
 use std::path::{Path, PathBuf};
+#[path = "song_files/game_midi.rs"]
+pub mod game_midi;
 #[path = "song_files/timing.rs"]
 pub mod timing;
 /// Prepare an unpublished editing snapshot using the same rules on both clients.
 pub fn prepare_editable_source(song: &Path, dest: &Path) -> Result<()> {
     validate_existing(song)?;
+    let selected = chart_file(song)?;
+    let working = song_layout::resolve(song, "chart-engine-working");
+    if selected.extension().is_some_and(|e| e == "mid") && !fs::exists(working.join("binding.json"))
+    {
+        ensure!(
+            !fs::exists(working.join("notes.chart")),
+            "Incomplete YACE editable-master binding; recover the original project rather than replacing its edits"
+        );
+        copy_song_source(song, dest)?;
+        organize_song_stage(dest)?;
+        crate::stem_review::game_audio::restore_recording(dest)?;
+        game_midi::prepare(dest)?;
+        return Ok(());
+    }
     let master = editable_chart_file(song)?;
     let ini = song_ini(song)?;
     let legacy_chart = master == song.join("notes.chart") && timing::legacy_delay(&ini)?.is_some();

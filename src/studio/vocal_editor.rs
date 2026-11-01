@@ -506,6 +506,7 @@ impl NoteDraft {
             }
         };
         Ok(VocalNote {
+            midi: None,
             start,
             end,
             tone,
@@ -526,6 +527,7 @@ fn replacement(
     }
     let mut updated = chart.clone();
     updated.notes[index] = draft.parse()?;
+    updated.notes[index].midi = expected.midi.clone();
     updated.validate().map_err(|error| error.to_string())?;
     Ok(updated)
 }
@@ -585,6 +587,7 @@ mod tests {
             }],
             notes: vec![
                 VocalNote {
+                    midi: None,
                     start: 100,
                     end: 200,
                     tone: VocalTone::Pitched { midi: 60 },
@@ -594,6 +597,7 @@ mod tests {
                     },
                 },
                 VocalNote {
+                    midi: None,
                     start: 300,
                     end: 500,
                     tone: VocalTone::Pitched { midi: 62 },
@@ -607,7 +611,15 @@ mod tests {
     }
     #[test]
     fn staged_vocal_edits_preserve_neighbors_and_reject_stale_notes() {
-        let original = chart();
+        let mut original = chart();
+        original.notes[0].midi = Some(crate::song_files::game_midi::NoteAttributes {
+            channel: 3,
+            velocity: 82,
+            off_velocity: 9,
+            off_as_note_on: false,
+            zero_length: false,
+            talkie_pitch: None,
+        });
         let mut draft = NoteDraft::from_note(&original.notes[0]);
         draft.pitch = "64".into();
         draft.text = "hey".into();
@@ -615,6 +627,7 @@ mod tests {
         assert_eq!(updated.notes[1], original.notes[1]);
         assert_eq!(updated.phrases, original.phrases);
         assert_eq!(updated.notes[0].tone, VocalTone::Pitched { midi: 64 });
+        assert_eq!(updated.notes[0].midi, original.notes[0].midi);
         assert!(
             replacement(&updated, 0, &original.notes[0], &draft)
                 .unwrap_err()

@@ -1322,6 +1322,7 @@ fn chart_from_spans(
                 matched = true;
                 proposals.push((
                     VocalNote {
+                        midi: None,
                         start: tick,
                         end: tail,
                         tone: VocalTone::Pitched { midi: span.midi },
@@ -1382,6 +1383,7 @@ fn chart_from_spans(
                 {
                     proposals.push((
                         VocalNote {
+                            midi: None,
                             start: tick,
                             end: tail,
                             tone: VocalTone::Pitched { midi: span.midi },

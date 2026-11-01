@@ -34,6 +34,7 @@ fn fixture(root: &Path) -> Store {
                     .unwrap()
                     .into_iter()
                     .map(|note| EditorNote {
+                        midi: None,
                         id: format!("{track}-{}", note.tick),
                         note,
                     })
@@ -457,6 +458,7 @@ fn split_audio_fixture(root: &Path) -> Store {
                 .unwrap()
                 .into_iter()
                 .map(|note| EditorNote {
+                    midi: None,
                     id: format!("{track}-{}", note.tick),
                     note,
                 })
@@ -663,6 +665,7 @@ fn vocal_flags_use_same_pending_approval_hide_and_stale_edit_queue() {
         }],
         notes: vec![
             VocalNote {
+                midi: None,
                 start: 480,
                 end: 800,
                 tone: VocalTone::Pitched { midi: 60 },
@@ -672,6 +675,7 @@ fn vocal_flags_use_same_pending_approval_hide_and_stale_edit_queue() {
                 },
             },
             VocalNote {
+                midi: None,
                 start: 1000,
                 end: 1440,
                 tone: VocalTone::Pitched { midi: 62 },
@@ -1051,6 +1055,7 @@ fn replacing_aligned_vocal_stem_keeps_stale_checks_inspectable_hideable_and_navi
             player: 1,
         }],
         notes: vec![VocalNote {
+            midi: None,
             start: 480,
             end: 1440,
             tone: VocalTone::Pitched { midi: 57 },

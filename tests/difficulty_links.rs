@@ -87,6 +87,7 @@ fn fixture(root: &Path, generated: bool) -> Store {
                 let notes = notes
                     .into_iter()
                     .map(|note| EditorNote {
+                        midi: None,
                         id: format!("source-{track}-{}-{}", note.tick, note.lane),
                         note,
                     })
@@ -661,6 +662,7 @@ fn expert_only_fixture(root: &Path, newline: &str, final_newline: bool) -> Store
         notes
             .into_iter()
             .map(|note| EditorNote {
+                midi: None,
                 id: format!("expert-only-{}-{}", note.tick, note.lane),
                 note,
             })
@@ -814,6 +816,7 @@ fn new_lower_track_authorization_and_empty_expert_fail_atomically() {
     forged.content.tracks.insert(
         "EasySingle".into(),
         vec![EditorNote {
+            midi: None,
             id: "unrelated-new-note".into(),
             note: n(0, 0, 0),
         }],

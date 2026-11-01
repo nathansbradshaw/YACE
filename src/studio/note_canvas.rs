@@ -263,6 +263,7 @@ fn place_vocal(studio: Studio, event: &MouseEvent, width: f64) {
         chart.phrases.sort_by_key(|phrase| phrase.start);
     }
     chart.notes.push(VocalNote {
+        midi: None,
         start,
         end,
         tone: if row == 49 {

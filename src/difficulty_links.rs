@@ -139,6 +139,7 @@ pub fn reduce_generated(
                     .into_iter()
                     .enumerate()
                     .map(|(index, note)| EditorNote {
+                        midi: None,
                         id: format!("reduction-input-{track}-{index}"),
                         note,
                     })
@@ -246,7 +247,11 @@ fn push(out: &mut Derived, track: &str, note: Note, origin: NoteAncestry) {
         .expect("serializable ancestry");
     let id = format!("derived-{:x}", Sha256::digest(bytes));
     out.ancestry.insert(id.clone(), origin);
-    out.notes.push(EditorNote { id, note });
+    out.notes.push(EditorNote {
+        midi: None,
+        id,
+        note,
+    });
 }
 
 fn derive(content: &Content, track: &str, timing: &TempoMap) -> Result<Derived> {

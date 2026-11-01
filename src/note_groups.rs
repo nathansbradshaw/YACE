@@ -37,6 +37,8 @@ impl Selection {
 pub struct Gem {
     pub note: Note,
     pub flags: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi: Option<crate::song_files::game_midi::NoteAttributes>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -174,6 +176,7 @@ fn gems(project: &Project, snapshot: &Snapshot) -> Vec<Gem> {
         .filter(|item| snapshot.ids.contains(&item.id))
         .map(|item| Gem {
             note: item.note.clone(),
+            midi: item.midi.clone(),
             flags: flags
                 .get(&item.note.tick)
                 .into_iter()
@@ -330,6 +333,9 @@ fn remove_gems(project: &mut Project, selection: &Snapshot) {
     }
 }
 fn insert_gem(project: &mut Project, track: &str, gem: Gem, id: Option<String>) -> Result<String> {
+    if let Some(midi) = &gem.midi {
+        midi.validate()?;
+    }
     ensure!(
         crate::editor::playable(track, gem.note.lane),
         "This note does not fit the destination track"
@@ -368,6 +374,7 @@ fn insert_gem(project: &mut Project, track: &str, gem: Gem, id: Option<String>) 
             let marker = format!("edit-note-{}", project.next_id);
             project.next_id = project.next_id.checked_add(1).context("Note ID overflow")?;
             notes.push(EditorNote {
+                midi: None,
                 id: marker,
                 note: Note {
                     tick: gem.note.tick,
@@ -378,6 +385,7 @@ fn insert_gem(project: &mut Project, track: &str, gem: Gem, id: Option<String>) 
         }
     }
     notes.push(EditorNote {
+        midi: gem.midi,
         id: id.clone(),
         note: gem.note,
     });
