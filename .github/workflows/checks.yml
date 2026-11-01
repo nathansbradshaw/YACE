@@ -43,7 +43,20 @@ jobs:
         run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
       - name: Test the archive converter
         run: cargo test --locked --manifest-path tools/larsnet-convert/Cargo.toml
-      - name: Check the performance probe
+
+  performance-probe:
+    name: Rust performance probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - name: Check the probe without native or model dependencies
         run: |
           cargo fmt --manifest-path tools/performance-probe/Cargo.toml -- --check
           cargo test --locked --manifest-path tools/performance-probe/Cargo.toml
