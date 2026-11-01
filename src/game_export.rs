@@ -223,6 +223,32 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
             .filter(|n| (66..=68).contains(&n.lane))
             .map(|n| (n.tick, n.lane - 64))
             .collect();
+        let positions: BTreeSet<_> = notes.iter().map(|n| (n.tick, n.lane)).collect();
+        let mut dynamics = BTreeMap::new();
+        if suffix == "Drums" {
+            for marker in &notes {
+                let (lane, velocity) = match marker.lane {
+                    34..=37 => (marker.lane - 33, 127),
+                    40..=43 => (marker.lane - 39, 1),
+                    _ => continue,
+                };
+                ensure!(
+                    positions.contains(&(marker.tick, lane)),
+                    "Orphan drum dynamics marker in {}",
+                    section.name
+                );
+                if let Some(previous) = dynamics.insert((marker.tick, lane), velocity) {
+                    ensure!(
+                        previous == velocity,
+                        "Conflicting drum dynamics in {}",
+                        section.name
+                    );
+                }
+            }
+            if !dynamics.is_empty() {
+                events.push((0, 1, meta(1, b"[ENABLE_CHART_DYNAMICS]")?));
+            }
+        }
         let mut solo_boundaries = Vec::new();
         for line in rows(body) {
             let (tick, body) = event(line)?;
@@ -250,12 +276,24 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
                     if suffix == "Drums" && (66..=68).contains(&lane) {
                         continue;
                     }
+                    if suffix == "Drums" && matches!(lane, 34..=37 | 40..=43) {
+                        continue;
+                    }
+                    if suffix == "Drums" && lane == 32 {
+                        ensure!(
+                            difficulty == 3,
+                            "Double kick MIDI export requires Expert drums"
+                        );
+                        note(events, tick, duration, 95, 100)?;
+                        continue;
+                    }
                     ensure!(
                         lane <= 4,
                         "Chart lane {lane} in {} needs an explicit MIDI conversion; export refused",
                         section.name
                     );
-                    note(events, tick, duration, base + lane, 100)?;
+                    let velocity = dynamics.get(&(tick, lane)).copied().unwrap_or(100);
+                    note(events, tick, duration, base + lane, velocity)?;
                     if suffix == "Drums" && lane >= 2 && !cymbals.contains(&(tick, lane)) {
                         note(
                             events,
@@ -267,6 +305,20 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
                     }
                 }
                 ["S", "2", duration] => note(events, tick, duration.parse()?, 116, 100)?,
+                ["S", kind @ ("64" | "65" | "66"), duration] if suffix == "Drums" => {
+                    let duration = duration.parse::<u64>()?;
+                    ensure!(duration > 0, "Empty drum phrase in {}", section.name);
+                    match *kind {
+                        "64" => {
+                            for key in 120..=124 {
+                                note(events, tick, duration, key, 100)?;
+                            }
+                        }
+                        "65" => note(events, tick, duration, 126, 100)?,
+                        "66" => note(events, tick, duration, 127, 100)?,
+                        _ => unreachable!(),
+                    }
+                }
                 ["E", ..] => {
                     let text = body[1..].trim();
                     let text = if text.starts_with('"') {
@@ -312,15 +364,17 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
         }
         ensure!(solo_start.is_none(), "Unclosed solo in {}", section.name);
     }
-    // Shared drum markers/starpower from multiple difficulties must not become
+    // Shared phrases and drum markers from multiple difficulties must not become
     // duplicate simultaneous note-ons in the MIDI track.
     let mut chunks = vec![track(tempo)?, track(global)?];
     for (_, mut events) in instruments {
         events.sort();
-        // Drum tom/star-power markers are shared across difficulty tracks.
+        // Phrase and tom markers are shared across difficulty tracks.
         // Union their intervals so overlapping profiles cannot turn one marker
         // off while another profile is still holding it.
-        for key in [103, 110, 111, 112, 115, 116] {
+        for key in [
+            103, 110, 111, 112, 115, 116, 120, 121, 122, 123, 124, 126, 127,
+        ] {
             let mut spans = Vec::new();
             // Derive spans from all onset/end pairs with an overlap counter,
             // rather than pairing one onset with the first off event.

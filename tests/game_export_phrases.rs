@@ -171,3 +171,91 @@ fn vocal_song_export_reopens_with_solos_and_unchanged_source() {
             .contains("custom = retain")
     );
 }
+
+#[test]
+fn authored_drum_dynamics_double_kick_and_phrases_coexist_with_vocals_and_pro_keys() {
+    let source = chart(
+        "[ExpertDrums]\n{\n0 = N 0 0\n120 = N 32 0\n240 = N 1 0\n240 = N 34 0\n\
+         480 = N 2 0\n480 = N 66 0\n480 = N 41 0\n600 = N 3 0\n\
+         0 = S 64 240\n240 = S 65 240\n480 = S 66 240\n}\n\
+         [ExpertProKeys]\n{\n0 = N 60 120\n}\n",
+    );
+    let (bytes, _) = game_export::song(&source, Some(&vocal())).unwrap();
+    assert_eq!(spans(&bytes, "PART DRUMS", 95), [(120, 121)]);
+    assert_eq!(spans(&bytes, "PART DRUMS", 96), [(0, 1)]);
+    for key in 120..=124 {
+        assert_eq!(spans(&bytes, "PART DRUMS", key), [(0, 240)]);
+    }
+    assert_eq!(spans(&bytes, "PART DRUMS", 126), [(240, 480)]);
+    assert_eq!(spans(&bytes, "PART DRUMS", 127), [(480, 720)]);
+    let smf = Smf::parse(&bytes).unwrap();
+    let drums = smf
+        .tracks
+        .iter()
+        .find(|track| {
+            track.iter().any(|event| {
+                matches!(
+                    event.kind,
+                    TrackEventKind::Meta(MetaMessage::TrackName(b"PART DRUMS"))
+                )
+            })
+        })
+        .unwrap();
+    assert_eq!(
+        drums
+            .iter()
+            .filter(|event| matches!(
+                event.kind,
+                TrackEventKind::Meta(MetaMessage::Text(b"[ENABLE_CHART_DYNAMICS]"))
+            ))
+            .count(),
+        1
+    );
+    let velocities = drums
+        .iter()
+        .filter_map(|event| match event.kind {
+            TrackEventKind::Midi {
+                message: MidiMessage::NoteOn { key, vel },
+                ..
+            } if (97..=99).contains(&key.as_int()) && vel.as_int() > 0 => {
+                Some((key.as_int(), vel.as_int()))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(velocities, [(97, 127), (98, 1), (99, 100)]);
+    assert_eq!(vocals::import_midi(&bytes).unwrap().notes, vocal().notes);
+}
+
+#[test]
+fn shared_drum_phrases_union_without_early_note_offs() {
+    let source = chart(
+        "[HardDrums]\n{\n0 = N 1 0\n0 = S 64 480\n120 = S 65 480\n240 = S 66 480\n}\n\
+         [ExpertDrums]\n{\n0 = N 1 0\n240 = S 64 480\n360 = S 65 480\n480 = S 66 480\n}\n",
+    );
+    let bytes = game_export::song(&source, None).unwrap().0;
+    for key in 120..=124 {
+        assert_eq!(spans(&bytes, "PART DRUMS", key), [(0, 720)]);
+    }
+    assert_eq!(spans(&bytes, "PART DRUMS", 126), [(120, 840)]);
+    assert_eq!(spans(&bytes, "PART DRUMS", 127), [(240, 960)]);
+}
+
+#[test]
+fn invalid_drum_controls_are_refused_without_changing_the_source() {
+    for (track, events) in [
+        ("ExpertDrums", "0 = N 2 0\n0 = N 34 0"),
+        ("ExpertDrums", "0 = N 1 0\n0 = N 34 0\n0 = N 40 0"),
+        ("HardDrums", "0 = N 32 0"),
+        ("ExpertDrums", "0 = N 1 0\n0 = S 65 0"),
+        ("ExpertSingle", "0 = N 1 0\n0 = S 64 240"),
+    ] {
+        let source = chart(&format!("[{track}]\n{{\n{events}\n}}\n"));
+        let original = source.raw.clone();
+        assert!(
+            game_export::song(&source, Some(&vocal())).is_err(),
+            "{track}: {events}"
+        );
+        assert_eq!(source.raw, original);
+    }
+}
