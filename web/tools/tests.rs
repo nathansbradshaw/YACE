@@ -1,5 +1,84 @@
 use super::audio_decode::{self, Pcm};
 
+fn compare_native_resampling(path: &std::path::Path) {
+    let pcm = ready(audio_decode::decode(&std::fs::read(path).unwrap())).unwrap();
+    for rate in [11025, 16000, 22050, 44100, 48000] {
+        for channels in [1, 2] {
+            let native = std::process::Command::new("ffmpeg")
+                .args(["-v", "error", "-i"])
+                .arg(path)
+                .args([
+                    "-f",
+                    "f32le",
+                    "-ac",
+                    &channels.to_string(),
+                    "-ar",
+                    &rate.to_string(),
+                    "-",
+                ])
+                .output()
+                .unwrap();
+            assert!(native.status.success());
+            let native: Vec<_> = native
+                .stdout
+                .chunks_exact(4)
+                .map(|s| f32::from_le_bytes(s.try_into().unwrap()))
+                .collect();
+            let ours = pcm.samples(rate, channels).unwrap();
+            assert_eq!(ours.len(), native.len(), "{rate}Hz/{channels} source clock");
+            let max = ours
+                .iter()
+                .zip(&native)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0f32, f32::max);
+            let rms = (ours
+                .iter()
+                .zip(&native)
+                .map(|(a, b)| (*a as f64 - *b as f64).powi(2))
+                .sum::<f64>()
+                / ours.len() as f64)
+                .sqrt();
+            eprintln!("{rate}Hz/{channels}: max {max}; RMS {rms}");
+            assert!(
+                max < 0.00001 && rms < 0.000001,
+                "Native/browser resampling differs"
+            );
+        }
+    }
+}
+#[test]
+fn analysis_resampling_matches_native_filter_edges_and_fractional_source_clock() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("signal.wav");
+    for source_rate in [44100, 48000, 96000] {
+        let pcm = Pcm {
+            rate: source_rate,
+            channels: 2,
+            stereo: (0..1003)
+                .flat_map(|frame| {
+                    [
+                        if frame == 0 {
+                            1.5
+                        } else {
+                            (frame as f32 * 0.33).sin() * 0.7
+                        },
+                        (frame as f32 * 1.37).cos() * 0.3,
+                    ]
+                })
+                .collect(),
+        };
+        std::fs::write(&path, pcm.float_wave().unwrap()).unwrap();
+        compare_native_resampling(&path);
+    }
+}
+#[test]
+#[ignore = "Requires explicit real YACE_RESAMPLE_INPUT"]
+fn actual_recording_resampling_matches_native_model_inputs() {
+    compare_native_resampling(std::path::Path::new(
+        &std::env::var_os("YACE_RESAMPLE_INPUT").expect("actual audio"),
+    ));
+}
+
 #[test]
 #[ignore = "Requires YACE_AUDIO_EXPORT_ZIP from actual browser generation"]
 fn actual_float_audio_archive_compression_profile() {
@@ -89,7 +168,10 @@ fn actual_browser_transcription_matches_native_notes_and_source_clocks() {
         browser["isolation"]["source_audio_sha256"],
         native["isolation"]["source_audio_sha256"]
     );
-    for instrument in ["drums", "guitar", "bass"] {
+    let instruments =
+        std::env::var("YACE_TRANSCRIPTION_PARTS").unwrap_or_else(|_| "drums,guitar,bass".into());
+    for instrument in instruments.split(',') {
+        assert!(["drums", "guitar", "bass", "piano", "pro_piano"].contains(&instrument));
         let ours = browser[instrument].as_array().unwrap();
         let theirs = native[instrument].as_array().unwrap();
         assert_eq!(ours.len(), theirs.len(), "{instrument} detection count");
@@ -103,7 +185,14 @@ fn actual_browser_transcription_matches_native_notes_and_source_clocks() {
             } {
                 let delta = (a[field].as_f64().unwrap() - b[field].as_f64().unwrap()).abs();
                 max_time = max_time.max(delta);
-                assert!(delta < 1e-9, "{instrument} {field} differs: {a} / {b}");
+                let tolerance = if matches!(instrument, "piano" | "pro_piano") {
+                    // Kong refines event times with float regression outputs.
+                    // Different WASM/native kernels retain sub-sample agreement.
+                    1e-6
+                } else {
+                    1e-9
+                };
+                assert!(delta < tolerance, "{instrument} {field} differs: {a} / {b}");
             }
             let identity = if instrument == "drums" {
                 "voice"
@@ -504,15 +593,21 @@ fn sample_conversion_preserves_duration_dc_and_stereo_polarity() {
     assert!(
         converted
             .chunks_exact(2)
-            .all(|s| (s[0] - 0.25).abs() < 1e-6 && (s[1] + 0.5).abs() < 1e-6)
+            // Native SWR normalizes the phase bank together and has a small
+            // DC ripple. Also compare the complete result with native below.
+            .all(|s| (s[0] - 0.25).abs() < 1e-5 && (s[1] + 0.5).abs() < 1e-5)
     );
     assert!(
         pcm.samples(22050, 1)
             .unwrap()
             .iter()
-            .all(|s| (*s + 0.125 * std::f32::consts::SQRT_2).abs() < 1e-6)
+            .all(|s| (*s + 0.125 * std::f32::consts::SQRT_2).abs() < 1e-5)
     );
     assert_eq!(pcm.samples(48000, 2).unwrap(), pcm.stereo);
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("constant.wav");
+    std::fs::write(&path, pcm.float_wave().unwrap()).unwrap();
+    compare_native_resampling(&path);
 }
 
 #[test]

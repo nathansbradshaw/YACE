@@ -14,6 +14,9 @@ mod archive_codec;
 #[path = "../src/audio_decode.rs"]
 mod audio_decode;
 #[cfg(test)]
+#[path = "../src/audio_resample.rs"]
+mod audio_resample;
+#[cfg(test)]
 #[path = "../src/audio_identity.rs"]
 mod audio_identity;
 #[cfg(test)]

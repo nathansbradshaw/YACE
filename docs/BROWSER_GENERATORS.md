@@ -26,6 +26,9 @@ view selection, SwiftF0 frame decoding and initial vocal review attachment.
 Browser resampling uses repeated rational filter phases; it no longer evaluates
 trigonometric functions for every tap of every output sample. Float channel
 mixing follows the native decoder instead of silently averaging stereo input.
+The native-compatible Kaiser filter now also matches phase tables, boundary
+reflection and fractional output frame counts. Real piano input comparisons
+against the native decoder differ by at most 0.000000120 per sample.
 
 ## Actual browser evidence
 
@@ -100,6 +103,14 @@ through the browser app, using the actual downloaded checkpoints:
   passed archive integrity checks and reopened through Open saved project.
   A guitar edit and its undo history survived: Redo restored the edited attack
   at 0.210 seconds; Undo restored the original 0.209-second attack.
+- A real five-second Linkin Park piano introduction exposed a resampling
+  mismatch: the browser omitted one of native's ten candidates. Matching the
+  native filter restored all ten, with identical pitches, maximum timing delta
+  0.000000036 seconds and score delta 0.0000018 on the same browser-separated
+  stems. Applying the corrected draft retained an unrelated Bass part created
+  while inference ran, and produced seven arranged Keys attacks. A prior
+  changed-target attempt was refused; Undoing that target edit allowed retry.
+  This is numerical/workflow agreement, not a musical quality judgment.
 
 Regression coverage includes shared native decoding tests, native library tests,
 static-tool audio tests and strict WASM/native Clippy. Explicit ignored tests in

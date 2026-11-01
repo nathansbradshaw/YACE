@@ -35,6 +35,13 @@ Research-only source checkouts and private recordings are not included.
 
 ## Intentional port changes
 
+The browser's native-compatible float resampler adapts FFmpeg n8.1.2
+`libswresample/resample.c` and `resample_template.c` (Michael Niedermayer,
+LGPL-2.1-or-later). Its Rust source is `web/src/audio_resample.rs`; the original
+license is retained in `licenses/FFmpeg-LGPL-2.1.txt`. It matches native Kaiser
+filter/phase, boundary reflection, float channel matrix and source-clock rules.
+The browser crate's license expression includes this component's license.
+
 The static browser client includes the official ONNX Runtime Web 1.22.0 WASM
 distribution (MIT). Its original license, third-party notices, package integrity
 and source revision are retained in [web/runtime/README.md](web/runtime/README.md).
