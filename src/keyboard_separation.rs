@@ -636,6 +636,15 @@ pub fn separate(audio: &Path, model: &Path, dir: &Path) -> Result<()> {
             number + 1,
             plan.starts.len()
         );
+        crate::generation_progress::units(
+            format!(
+                "Separating higher-quality piano · chunk {} of {}",
+                number + 1,
+                plan.starts.len()
+            ),
+            number,
+            plan.starts.len(),
+        );
         let result = session.run(
             ort::inputs!["input"=>Tensor::from_array(([1,TIME_FRAMES,FREQUENCIES*4],input))?],
         )?;

@@ -69,3 +69,7 @@
   font-size:11px;
   line-height:1.5;
 }
+.chart-library-picker { display: flex; align-items: center; gap: .35rem; min-width: 0; max-width: 34%; font-size: .8rem; }
+.chart-library-picker select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+.welcome-chart-list { display: grid; gap: .5rem; max-height: 35vh; overflow-y: auto; }
+.welcome-library { width: 100%; }

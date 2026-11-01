@@ -22,6 +22,34 @@ The draft opens in the editor when generation finishes. Listen through each
 part before exporting. Generated notes can be missing, extra or on the wrong
 instrument. The original recording stays separate from your edits.
 
+## Progress and saved files
+
+Desktop generation shows the current operation and elapsed time. Separation
+reports completed audio chunks; note detection reports the recording time it has
+processed. The progress bar describes the current step, rather than estimating
+the whole job. Model downloads report transferred bytes. Expand **Recent worker
+activity** for the latest worker messages. Closing the dialog leaves a progress
+button in the corner; select it to reopen the job.
+
+Model inference can still take several minutes, especially the first time a GPU
+model loads. Matching separation caches and completed job stages are reused on
+retry. YACE does not discard a completed separation when chart generation fails.
+
+Each generated song has one destination folder:
+
+```text
+Song chart/
+  input/       preserved recording and import information
+  project/     editing project, source snapshot, retained stems and undo history
+  game-song/   game export, with separate audio channels when stems are complete
+  song/        generated chart before manual edits
+  request.json, job.json, progress.json, worker.log
+```
+
+Open the destination folder or its `project` child to continue editing. Export
+again after making edits; `game-song` is the initial generated draft. Stem caches
+are reusable acceleration data; the editing project retains its own audio copies.
+
 ## Options
 
 Expand **Generation options** to control model downloads, lyric lookup, standard

@@ -23,8 +23,10 @@ impl Control {
     }
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn update(&self, message: impl Into<String>) {
+        let message = message.into();
+        crate::generation_progress::detail(&message);
         if let Ok(mut current) = self.message.lock() {
-            *current = message.into();
+            *current = message;
         }
     }
     #[cfg(not(target_arch = "wasm32"))]

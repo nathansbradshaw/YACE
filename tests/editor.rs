@@ -59,6 +59,127 @@ fn command(store: &Store, action: Action) -> Applied {
 }
 
 #[test]
+fn pause_saves_the_audio_cursor_once_without_drifting_or_changing_notes() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = fixture(temp.path());
+    command(&store, Action::Playback { playing: true });
+    let playing = store.load().unwrap();
+    let cursor = 1.2345;
+    command(&store, Action::Pause { seconds: cursor });
+    let paused = store.load().unwrap();
+    assert_eq!(paused.revision, playing.revision + 1);
+    assert!(!paused.transport.playing);
+    assert_eq!(paused.transport.position, cursor);
+    // Saving or displaying later cannot advance the frozen audio cursor.
+    assert_eq!(
+        paused.transport.position_at(u64::MAX, paused.duration),
+        cursor
+    );
+    assert_eq!(paused.content.tracks, playing.content.tracks);
+    assert_eq!(paused.undo, playing.undo);
+    assert_eq!(paused.redo, playing.redo);
+    assert!(
+        matches!(paused.audit.last().unwrap().action, Action::Pause { seconds } if seconds == cursor)
+    );
+}
+
+#[test]
+fn invalid_pause_positions_do_not_change_the_saved_transport() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = fixture(temp.path());
+    command(&store, Action::Playback { playing: true });
+    let before = store.load().unwrap();
+    for seconds in [-0.1, before.duration + 0.1, f64::NAN, f64::INFINITY] {
+        assert!(
+            store
+                .apply(Request {
+                    expected_revision: before.revision,
+                    actor: Actor {
+                        kind: ActorKind::Human,
+                        name: "Pause test".into()
+                    },
+                    action: Action::Pause { seconds },
+                })
+                .is_err()
+        );
+        assert_eq!(store.load().unwrap().revision, before.revision);
+    }
+}
+
+#[cfg(feature = "editor")]
+mod pause_ui {
+    use super::*;
+    use chart_engine::editor::{Action, Store};
+    use chart_engine::studio::state::{Studio, use_studio};
+    use dioxus::prelude::*;
+    use std::{cell::RefCell, rc::Rc, sync::Arc};
+
+    type Slot = Rc<RefCell<Option<Studio>>>;
+    fn paused_window() -> Element {
+        let mut studio = use_studio();
+        let (store, stale, slot) = use_context::<(Store, Project, Slot)>();
+        use_hook(move || {
+            studio.store.set(Some(store));
+            studio.doc.set(Some(Arc::new(stale)));
+            studio.playhead.set(1.5);
+            studio.dispatch(Action::Playback { playing: false });
+            *slot.borrow_mut() = Some(studio);
+        });
+        rsx! { div {} }
+    }
+
+    #[tokio::test]
+    async fn a_save_conflict_does_not_resume_the_local_transport() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = fixture(temp.path());
+        let mut stale = store.load().unwrap();
+        stale.transport.playing = true;
+        command(&store, Action::Playback { playing: true });
+        let revision = store.load().unwrap().revision;
+        let slot = Rc::new(RefCell::new(None::<Studio>));
+        let mut dom = VirtualDom::new(paused_window);
+        dom.provide_root_context((store.clone(), stale, slot.clone()));
+        dom.rebuild_to_vec();
+        let studio = slot.borrow().unwrap();
+        assert!(!studio.snapshot().unwrap().transport.playing);
+        assert_eq!(studio.snapshot().unwrap().transport.position, 1.5);
+        assert_eq!((studio.playhead)(), 1.5);
+        assert!((studio.error)().unwrap().contains("Revision conflict"));
+        assert_eq!(store.load().unwrap().revision, revision);
+    }
+
+    fn ended_window() -> Element {
+        let mut studio = use_studio();
+        let (store, slot) = use_context::<(Store, Slot)>();
+        use_hook(move || {
+            let mut project = store.load().unwrap();
+            project.transport.playing = true;
+            studio.playhead.set(project.duration + 0.001);
+            studio.store.set(Some(store));
+            studio.doc.set(Some(Arc::new(project)));
+            studio.dispatch(Action::Playback { playing: false });
+            *slot.borrow_mut() = Some(studio);
+        });
+        rsx! { div {} }
+    }
+
+    #[tokio::test]
+    async fn an_implicit_pause_clamps_output_rounding_at_the_end_of_the_recording() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = fixture(temp.path());
+        let slot = Rc::new(RefCell::new(None::<Studio>));
+        let mut dom = VirtualDom::new(ended_window);
+        dom.provide_root_context((store.clone(), slot.clone()));
+        dom.rebuild_to_vec();
+        let studio = slot.borrow().unwrap();
+        assert!((studio.error)().is_none());
+        let saved = store.load().unwrap();
+        assert!(!saved.transport.playing);
+        assert_eq!(saved.transport.position, saved.duration);
+    }
+}
+
+#[test]
 fn vocals_share_track_selection_and_undo_without_changing_instruments() {
     let temp = tempfile::tempdir().unwrap();
     let store = fixture(temp.path());

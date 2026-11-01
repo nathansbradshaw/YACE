@@ -6,8 +6,23 @@ Rust project, command validation and recovery history.
 ## Open a project
 
 - **Import audio** generates a new draft from a recording.
-- **Open song folder** copies an existing chart into a new review project.
-- **Open saved project** continues a YACE project.
+- On desktop, **Open charting folder** accepts a song, a saved project, or an
+  entire collection. YACE searches up to three folders below the chosen folder.
+  Pick a chart from the welcome list or the **Charts** selector beside the song
+  title. Switch charts there without opening another window. Songs with the same
+  title show their relative folder paths so you can distinguish them.
+- **Open saved project** also finds projects inside a containing folder. Selecting
+  a child of a saved project finds the project up to three parents above it.
+- In the browser host, **Open song folder** keeps the existing separate-copy flow.
+
+Desktop collections keep editing copies in `.yace/projects/` under the collection.
+Each source folder has its own stable project directory, so switching away and
+back reopens the same edits and undo history. When opening a single song directly,
+the `.yace` folder lives beside that song. Original charts and audio stay in place.
+Keep `.yace` with your collection when moving or backing it up. Existing saved
+projects open in place; YACE does not reorganize or delete your existing folders.
+Generated jobs retain their `input`, `song`, and `project` folders in
+the generation destination you selected.
 
 Keep the whole review-project folder. It contains the source copy, saved edits
 and undo history. YACE saves chart edits automatically after each successful

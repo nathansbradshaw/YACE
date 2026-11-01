@@ -609,6 +609,7 @@ pub fn transcribe_with_isolation(
     // Recheck the full manifest after inference to catch changed input files.
     out.isolation = manifest.clone();
     if wanted.iter().any(|n| n == "drums") {
+        crate::generation_progress::detail("Transcribing drums and detecting cymbal articulations");
         let drum_audio = if manifest.is_some() {
             find_stem("drums")?
         } else {
@@ -647,6 +648,7 @@ pub fn transcribe_with_isolation(
         out.warnings.push("ADTOF's raw five-class hits and clocks are retained. An installed detailed drum model can propose ride/crash on existing source-bound Expert cymbal hits; ambiguous/colliding votes retain the generic lane. Tom-register diagnostics do not change notes. All articulation decisions need review; model scores are not accuracy probabilities.".into());
     }
     if wanted.iter().any(|n| n == "guitar") {
+        crate::generation_progress::detail("Transcribing guitar pitches and attacks");
         out.guitar_source = options.guitar_source;
         let inference = models::guitar_pitch_with_evidence_for_source(
             &find_stem(options.guitar_source.stem().as_str())?,
@@ -671,6 +673,7 @@ pub fn transcribe_with_isolation(
         }
     }
     if wanted.iter().any(|n| n == "bass") {
+        crate::generation_progress::detail("Transcribing bass and resolving note lengths");
         crate::bass_analysis::infer(
             &mut out,
             &find_stem("bass")?,
@@ -678,6 +681,7 @@ pub fn transcribe_with_isolation(
         )?;
     }
     if wanted.iter().any(|n| n == "piano" || n == "pro_piano") {
+        crate::generation_progress::detail("Transcribing keyboard notes and key releases");
         let evidence = crate::keyboard_detection::detect(
             audio,
             keyboard_analysis

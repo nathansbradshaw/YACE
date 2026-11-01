@@ -264,6 +264,38 @@ mod native {
         pub fn apply(mut self, store: &Store, project: &mut Project) -> Result<()> {
             self.target.validate(store, project)?;
             let track = self.target.track;
+            let audio = store.audio_path(project)?;
+            let mut attached = false;
+            let mut retain =
+                |existing: &mut Option<crate::stem_review::StemManifest>,
+                 candidate: Option<&crate::stem_review::StemManifest>| {
+                    if existing.is_some() {
+                        return;
+                    }
+                    let Some(candidate) = candidate else {
+                        return;
+                    };
+                    match candidate.validate_source(&audio, &project.audio_sha256, project.duration)
+                    .and_then(|manifest| crate::stem_review::game_audio::retain(&store.root, &manifest)) {
+                    Ok(manifest) => { *existing = Some(manifest); attached = true; }
+                    Err(error) => project.review.coverage_limits.push(format!("Generated stems were not attached: {error:#}. Existing recording and part audio were kept.")),
+                }
+                };
+            // Keep established audition sources. A newly generated part may
+            // supply the first primary set, but never replaces another set.
+            retain(
+                &mut project.content.stems,
+                self.generated.content.stems.as_ref(),
+            );
+            if crate::keys::is_keys(&track) {
+                retain(
+                    &mut project.content.keyboard_stems,
+                    self.generated.content.keyboard_stems.as_ref(),
+                );
+            }
+            if attached {
+                project.content.stem_mix = Default::default();
+            }
             if track == "Vocals" {
                 project.content.vocals = self.generated.content.vocals;
                 project.content.vocal_review = self.generated.content.vocal_review;
