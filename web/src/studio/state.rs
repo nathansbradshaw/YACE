@@ -784,6 +784,15 @@ impl Studio {
             let duration =
                 super::media::duration(crate::storage::shared(&audio)?.as_slice()).await?;
             Store::new(&root).initialize(&root.join("source"), None, duration)?;
+            let report = crate::song_layout::resolve(
+                &root.join("source"),
+                "chart-engine-vocal-generation.json",
+            );
+            if crate::storage::is_file(&report) {
+                let report = serde_json::from_slice(&crate::storage::read(report)?)?;
+                let store = Store::new(&root);
+                crate::vocal_review::attach_generation(&store, store.load()?, &report)?;
+            }
             self.open_project(root).await?;
         }
         Ok(true)

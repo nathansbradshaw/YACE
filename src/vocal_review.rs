@@ -18,6 +18,34 @@ fn valid_hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+/// Attach fresh generation diagnostics only to their unchanged chart witness.
+/// Existing reviewer edits and an already attached review map take precedence.
+pub fn attach_generation(
+    store: &crate::editor::Store,
+    mut project: Project,
+    report: &Generation,
+) -> Result<Project> {
+    if project.content.vocal_review.is_none()
+        && let Some(document) = report.chart.as_ref().filter(|document| {
+            report.timing.is_some() && project.content.vocals.as_ref() == Some(*document)
+        })
+    {
+        store.apply(crate::editor::Request {
+            expected_revision: project.revision,
+            actor: crate::editor::Actor {
+                kind: crate::editor::ActorKind::Ai,
+                name: "YACE vocal diagnostics".into(),
+            },
+            action: crate::editor::Action::SetVocalGeneration {
+                document: document.clone(),
+                review: VocalReviewMap::from_generation(report)?,
+            },
+        })?;
+        project = store.load()?;
+    }
+    Ok(project)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct VocalReviewRegion {

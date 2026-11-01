@@ -5,10 +5,10 @@ before additional product features ship. Use one source revision and the same
 full-length song project for acceptance. Sharing Rust modules establishes shared
 rules; it does not establish that both applications expose working controls.
 
-The sole approved exception is AI inference: browser generation, separation,
-recognition and assistant backends stay disabled when they cannot run entirely
-inside the browser. No optional application service is substituted. Reviewing
-saved results and manual tools are still in scope.
+The user has expanded the parity gate to include local browser generators and
+vocals/instrument separation. The earlier blanket inference exception no longer
+closes this work. No application service is substituted. Browser generation is
+under active implementation; see [its acceptance record](BROWSER_GENERATORS.md).
 
 ## Acceptance ledger
 
@@ -18,7 +18,8 @@ saved results and manual tools are still in scope.
 | Instrument/difficulty editing | Shared command tests plus actual guitar timing/Tap, Keys, Pro Keys, vocal editing, and native edit/Undo; paired full-song MIDI/master/vocal export matches | Verified supported workflows |
 | Timing, sections and Star Power | Browser edits/Undo and native tempo, section and phrase Add/Undo exercised through their actual dialogs | Verified |
 | Playback, seek, loop, speed and waveform | Full 243.880 s browser playthrough; native whole-song playback; browser loop/speed; all five saved kit components at 75%; native kit backup opened at saved speed/selection | Verified; acoustic synchronization is unmeasured |
-| Supplied stems and part analysis | Real full-length supplied drums, worker validation, native cached kit analysis/audition and portable roundtrip; attachment Undo/Redo replaced actual browser audio channels | Verified supplied/cached workflows; new inference uses the AI exception |
+| Supplied stems and part analysis | Real full-length supplied drums, worker validation, native cached kit analysis/audition and portable roundtrip; attachment Undo/Redo replaced actual browser audio channels | Verified supplied/cached workflows |
+| Local generation and separation | Actual browser six-stem inference and drum/guitar/bass detections compared with native on a real excerpt; generated draft opened, played, edited/undone and exported | In progress: the complete new-generator full-song gate remains open |
 | Manual clean audio | Both actual panels rendered the same bound plan; native output matched shared DSP exactly; 10,755,108 browser stereo frames, zero lag, maximum decoder delta 0.00000054 | Verified functional render; musical acceptance remains with the listener |
 | Review and flags | Shared rules, actual browser queue/decisions and portable source-bound review history | Verified |
 | Team proposals | Actual browser proposal → native import/independent approval/merge → browser conflict resolution → fresh native approval → browser merge; new parts preserved | Verified file exchange and protocol tests. Authenticated GitHub writes remain untested at the user's request |

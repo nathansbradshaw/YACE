@@ -94,7 +94,7 @@ this does not establish sample-perfect stem synchronization or acoustic latency.
 
 **Part analysis** runs the shared read-only analysis on a local Rust worker.
 Existing validated kit results can be reviewed and auditioned; generating new
-separations remains subject to the AI exception below. **Clean audio** accepts
+separations is being verified separately below. **Clean audio** accepts
 word timings, saved plans and manual ranges. It auditions the source and renders
 a separate float WAV, plan and receipt locally. Download and listen to the
 rendered copy before accepting it; clean-panel edits require an explicit saved
@@ -102,10 +102,14 @@ plan or export.
 
 ## Generation and collaboration
 
-**Audio-to-chart AI generation is disabled in the static browser build.** The
-current model runners require native ONNX/separation/alignment dependencies.
-No service is substituted, and no weaker heuristic is presented as generation.
-Existing generated projects, evidence and manual editing remain available.
+**Local browser generation is under active verification.** The Rust six-stem
+separator runs on WebGPU in a dedicated worker. The same pinned instrument
+models run through ONNX Runtime WASM, with shared Rust decoding, recovery,
+arrangement and export. Downloads are checksum verified and cached locally;
+an already-downloaded pinned model can also be selected using the OS picker.
+No recording is sent to an inference service. The small upstream ONNX runtime
+loader is vendored; YACE's processing and orchestration remain Rust.
+See [generator acceptance and outstanding work](BROWSER_GENERATORS.md).
 
 **Collaborate** supports the shared proposal/comment/approval/conflict workflow
 through downloaded and imported review files against matching source material.

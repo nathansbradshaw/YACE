@@ -23,6 +23,23 @@ async fn cache() -> Result<web_sys::Cache> {
         .map_err(error)
 }
 
+/// A selected local file is accepted only as an exact catalogue checkpoint.
+pub async fn import(mut bytes: Vec<u8>) -> Result<String> {
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let asset = crate::models::assets()
+        .into_iter()
+        .find(|asset| asset.sha256 == digest)
+        .context("This file is not one of YACE's pinned model checkpoints")?;
+    let cache = cache()
+        .await
+        .context("Browser model storage is unavailable")?;
+    let response = web_sys::Response::new_with_opt_u8_array(Some(&mut bytes)).map_err(error)?;
+    JsFuture::from(cache.put_with_str(&asset.url, &response))
+        .await
+        .map_err(error)?;
+    Ok(asset.id)
+}
+
 pub async fn load(id: &str, progress: &mut impl FnMut(String)) -> Result<Vec<u8>> {
     let asset = crate::models::assets()
         .into_iter()

@@ -16,9 +16,20 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    Vocals {
+        audio: PathBuf,
+        manifest: crate::stem_review::StemManifest,
+        timing: crate::timing::TempoMap,
+        output: PathBuf,
+    },
+    CacheModel {
+        path: PathBuf,
+    },
     BuildDraft {
         audio: PathBuf,
         events: Box<crate::mapping::Transcription>,
+        #[serde(default)]
+        vocals: Option<Box<crate::vocal_generation::Generation>>,
         timing: crate::timing::TempoMap,
         meta: crate::pipeline::Metadata,
         pro: bool,
@@ -90,6 +101,17 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::Vocals {
+                audio, manifest, ..
+            } => std::iter::once(audio.clone())
+                .chain(
+                    manifest
+                        .stems
+                        .iter()
+                        .filter(|s| s.id == crate::stem_review::StemId::Vocals)
+                        .map(|s| s.path.clone()),
+                )
+                .collect(),
             Self::BuildDraft { audio, events, .. } => std::iter::once(audio.clone())
                 .chain(
                     events
@@ -119,7 +141,7 @@ impl Task {
                         .map(|stem| stem.path.clone()),
                 )
                 .collect(),
-            Self::Archive { .. } => Vec::new(),
+            Self::Archive { .. } | Self::CacheModel { .. } => Vec::new(),
             Self::Separate { audio, .. } => vec![audio.clone()],
             Self::Backup { .. } => Vec::new(),
             Self::Tempo { audio } | Self::InspectRecording { audio, .. } => vec![audio.clone()],
@@ -149,6 +171,7 @@ impl Task {
             Self::BuildDraft {
                 audio,
                 events,
+                vocals,
                 timing,
                 meta,
                 pro,
@@ -169,23 +192,42 @@ impl Task {
                     lookup_lyrics: false,
                 })?;
                 if let Some(manifest) = &events.isolation {
-                    let mut portable = manifest.clone();
+                    let mut portable = crate::stem_review::game_audio::retain_in(output, manifest)?;
                     for stem in &mut portable.stems {
-                        let path = output
-                            .join(".yace/audio/separated")
-                            .join(format!("{}.wav", stem.id.as_str()));
-                        crate::storage::copy(&stem.path, &path)?;
-                        stem.path =
-                            PathBuf::from("separated").join(format!("{}.wav", stem.id.as_str()));
+                        stem.path = stem
+                            .path
+                            .strip_prefix(output.join(".yace/audio"))?
+                            .to_owned();
                     }
                     crate::storage::write(
                         crate::song_layout::path(output, "chart-engine-isolation.json"),
                         serde_json::to_vec_pretty(&portable)?,
                     )?;
                 }
+                if let Some(vocals) = vocals {
+                    ensure!(
+                        vocals.audio_sha256 == crate::models::hash_file(audio)?
+                            && vocals.timing.as_ref() == Some(timing),
+                        "Vocal draft belongs to another source or timing map"
+                    );
+                    crate::storage::write(
+                        crate::song_layout::path(output, "chart-engine-vocal-generation.json"),
+                        serde_json::to_vec_pretty(vocals)?,
+                    )?;
+                    if let Some(chart) = &vocals.chart {
+                        chart.validate()?;
+                        crate::storage::write(
+                            crate::song_layout::path(output, "chart-engine-vocals.json"),
+                            serde_json::to_vec_pretty(chart)?,
+                        )?;
+                    }
+                }
                 Ok(report)
             }
-            Self::Separate { .. } | Self::Transcribe { .. } => {
+            Self::Separate { .. }
+            | Self::Transcribe { .. }
+            | Self::CacheModel { .. }
+            | Self::Vocals { .. } => {
                 anyhow::bail!("Separation requires the asynchronous GPU worker")
             }
             Self::Archive { .. } => Ok(serde_json::Value::Null),
@@ -407,6 +449,23 @@ async fn process(input: JsValue) -> Result<JsValue> {
             serde_json::to_vec_pretty(&events)?,
         )?;
         serde_json::to_value(events)?
+    } else if let Task::Vocals {
+        audio,
+        manifest,
+        timing,
+        output,
+    } = &task
+    {
+        let result =
+            crate::vocal_inference::generate(audio, manifest, timing, &mut progress).await?;
+        crate::storage::write(
+            output.join("vocal-generation.json"),
+            serde_json::to_vec_pretty(&result)?,
+        )?;
+        serde_json::to_value(result)?
+    } else if let Task::CacheModel { path } = &task {
+        progress("Verifying the selected model checkpoint…".into());
+        serde_json::to_value(crate::model_assets::import(crate::storage::read(path)?).await?)?
     } else {
         task.execute()?
     };
@@ -439,7 +498,8 @@ async fn process(input: JsValue) -> Result<JsValue> {
             files.push(&row);
         }
     }
-    if let Task::BuildDraft { output, .. }
+    if let Task::Vocals { output, .. }
+    | Task::BuildDraft { output, .. }
     | Task::InspectRecording { output, .. }
     | Task::Separate { output, .. }
     | Task::Transcribe { output, .. } = &task

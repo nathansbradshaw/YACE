@@ -1,6 +1,6 @@
 //! Thin Rust bindings to the pinned upstream ONNX Runtime WASM distribution.
 use anyhow::{Context, Result, ensure};
-use js_sys::{Array, Float32Array, Object, Promise, Reflect, Uint8Array};
+use js_sys::{Array, Float32Array, Float64Array, Object, Promise, Reflect, Uint8Array};
 use wasm_bindgen::{JsCast, JsValue, prelude::*};
 use wasm_bindgen_futures::JsFuture;
 
@@ -33,6 +33,11 @@ pub struct Output {
     pub shape: Vec<usize>,
     pub values: Vec<f32>,
 }
+pub struct Input<'a> {
+    pub name: &'a str,
+    pub values: &'a [f32],
+    pub shape: &'a [usize],
+}
 impl Runtime {
     pub async fn load(
         id: &str,
@@ -55,7 +60,8 @@ impl Runtime {
         }
         progress(format!("Loading {id} transcription model locally"));
         let session = JsFuture::from(
-            InferenceSession::create(&Uint8Array::from(weights.as_slice()), &options).map_err(error)?,
+            InferenceSession::create(&Uint8Array::from(weights.as_slice()), &options)
+                .map_err(error)?,
         )
         .await
         .map_err(error)?
@@ -63,24 +69,63 @@ impl Runtime {
         Ok(Self { session })
     }
     pub async fn run(&self, name: &str, values: &[f32], shape: &[usize]) -> Result<JsValue> {
-        ensure!(
-            shape.iter().try_fold(1usize, |a, b| a.checked_mul(*b)) == Some(values.len()),
-            "Invalid input tensor shape"
-        );
-        ensure!(
-            values.iter().all(|v| v.is_finite()),
-            "Nonfinite model input"
-        );
-        let dims = Array::new();
-        for dim in shape {
-            dims.push(&(*dim as f64).into());
-        }
-        let tensor = Tensor::new("float32", &Float32Array::from(values), &dims).map_err(error)?;
+        self.run_inputs(&[Input {
+            name,
+            values,
+            shape,
+        }])
+        .await
+    }
+    pub async fn run_inputs(&self, inputs: &[Input<'_>]) -> Result<JsValue> {
         let feeds = Object::new();
-        set(&feeds, name, &tensor)?;
+        for &Input {
+            name,
+            values,
+            shape,
+        } in inputs
+        {
+            ensure!(
+                shape.iter().try_fold(1usize, |a, b| a.checked_mul(*b)) == Some(values.len()),
+                "Invalid input tensor shape"
+            );
+            ensure!(
+                values.iter().all(|v| v.is_finite()),
+                "Nonfinite model input"
+            );
+            let dims = Array::new();
+            for dim in shape {
+                dims.push(&(*dim as f64).into());
+            }
+            let tensor =
+                Tensor::new("float32", &Float32Array::from(values), &dims).map_err(error)?;
+            set(&feeds, name, &tensor)?;
+        }
         JsFuture::from(self.session.run_js(&feeds).map_err(error)?)
             .await
             .map_err(error)
+    }
+    pub fn output_f64(outputs: &JsValue, name: &str) -> Result<(Vec<usize>, Vec<f64>)> {
+        let output = Reflect::get(outputs, &name.into()).map_err(error)?;
+        ensure!(!output.is_undefined(), "Model output missing {name}");
+        let dims = Array::from(&Reflect::get(&output, &"dims".into()).map_err(error)?)
+            .iter()
+            .map(|v| {
+                v.as_f64()
+                    .map(|v| v as usize)
+                    .context("Invalid output dimension")
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let data = Reflect::get(&output, &"data".into()).map_err(error)?;
+        ensure!(
+            data.is_instance_of::<Float64Array>(),
+            "Unexpected output type for {name}"
+        );
+        let values = Float64Array::new(&data).to_vec();
+        ensure!(
+            dims.iter().try_fold(1usize, |a, b| a.checked_mul(*b)) == Some(values.len()),
+            "Invalid output shape"
+        );
+        Ok((dims, values))
     }
     pub fn output(outputs: &JsValue, name: &str) -> Result<Output> {
         let output = Reflect::get(outputs, &name.into()).map_err(error)?;

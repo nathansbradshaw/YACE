@@ -127,6 +127,7 @@ pub mod timing;
 pub mod vocal_generation;
 #[path = "../../src/vocal_pitch.rs"]
 pub mod vocal_pitch;
+pub mod vocal_inference;
 #[path = "../../src/vocal_review.rs"]
 pub mod vocal_review;
 #[path = "../../src/vocals.rs"]

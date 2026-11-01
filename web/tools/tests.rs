@@ -1,21 +1,53 @@
 use super::audio_decode::{self, Pcm};
 
 #[test]
-#[ignore="Requires YACE_BROWSER_TRANSCRIPTION actual app download and YACE_NATIVE_TRANSCRIPTION reference"]
-fn actual_browser_transcription_matches_native_notes_and_source_clocks(){
-    use serde_json::Value;use std::fs;
-    let read=|key|->Value{serde_json::from_slice(&fs::read(std::env::var_os(key).expect("Explicit real model output required")).unwrap()).unwrap()};
-    let browser=read("YACE_BROWSER_TRANSCRIPTION");let native=read("YACE_NATIVE_TRANSCRIPTION");
-    assert_eq!(browser["isolation"]["source_audio_sha256"],native["isolation"]["source_audio_sha256"]);
-    for instrument in ["drums","guitar","bass"]{
-        let ours=browser[instrument].as_array().unwrap();let theirs=native[instrument].as_array().unwrap();assert_eq!(ours.len(),theirs.len(),"{instrument} detection count");
-        let mut max_time=0f64;let mut max_score=0f64;
-        for(a,b)in ours.iter().zip(theirs){
-            for field in if instrument=="drums"{vec!["time"]}else{vec!["start","end"]}{let delta=(a[field].as_f64().unwrap()-b[field].as_f64().unwrap()).abs();max_time=max_time.max(delta);assert!(delta<1e-9,"{instrument} {field} differs: {a} / {b}");}
-            let identity=if instrument=="drums"{"voice"}else{"pitch"};assert_eq!(a[identity],b[identity],"{instrument} note identity");
-            let delta=(a["confidence"].as_f64().unwrap()-b["confidence"].as_f64().unwrap()).abs();max_score=max_score.max(delta);assert!(delta<0.002,"{instrument} score differs");
+#[ignore = "Requires YACE_BROWSER_TRANSCRIPTION actual app download and YACE_NATIVE_TRANSCRIPTION reference"]
+fn actual_browser_transcription_matches_native_notes_and_source_clocks() {
+    use serde_json::Value;
+    use std::fs;
+    let read = |key| -> Value {
+        serde_json::from_slice(
+            &fs::read(std::env::var_os(key).expect("Explicit real model output required")).unwrap(),
+        )
+        .unwrap()
+    };
+    let browser = read("YACE_BROWSER_TRANSCRIPTION");
+    let native = read("YACE_NATIVE_TRANSCRIPTION");
+    assert_eq!(
+        browser["isolation"]["source_audio_sha256"],
+        native["isolation"]["source_audio_sha256"]
+    );
+    for instrument in ["drums", "guitar", "bass"] {
+        let ours = browser[instrument].as_array().unwrap();
+        let theirs = native[instrument].as_array().unwrap();
+        assert_eq!(ours.len(), theirs.len(), "{instrument} detection count");
+        let mut max_time = 0f64;
+        let mut max_score = 0f64;
+        for (a, b) in ours.iter().zip(theirs) {
+            for field in if instrument == "drums" {
+                vec!["time"]
+            } else {
+                vec!["start", "end"]
+            } {
+                let delta = (a[field].as_f64().unwrap() - b[field].as_f64().unwrap()).abs();
+                max_time = max_time.max(delta);
+                assert!(delta < 1e-9, "{instrument} {field} differs: {a} / {b}");
+            }
+            let identity = if instrument == "drums" {
+                "voice"
+            } else {
+                "pitch"
+            };
+            assert_eq!(a[identity], b[identity], "{instrument} note identity");
+            let delta =
+                (a["confidence"].as_f64().unwrap() - b["confidence"].as_f64().unwrap()).abs();
+            max_score = max_score.max(delta);
+            assert!(delta < 0.002, "{instrument} score differs");
         }
-        eprintln!("{instrument}: {} notes, maximum time delta {max_time}, maximum score delta {max_score}",ours.len());
+        eprintln!(
+            "{instrument}: {} notes, maximum time delta {max_time}, maximum score delta {max_score}",
+            ours.len()
+        );
     }
 }
 

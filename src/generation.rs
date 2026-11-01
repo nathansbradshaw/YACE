@@ -1411,24 +1411,7 @@ fn run_inner(root: &Path) -> Result<()> {
     if project.content.vocal_review.is_none() && vocal_report.is_file() {
         let report: crate::vocal_generation::Generation =
             serde_json::from_slice(&fs::read(&vocal_report)?)?;
-        // A reviewer may have edited the project before this retry.
-        // Attach diagnostics only if it still matches the generated document.
-        if let Some(document) = report.chart.as_ref().filter(|document| {
-            report.timing.is_some() && project.content.vocals.as_ref() == Some(*document)
-        }) {
-            store.apply(crate::editor::Request {
-                expected_revision: project.revision,
-                actor: crate::editor::Actor {
-                    kind: crate::editor::ActorKind::Ai,
-                    name: "YACE vocal diagnostics".into(),
-                },
-                action: crate::editor::Action::SetVocalGeneration {
-                    document: document.clone(),
-                    review: crate::vocal_review::VocalReviewMap::from_generation(&report)?,
-                },
-            })?;
-            project = store.load()?;
-        }
+        project = crate::vocal_review::attach_generation(&store, project, &report)?;
     }
     if !root.join("game-song").exists() {
         update(

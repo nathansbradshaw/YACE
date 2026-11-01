@@ -53,33 +53,53 @@ impl Pcm {
             ((frames as u64 * rate as u64 + self.rate as u64 / 2) / self.rate as u64) as usize;
         let cutoff = (rate as f64 / self.rate as f64).min(1.) * 0.94;
         let radius = (32. / cutoff).ceil() as i64;
+        let mut a = rate;
+        let mut b = self.rate;
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        let gcd = a;
+        let phases = (rate / gcd) as usize;
+        // The fractional positions repeat exactly for integer sample rates.
+        // Build each filter phase once, rather than evaluating three trig
+        // functions for every tap of every sample of a complete song.
+        let mut kernels = std::collections::BTreeMap::new();
         let mut out = Vec::with_capacity(count * channels as usize);
         for frame in 0..count {
-            let position = frame as f64 * self.rate as f64 / rate as f64;
-            let center = position.floor() as i64;
-            let mut sum = [0.; 2];
-            let mut weight = 0.;
-            for index in center - radius..=center + radius {
-                let distance = index as f64 - position;
-                let window = distance / radius as f64;
-                if window.abs() > 1. {
-                    continue;
+            let numerator = frame as u64 * self.rate as u64;
+            let center = (numerator / rate as u64) as i64;
+            let phase = ((numerator % rate as u64) / gcd as u64) as usize;
+            let (kernel, weight) = kernels.entry(phase).or_insert_with(|| {
+                let fraction = phase as f64 / phases as f64;
+                let mut taps = Vec::with_capacity((radius * 2 + 1) as usize);
+                let mut weight = 0.;
+                for offset in -radius..=radius {
+                    let distance = offset as f64 - fraction;
+                    let window = distance / radius as f64;
+                    if window.abs() > 1. {
+                        continue;
+                    }
+                    let x = std::f64::consts::PI * distance * cutoff;
+                    let sinc = if x.abs() < 1e-12 { 1. } else { x.sin() / x };
+                    let w = sinc
+                        * (0.42
+                            + 0.5 * (std::f64::consts::PI * window).cos()
+                            + 0.08 * (2. * std::f64::consts::PI * window).cos());
+                    taps.push((offset, w));
+                    weight += w;
                 }
-                let x = std::f64::consts::PI * distance * cutoff;
-                let sinc = if x.abs() < 1e-12 { 1. } else { x.sin() / x };
-                let w = sinc
-                    * (0.42
-                        + 0.5 * (std::f64::consts::PI * window).cos()
-                        + 0.08 * (2. * std::f64::consts::PI * window).cos());
-                let i = index.clamp(0, frames as i64 - 1) as usize * 2;
+                (taps, weight)
+            });
+            let mut sum = [0.; 2];
+            for &(offset, w) in kernel.iter() {
+                let i = (center + offset).clamp(0, frames as i64 - 1) as usize * 2;
                 sum[0] += self.stereo[i] as f64 * w;
                 sum[1] += self.stereo[i + 1] as f64 * w;
-                weight += w;
             }
             if channels == 1 {
-                out.push(((sum[0] + sum[1]) * mono_gain as f64 / weight) as f32);
+                out.push(((sum[0] + sum[1]) * mono_gain as f64 / *weight) as f32);
             } else {
-                out.extend(sum.map(|s| (s * stereo_gain as f64 / weight) as f32));
+                out.extend(sum.map(|s| (s * stereo_gain as f64 / *weight) as f32));
             }
         }
         Ok(out)
