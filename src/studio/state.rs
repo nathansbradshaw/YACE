@@ -999,7 +999,9 @@ impl Studio {
         }
     }
     pub fn open_dialog(self) {
-        spawn(async move {
+        // Opening a chart removes the welcome screen. Keep its load task owned
+        // by the app so audio preparation and library cleanup can finish.
+        dioxus::core::spawn_forever(async move {
             if let Some(path) = rfd::AsyncFileDialog::new()
                 .set_title("Open a YACE project or charting folder (searches 3 levels)")
                 .pick_folder()

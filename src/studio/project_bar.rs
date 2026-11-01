@@ -37,7 +37,7 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
                             onchange: move |event| {
                                 #[cfg(not(feature = "browser"))]
                                 if let Ok(index) = event.value().parse::<usize>() {
-                                    spawn(async move { studio.open_library_chart(index).await; });
+                                    dioxus::core::spawn_forever(async move { studio.open_library_chart(index).await; });
                                 }
                                 #[cfg(feature = "browser")]
                                 let _ = event;
