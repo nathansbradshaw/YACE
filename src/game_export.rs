@@ -95,6 +95,9 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
                     let (tick, body) = event(line)?;
                     let fields: Vec<_> = body.split_whitespace().collect();
                     match fields.as_slice() {
+                        // Anchors constrain editing, while B events define the
+                        // playable clock. The bound chart retains A metadata.
+                        ["A", _] => {}
                         ["B", value] => {
                             let bpm = value.parse::<f64>()? / 1000.;
                             let us = (60_000_000. / bpm).round();

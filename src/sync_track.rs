@@ -7,6 +7,8 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
+#[path = "sync_track/anchors.rs"]
+pub mod anchors;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -194,6 +196,7 @@ pub fn apply(project: &mut Project, source: &Chart, edit: &Edit) -> Result<()> {
     };
     sync.tempos.sort_by_key(|t| t.tick);
     sync.meters.sort_by_key(|m| m.tick);
+    anchors::constrain(&mut sync.tempos, source, edit)?;
     let timing = sync.validate(&source.timing)?;
     ensure!(
         timing.seconds(tick).is_finite() && timing.seconds(tick) <= project.duration,
@@ -210,7 +213,8 @@ pub fn apply(project: &mut Project, source: &Chart, edit: &Edit) -> Result<()> {
 pub fn render(text: String, sync: &Option<SyncTrack>) -> Result<String> {
     let Some(sync) = sync else { return Ok(text) };
     let chart = Chart::parse(text)?;
-    sync.validate(&chart.timing)?;
+    let clock = sync.validate(&chart.timing)?;
+    anchors::validate(&anchors::from_chart(&chart)?, &clock)?;
     let newline = if chart.raw.contains("\r\n") {
         "\r\n"
     } else {

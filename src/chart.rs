@@ -1,5 +1,5 @@
 use crate::timing::{Tempo, TempoMap};
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -86,11 +86,6 @@ impl Chart {
         for line in body("SyncTrack").lines() {
             if let Some((tick, event)) = line.split_once('=') {
                 let words: Vec<_> = event.split_whitespace().collect();
-                if words.first() == Some(&"A") {
-                    bail!(
-                        "Anchored .chart timing is not supported yet; refusing to misalign new notes"
-                    );
-                }
                 if words.first() == Some(&"B") {
                     ensure!(words.len() == 2, "Malformed tempo event");
                     tempos.push(Tempo {
@@ -101,6 +96,8 @@ impl Chart {
             }
         }
         let timing = TempoMap::new(resolution, chart_offset, tempos)?;
+        let anchors = crate::sync_track::anchors::parse(body("SyncTrack"))?;
+        crate::sync_track::anchors::validate(&anchors, &timing)?;
         Ok(Self {
             raw,
             sections,
