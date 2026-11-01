@@ -172,7 +172,10 @@ pub(super) fn validate(manifest: &StemManifest, source: &Path) -> Result<()> {
             "Stem files must be distinct from the original and one another"
         );
         ensure!(
-            frames(&path, &asset.sha256, true)? == manifest.frames,
+            frames(&path, &asset.sha256, true).with_context(|| format!(
+                "Attached {} stem changed or is invalid",
+                asset.id.as_str()
+            ))? == manifest.frames,
             "{} stem must have exactly the source's decoded frame count",
             asset.id.as_str()
         );
@@ -184,7 +187,7 @@ pub(super) fn validate(manifest: &StemManifest, source: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::cell::Cell;

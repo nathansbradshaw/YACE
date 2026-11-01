@@ -118,7 +118,7 @@ fn main() -> Result<()> {
             "instruments":["guitar","bass","drums"],"model_dir":model_dir,"fetch_models":false,"lyrics":false
         }))?;
         let destination = temp.path().join(format!("generation-{name}"));
-        let (root, total_ms) = phase(&format!("complete generation {name}"), || {
+        let (_, total_ms) = phase(&format!("complete generation {name}"), || {
             let root = generation::create(request, &destination)?;
             ensure!(
                 std::process::Command::new(std::env::current_exe()?)
@@ -130,7 +130,7 @@ fn main() -> Result<()> {
             );
             Ok(root)
         })?;
-        let project = project_in(&root, 6)?.context("Generated project missing")?;
+        let project = project_in(&destination, 6)?.context("Generated project missing")?;
         let store = chart_engine::editor::Store::new(&project);
         let doc = store.load()?;
         jobs.push(json!({"cache":name,"total_ms":total_ms,"chart_sha256":doc.chart_hash(&store)?,"note_count":doc.content.tracks.values().map(Vec::len).sum::<usize>()}));
