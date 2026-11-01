@@ -14,9 +14,21 @@ use std::{
 struct Prepared {
     root: PathBuf,
     selected: KitAudition,
+    set: DrumPartSet,
     files: Vec<(PathBuf, Arc<Vec<u8>>)>,
 }
 thread_local! {static PREPARED:std::cell::RefCell<Option<Prepared>>=std::cell::RefCell::default();}
+pub(crate) fn forget_root(root: &Path) {
+    PREPARED.with(|cache| {
+        let clear = cache
+            .borrow()
+            .as_ref()
+            .is_some_and(|prepared| prepared.root.starts_with(root));
+        if clear {
+            *cache.borrow_mut() = None;
+        }
+    });
+}
 pub(crate) fn remember_selection(
     store: &crate::editor::Store,
     project: &crate::editor::Project,
@@ -25,6 +37,11 @@ pub(crate) fn remember_selection(
     ensure!(
         selected.source_key == kit_source_key(project)?,
         "Kit source changed during preparation"
+    );
+    let set: DrumPartSet = serde_json::from_slice(&crate::storage::read(&selected.kit)?)?;
+    ensure!(
+        kit_descriptor(&set, &selected.part)? == selected,
+        "Prepared kit descriptor differs from its validated set"
     );
     let mut files = crate::storage::list(&store.root.join("analysis"))?;
     let audio = store.audio_path(project)?;
@@ -36,6 +53,7 @@ pub(crate) fn remember_selection(
         *cache.borrow_mut() = Some(Prepared {
             root: store.root.clone(),
             selected,
+            set,
             files,
         })
     });
@@ -52,9 +70,7 @@ pub fn select_kit_audition(
             .as_ref()
             .context("Prepare the saved kit on a local worker first")?;
         ensure!(
-            prepared.root == store.root
-                && prepared.selected.part == part
-                && prepared.selected.source_key == kit_source_key(project)?,
+            prepared.root == store.root && prepared.selected.source_key == kit_source_key(project)?,
             "Prepared kit belongs to another source or component"
         );
         ensure!(
@@ -65,7 +81,7 @@ pub fn select_kit_audition(
                     .is_ok_and(|current| Arc::ptr_eq(&current, bytes))),
             "Kit source files changed after validation"
         );
-        Ok(prepared.selected.clone())
+        kit_descriptor(&prepared.set, part)
     })
 }
 pub fn prepared_kit_path(

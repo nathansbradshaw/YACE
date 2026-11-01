@@ -121,6 +121,9 @@ pub fn is_file(path: impl AsRef<Path>) -> bool {
     FILES.with(|files| files.borrow().contains_key(path.as_ref()))
         || PROJECTS.with(|projects| projects.borrow().contains_key(path.as_ref()))
 }
+pub fn is_dir(path: impl AsRef<Path>) -> bool {
+    exists(&path) && !is_file(path)
+}
 pub fn list(root: &Path) -> io::Result<Vec<(PathBuf, Arc<Vec<u8>>)>> {
     let pending: Vec<_> = UNENCODED.with(|paths| {
         paths
@@ -143,6 +146,7 @@ pub fn list(root: &Path) -> io::Result<Vec<(PathBuf, Arc<Vec<u8>>)>> {
     }))
 }
 pub fn clear(root: &Path) {
+    crate::part_analysis::forget_root(root);
     PROJECTS.with(|projects| {
         projects
             .borrow_mut()
@@ -184,6 +188,12 @@ pub fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
     clear(path.as_ref());
     Ok(())
 }
+pub fn remove_dir(path: impl AsRef<Path>) -> io::Result<()> {
+    if exists(path) {
+        return Err(io::Error::other("Directory is not empty"));
+    }
+    Ok(())
+}
 pub fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u64> {
     invalidate(to.as_ref())?;
     DIRTY.with(|dirty| {
@@ -204,19 +214,22 @@ pub fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
             "Project source is missing",
         ));
     }
-    FILES.with(|files| {
-        let mut files = files.borrow_mut();
-        for (path, bytes) in items {
-            let relative = path.strip_prefix(from.as_ref()).unwrap();
-            let target = if relative.as_os_str().is_empty() {
-                to.as_ref().to_owned()
-            } else {
-                to.as_ref().join(relative)
-            };
-            files.remove(&path);
-            files.insert(target, bytes);
-        }
-    });
+    clear(from.as_ref());
+    for (path, bytes) in items {
+        let relative = path.strip_prefix(from.as_ref()).unwrap();
+        let target = if relative.as_os_str().is_empty() {
+            to.as_ref().to_owned()
+        } else {
+            to.as_ref().join(relative)
+        };
+        invalidate(&target)?;
+        DIRTY.with(|dirty| {
+            dirty.borrow_mut().insert(target.clone());
+        });
+        FILES.with(|files| {
+            files.borrow_mut().insert(target, bytes);
+        });
+    }
     Ok(())
 }
 pub fn pending(root: &Path) -> io::Result<Vec<(PathBuf, Arc<Vec<u8>>)>> {
@@ -263,6 +276,9 @@ pub struct Metadata {
     length: u64,
 }
 impl Metadata {
+    pub fn is_symlink(&self) -> bool {
+        false
+    }
     pub fn is_file(&self) -> bool {
         self.file
     }

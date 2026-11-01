@@ -168,9 +168,9 @@ pub fn App() -> Element {
     if (studio.review_open)(){review::ReviewPanel{studio}}
     if (studio.parts_open)(){parts::PartsPanel{studio}}
     if (studio.collaboration_open)(){collaboration::Collaboration{studio}}
-    if let Some((path,name))=(studio.export_ready)(){modal::Modal{id:"song-export",label:"Song export",onclose:move |_|studio.close_export(),h2{"Song export ready"}
-        p{"Download the playable song and review receipts. Your editing project stays saved in this browser."}
-        button{onclick:move |_|{let result=crate::storage::shared(&path).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download(&name,&bytes));if let Err(error)=result{let mut s=studio;s.error.set(Some(format!("{error:#}")));}},"Download song ZIP"}
+    if let Some((path,name,project))=(studio.export_ready)(){modal::Modal{id:"song-export",label:"ZIP download",onclose:move |_|studio.close_export(),h2{if project{"Project backup ready"}else{"Song export ready"}}
+        p{"Download the prepared copy. Your editing project stays saved in this browser."}
+        button{onclick:move |_|{let result=crate::storage::shared(&path).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download(&name,&bytes));if let Err(error)=result{let mut s=studio;s.error.set(Some(format!("{error:#}")));}},if project{"Download project ZIP"}else{"Download song ZIP"}}
         button{onclick:move |_|studio.close_export(),"Close"}
     }}
     if let Some(entries)=(studio.saved_projects)(){modal::Modal{id:"saved-projects",label:"Saved in this browser",onclose:move |_|{let mut s=studio;s.saved_projects.set(None);},h2{"Saved in this browser"}

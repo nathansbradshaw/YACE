@@ -22,6 +22,7 @@ pub mod parts;
 pub mod review_git;
 pub mod review_repository;
 pub mod sections;
+pub mod song_files;
 pub mod song_layout;
 pub mod song_metadata;
 pub mod star_power;

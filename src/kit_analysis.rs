@@ -266,6 +266,11 @@ pub fn load_project_drum_parts(store: &Store, project: &Project) -> Result<Optio
 /// checked, and the descriptor never admits an arbitrary caller-provided file.
 pub fn select_kit_audition(store: &Store, project: &Project, part: &str) -> Result<KitAudition> {
     let set = load_project_drum_parts(store, project)?.context("Split the drum kit first")?;
+    kit_descriptor(&set, part)
+}
+
+/// Construct a descriptor after the caller has validated the source-bound set.
+pub fn kit_descriptor(set: &DrumPartSet, part: &str) -> Result<KitAudition> {
     let file = set
         .parts
         .iter()

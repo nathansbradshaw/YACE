@@ -1,4 +1,7 @@
 //! Only portable song metadata is shared with native chart export.
+pub use crate::song_files::{
+    chart_file, copy_song_source, editable_chart_file, organize_song_stage, validate_existing,
+};
 pub use crate::song_metadata::*;
 use anyhow::Result;
 use std::path::Path;

@@ -17,7 +17,21 @@ pub struct Channel {
     pub element: HtmlAudioElement,
     pub gain: GainNode,
     _node: MediaElementAudioSourceNode,
-    url: String,
+    _url: ObjectUrl,
+}
+struct ObjectUrl(String);
+impl Drop for ObjectUrl {
+    fn drop(&mut self) {
+        let _ = web_sys::Url::revoke_object_url(&self.0);
+    }
+}
+struct PendingContext(Option<AudioContext>);
+impl Drop for PendingContext {
+    fn drop(&mut self) {
+        if let Some(context) = &self.0 {
+            let _ = context.close();
+        }
+    }
 }
 pub struct Media {
     context: AudioContext,
@@ -26,7 +40,7 @@ pub struct Media {
     waveforms: [super::state::ReviewWaveforms; 2],
     play_epoch: Rc<Cell<u64>>,
     error: Rc<RefCell<Option<String>>>,
-    kit: Option<Channel>,
+    kit: RefCell<Option<Channel>>,
     master: GainNode,
 }
 pub fn keyboard_stems(doc: &crate::editor::Project) -> bool {
@@ -103,14 +117,18 @@ fn channel(
     options.set_type("audio/wav");
     let blob =
         web_sys::Blob::new_with_u8_array_sequence_and_options(&chunks, &options).map_err(err)?;
-    let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(err)?;
-    let element = HtmlAudioElement::new_with_src(&url).map_err(err)?;
+    let url = ObjectUrl(web_sys::Url::create_object_url_with_blob(&blob).map_err(err)?);
+    let element = HtmlAudioElement::new_with_src(&url.0).map_err(err)?;
     element.set_preload("auto");
     js_sys::Reflect::set(&element, &"preservesPitch".into(), &true.into()).map_err(err)?;
     element
         .set_attribute("data-source", &path.to_string_lossy())
         .map_err(err)?;
     element.set_hidden(true);
+    let node = context.create_media_element_source(&element).map_err(err)?;
+    let gain = context.create_gain().map_err(err)?;
+    node.connect_with_audio_node(&gain).map_err(err)?;
+    gain.connect_with_audio_node(master).map_err(err)?;
     web_sys::window()
         .unwrap()
         .document()
@@ -119,16 +137,12 @@ fn channel(
         .unwrap()
         .append_child(&element)
         .map_err(err)?;
-    let node = context.create_media_element_source(&element).map_err(err)?;
-    let gain = context.create_gain().map_err(err)?;
-    node.connect_with_audio_node(&gain).map_err(err)?;
-    gain.connect_with_audio_node(master).map_err(err)?;
     element.load();
     Ok(Channel {
         element,
         gain,
         _node: node,
-        url,
+        _url: url,
     })
 }
 impl Media {
@@ -137,6 +151,7 @@ impl Media {
         doc: &crate::editor::Project,
     ) -> Result<(Self, super::state::ReviewWaveforms, String)> {
         let context = context()?;
+        let mut pending_context = PendingContext(Some(context.clone()));
         let master = context.create_gain().map_err(err)?;
         master
             .connect_with_audio_node(&context.destination())
@@ -224,9 +239,10 @@ impl Media {
             }),
             play_epoch: Rc::new(Cell::new(0)),
             error: Rc::new(RefCell::new(None)),
-            kit,
+            kit: RefCell::new(kit),
             master,
         };
+        pending_context.0.take();
         media.set_rate(doc.transport.playback_rate);
         media.seek(doc.transport.position);
         for _ in 0..500 {
@@ -258,6 +274,31 @@ impl Media {
     pub fn position(&self) -> f64 {
         self.original.element.current_time()
     }
+    /// The saved set has already been decoded and validated on a worker. Reuse
+    /// this graph and its clock instead of rebuilding every recording/stem.
+    pub fn replace_kit(
+        &self,
+        store: &crate::editor::Store,
+        doc: &crate::editor::Project,
+    ) -> Result<()> {
+        let selected = doc
+            .kit_audition
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Select a kit component"))?;
+        let path = crate::part_analysis::prepared_kit_path(store, doc, selected)?;
+        let candidate = channel(
+            &self.context,
+            &self.master,
+            &path,
+            crate::storage::shared(&path)?.as_slice(),
+        )?;
+        candidate
+            .element
+            .set_playback_rate(doc.transport.playback_rate);
+        candidate.element.set_current_time(doc.transport.position);
+        self.kit.replace(Some(candidate));
+        Ok(())
+    }
     pub fn paused(&self) -> bool {
         self.original.element.paused()
     }
@@ -271,7 +312,7 @@ impl Media {
         let mut promises: Vec<_> = promises.collect();
         for channel in std::iter::once(&self.original)
             .chain(self.stems.values())
-            .chain(self.kit.iter())
+            .chain(self.kit.borrow().iter())
         {
             promises.push(channel.element.play().map_err(err)?);
         }
@@ -290,7 +331,7 @@ impl Media {
         self.play_epoch.set(self.play_epoch.get().wrapping_add(1));
         for channel in std::iter::once(&self.original)
             .chain(self.stems.values())
-            .chain(self.kit.iter())
+            .chain(self.kit.borrow().iter())
         {
             let _ = channel.element.pause();
         }
@@ -298,7 +339,7 @@ impl Media {
     pub fn seek(&self, position: f64) {
         for channel in std::iter::once(&self.original)
             .chain(self.stems.values())
-            .chain(self.kit.iter())
+            .chain(self.kit.borrow().iter())
         {
             channel.element.set_current_time(position.max(0.));
         }
@@ -306,7 +347,7 @@ impl Media {
     pub fn set_rate(&self, rate: f64) {
         for channel in std::iter::once(&self.original)
             .chain(self.stems.values())
-            .chain(self.kit.iter())
+            .chain(self.kit.borrow().iter())
         {
             channel.element.set_playback_rate(rate);
         }
@@ -345,13 +386,13 @@ impl Media {
                 },
             );
         }
-        if let Some(channel) = &self.kit {
+        if let Some(channel) = self.kit.borrow().as_ref() {
             channel.gain.gain().set_value(if kit { 1. } else { 0. });
         }
     }
     pub fn synchronize(&self) {
         let position = self.position();
-        for channel in self.stems.values().chain(self.kit.iter()) {
+        for channel in self.stems.values().chain(self.kit.borrow().iter()) {
             if channel.element.ready_state() >= 1
                 && (channel.element.current_time() - position).abs() > 0.03
             {
@@ -364,7 +405,6 @@ impl Drop for Channel {
     fn drop(&mut self) {
         let _ = self.element.pause();
         self.element.remove();
-        let _ = web_sys::Url::revoke_object_url(&self.url);
     }
 }
 impl Drop for Media {

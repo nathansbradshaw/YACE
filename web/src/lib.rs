@@ -87,6 +87,8 @@ pub mod review_regions;
 pub mod review_repository;
 #[path = "../../src/sections.rs"]
 pub mod sections;
+#[path = "../../src/song_files.rs"]
+pub mod song_files;
 #[path = "../../src/song_layout.rs"]
 pub mod song_layout;
 #[path = "../../src/song_metadata.rs"]

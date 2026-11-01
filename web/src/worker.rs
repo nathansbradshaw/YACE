@@ -16,6 +16,10 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    Backup {
+        root: PathBuf,
+        output: PathBuf,
+    },
     Tempo {
         audio: PathBuf,
     },
@@ -60,6 +64,7 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::Backup { .. } => Vec::new(),
             Self::Tempo { audio } => vec![audio.clone()],
             Self::Relocate { .. } | Self::LoadKit { .. } | Self::SelectKit { .. } => Vec::new(),
             Self::Clean { audio, stem, .. } => {
@@ -84,6 +89,10 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
+            Self::Backup { root, .. } => {
+                crate::editor::Store::new(root).load()?;
+                Ok(serde_json::Value::Null)
+            }
             Self::Tempo { audio } => Ok(serde_json::to_value(crate::tempo_analysis::analyze(
                 audio,
             )?)?),
@@ -261,16 +270,17 @@ async fn process(input: JsValue) -> Result<JsValue> {
     let response = message("done")?;
     set(&response, "value", &serde_json::to_string(&result)?.into())?;
     let files = js_sys::Array::new();
-    if let Task::Clean { output, .. } | Task::Export { output, .. } = &task {
-        let bytes = crate::files::archive(output)?;
+    let archive = match &task {
+        Task::Clean { output, .. } | Task::Export { output, .. } => {
+            Some((output.clone(), output.with_extension("zip")))
+        }
+        Task::Backup { root, output } => Some((root.clone(), output.clone())),
+        _ => None,
+    };
+    if let Some((folder, output)) = archive {
+        let bytes = crate::files::archive(&folder)?;
         let row = js_sys::Array::new();
-        row.push(
-            &output
-                .with_extension("zip")
-                .to_string_lossy()
-                .as_ref()
-                .into(),
-        );
+        row.push(&output.to_string_lossy().as_ref().into());
         row.push(&js_sys::Uint8Array::from(bytes.as_slice()));
         files.push(&row);
     }
@@ -427,6 +437,36 @@ pub async fn run<T: serde::de::DeserializeOwned>(task: Task, roots: &[PathBuf]) 
         let response = exchange(&input).await?;
         match field(&response, "kind")?.as_string().as_deref() {
             Some("done") => {
+                if let Task::LoadKit {
+                    root,
+                    project,
+                    audio,
+                }
+                | Task::SelectKit {
+                    root,
+                    project,
+                    audio,
+                    ..
+                } = &task
+                {
+                    for (path, bytes) in &selected {
+                        if path == audio
+                            || path.starts_with(root.join("analysis"))
+                            || project
+                                .content
+                                .stems
+                                .iter()
+                                .flat_map(|m| &m.stems)
+                                .any(|asset| asset.path == *path)
+                        {
+                            ensure!(
+                                crate::storage::shared(path)
+                                    .is_ok_and(|current| std::sync::Arc::ptr_eq(&current, bytes)),
+                                "Kit input changed during validation; retry with the current source"
+                            );
+                        }
+                    }
+                }
                 let result = serde_json::from_str(
                     &field(&response, "value")?
                         .as_string()

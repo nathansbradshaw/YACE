@@ -34,12 +34,20 @@ pub fn backup(store: &Store, output: &Path) -> Result<()> {
     let mut files = Files::new();
     collect(&store.root, &store.root, &mut files)?;
     project_portability::validate_sources(&files, &doc)?;
+    use sha2::{Digest, Sha256};
+    let mut present: std::collections::BTreeSet<_> = files
+        .values()
+        .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
+        .collect();
     for (path, hash) in project_portability::referenced_stems(&files)? {
         if path.is_file() {
             ensure!(
                 models::hash_file(&path)?.eq_ignore_ascii_case(&hash),
                 "Attached stem checksum differs during backup"
             );
+            if !present.insert(hash.to_ascii_lowercase()) {
+                continue;
+            }
             let ext = path.extension().unwrap_or_default().to_string_lossy();
             files
                 .entry(format!("assets/stems/{hash}.{ext}"))

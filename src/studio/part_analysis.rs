@@ -83,6 +83,17 @@ fn restore_kit(studio: Studio, mut kit: KitUi, key: RequestKey, epoch: u64) {
         }
         match result {
             Ok(Ok(Some(set))) if set.source_key == key.content => {
+                #[cfg(target_arch = "wasm32")]
+                if let Some(part) = set.parts.first() {
+                    let proof =
+                        part_analysis::kit_descriptor(&set, &part.id).and_then(|selected| {
+                            part_analysis::remember_selection(&store, &project, selected)
+                        });
+                    if let Err(error) = proof {
+                        kit.error.set(Some((key, format!("{error:#}"))));
+                        return;
+                    }
+                }
                 kit.cached.set(Some(KitCache {
                     key,
                     set: Arc::new(set),
