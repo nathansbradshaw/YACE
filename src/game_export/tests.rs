@@ -172,3 +172,113 @@ fn rhythm_and_coop_still_refuse_orphan_controls_and_unknown_events() {
         }
     }
 }
+
+#[test]
+fn six_fret_exports_every_lane_difficulty_and_part_with_mixed_vocals_and_keys() {
+    let mut parts = String::from("[ExpertProKeys]\n{\n0 = N 60 120\n}\n");
+    for suffix in ["GHLGuitar", "GHLBass", "GHLRhythm", "GHLCoop", "GHLKeys"] {
+        for tier in ["Easy", "Medium", "Hard", "Expert"] {
+            parts.push_str(&format!("[{tier}{suffix}]\n{{\n"));
+            for (index, lane) in [0, 1, 2, 3, 4, 8, 7].iter().enumerate() {
+                parts.push_str(&format!("{} = N {lane} 30\n", index * 240));
+            }
+            parts.push_str("120 = N 8 30\n240 = N 5 0\n480 = N 6 0\n0 = S 2 1680\n120 = E solo\n1440 = E soloend\n}\n");
+        }
+    }
+    let source = chart(&parts);
+    let bytes = song(&source, Some(&vocals())).unwrap().0;
+    let smf = Smf::parse(&bytes).unwrap();
+    for label in [
+        "PART GUITAR GHL",
+        "PART BASS GHL",
+        "PART RHYTHM GHL",
+        "PART GUITAR COOP GHL",
+        "PART KEYS GHL",
+    ] {
+        let events = track(&smf, label);
+        assert_eq!(spans(events, 103), [(120, 1440)]);
+        assert_eq!(spans(events, 116), [(0, 1680)]);
+        for difficulty in 0..4u8 {
+            let shift = difficulty * 12;
+            for (key, start) in [
+                (59, 0),
+                (60, 240),
+                (61, 480),
+                (62, 720),
+                (63, 960),
+                (58, 1440),
+            ] {
+                assert_eq!(spans(events, key + shift), [(start, start + 30)]);
+            }
+            assert_eq!(spans(events, 64 + shift), [(120, 150), (1200, 1230)]);
+            assert!(spans(events, 65 + shift).contains(&(120, 121)));
+            assert!(spans(events, 66 + shift).contains(&(240, 241)));
+            assert!(
+                events.iter().any(|event| matches!(event.kind,
+                TrackEventKind::SysEx(data) if data == [b'P', b'S', 0, 0, difficulty, 4, 1, 0xf7]))
+            );
+        }
+    }
+    assert_eq!(
+        crate::vocals::import_midi(&bytes).unwrap().notes,
+        vocals().notes
+    );
+    assert_eq!(spans(track(&smf, "PART REAL_KEYS_X"), 60), [(0, 120)]);
+}
+
+#[test]
+fn unsupported_six_fret_controls_are_not_silently_discarded() {
+    for row in ["0 = N 9 0", "0 = N 5 0", "0 = N 8 0\n0 = E custom"] {
+        let source = chart(&format!("[ExpertGHLGuitar]\n{{\n{row}\n}}\n"));
+        assert!(song(&source, Some(&vocals())).is_err());
+    }
+}
+
+#[test]
+fn six_fret_parts_survive_project_export_and_reopen() {
+    let root = tempfile::tempdir().unwrap();
+    let folder = root.path().join("song");
+    fs::create_dir(&folder).unwrap();
+    let source = chart(
+        "[ExpertSingle]\n{\n0 = N 0 0\n}\n[ExpertGHLGuitar]\n{\n120 = N 8 240\n}\n[HardGHLBass]\n{\n240 = N 7 120\n}\n",
+    );
+    fs::write(folder.join("notes.chart"), &source.raw).unwrap();
+    fs::write(folder.join("song.ini"), "[song]\nname = Six fret fixture\n").unwrap();
+    let samples = vec![0.; 44100 * 3];
+    crate::models::write_audio(&folder.join("song.wav"), &samples, &samples).unwrap();
+    let store = Store::create(&folder, None, &root.path().join("project")).unwrap();
+    let actor = Actor {
+        kind: ActorKind::Human,
+        name: "Six fret export".into(),
+    };
+    store
+        .apply(Request {
+            expected_revision: 0,
+            actor: actor.clone(),
+            action: Action::SetVocals { document: vocals() },
+        })
+        .unwrap();
+    let output = root.path().join("export");
+    store
+        .apply(Request {
+            expected_revision: store.load().unwrap().revision,
+            actor,
+            action: Action::Export {
+                output: output.clone(),
+            },
+        })
+        .unwrap();
+    let bytes = fs::read(output.join("notes.mid")).unwrap();
+    let smf = Smf::parse(&bytes).unwrap();
+    assert_eq!(spans(track(&smf, "PART GUITAR GHL"), 100), [(120, 360)]);
+    assert_eq!(spans(track(&smf, "PART BASS GHL"), 82), [(240, 360)]);
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    assert_eq!(
+        reopened.load().unwrap().chart_text(&reopened).unwrap(),
+        source.raw
+    );
+    assert_eq!(
+        fs::read_to_string(folder.join("notes.chart")).unwrap(),
+        source.raw
+    );
+}
