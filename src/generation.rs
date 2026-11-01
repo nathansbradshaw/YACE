@@ -405,18 +405,11 @@ pub fn resolve_job(selected: &Path) -> Result<PathBuf> {
 /// New song jobs keep their complete working set beneath the song's `.yace`.
 /// A marker distinguishes them from older flat jobs and explicit part jobs.
 pub fn song_folder(root: &Path) -> Option<PathBuf> {
-    if root.file_name()? != "generation"
-        || root.parent()?.file_name()? != "jobs"
-        || root.parent()?.parent()?.file_name()? != ".yace"
-        || !root.join("song-layout.json").is_file()
-    {
-        return None;
-    }
-    Some(root.parent()?.parent()?.parent()?.to_owned())
+    crate::song_layout::song_for_job(root)
 }
 
 pub fn project_path(root: &Path) -> PathBuf {
-    song_folder(root).map_or_else(|| root.join("project"), |song| song.join(".yace/project"))
+    crate::song_layout::project_for_job(root)
 }
 
 pub fn create(request: Request, output: &Path) -> Result<PathBuf> {

@@ -1,4 +1,5 @@
 pub mod ai_harness;
+pub mod analysis_validation;
 pub mod assistant;
 pub mod bass_analysis;
 pub mod benchmark;
@@ -6,18 +7,23 @@ pub mod chart;
 pub mod chart_library;
 pub mod clean;
 pub mod clean_recognition;
+pub mod clean_transcript;
 pub mod collaboration;
 pub mod collaboration_exchange;
 pub mod difficulty_links;
 pub mod drum_articulation;
 pub mod drum_parts;
 pub mod editor;
+pub mod github_reviews;
 pub mod kit_audition;
 pub mod note_groups;
 pub mod note_types;
 pub mod parts;
+pub mod recording_metadata;
 pub mod review_git;
+pub mod review_repository;
 pub mod sections;
+pub mod song_files;
 pub mod song_layout;
 pub mod song_metadata;
 pub mod star_power;
@@ -27,6 +33,8 @@ pub mod studio;
 pub mod sync_track;
 #[cfg(feature = "editor")]
 pub use studio as editor_ui;
+#[cfg(any(feature = "editor", feature = "browser"))]
+pub mod archive_codec;
 #[cfg(feature = "browser")]
 pub mod browser;
 pub mod editor_validation;
@@ -43,6 +51,7 @@ pub mod keyboard_separation;
 pub mod keyboard_voicing;
 pub mod keys;
 pub mod larsnet;
+pub mod larsnet_receipt;
 pub mod lyric_language;
 pub mod mapping;
 pub mod midi;
@@ -54,6 +63,9 @@ pub mod part_analysis;
 pub mod piano_model;
 pub mod pipeline;
 pub mod pro_keys;
+#[cfg(any(feature = "editor", feature = "browser"))]
+pub mod project_files;
+pub mod project_portability;
 pub mod refine;
 pub mod review;
 pub mod review_regions;

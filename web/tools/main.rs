@@ -11,11 +11,32 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[path = "../src/audio_decode.rs"]
 mod audio_decode;
 #[cfg(test)]
+#[path = "../../src/recording_metadata.rs"]
+mod recording_metadata;
+#[cfg(test)]
+#[path = "../src/recording_tags.rs"]
+mod recording_tags;
+#[cfg(test)]
 mod tests;
 fn run(command: &mut Command) -> Result<()> {
     let status = command.status()?;
     if !status.success() {
         return Err(format!("Build command failed: {command:?}").into());
+    }
+    Ok(())
+}
+fn copy_source(from: &Path, to: &Path) -> Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_source(&entry.path(), &to.join(entry.file_name()))?;
+        } else if kind.is_file() {
+            fs::copy(entry.path(), to.join(entry.file_name()))?;
+        } else {
+            return Err("Covered source cannot contain symbolic links".into());
+        }
     }
     Ok(())
 }
@@ -42,6 +63,13 @@ fn build(root: &Path) -> Result<()> {
         .args(["--target", "web", "--no-typescript", "--out-dir"])
         .arg(&dist))?;
     fs::copy(root.join("web/index.html"), dist.join("index.html"))?;
+    fs::copy(root.join("web/worker.js"), dist.join("worker.js"))?;
+    for package in ["symphonia-codec-vorbis", "symphonia-bundle-mp3"] {
+        copy_source(
+            &root.join("vendor").join(package),
+            &dist.join("sources").join(package),
+        )?;
+    }
     for name in ["LICENSE", "THIRD_PARTY.md"] {
         fs::copy(root.join(name), dist.join(name))?;
     }
@@ -146,13 +174,28 @@ fn serve_file(mut stream: TcpStream, root: &Path) -> Result<()> {
     println!("{method} {uri}");
     response(&mut stream, "200 OK", mime, &bytes, method == "HEAD")
 }
+fn source_root() -> Result<PathBuf> {
+    // A shared target cache can reuse this executable across Git worktrees.
+    // Compile-time CARGO_MANIFEST_DIR would silently select the last builder's
+    // checkout instead of the source requested by the current invocation.
+    let start = env::var_os("YACE_SOURCE_ROOT")
+        .map(PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(env::current_dir)?;
+    start
+        .ancestors()
+        .find(|root| {
+            root.join("web/tools/Cargo.toml").is_file()
+                && root.join("web/index.html").is_file()
+                && root.join("src/editor.rs").is_file()
+        })
+        .map(Path::to_owned)
+        .ok_or_else(|| {
+            "Run inside the YACE source checkout or set YACE_SOURCE_ROOT to its root".into()
+        })
+}
 fn main() -> Result<()> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_owned();
+    let root = source_root()?;
     let args: Vec<_> = env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("build") => build(&root),

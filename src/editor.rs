@@ -868,8 +868,6 @@ impl Store {
         // A managed editing copy is the one permitted child of a song. Its
         // source copier excludes mutable .yace state to prevent recursion.
         pipeline::destination(output, (!managed).then_some(song))?;
-        pipeline::validate_existing(song)?;
-        let editable_master = pipeline::editable_chart_file(song)?;
         let parent = output
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -877,25 +875,7 @@ impl Store {
         let stage = tempfile::tempdir_in(parent)?;
         fs::create_dir(stage.path().join("source"))?;
         fs::create_dir(stage.path().join("checkpoints"))?;
-        pipeline::copy_song_source(song, &stage.path().join("source"))?;
-        pipeline::organize_song_stage(&stage.path().join("source"))?;
-        crate::stem_review::game_audio::restore_recording(&stage.path().join("source"))?;
-        if editable_master != song.join("notes.chart") {
-            fs::rename(
-                stage.path().join("source/notes.mid"),
-                stage
-                    .path()
-                    .join("source")
-                    .join(song_layout::relative("chart-engine-working"))
-                    .join("game-notes.mid"),
-            )?;
-            fs::copy(&editable_master, stage.path().join("source/notes.chart"))?;
-            // The verified working .chart already carries the audio offset.
-            // Only this editing snapshot drops MIDI's duplicate delay field.
-            let ini = stage.path().join("source/song.ini");
-            let raw = pipeline::song_ini(&stage.path().join("source"))?;
-            fs::write(ini, crate::game_export::ini_with_delay(&raw, 0))?;
-        }
+        crate::song_files::prepare_editable_source(song, &stage.path().join("source"))?;
         let source_audio = pipeline::audio_file(&stage.path().join("source"))?;
         let duration = pipeline::metadata(&source_audio)?.duration;
         Self::new(stage.path()).initialize(song, markers, duration)?;
@@ -1215,6 +1195,9 @@ impl Store {
         let id = hash(&bytes);
         let path = self.root.join("checkpoints").join(format!("{id}.json"));
         if !path.exists() {
+            // Portable archives contain files, so a project with no edits may
+            // arrive without an empty checkpoints directory.
+            fs::create_dir_all(self.root.join("checkpoints"))?;
             let mut file = tempfile::NamedTempFile::new_in(self.root.join("checkpoints"))?;
             file.write_all(&bytes)?;
             file.as_file().sync_all()?;
@@ -1693,7 +1676,6 @@ impl Store {
                     &doc.audio_sha256,
                     doc.duration,
                 )?;
-                #[cfg(not(target_arch = "wasm32"))]
                 let manifest = crate::stem_review::game_audio::retain(&self.root, &manifest)?;
                 let manifest = Some(manifest);
                 if matches!(&request.action, Action::AttachKeyboardStems { .. }) {
@@ -1901,13 +1883,8 @@ impl Store {
     /// Write the same validated game export into a native or browser staging area.
     pub fn write_export(&self, doc: &Project, stage: &Path, actor: &Actor) -> Result<()> {
         let source = self.root.join("source");
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            pipeline::copy_song_source(&source, stage)?;
-            pipeline::organize_song_stage(stage)?;
-        }
-        #[cfg(target_arch = "wasm32")]
-        pipeline::copy_folder(&source, stage)?;
+        pipeline::copy_song_source(&source, stage)?;
+        pipeline::organize_song_stage(stage)?;
         song_layout::prepare(stage)?;
         ensure!(
             models::hash_file(&self.audio_path(doc)?)? == doc.audio_sha256,
@@ -2028,13 +2005,13 @@ impl Store {
             )?,
         )?;
         if let Some(manifest) = &doc.content.stems {
-            #[cfg(not(target_arch = "wasm32"))]
             let manifest = {
                 let mut retained = crate::stem_review::game_audio::retain_in(stage, manifest)?;
-                let base = song_layout::path(stage, "chart-engine-isolation.json")
-                    .parent()
-                    .context("Isolation needs a parent")?
-                    .canonicalize()?;
+                let base = fs::canonicalize(
+                    song_layout::path(stage, "chart-engine-isolation.json")
+                        .parent()
+                        .context("Isolation needs a parent")?,
+                )?;
                 for asset in &mut retained.stems {
                     asset.path = asset.path.strip_prefix(&base)?.to_owned();
                 }
@@ -2046,13 +2023,13 @@ impl Store {
             )?;
         }
         if let Some(manifest) = &doc.content.keyboard_stems {
-            #[cfg(not(target_arch = "wasm32"))]
             let manifest = {
                 let mut retained = crate::stem_review::game_audio::retain_in(stage, manifest)?;
-                let base = song_layout::path(stage, "chart-engine-keyboard-isolation.json")
-                    .parent()
-                    .context("Isolation needs a parent")?
-                    .canonicalize()?;
+                let base = fs::canonicalize(
+                    song_layout::path(stage, "chart-engine-keyboard-isolation.json")
+                        .parent()
+                        .context("Isolation needs a parent")?,
+                )?;
                 for asset in &mut retained.stems {
                     asset.path = asset.path.strip_prefix(&base)?.to_owned();
                 }
@@ -2085,7 +2062,6 @@ impl Store {
                 "musical_acceptance":"unverified"
             }))?,
         )?;
-        #[cfg(not(target_arch = "wasm32"))]
         crate::stem_review::game_audio::write(
             &self.audio_path(doc)?,
             doc.content.stems.as_ref(),

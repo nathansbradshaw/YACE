@@ -15,7 +15,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies.web-sys]
 version = "=0.3.104"
-features = ["Window", "Document", "Element", "Node", "HtmlElement", "HtmlInputElement", "HtmlAnchorElement", "HtmlAudioElement", "HtmlMediaElement", "HtmlDialogElement", "Event", "EventTarget", "File", "FileList", "Blob", "BlobPropertyBag", "Url", "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioDestinationNode", "AudioNode", "AudioParam", "GainNode", "MediaElementAudioSourceNode", "Navigator", "Clipboard", "Storage", "IdbFactory", "IdbDatabase", "IdbRequest", "IdbOpenDbRequest", "IdbObjectStore", "IdbTransaction", "IdbTransactionMode", "DomException", "DomStringList", "console"]
+features = ["Window", "Document", "Element", "Node", "HtmlElement", "HtmlInputElement", "HtmlAnchorElement", "HtmlAudioElement", "HtmlMediaElement", "HtmlDialogElement", "Event", "EventTarget", "File", "FileList", "Blob", "BlobPropertyBag", "Url", "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioDestinationNode", "AudioNode", "AudioParam", "GainNode", "MediaElementAudioSourceNode", "Navigator", "Clipboard", "Storage", "IdbFactory", "IdbDatabase", "IdbRequest", "IdbOpenDbRequest", "IdbObjectStore", "IdbTransaction", "IdbTransactionMode", "DomException", "DomStringList", "Worker", "WorkerOptions", "WorkerType", "DedicatedWorkerGlobalScope", "MessageEvent", "ErrorEvent", "console", "Request", "RequestInit", "RequestCredentials", "RequestRedirect", "RequestCache", "ReferrerPolicy", "Headers", "Response", "AbortController", "AbortSignal", "ReadableStream", "ReadableStreamDefaultReader"]
 
 [dependencies]
 anyhow = "1"
@@ -38,6 +38,10 @@ console_error_panic_hook = "0.1"
 futures-channel = "0.3"
 futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 symphonia = { version = "0.5.5", features = ["all"] }
+
+[patch.crates-io]
+symphonia-bundle-mp3 = { path = "../vendor/symphonia-bundle-mp3" }
+symphonia-codec-vorbis = { path = "../vendor/symphonia-codec-vorbis" }
 
 [profile.release]
 lto = "thin"

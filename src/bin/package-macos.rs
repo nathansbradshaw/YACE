@@ -164,7 +164,17 @@ fn build_bundle(args: &Args) -> Result<PathBuf> {
         stage.path().join("Contents/Resources/YACE.icns"),
         include_bytes!("../../packaging/macos/YACE.icns"),
     )?;
-    let sources = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Cached tools can be reused by another Git worktree. Resolve the source
+    // requested by this invocation rather than the tool's compilation path.
+    let start = std::env::var_os("YACE_SOURCE_ROOT")
+        .map(PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(std::env::current_dir)?;
+    let sources = start
+        .ancestors()
+        .find(|path| path.join("src/editor.rs").is_file() && path.join("Cargo.toml").is_file())
+        .context("Run from the YACE checkout or set YACE_SOURCE_ROOT")?
+        .to_owned();
     let notices = stage.path().join("Contents/Resources/third-party");
     copy_notices(&sources.join("licenses"), &notices.join("licenses"))?;
     fs::write(

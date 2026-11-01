@@ -1,10 +1,10 @@
 //! Optional native LarsNet masks. The five weights remain CC-BY-NC4.0; the
 //! independent Rust frontend/converter does not relicense them. No model is
 //! bundled, downloaded, selected by default, or used to approve chart notes.
+pub use crate::larsnet_receipt::*;
 use anyhow::{Context, Result, ensure};
 use ort::{session::Session, value::Tensor};
 use rustfft::{FftPlanner, num_complex::Complex32};
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     borrow::Cow,
@@ -16,61 +16,11 @@ use std::{
     time::Instant,
 };
 
-pub const ALGORITHM: &str = "larsnet-native-masks-v1";
-pub const WEIGHT_LICENSE: &str =
-    "CC-BY-NC-4.0; optional local LarsNet/LARS weights, not relicensed by the MIT Rust frontend";
-pub const SAMPLE_RATE: u32 = 44100;
-pub const RECEIPT_FILENAME: &str = "drum-parts-receipt.json";
-pub const MODEL_BYTES: u64 = 39_341_756;
-/// ONNX sigmoid SIMD roundoff only; never an instrument admission threshold.
-pub const MASK_EPSILON: f32 = 1e-6;
-pub const MODELS: [(&str, &str); 5] = [
-    (
-        "kick",
-        "15f1dcd32d883a7c76827d374a56e960b87679fddfe9e35527811fedeb3c3351",
-    ),
-    (
-        "snare",
-        "16b8d4c7882473f3cccfdfad36583aa0cdbcb0c782a2db3f0ed4b7b870bf8555",
-    ),
-    (
-        "toms",
-        "f8f279925383d539d3fef7ab43ed024be2ca483ad0e5e855484b045e31ea0e00",
-    ),
-    (
-        "hihat",
-        "972d6bfe012436156f9fc66dc062bc774fb620fcad3f895c35f2acedd5499b32",
-    ),
-    (
-        "cymbals",
-        "69110dd7705a09935590ef9a22dfecd5e8d1af5656890b2d3dbd764015f9a727",
-    ),
-];
 const FFT: usize = 4096;
 const HOP: usize = 1024;
 const BINS: usize = 2048;
 const BLOCK: usize = 512;
 const MAX_FRAMES: usize = 44100 * 600;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct OutputReceipt {
-    pub part: String,
-    pub filename: String,
-    pub frames: u64,
-    pub pcm_sha256: String,
-    pub wav_sha256: Option<String>,
-    pub rms: f64,
-    pub peak: f64,
-    pub mask_numeric: MaskNumeric,
-}
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct MaskNumeric {
-    pub raw_min: f32,
-    pub raw_max: f32,
-    pub clipped_values: u64,
-}
 
 fn sanitized_mask<'a>(mask: &'a [f32], numeric: &mut MaskNumeric) -> Result<Cow<'a, [f32]>> {
     ensure!(!mask.is_empty(), "Empty LarsNet mask");
@@ -90,23 +40,6 @@ fn sanitized_mask<'a>(mask: &'a [f32], numeric: &mut MaskNumeric) -> Result<Cow<
     } else {
         Cow::Owned(mask.iter().map(|v| v.clamp(0., 1.)).collect())
     })
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SeparationReceipt {
-    pub version: u32,
-    pub algorithm: String,
-    pub implementation_sha256: String,
-    pub source_audio_sha256: Option<String>,
-    pub source_pcm_sha256: String,
-    pub sample_rate: u32,
-    pub channels: u16,
-    pub frames: u64,
-    pub models: BTreeMap<String, String>,
-    pub weight_license: String,
-    pub outputs: Vec<OutputReceipt>,
-    pub elapsed_seconds: f64,
-    pub warnings: Vec<String>,
 }
 #[derive(Debug)]
 pub struct PartAudio {
@@ -131,9 +64,6 @@ fn file_hash(path: &Path) -> Result<String> {
     let mut hash = Sha256::new();
     std::io::copy(&mut file, &mut hash)?;
     Ok(format!("{:x}", hash.finalize()))
-}
-pub fn implementation_hash() -> String {
-    format!("{:x}", Sha256::digest(include_bytes!("larsnet.rs")))
 }
 fn validate_input(input: &[f32]) -> Result<usize> {
     ensure!(

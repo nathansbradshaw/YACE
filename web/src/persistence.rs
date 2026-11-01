@@ -184,14 +184,25 @@ pub async fn restore() -> Result<Option<(PathBuf, u64)>> {
     else {
         return Ok(None);
     };
+    load(Path::new(&root)).await
+}
+
+/// Reopen any durable project, without loading other songs into memory.
+pub async fn load(root: &Path) -> Result<Option<(PathBuf, u64)>> {
+    let root = root.to_string_lossy();
+    let db = Database(open().await?);
+    let tx = db.0.transaction_with_str("files").map_err(error)?;
+    let store = tx.object_store("files").map_err(error)?;
     let manifest = request(
         store
             .get(&format!("manifest:{root}").into())
             .map_err(error)?,
     )
     .await?
-    .as_string()
-    .context("Saved project manifest is missing")?;
+    .as_string();
+    let Some(manifest) = manifest else {
+        return Ok(None);
+    };
     let paths: Vec<String> = serde_json::from_str(&manifest)?;
     ensure!(paths.len() <= 10000, "Saved project has too many files");
     let revision = request(
@@ -202,9 +213,10 @@ pub async fn restore() -> Result<Option<(PathBuf, u64)>> {
     .await?
     .as_f64()
     .context("Saved project revision is missing")? as u64;
+    let mut loaded = Vec::with_capacity(paths.len());
     for path in paths {
         ensure!(
-            Path::new(&path).starts_with(&root),
+            Path::new(&path).starts_with(root.as_ref()),
             "Saved project path is invalid"
         );
         let value = request(store.get(&format!("file:{path}").into()).map_err(error)?).await?;
@@ -212,7 +224,56 @@ pub async fn restore() -> Result<Option<(PathBuf, u64)>> {
             !value.is_undefined(),
             "Saved project file is missing: {path}"
         );
-        crate::storage::write(path, js_sys::Uint8Array::new(&value).to_vec())?;
+        loaded.push((
+            PathBuf::from(path),
+            js_sys::Uint8Array::new(&value).to_vec(),
+        ));
     }
-    Ok(Some((root.into(), revision)))
+    // Publish only a complete snapshot. A missing/quota-corrupt file must not
+    // partially overwrite the working copy currently offered for ZIP recovery.
+    for (path, bytes) in loaded {
+        crate::storage::write_owned(path, bytes)?;
+    }
+    crate::storage::acknowledge(crate::storage::pending(Path::new(root.as_ref()))?);
+    Ok(Some((PathBuf::from(root.as_ref()), revision)))
+}
+
+/// Only the small project documents are read for the chooser, never audio.
+pub async fn projects() -> Result<Vec<crate::chart_library::Entry>> {
+    let db = Database(open().await?);
+    let tx = db.0.transaction_with_str("files").map_err(error)?;
+    let store = tx.object_store("files").map_err(error)?;
+    let keys = request(store.get_all_keys().map_err(error)?).await?;
+    let mut entries = Vec::new();
+    for key in js_sys::Array::from(&keys)
+        .iter()
+        .filter_map(|key| key.as_string())
+    {
+        let Some(root) = key.strip_prefix("manifest:") else {
+            continue;
+        };
+        let value = request(
+            store
+                .get(&format!("file:{root}/project.json").into())
+                .map_err(error)?,
+        )
+        .await?;
+        if value.is_undefined() {
+            continue;
+        }
+        let doc: crate::editor::Project =
+            serde_json::from_slice(&js_sys::Uint8Array::new(&value).to_vec())?;
+        entries.push(crate::chart_library::Entry {
+            path: root.into(),
+            title: doc.title,
+            kind: crate::chart_library::Kind::Project,
+        });
+    }
+    entries.sort_by(|a, b| {
+        a.title
+            .to_lowercase()
+            .cmp(&b.title.to_lowercase())
+            .then(a.path.cmp(&b.path))
+    });
+    Ok(entries)
 }

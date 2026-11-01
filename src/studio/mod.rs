@@ -15,6 +15,7 @@ mod generation;
 mod icons;
 mod inline_review;
 mod modal;
+mod new_song;
 mod note_canvas;
 mod note_gestures;
 mod note_types;
@@ -153,6 +154,7 @@ pub(crate) fn App() -> Element {
             clean::CleanPanel{studio}
         }
         generation::GenerationPanel{studio}
+        if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
         collaboration::Collaboration{studio}
         assistant::Assistant{studio}
         {browser_files()}

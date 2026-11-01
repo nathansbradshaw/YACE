@@ -498,6 +498,27 @@ fn independent_edits_merge_but_conflicts_and_stale_reviews_do_not_write() {
     );
 }
 #[test]
+fn pending_note_reviews_preserve_new_local_parts_and_guard_cross_part_ids() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let proposal = proposal(&store);
+    let mut ours = proposal.base.clone();
+    let mut key = ours["ExpertSingle"][0].clone();
+    key.id = "local-key-note".into();
+    key.note.lane = 60;
+    ours.insert("ExpertRealKeys".into(), vec![key.clone()]);
+    let merged = collaboration::merge_tracks(&proposal.base, &ours, &proposal.proposed).unwrap();
+    assert_eq!(merged["ExpertRealKeys"], vec![key]);
+    assert_eq!(merged["ExpertSingle"], proposal.proposed["ExpertSingle"]);
+    ours.get_mut("ExpertRealKeys").unwrap()[0].id = proposal.proposed["ExpertSingle"][0].id.clone();
+    let plan = collaboration::plan_merge(&proposal.base, &ours, &proposal.proposed).unwrap();
+    assert_eq!(plan.conflicts.len(), 2);
+    assert!(collaboration::merge_tracks(&proposal.base, &ours, &proposal.proposed).is_err());
+    ours.remove("ExpertSingle");
+    assert!(collaboration::plan_merge(&proposal.base, &ours, &proposal.proposed).is_err());
+}
+
+#[test]
 fn binding_duplicate_ids_delete_edit_and_concurrent_additions_are_guarded() {
     let root = tempfile::tempdir().unwrap();
     let s = fixture(root.path());

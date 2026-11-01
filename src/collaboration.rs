@@ -606,10 +606,16 @@ pub struct MergePlan {
 /// Conflict plans preserve current notes until the user makes an explicit choice.
 pub fn plan_merge(base: &Tracks, ours: &Tracks, theirs: &Tracks) -> Result<MergePlan> {
     ensure!(
-        base.keys().eq(ours.keys()) && base.keys().eq(theirs.keys()),
+        base.keys().eq(theirs.keys()) && base.keys().all(|track| ours.contains_key(track)),
         "Track layout changed; rebase proposal"
     );
-    let mut merged = BTreeMap::new();
+    // New local parts are independent of a proposal against existing tracks.
+    // Retain them, including their stable IDs, through planning and resolution.
+    let mut merged: Tracks = ours
+        .iter()
+        .filter(|(track, _)| !base.contains_key(*track))
+        .map(|(track, notes)| (track.clone(), notes.clone()))
+        .collect();
     let mut conflicts = vec![];
     for (track, notes) in base {
         let map = |notes: &Vec<EditorNote>| {
@@ -693,8 +699,12 @@ pub fn plan_merge(base: &Tracks, ours: &Tracks, theirs: &Tracks) -> Result<Merge
         for (track, note) in duplicates {
             let key = format!("{track}/{}", note.id);
             if !conflicts.iter().any(|c| c.key == key) {
-                let find =
-                    |tracks: &Tracks| tracks[*track].iter().find(|n| n.id == note.id).cloned();
+                let find = |tracks: &Tracks| {
+                    tracks
+                        .get(*track)
+                        .and_then(|notes| notes.iter().find(|n| n.id == note.id))
+                        .cloned()
+                };
                 conflicts.push(NoteConflict {
                     key,
                     track: (*track).into(),

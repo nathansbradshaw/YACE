@@ -6,6 +6,9 @@ pub fn exists(path: impl AsRef<std::path::Path>) -> bool {
 pub fn is_file(path: impl AsRef<std::path::Path>) -> bool {
     path.as_ref().is_file()
 }
+pub fn is_dir(path: impl AsRef<std::path::Path>) -> bool {
+    path.as_ref().is_dir()
+}
 pub fn is_absolute(path: impl AsRef<std::path::Path>) -> bool {
     path.as_ref().is_absolute()
 }

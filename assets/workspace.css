@@ -579,3 +579,15 @@
     padding:5px 7px;
   }
 }
+
+/* Keep chart switching and note fields reachable in narrow browser windows. */
+@media(max-width:620px) {
+  .project-bar { height:auto; min-height:54px; flex-wrap:wrap; gap:6px 10px; padding:6px 10px; }
+  .project-identity { min-width:100px; }
+  .project-bar .chart-library-picker { order:3; flex-basis:100%; max-width:100%; }
+  .chart-library-picker select { flex:1; }
+  .workspace-shell { grid-template-rows:minmax(340px,1fr) 4px minmax(250px,1fr) !important; }
+  .audition-workspace { grid-template-columns:minmax(0,1fr) !important; grid-template-rows:minmax(150px,1fr) minmax(180px,1fr); }
+  .audition-workspace > .splitter.vertical { display:none; }
+  .studio-status { height:auto; min-height:25px; flex-wrap:wrap; gap:2px 10px; }
+}

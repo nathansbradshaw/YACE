@@ -1,3 +1,6 @@
+pub use crate::song_files::{
+    chart_file, copy_song_source, editable_chart_file, organize_song_stage, validate_existing,
+};
 pub use crate::song_metadata::{audio_file, ini_fields, song_ini, update_ini};
 use crate::{
     chart::{self, Chart},
@@ -5,8 +8,8 @@ use crate::{
     midi, models, song_layout,
     timing::TempoMap,
 };
-use anyhow::{Context, Result, bail, ensure};
-use serde::{Deserialize, Serialize};
+use anyhow::{Context, Result, ensure};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -23,69 +26,6 @@ pub struct Inventory {
     pub tracks: Vec<(String, usize)>,
     pub missing: Vec<String>,
     pub error: Option<String>,
-}
-
-pub fn chart_file(folder: &Path) -> Result<PathBuf> {
-    let chart = folder.join("notes.chart");
-    let mid = folder.join("notes.mid");
-    ensure!(
-        !(chart.exists() && mid.exists()),
-        "Both notes.chart and notes.mid exist; choose one in a working copy before enhancement"
-    );
-    if chart.is_file() {
-        Ok(chart)
-    } else if mid.is_file() {
-        Ok(mid)
-    } else {
-        bail!("No notes.chart or notes.mid in {}", folder.display())
-    }
-}
-
-/// A generated MIDI song has one authoritative game MIDI and a separately
-/// archived editable master. Refuse mismatched pairs rather than edit stale data.
-pub fn editable_chart_file(folder: &Path) -> Result<PathBuf> {
-    let chart = chart_file(folder)?;
-    if chart.extension().is_some_and(|e| e == "chart") {
-        return Ok(chart);
-    }
-    let master = song_layout::resolve(folder, "chart-engine-working").join("notes.chart");
-    let binding: serde_json::Value = serde_json::from_slice(
-        &fs::read(song_layout::resolve(folder, "chart-engine-working").join("binding.json"))
-            .context("MIDI-only songs require a YACE editable-master binding")?,
-    )?;
-    ensure!(
-        binding["version"] == 1
-            && binding["master_sha256"].as_str() == Some(&models::hash_file(&master)?)
-            && binding["midi_sha256"].as_str() == Some(&models::hash_file(&chart)?),
-        "Editable master and game MIDI no longer match; open the original YACE project to preserve edits"
-    );
-    Ok(master)
-}
-
-pub fn validate_existing(folder: &Path) -> Result<()> {
-    let fields = ini_fields(&song_ini(folder)?);
-    let delay = fields
-        .get("delay")
-        .map(|delay| delay.parse::<f64>().context("Invalid legacy delay"))
-        .transpose()?
-        .unwrap_or(0.0);
-    let binding = song_layout::resolve(folder, "chart-engine-working").join("binding.json");
-    if folder.join("notes.mid").is_file() && binding.exists() {
-        // Verify the pair before trusting its original chart offset. Unbound
-        // legacy MIDI delays still have no editable timing witness.
-        let master = editable_chart_file(folder)?;
-        let chart = Chart::parse(fs::read_to_string(master)?)?;
-        ensure!(
-            delay == crate::game_export::chart_delay(&chart)? as f64,
-            "Game MIDI delay does not match its bound editable master"
-        );
-    } else {
-        ensure!(
-            delay == 0.0,
-            "Nonzero legacy song.ini delay is not yet supported; refusing to misalign notes"
-        );
-    }
-    Ok(())
 }
 
 pub fn inspect(folder: &Path) -> Result<Inventory> {
@@ -777,15 +717,7 @@ pub fn transcribe_with_isolation(
     Ok(out)
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct Metadata {
-    pub name: String,
-    pub artist: String,
-    pub album: String,
-    pub year: String,
-    pub genre: String,
-    pub duration: f64,
-}
+pub use crate::recording_metadata::Metadata;
 
 pub fn metadata(audio: &Path) -> Result<Metadata> {
     let output = Command::new("ffprobe")
@@ -831,87 +763,6 @@ pub fn metadata(audio: &Path) -> Result<Metadata> {
 
 /// Copy portable song assets and evidence without copying a live editor into
 /// its own source snapshot. Unknown song files remain byte-preserving.
-pub fn copy_song_source(source: &Path, dest: &Path) -> Result<()> {
-    fn copy(source: &Path, dest: &Path, private: bool) -> Result<()> {
-        fs::create_dir_all(dest)?;
-        for entry in fs::read_dir(source)? {
-            let entry = entry?;
-            let name = entry.file_name();
-            let text = name.to_string_lossy();
-            if private
-                && (text.starts_with(".tmp")
-                    || text.starts_with(".yace-project-")
-                    || matches!(
-                        text.as_ref(),
-                        "project" | "projects" | "jobs" | "cache" | "logs"
-                    ))
-            {
-                continue;
-            }
-            let kind = entry.file_type()?;
-            ensure!(
-                !kind.is_symlink(),
-                "Song source contains a symlink: {}",
-                entry.path().display()
-            );
-            let output = dest.join(&name);
-            if kind.is_dir() {
-                copy(&entry.path(), &output, text == song_layout::DIRECTORY)?;
-            } else {
-                ensure!(kind.is_file(), "Unsupported song source entry");
-                fs::copy(entry.path(), output)?;
-            }
-        }
-        Ok(())
-    }
-    copy(source, dest, false)
-}
-
-/// Consolidate copied legacy YACE files in an unpublished song staging folder.
-/// Existing source folders are never changed by this operation.
-pub fn organize_song_stage(stage: &Path) -> Result<()> {
-    song_layout::prepare(stage)?;
-    let entries = fs::read_dir(stage)?.collect::<std::io::Result<Vec<_>>>()?;
-    for entry in entries {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let relative = match name.as_str() {
-            "stems" => PathBuf::from(".yace/audio/stems"),
-            ".yace-audio" => PathBuf::from(".yace/originals/audio"),
-            value if value == "editor-source" || value.starts_with("editor-source-") => {
-                Path::new(".yace/history").join(value)
-            }
-            _ => song_layout::relative(&name),
-        };
-        if relative == Path::new(&name) {
-            continue;
-        }
-        let mut target = stage.join(relative);
-        fs::create_dir_all(target.parent().context("Sidecar needs a parent")?)?;
-        if target.is_dir() && fs::read_dir(&target)?.next().is_none() {
-            fs::remove_dir(&target)?;
-        }
-        if target.exists() {
-            if target.is_file()
-                && entry.file_type()?.is_file()
-                && models::hash_file(&target)? == models::hash_file(&entry.path())?
-            {
-                fs::remove_file(entry.path())?;
-                continue;
-            }
-            let history = stage.join(".yace/history/legacy");
-            fs::create_dir_all(&history)?;
-            target = history.join(&name);
-            let mut number = 1;
-            while target.exists() {
-                target = history.join(format!("{name}-{number}"));
-                number += 1;
-            }
-        }
-        fs::rename(entry.path(), target)?;
-    }
-    Ok(())
-}
-
 /// Archive copied generation sidecars before a new additive pass. This only
 /// mutates the unpublished staging copy; source history is never overwritten.
 fn archive_generation_sidecars(stage: &Path, source: Option<&Path>) -> Result<Option<PathBuf>> {

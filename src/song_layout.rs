@@ -3,6 +3,20 @@ use std::path::{Path, PathBuf};
 
 pub const DIRECTORY: &str = ".yace";
 
+pub fn song_for_job(root: &Path) -> Option<PathBuf> {
+    if root.file_name()? != "generation"
+        || root.parent()?.file_name()? != "jobs"
+        || root.parent()?.parent()?.file_name()? != DIRECTORY
+        || !crate::storage::is_file(root.join("song-layout.json"))
+    {
+        return None;
+    }
+    Some(root.parent()?.parent()?.parent()?.to_owned())
+}
+pub fn project_for_job(root: &Path) -> PathBuf {
+    song_for_job(root).map_or_else(|| root.join("project"), |song| song.join(".yace/project"))
+}
+
 pub fn relative(name: &str) -> PathBuf {
     let category = match name {
         "chart-engine-review.json" | "editor-review.json" | "chart-engine-part-origins.json" => {

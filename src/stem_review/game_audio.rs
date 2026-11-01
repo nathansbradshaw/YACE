@@ -1,13 +1,14 @@
 //! Retain source-bound stems and route complete sets to game instrument channels.
 use super::{StemId, StemManifest};
 use crate::song_layout;
+use crate::storage as fs;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_arch = "wasm32"))]
+use std::process::Command;
 use std::{
     collections::BTreeMap,
-    fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 const RECEIPT: &str = "yace-audio.json";
@@ -56,23 +57,28 @@ pub fn retain_in(source_folder: &Path, manifest: &StemManifest) -> Result<StemMa
             asset.id.as_str(),
             extension.to_ascii_lowercase()
         ));
-        if !target.exists() {
-            let mut temporary = tempfile::NamedTempFile::new_in(&folder)?;
-            std::io::copy(&mut fs::File::open(&asset.path)?, temporary.as_file_mut())?;
-            temporary.as_file().sync_all()?;
-            ensure!(
-                crate::models::hash_file(temporary.path())? == asset.sha256,
-                "Stem changed while retaining it"
-            );
-            temporary
-                .persist_noclobber(&target)
-                .map_err(|error| error.error)?;
+        if !fs::exists(&target) {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let mut temporary = tempfile::NamedTempFile::new_in(&folder)?;
+                std::io::copy(&mut fs::File::open(&asset.path)?, temporary.as_file_mut())?;
+                temporary.as_file().sync_all()?;
+                ensure!(
+                    crate::models::hash_file(temporary.path())? == asset.sha256,
+                    "Stem changed while retaining it"
+                );
+                temporary
+                    .persist_noclobber(&target)
+                    .map_err(|error| error.error)?;
+            }
+            #[cfg(target_arch = "wasm32")]
+            fs::copy(&asset.path, &target)?;
         }
         ensure!(
             crate::models::hash_file(&target)? == asset.sha256,
             "Retained stem changed"
         );
-        asset.path = target.canonicalize()?;
+        asset.path = fs::canonicalize(target)?;
     }
     Ok(retained)
 }
@@ -109,11 +115,11 @@ pub fn write(source: &Path, manifest: Option<&StemManifest>, stage: &Path) -> Re
         )?;
         return Ok(receipt);
     };
-    manifest.validate_source(
-        source,
-        &receipt.original_sha256,
-        crate::pipeline::metadata(source)?.duration,
-    )?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let duration = crate::pipeline::metadata(source)?.duration;
+    #[cfg(target_arch = "wasm32")]
+    let duration = crate::models::duration(source)?;
+    manifest.validate_source(source, &receipt.original_sha256, duration)?;
     let saved = stage.join(".yace/originals/audio");
     fs::create_dir_all(&saved)?;
     let original_name = format!(
@@ -155,7 +161,7 @@ pub fn write(source: &Path, manifest: Option<&StemManifest>, stage: &Path) -> Re
             let target = archived.join(entry.file_name());
             // This is an unpublished staging directory; copied recovery files
             // remain in the previous immutable export/source snapshot.
-            if target.exists() {
+            if fs::exists(&target) {
                 fs::remove_file(&target)?;
             }
             fs::rename(path, target)?;
@@ -175,23 +181,43 @@ pub fn write(source: &Path, manifest: Option<&StemManifest>, stage: &Path) -> Re
                 "Stem changed during game export"
             );
         } else {
-            let result = Command::new("ffmpeg")
-                .args(["-v", "error", "-nostdin", "-n", "-i"])
-                .arg(&asset.path)
-                .args(["-map", "0:a:0", "-c:a", "pcm_f32le"])
-                .arg(&target)
-                .output()?;
-            ensure!(
-                result.status.success(),
-                "Could not encode {}: {}",
-                name,
-                String::from_utf8_lossy(&result.stderr)
-            );
-            ensure!(
-                crate::models::decode(&target, super::SAMPLE_RATE, 2)?.len() as u64
-                    == manifest.frames * 2,
-                "Export changed stem duration"
-            );
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let result = Command::new("ffmpeg")
+                    .args(["-v", "error", "-nostdin", "-n", "-i"])
+                    .arg(&asset.path)
+                    .args(["-map", "0:a:0", "-c:a", "pcm_f32le"])
+                    .arg(&target)
+                    .output()?;
+                ensure!(
+                    result.status.success(),
+                    "Could not encode {}: {}",
+                    name,
+                    String::from_utf8_lossy(&result.stderr)
+                );
+                ensure!(
+                    crate::models::decode(&target, super::SAMPLE_RATE, 2)?.len() as u64
+                        == manifest.frames * 2,
+                    "Export changed stem duration"
+                );
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let pcm = crate::models::decode(&asset.path, super::SAMPLE_RATE, 2)?;
+                ensure!(
+                    pcm.len() as u64 == manifest.frames * 2,
+                    "Export changed stem duration"
+                );
+                fs::write(
+                    &target,
+                    crate::audio_decode::Pcm {
+                        stereo: pcm,
+                        rate: super::SAMPLE_RATE,
+                        channels: 2,
+                    }
+                    .float_wave()?,
+                )?;
+            }
         }
         ensure!(
             crate::models::hash_file(&asset.path)? == asset.sha256,
@@ -211,7 +237,7 @@ pub fn write(source: &Path, manifest: Option<&StemManifest>, stage: &Path) -> Re
 /// Reopening our game export uses the archived recording for its original clock.
 pub fn restore_recording(folder: &Path) -> Result<()> {
     let path = song_layout::resolve(folder, RECEIPT);
-    if !path.is_file() {
+    if !fs::is_file(&path) {
         return Ok(());
     }
     let receipt: Receipt = serde_json::from_slice(&fs::read(path)?)?;
@@ -250,17 +276,17 @@ pub fn restore_recording(folder: &Path) -> Result<()> {
             "Invalid game audio filename"
         );
         let path = folder.join(filename);
-        if path.is_file() {
+        if fs::is_file(&path) {
             fs::remove_file(path)?;
         }
     }
     let current_channels = folder.join(".yace/originals/audio/source-channels");
-    let channels = if current_channels.is_dir() {
+    let channels = if fs::exists(&current_channels) {
         current_channels
     } else {
         folder.join(".yace-audio/source-channels")
     };
-    if channels.is_dir() {
+    if fs::exists(&channels) {
         for entry in fs::read_dir(channels)? {
             let entry = entry?;
             ensure!(
@@ -272,7 +298,7 @@ pub fn restore_recording(folder: &Path) -> Result<()> {
     }
     for extension in EXTENSIONS {
         let file = folder.join(format!("song.{extension}"));
-        if file.is_file() {
+        if fs::is_file(&file) {
             fs::remove_file(file)?;
         }
     }

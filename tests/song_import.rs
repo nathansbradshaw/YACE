@@ -124,6 +124,11 @@ fn encoded_mp3_tags_cover_and_tempo_survive_project_move_and_export() {
     let store = Store::new(&project);
     let doc = store.load().unwrap();
     assert_eq!(doc.title, "Pulse fixture");
+    assert_eq!(
+        fs::read(project.join("source/.yace/originals/audio/recording.mp3")).unwrap(),
+        fs::read(&mp3).unwrap(),
+        "The portable editing project must retain the encoded original"
+    );
     assert_eq!(doc.timing(&store).unwrap().tempos.len(), 2);
     assert!(song_import::create_project(&mp3, &imported, None, &song).is_err());
     fs::remove_file(&mp3).unwrap();

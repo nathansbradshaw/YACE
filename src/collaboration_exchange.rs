@@ -14,9 +14,8 @@ use {
 };
 
 pub const MAX_EVENTS: usize = 2000;
-const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
-#[cfg(not(target_arch = "wasm32"))]
-const MAX_DIRECTORY_BYTES: u64 = 64 * 1024 * 1024;
+pub const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
+pub const MAX_DIRECTORY_BYTES: u64 = 64 * 1024 * 1024;
 type Ancestors = BTreeMap<String, BTreeSet<String>>;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,7 +30,6 @@ pub struct Event {
     pub operation: Operation,
 }
 impl Event {
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn valid_checksum(&self) -> Result<bool> {
         Ok(self.id == self.digest()?)
     }

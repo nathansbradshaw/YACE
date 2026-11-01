@@ -329,6 +329,7 @@ pub struct Studio {
     pub error: Signal<Option<String>>,
     pub clean_open: Signal<bool>,
     pub generation_open: Signal<bool>,
+    pub new_song: Signal<Option<(PathBuf, String)>>,
     pub clean_ranges: Signal<Vec<(f64, f64)>>,
     pub review_open: Signal<bool>,
     pub assistant_open: Signal<bool>,
@@ -1014,6 +1015,190 @@ impl Studio {
             }
         });
     }
+    pub fn new_chart(mut self) {
+        spawn(async move {
+            if let Some(file) = rfd::AsyncFileDialog::new()
+                .set_title("Start a manual chart from a recording")
+                .add_filter("Recording", &["ogg", "opus", "mp3", "flac", "wav", "m4a"])
+                .pick_file()
+                .await
+            {
+                let path = file.path().to_owned();
+                let title = path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .take(200)
+                    .collect();
+                self.error.set(None);
+                self.new_song.set(Some((path, title)));
+            }
+        });
+    }
+    pub fn cancel_new_chart(mut self, _source: &std::path::Path) {
+        self.new_song.set(None);
+    }
+    pub fn open_zip(self) {
+        self.import_zip(true);
+    }
+    pub fn import_song(self) {
+        self.import_zip(false);
+    }
+    fn import_zip(mut self, project: bool) {
+        spawn(async move {
+            let Some(input) = rfd::AsyncFileDialog::new()
+                .set_title(if project {
+                    "Open project ZIP"
+                } else {
+                    "Import song ZIP"
+                })
+                .add_filter("ZIP", &["zip"])
+                .pick_file()
+                .await
+            else {
+                return;
+            };
+            let Some(output) = rfd::AsyncFileDialog::new()
+                .set_title("Save the imported editing project in a new folder")
+                .set_file_name("Imported Review Project")
+                .save_file()
+                .await
+            else {
+                return;
+            };
+            let input = input.path().to_owned();
+            let output = output.path().to_owned();
+            let result = tokio::task::spawn_blocking(move || {
+                if project {
+                    crate::project_files::import(&input, &output)
+                } else {
+                    crate::project_files::import_song(&input, &output)
+                }
+            })
+            .await;
+            match result {
+                Ok(Ok(store)) => self.open_project(store.root).await,
+                Ok(Err(error)) => self.error.set(Some(format!("{error:#}"))),
+                Err(error) => self.error.set(Some(error.to_string())),
+            }
+        });
+    }
+    pub fn save_project(mut self) {
+        let Some(store) = self.store.read().clone() else {
+            return;
+        };
+        let title = self.metadata_value("name");
+        spawn(async move {
+            let Some(output) = rfd::AsyncFileDialog::new()
+                .set_title("Save a portable project backup")
+                .set_file_name(format!("{title} project.zip"))
+                .add_filter("ZIP", &["zip"])
+                .save_file()
+                .await
+            else {
+                return;
+            };
+            if self
+                .store
+                .read()
+                .as_ref()
+                .is_none_or(|s| s.root != store.root)
+            {
+                self.error.set(Some(
+                    "The active project changed; choose the backup again".into(),
+                ));
+                return;
+            }
+            let output = output.path().to_owned();
+            let download = output.clone();
+            match tokio::task::spawn_blocking(move || crate::project_files::backup(&store, &output))
+                .await
+            {
+                Ok(Ok(())) => {
+                    self.status.set("Project ZIP backup saved".into());
+                    rfd::download(&download).await;
+                }
+                Ok(Err(error)) => self.error.set(Some(format!("{error:#}"))),
+                Err(error) => self.error.set(Some(error.to_string())),
+            }
+        });
+    }
+    pub async fn prepare_new_chart(
+        self,
+        source: PathBuf,
+    ) -> Result<crate::song_import::RecordingInfo> {
+        tokio::task::spawn_blocking(move || crate::song_import::local(&source)).await?
+    }
+    pub async fn lookup_new_chart(
+        self,
+        source: PathBuf,
+        mut metadata: crate::pipeline::Metadata,
+        mut info: crate::song_import::SongInfo,
+        lyrics: bool,
+    ) -> Result<crate::song_import::RecordingInfo> {
+        tokio::task::spawn_blocking(move || {
+            let cache = crate::song_import::artwork_cache(&source)?;
+            crate::song_import::lookup(&mut metadata, &mut info, &cache, lyrics)?;
+            Ok(crate::song_import::RecordingInfo { metadata, info })
+        })
+        .await?
+    }
+    pub fn stage_new_cover(
+        self,
+        source: &std::path::Path,
+        cover: &std::path::Path,
+    ) -> Result<PathBuf> {
+        let bytes = crate::storage::read(cover)?;
+        let extension = crate::song_metadata::cover_extension(&bytes)?;
+        let path = crate::song_import::artwork_cache(source)?.join(format!(
+            "selected-{}.{extension}",
+            crate::storage::unique_id()
+        ));
+        crate::storage::write(&path, bytes)?;
+        Ok(path)
+    }
+    pub async fn finish_new_chart(
+        mut self,
+        source: PathBuf,
+        title: String,
+        artist: String,
+        timing: TempoMap,
+        info: crate::song_import::SongInfo,
+    ) -> Result<()> {
+        let (ini, chart) = crate::song_metadata::blank_song_with_timing(&title, &artist, &timing)?;
+        let Some(output) = rfd::AsyncFileDialog::new()
+            .set_title("Save manual editing project in a new folder")
+            .set_file_name(format!("{title} Review Project"))
+            .save_file()
+            .await
+        else {
+            anyhow::bail!("Save cancelled; choose a new project folder or cancel this setup");
+        };
+        let output = output.path().to_owned();
+        let store = tokio::task::spawn_blocking(move || -> Result<Store> {
+            let song = tempfile::tempdir()?;
+            let extension = source
+                .extension()
+                .context("Recording has no file extension")?;
+            std::fs::copy(
+                &source,
+                song.path()
+                    .join(format!("song.{}", extension.to_string_lossy())),
+            )?;
+            std::fs::write(song.path().join("song.ini"), ini)?;
+            std::fs::write(song.path().join("notes.chart"), chart)?;
+            crate::song_metadata::write_song_info(song.path(), &info)?;
+            Store::create(song.path(), None, &output)
+        })
+        .await??;
+        self.open_project(store.root).await;
+        // The setup component owns this async task. Keep it mounted until
+        // project loading and audio preparation finish, then close it.
+        self.new_song.set(None);
+        Ok(())
+    }
     #[cfg(not(feature = "browser"))]
     pub async fn open_library(mut self, path: PathBuf) {
         if (self.library_busy)() {
@@ -1493,6 +1678,7 @@ pub fn use_studio() -> Studio {
         error: use_signal(|| None),
         clean_open: use_signal(|| false),
         generation_open: use_signal(|| false),
+        new_song: use_signal(|| None),
         clean_ranges: use_signal(Vec::new),
         review_open: use_signal(|| false),
         assistant_open: use_signal(|| false),
