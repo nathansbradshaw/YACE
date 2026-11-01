@@ -43,6 +43,11 @@ jobs:
         run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
       - name: Test the archive converter
         run: cargo test --locked --manifest-path tools/larsnet-convert/Cargo.toml
+      - name: Check the performance probe
+        run: |
+          cargo fmt --manifest-path tools/performance-probe/Cargo.toml -- --check
+          cargo test --locked --manifest-path tools/performance-probe/Cargo.toml
+          cargo clippy --locked --manifest-path tools/performance-probe/Cargo.toml --all-targets -- -D warnings
 
   static-web:
     name: Static Dioxus WebAssembly

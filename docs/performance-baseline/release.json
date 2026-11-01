@@ -1,0 +1,192 @@
+{
+  "algorithms": {
+    "tempo": [
+      {
+        "queries_per_sample": 4096,
+        "seconds_conversion": {
+          "max_ms": 0.003625,
+          "p50_ms": 0.003542,
+          "p95_ms": 0.003625,
+          "samples": 20
+        },
+        "tempo_events": 1
+      },
+      {
+        "queries_per_sample": 4096,
+        "seconds_conversion": {
+          "max_ms": 0.200042,
+          "p50_ms": 0.124583,
+          "p95_ms": 0.13379200000000002,
+          "samples": 20
+        },
+        "tempo_events": 100
+      },
+      {
+        "queries_per_sample": 4096,
+        "seconds_conversion": {
+          "max_ms": 1.879,
+          "p50_ms": 1.281166,
+          "p95_ms": 1.3060420000000001,
+          "samples": 20
+        },
+        "tempo_events": 1000
+      },
+      {
+        "queries_per_sample": 4096,
+        "seconds_conversion": {
+          "max_ms": 12.947000000000001,
+          "p50_ms": 12.848583,
+          "p95_ms": 12.89325,
+          "samples": 20
+        },
+        "tempo_events": 10000
+      }
+    ],
+    "waveform": {
+      "audio_seconds": 60,
+      "build": {
+        "max_ms": 1.0274159999999999,
+        "p50_ms": 0.841209,
+        "p95_ms": 0.8801669999999999,
+        "samples": 20
+      },
+      "pcm_bytes": 21168000,
+      "viewport_1400px": {
+        "max_ms": 0.348667,
+        "p50_ms": 0.33925,
+        "p95_ms": 0.343541,
+        "samples": 20
+      }
+    }
+  },
+  "audio": {
+    "rates": [
+      {
+        "decode_process_and_pcm_copy": {
+          "max_ms": 187.535416,
+          "p50_ms": 173.994166,
+          "p95_ms": 187.535416,
+          "samples": 5
+        },
+        "decoded_pcm_bytes": 86040864,
+        "rate": 1.0
+      },
+      {
+        "decode_process_and_pcm_copy": {
+          "max_ms": 344.781375,
+          "p50_ms": 332.949209,
+          "p95_ms": 344.781375,
+          "samples": 5
+        },
+        "decoded_pcm_bytes": 114717056,
+        "rate": 0.75
+      },
+      {
+        "decode_process_and_pcm_copy": {
+          "max_ms": 650.454625,
+          "p50_ms": 432.046125,
+          "p95_ms": 650.454625,
+          "samples": 5
+        },
+        "decoded_pcm_bytes": 172077176,
+        "rate": 0.5
+      }
+    ],
+    "scope": "FFmpeg output plus f32 copy/validation mirrors models::decode_at_tempo; excludes file hashing, stems, waveforms, device creation and UI. At most five samples per rate.",
+    "source_bytes": 3784912,
+    "source_sha256": "4116e98add1b324105924afb9788379813c437c9792dbc3328d6ff2c03b5053a"
+  },
+  "command_help_process": {
+    "max_ms": 6.04925,
+    "p50_ms": 5.634958,
+    "p95_ms": 5.972916,
+    "samples": 20
+  },
+  "executable_sha256": "f8f844d3d37c6b43f33e611b315df1f5175e94be5e8b8330fa6d241e61a18f70",
+  "fixtures": [
+    {
+      "apply_process": {
+        "playback_pause": {
+          "max_ms": 10.350458999999999,
+          "p50_ms": 9.272625,
+          "p95_ms": 10.041540999999999,
+          "samples": 20
+        },
+        "seek": {
+          "max_ms": 11.080625,
+          "p50_ms": 9.976791,
+          "p95_ms": 10.754,
+          "samples": 20
+        },
+        "select_track": {
+          "max_ms": 14.079125,
+          "p50_ms": 10.670625,
+          "p95_ms": 13.062333,
+          "samples": 20
+        },
+        "update_note": {
+          "max_ms": 10.291042000000001,
+          "p50_ms": 9.691334,
+          "p95_ms": 10.105291000000001,
+          "samples": 20
+        }
+      },
+      "audit_entries": 7,
+      "note_count": 7,
+      "project_bytes": 6186,
+      "project_sha256": "4b4607f847fbca5d6735591908ee9cbb7d7ae8ed397420f44750bce28ba12cc2",
+      "show_process": {
+        "max_ms": 7.397208,
+        "p50_ms": 6.171625,
+        "p95_ms": 6.770458,
+        "samples": 20
+      },
+      "source_chart_sha256": "5b8a7a228fba08c07ae8e421ec24bc6e92209cc28690745a1e9e8dc02b6f425b",
+      "track_count": 2
+    },
+    {
+      "apply_process": {
+        "playback_pause": {
+          "max_ms": 52.551417,
+          "p50_ms": 49.494834000000004,
+          "p95_ms": 50.833749999999995,
+          "samples": 20
+        },
+        "seek": {
+          "max_ms": 50.749125,
+          "p50_ms": 47.354124999999996,
+          "p95_ms": 48.372459,
+          "samples": 20
+        },
+        "select_track": {
+          "max_ms": 56.365125,
+          "p50_ms": 48.907792,
+          "p95_ms": 51.787292,
+          "samples": 20
+        },
+        "update_note": {
+          "max_ms": 79.068958,
+          "p50_ms": 75.585125,
+          "p95_ms": 78.07837500000001,
+          "samples": 20
+        }
+      },
+      "audit_entries": 6,
+      "note_count": 13601,
+      "project_bytes": 10288932,
+      "project_sha256": "7feb8dd5f5e83630653386e5f1fbbb4cacda04ee53947e397d6474876471c7a9",
+      "show_process": {
+        "max_ms": 105.195792,
+        "p50_ms": 84.054875,
+        "p95_ms": 89.567833,
+        "samples": 20
+      },
+      "source_chart_sha256": "7e2300633a8af340baed76b28d5db67cdcc27972f37740380fcf99f62b75a76d",
+      "track_count": 12
+    }
+  ],
+  "samples": 20,
+  "schema_version": 1,
+  "scope": "CLI process wall times include process startup and captured stdout, not UI paint or dispatch reload. Metadata-only copies do not measure audio, export, undo restore, or model inference. Warm filesystem cache; system contention uncontrolled. Percentiles are descriptive, not confidence intervals.",
+  "warmups": 2
+}
