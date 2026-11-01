@@ -1,13 +1,33 @@
 //! Shared song import, source-copy and sidecar layout rules.
 use crate::{chart::Chart, models, song_layout, song_metadata::song_ini, storage as fs};
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use std::path::{Path, PathBuf};
 #[path = "song_files/game_midi.rs"]
 pub mod game_midi;
+#[path = "song_files/source_choice.rs"]
+pub mod source_choice;
 #[path = "song_files/timing.rs"]
 pub mod timing;
 /// Prepare an unpublished editing snapshot using the same rules on both clients.
 pub fn prepare_editable_source(song: &Path, dest: &Path) -> Result<()> {
+    prepare_editable_source_with_choice(song, dest, None)
+}
+pub fn prepare_editable_source_with_choice(
+    song: &Path,
+    dest: &Path,
+    choice: Option<source_choice::Source>,
+) -> Result<()> {
+    source_choice::selected_file(song, choice)?;
+    let multiple = source_choice::ambiguous(song);
+    copy_song_source(song, dest)?;
+    organize_song_stage(dest)?;
+    if multiple {
+        source_choice::retain_alternate(dest, choice.context("Choose the source to edit")?)?;
+    }
+    crate::stem_review::game_audio::restore_recording(dest)?;
+    prepare_copied_source(dest)
+}
+fn prepare_copied_source(song: &Path) -> Result<()> {
     validate_existing(song)?;
     let selected = chart_file(song)?;
     let working = song_layout::resolve(song, "chart-engine-working");
@@ -17,10 +37,7 @@ pub fn prepare_editable_source(song: &Path, dest: &Path) -> Result<()> {
             !fs::exists(working.join("notes.chart")),
             "Incomplete YACE editable-master binding; recover the original project rather than replacing its edits"
         );
-        copy_song_source(song, dest)?;
-        organize_song_stage(dest)?;
-        crate::stem_review::game_audio::restore_recording(dest)?;
-        game_midi::prepare(dest)?;
+        game_midi::prepare(song)?;
         return Ok(());
     }
     let master = editable_chart_file(song)?;
@@ -33,28 +50,25 @@ pub fn prepare_editable_source(song: &Path, dest: &Path) -> Result<()> {
         .as_ref()
         .map(|raw| timing::apply_ini(Chart::parse(raw.clone())?, &ini).map(|chart| chart.raw))
         .transpose()?;
-    copy_song_source(song, dest)?;
-    organize_song_stage(dest)?;
-    crate::stem_review::game_audio::restore_recording(dest)?;
     if master != song.join("notes.chart") {
         fs::rename(
-            dest.join("notes.mid"),
-            song_layout::path(dest, "chart-engine-working").join("game-notes.mid"),
+            song.join("notes.mid"),
+            song_layout::path(song, "chart-engine-working").join("game-notes.mid"),
         )?;
-        fs::copy(&master, dest.join("notes.chart"))?;
+        fs::copy(&master, song.join("notes.chart"))?;
         fs::write(
-            dest.join("song.ini"),
-            crate::game_export::ini_with_delay(&song_ini(dest)?, 0),
+            song.join("song.ini"),
+            crate::game_export::ini_with_delay(&song_ini(song)?, 0),
         )?;
     }
     if let Some(raw) = original {
-        timing::retain_original(dest, &raw, &ini)?;
+        timing::retain_original(song, &raw, &ini)?;
         fs::write(
-            dest.join("notes.chart"),
+            song.join("notes.chart"),
             normalized.context("Missing normalized chart")?,
         )?;
         fs::write(
-            dest.join("song.ini"),
+            song.join("song.ini"),
             crate::game_export::ini_with_delay(&ini, 0),
         )?;
     }
@@ -62,19 +76,7 @@ pub fn prepare_editable_source(song: &Path, dest: &Path) -> Result<()> {
 }
 
 pub fn chart_file(folder: &Path) -> Result<PathBuf> {
-    let chart = folder.join("notes.chart");
-    let mid = folder.join("notes.mid");
-    ensure!(
-        !(fs::exists(&chart) && fs::exists(&mid)),
-        "Both notes.chart and notes.mid exist; choose one in a working copy before enhancement"
-    );
-    if fs::is_file(&chart) {
-        Ok(chart)
-    } else if fs::is_file(&mid) {
-        Ok(mid)
-    } else {
-        bail!("No notes.chart or notes.mid in {}", folder.display())
-    }
+    source_choice::selected_file(folder, None)
 }
 
 /// A generated MIDI song has one authoritative game MIDI and a separately
@@ -99,6 +101,7 @@ pub fn editable_chart_file(folder: &Path) -> Result<PathBuf> {
 }
 
 pub fn validate_existing(folder: &Path) -> Result<()> {
+    source_choice::validate_retained(folder)?;
     let delay = timing::legacy_delay(&song_ini(folder)?)?.unwrap_or(0.0);
     let binding = song_layout::resolve(folder, "chart-engine-working").join("binding.json");
     if fs::is_file(folder.join("notes.mid")) && fs::exists(&binding) {

@@ -243,9 +243,30 @@ impl Library {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open(&self, item: &Entry) -> Result<PathBuf> {
+        self.open_with_source(item, None)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_with_source(
+        &self,
+        item: &Entry,
+        source: Option<crate::song_files::source_choice::Source>,
+    ) -> Result<PathBuf> {
         ensure!(self.entries.contains(item), "Chart is not in this library");
         let path = self.project_path(item)?;
         if path.join("project.json").is_file() {
+            if let Some(requested) = source {
+                crate::song_files::source_choice::selected_file(&item.path, Some(requested))?;
+                if crate::song_files::source_choice::ambiguous(&item.path) {
+                    let saved = crate::song_files::source_choice::recorded_source(&path.join("source"))?
+                        .context("Existing editing history has no explicit source choice; continue it normally or create a separate project for another source")?;
+                    ensure!(
+                        requested == saved,
+                        "Saved editing history uses {}; create a separate project to edit {}",
+                        saved.filename(),
+                        requested.filename()
+                    );
+                }
+            }
             crate::editor::Store::new(&path).load()?;
             return Ok(path);
         }
@@ -254,7 +275,7 @@ impl Library {
             "Saved project is missing project.json"
         );
         fs::create_dir_all(path.parent().context("Project has no parent")?)?;
-        crate::editor::Store::create(&item.path, None, &path)?;
+        crate::editor::Store::create_with_source(&item.path, None, &path, source)?;
         Ok(path)
     }
 }

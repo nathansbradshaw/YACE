@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 type Events = Vec<(u64, u8, Vec<u8>)>;
 
 #[cfg(test)]
+#[path = "game_export/tests.rs"]
 mod tests;
 
 fn variable(mut n: u64, out: &mut Vec<u8>) -> Result<()> {

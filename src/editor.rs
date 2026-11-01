@@ -865,6 +865,15 @@ impl Store {
     }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn create(song: &Path, markers: Option<&Path>, output: &Path) -> Result<Self> {
+        Self::create_with_source(song, markers, output, None)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn create_with_source(
+        song: &Path,
+        markers: Option<&Path>,
+        output: &Path,
+        source: Option<crate::song_files::source_choice::Source>,
+    ) -> Result<Self> {
         let parent = output
             .parent()
             .context("Editing project needs a parent folder")?;
@@ -883,7 +892,11 @@ impl Store {
         let stage = tempfile::tempdir_in(parent)?;
         fs::create_dir(stage.path().join("source"))?;
         fs::create_dir(stage.path().join("checkpoints"))?;
-        crate::song_files::prepare_editable_source(song, &stage.path().join("source"))?;
+        crate::song_files::prepare_editable_source_with_choice(
+            song,
+            &stage.path().join("source"),
+            source,
+        )?;
         let source_audio = pipeline::audio_file(&stage.path().join("source"))?;
         let duration = pipeline::metadata(&source_audio)?.duration;
         Self::new(stage.path()).initialize(song, markers, duration)?;
@@ -1906,6 +1919,7 @@ impl Store {
     /// Write the same validated game export into a native or browser staging area.
     pub fn write_export(&self, doc: &Project, stage: &Path, actor: &Actor) -> Result<()> {
         let source = self.root.join("source");
+        crate::song_files::source_choice::validate_retained(&source)?;
         pipeline::copy_song_source(&source, stage)?;
         pipeline::organize_song_stage(stage)?;
         song_layout::prepare(stage)?;

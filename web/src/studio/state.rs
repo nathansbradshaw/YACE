@@ -31,6 +31,7 @@ pub struct Studio {
     pub library: Signal<Option<crate::chart_library::Library>>,
     pub library_busy: Signal<bool>,
     pub library_selected: Signal<Option<usize>>,
+    pub source_choice: Signal<Option<super::source_choice::Prompt>>,
     library_files: Signal<Option<Rc<crate::files::FolderSelection>>>,
     pub saved_projects: Signal<Option<Vec<crate::chart_library::Entry>>>,
     pub export_ready: Signal<Option<(PathBuf, String, DownloadKind)>>,
@@ -90,6 +91,7 @@ pub fn use_studio() -> Studio {
         library: use_signal(|| None),
         library_busy: use_signal(|| false),
         library_selected: use_signal(|| None),
+        source_choice: use_signal(|| None),
         library_files: use_signal(|| None),
         saved_projects: use_signal(|| None),
         export_ready: use_signal(|| None),
@@ -635,13 +637,14 @@ impl Studio {
                         crate::files::mount(&staging, files)?;
                     }
                     let library = crate::chart_library::discover(&staging)?;
-                    self.open_selected_entry(&library, 0, selection.as_deref())
+                    let opened = self
+                        .open_selected_entry(&library, 0, selection.as_deref())
                         .await?;
                     if let Some(previous) = self.library.replace(Some(library)) {
                         crate::storage::clear(&previous.root);
                     }
                     self.library_files.set(selection);
-                    self.library_selected.set(Some(0));
+                    self.library_selected.set(opened.then_some(0));
                     Ok(())
                 }
                 .await;
@@ -666,9 +669,12 @@ impl Studio {
         let result = async {
             let library = library.context("Open a charting folder")?;
             let selection = self.library_files.read().clone();
-            self.open_selected_entry(&library, index, selection.as_deref())
-                .await?;
-            self.library_selected.set(Some(index));
+            if self
+                .open_selected_entry(&library, index, selection.as_deref())
+                .await?
+            {
+                self.library_selected.set(Some(index));
+            }
             Ok::<_, anyhow::Error>(())
         }
         .await;
@@ -682,7 +688,7 @@ impl Studio {
         library: &crate::chart_library::Library,
         index: usize,
         selection: Option<&crate::files::FolderSelection>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let selected = &library
             .entries
             .get(index)
@@ -704,7 +710,7 @@ impl Studio {
         self,
         library: &crate::chart_library::Library,
         index: usize,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         use sha2::{Digest, Sha256};
         let item = library
             .entries
@@ -722,6 +728,14 @@ impl Studio {
         } else {
             item.path.clone()
         };
+        let choice = if project_source.is_some() {
+            None
+        } else {
+            let Some(choice) = self.choose_chart_source(&source).await? else {
+                return Ok(false);
+            };
+            Some(choice)
+        };
         let mut identity = Sha256::new();
         identity.update(
             item.path
@@ -731,11 +745,7 @@ impl Studio {
         );
         // Re-selecting a collection finds its editing copies, while replaced
         // source audio/charts receive a separate history.
-        let chart = ["notes.chart", "notes.mid"]
-            .into_iter()
-            .map(|name| source.join(name))
-            .find(|path| crate::storage::is_file(path))
-            .context("Song has no chart")?;
+        let chart = crate::song_files::source_choice::selected_file(&source, choice)?;
         for path in [crate::pipeline::audio_file(&source)?, chart] {
             identity.update(crate::models::hash_file(&path)?.as_bytes());
         }
@@ -757,19 +767,26 @@ impl Studio {
         };
         self.persist_current().await?;
         if let Some((root, revision)) = crate::persistence::load(&root).await? {
-            return self.open_project_with_revision(root, Some(revision)).await;
+            self.open_project_with_revision(root, Some(revision))
+                .await?;
+            return Ok(true);
         }
         if let Some(project) = project_source {
             crate::pipeline::copy_folder(&project, &root)?;
-            self.open_project(root).await
+            self.open_project(root).await?;
         } else {
-            crate::song_files::prepare_editable_source(&source, &root.join("source"))?;
+            crate::song_files::prepare_editable_source_with_choice(
+                &source,
+                &root.join("source"),
+                choice,
+            )?;
             let audio = crate::pipeline::audio_file(&root.join("source"))?;
             let duration =
                 super::media::duration(crate::storage::shared(&audio)?.as_slice()).await?;
             Store::new(&root).initialize(&root.join("source"), None, duration)?;
-            self.open_project(root).await
+            self.open_project(root).await?;
         }
+        Ok(true)
     }
     pub fn open_saved_projects(mut self) {
         dioxus::core::spawn_forever(async move {
@@ -847,10 +864,17 @@ impl Studio {
             root: root.clone(),
         };
         if !project {
+            let Some(choice) = self.choose_chart_source(&source).await? else {
+                return Ok(());
+            };
             let audio = crate::pipeline::audio_file(&source)?;
             let duration =
                 super::media::duration(crate::storage::shared(&audio)?.as_slice()).await?;
-            crate::song_files::prepare_editable_source(&source, &root.join("source"))?;
+            crate::song_files::prepare_editable_source_with_choice(
+                &source,
+                &root.join("source"),
+                Some(choice),
+            )?;
             Store::new(&root).initialize(&root.join("source"), None, duration)?;
         }
         let store = Store::new(&root);
