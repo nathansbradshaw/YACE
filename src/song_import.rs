@@ -257,8 +257,8 @@ pub fn create_project(
 /// never uploaded. Existing fields and chosen artwork take priority over suggestions.
 pub fn lookup(meta: &mut Metadata, info: &mut SongInfo, cache: &Path, lyrics: bool) -> Result<()> {
     ensure!(
-        !meta.name.trim().is_empty() && !meta.artist.trim().is_empty(),
-        "Enter a title and artist before looking up song information"
+        !meta.name.trim().is_empty(),
+        "Enter a song title before looking up song information"
     );
     ensure!(
         meta.duration.is_finite() && meta.duration > 0.0,
@@ -267,6 +267,9 @@ pub fn lookup(meta: &mut Metadata, info: &mut SongInfo, cache: &Path, lyrics: bo
     let mut suggestion = meta.clone();
     let mut found = SongInfo::default();
     enrich_catalogues(&mut suggestion, &mut found);
+    if meta.artist.trim().is_empty() {
+        meta.artist = suggestion.artist;
+    }
     if meta.album.is_empty() {
         meta.album = suggestion.album;
     }
@@ -721,6 +724,22 @@ fn archive_front(body: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn title_and_duration_can_identify_an_artist_but_conflicting_credits_are_rejected() {
+        let meta = Metadata {
+            name: "Song".into(),
+            duration: 180.0,
+            ..Default::default()
+        };
+        let record = serde_json::json!({"title":"Song","length":180000,"score":100,"artist-credit":[{"name":"Artist"}]});
+        let mut body = serde_json::json!({"recordings":[record]});
+        assert_eq!(
+            artist_credit(matching_recording(&body, &meta).unwrap()),
+            "Artist"
+        );
+        body["recordings"].as_array_mut().unwrap().push(serde_json::json!({"title":"Song","length":181000,"score":100,"artist-credit":[{"name":"Another artist"}]}));
+        assert!(matching_recording(&body, &meta).is_none());
+    }
     #[test]
     fn archive_index_uses_a_front_cover_and_upgrades_its_transport() {
         let body = serde_json::json!({"images":[

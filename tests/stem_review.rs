@@ -227,6 +227,107 @@ fn manifests_bind_real_hashes_exact_frames_and_relative_paths_without_claiming_a
 }
 
 #[test]
+fn reused_validation_proofs_reject_changed_bytes_frames_formats_and_nonfinite_audio() {
+    let root = tempfile::tempdir().unwrap();
+    let (_song, source, manifest) = write_fixture(root.path());
+    for _ in 0..2 {
+        manifest
+            .validate_source(&source, &manifest.source_audio_sha256, 1.0)
+            .unwrap();
+    }
+    let mut wrong = manifest.clone();
+    wrong.frames -= 1;
+    assert!(
+        wrong
+            .validate_source(&source, &wrong.source_audio_sha256, 1.0)
+            .is_err()
+    );
+    let asset = &manifest.stems[0];
+    let original = fs::read(&asset.path).unwrap();
+    let modified = fs::metadata(&asset.path).unwrap().modified().unwrap();
+    let mut corrupt = original.clone();
+    // FFmpeg's float WAV has an interleaved float payload at the end.
+    let end = corrupt.len();
+    corrupt[end - 4..].copy_from_slice(&f32::NAN.to_le_bytes());
+    fs::write(&asset.path, &corrupt).unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&asset.path)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(modified))
+        .unwrap();
+    assert!(
+        manifest
+            .validate_source(&source, &manifest.source_audio_sha256, 1.0)
+            .is_err()
+    );
+    // Matching an updated hash still cannot bless invalid decoded samples.
+    let mut changed = manifest.clone();
+    changed.stems[0].sha256 = models::hash_file(&asset.path).unwrap();
+    assert!(
+        changed
+            .validate_source(&source, &changed.source_audio_sha256, 1.0)
+            .is_err()
+    );
+    // Nor can resampling hide a stem's invalid native sample rate.
+    let mut invalid = original.clone();
+    let fmt = invalid
+        .windows(4)
+        .position(|bytes| bytes == b"fmt ")
+        .unwrap()
+        + 8;
+    invalid[fmt + 4..fmt + 8].copy_from_slice(&22050u32.to_le_bytes());
+    fs::write(&asset.path, invalid).unwrap();
+    changed.stems[0].sha256 = models::hash_file(&asset.path).unwrap();
+    assert!(
+        changed
+            .validate_source(&source, &changed.source_audio_sha256, 1.0)
+            .is_err()
+    );
+    fs::write(&asset.path, original).unwrap();
+    manifest
+        .validate_source(&source, &manifest.source_audio_sha256, 1.0)
+        .unwrap();
+}
+
+#[test]
+fn cached_separator_wrappers_reject_unpinned_weights_before_inference() {
+    let root = tempfile::tempdir().unwrap();
+    let asset = models::assets()
+        .into_iter()
+        .find(|asset| asset.id == "separation")
+        .unwrap();
+    fs::write(
+        root.path().join(asset.filename),
+        b"not the pinned checkpoint",
+    )
+    .unwrap();
+    let cache = root.path().join("cache");
+    let error = chart_engine::pipeline::cached_separation(
+        &root.path().join("unused.wav"),
+        root.path(),
+        &cache,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("checksum mismatch"));
+    fs::write(
+        root.path()
+            .join(chart_engine::keyboard_separation::MODEL_FILENAME),
+        b"wrong HQ checkpoint",
+    )
+    .unwrap();
+    assert!(
+        chart_engine::pipeline::cached_keyboard_separation(
+            &root.path().join("unused.wav"),
+            root.path(),
+            &cache
+        )
+        .is_err()
+    );
+    assert!(!cache.exists());
+}
+
+#[test]
 fn separation_cache_identity_changes_with_source_model_backend_and_parameters() {
     let source = "a".repeat(64);
     let mut identity = SeparationIdentity {

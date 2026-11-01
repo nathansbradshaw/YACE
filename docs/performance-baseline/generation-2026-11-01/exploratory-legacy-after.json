@@ -1,0 +1,64 @@
+{
+  "cold_split_ms": 12829.59075,
+  "generation": [
+    {
+      "cache": "cold",
+      "chart_sha256": "f5dea4505f1040bad6a834a874f360354cd80d8064b4e159875683107065ad3a",
+      "note_count": 589,
+      "total_ms": 14166.972916
+    },
+    {
+      "cache": "warm",
+      "chart_sha256": "f5dea4505f1040bad6a834a874f360354cd80d8064b4e159875683107065ad3a",
+      "note_count": 589,
+      "total_ms": 3727.032416
+    }
+  ],
+  "inference_ms": {
+    "bass": 280.66025,
+    "drums": 139.60679100000002,
+    "guitar": 197.346833
+  },
+  "metadata_ms": 60.382542,
+  "notes_sha256": "ad14d5db8572ffd841d2a630cbd4f53a63d774e3b15d04b4dd478e9b0dcafa8b",
+  "parse_audio_sha256": "4116e98add1b324105924afb9788379813c437c9792dbc3328d6ff2c03b5053a",
+  "schema_version": 1,
+  "scope": "Real default six-stem GPU splitting, CPU transcription and complete local generation. Each complete generation runs in a fresh worker process, matching desktop. Cold means no application separation cache, not cold OS/GPU shader caches. Other repeats are warm same-process observations. Full-song tempo analysis is separate from the short generation fixture. No network requests or source/model writes; outputs removed on exit. Hardware contention uncontrolled.",
+  "source_seconds": 12.0,
+  "source_sha256": "e9890c133a3ed90284adaba91d05197821d8295f8265780de8cdcb025b9e436a",
+  "stem_validation": {
+    "max_ms": 65.11737500000001,
+    "median_ms": 61.776708,
+    "samples_ms": [
+      61.245541,
+      60.675292,
+      61.776708,
+      65.11737500000001,
+      63.60725000000001
+    ]
+  },
+  "tempo_first_ms": 361.13879199999997,
+  "tempo_proposal_sha256": "1ca2502cbfab243c4fe4fe3b41a3851d779119417b3cf1eb3f103557adb75a28",
+  "tempo_repeat": {
+    "max_ms": 311.91729200000003,
+    "median_ms": 285.26475,
+    "samples_ms": [
+      311.91729200000003,
+      292.74991700000004,
+      275.068042,
+      269.83720900000003,
+      285.26475
+    ]
+  },
+  "warm_split": {
+    "max_ms": 1884.663834,
+    "median_ms": 691.398083,
+    "samples_ms": [
+      1884.663834,
+      1292.675583,
+      691.398083,
+      593.048334,
+      482.512417
+    ]
+  }
+}

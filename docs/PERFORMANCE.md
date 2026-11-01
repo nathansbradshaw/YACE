@@ -4,6 +4,10 @@ Audit date: 2026-11-01. Product objective: make YACE feel at least as immediate
 as OCTAVE, with measured advantages where Rust makes a difference. Choosing
 Rust does not establish any performance advantage by itself.
 
+Implemented follow-up: [generation, song parsing and part splitting](GENERATION_PERFORMANCE.md)
+records the native validation/model-verification and tempo-window changes,
+matched before/after measurements and remaining inference bottlenecks.
+
 The dominant confirmed design problem is that interactive commands do work
 proportional to the entire saved project. Playback also rebuilds a substantial
 SVG subtree every frame. Audio preparation repeats full-song decoding, and most

@@ -17,6 +17,9 @@ use std::{
 
 pub const SAMPLE_RATE: u32 = 44_100;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod validation;
+
 #[path = "stem_review/game_audio.rs"]
 pub mod game_audio;
 
@@ -141,9 +144,13 @@ impl StemManifest {
         alignment: AlignmentEvidence,
     ) -> Result<Self> {
         let source_audio_sha256 = models::hash_file(source)?;
-        let original = models::decode(source, SAMPLE_RATE, 2)?;
-        let frames = (original.len() / 2) as u64;
-        drop(original);
+        #[cfg(not(target_arch = "wasm32"))]
+        let frames = validation::frames(source, &source_audio_sha256, false)?;
+        #[cfg(target_arch = "wasm32")]
+        let frames = {
+            let original = models::decode(source, SAMPLE_RATE, 2)?;
+            (original.len() / 2) as u64
+        };
         let stems = stems
             .into_iter()
             .map(|(id, path)| {
@@ -162,7 +169,11 @@ impl StemManifest {
             stems,
             generation: None,
         };
-        manifest.load(source)?;
+        manifest.validate_source(
+            source,
+            &manifest.source_audio_sha256,
+            frames as f64 / SAMPLE_RATE as f64,
+        )?;
         Ok(manifest)
     }
     /// Resolve paths relative to this manifest, never to an application's cwd.
@@ -259,7 +270,7 @@ impl StemManifest {
     ) -> Result<Self> {
         self.validate_binding(expected_hash, duration)?;
         #[cfg(not(target_arch = "wasm32"))]
-        self.load(source)?;
+        validation::validate(self, source)?;
         #[cfg(target_arch = "wasm32")]
         models::validate_stems(self, source)?;
         Ok(self.clone())
