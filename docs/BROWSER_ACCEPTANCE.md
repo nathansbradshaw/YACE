@@ -51,6 +51,12 @@ Actual application checks included:
   The partial drum attachment was retained for editing; the game-audio receipt
   retained one original mix, avoiding duplicate game playback.
 
+The native manual-start cancellation fix was repeated in the actual packaged app:
+save completed, the editor showed the new title and 100 BPM marker, and status
+reached **Ready to play**. Native tempo editing, section creation and Star Power
+creation also completed through their dialogs and were undone back to the blank
+chart. Explicit dialog roles restored native accessibility for these controls.
+
 Private evidence includes `Head On A Plate project (6).zip` (native kit roundtrip),
 `Head On A Plate project (7).zip` (authored parts/review history),
 `Head On A Plate reviewed (6).zip`, the native `native-final-export` folder,

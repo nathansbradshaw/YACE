@@ -12,25 +12,31 @@ saved results and manual tools are still in scope.
 
 ## Acceptance ledger
 
-| Workflow | Current evidence | Remaining gate |
+| Workflow | Verification evidence | Result |
 | --- | --- | --- |
-| Start from recording or existing chart | Browser recording, song folder/ZIP and project ZIP exercised | Desktop manual recording start; repeat on final revision |
-| Edit every instrument/difficulty | Shared Rust parts, note, vocal and difficulty commands | Paired native/browser UI run, including new note types |
-| Timing, sections and Star Power | Browser edits, exports and undo exercised | Paired final-revision export comparison |
-| Playback, seek, loop, speed and waveform | Full browser song ended at 243.880 s; loop/speed exercised | Same-revision native comparison, stems and saved kit playback |
-| Attach and replace aligned stems | Real full-length supplied manifest attached in browser with worker validation; shared retained-stem and game export routines | Final-revision portable roundtrip and keyboard/primary stem switching |
-| Read-only part analysis | Shared panel and Rust worker exercised on the full song | Paired report comparison and saved kit playback |
-| Clean audio manually | Supplied word/plan load and actual worker render/download passed; full 10,755,108-frame output compared to native DSP, maximum delta 0.00000054 | Final native-panel comparison and rendered-copy listening |
-| Review and flags | Browser flags and decisions exercised | Same final-revision decisions, source bindings and roundtrip |
-| Team proposals | Direct optional GitHub transport implemented; API protocol tests cover retries, checksums, wrong songs, permissions and idempotency; browser reached GitHub and rejected a source repo | Paired two-contributor UI conflict and merge. User excludes creating throwaway GitHub repositories or publishing test review commits; authenticated remote writes are not claimed as verified |
-| Recovery, undo and backups | Browser IndexedDB restore and stale-tab rejection exercised | Final-revision project roundtrip in both clients, interrupted operation checks |
-| Export playable song | Browser source audio preserved byte-for-byte; chart undo restored original hash | Final-revision native/browser semantic and source-byte comparison |
-| Navigation and errors | Shared header, welcome screen and manual setup; browser chart-folder discovery/switching and saved-project chooser; OS pickers | Final-revision native/browser UI and narrow-window checks |
-| Release | Public static origin and custom domain configured | Tested source matches native package and published static assets |
+| Start from recording or existing chart | Both OS-picker/manual starts exercised; native setup now reaches Ready after save; identical chart/INI settings and unchanged encoded source | Verified |
+| Instrument/difficulty editing | Shared command tests plus actual guitar timing/Tap, Keys, Pro Keys, vocal editing, and native edit/Undo; paired full-song MIDI/master/vocal export matches | Verified supported workflows |
+| Timing, sections and Star Power | Browser edits/Undo and native tempo, section and phrase Add/Undo exercised through their actual dialogs | Verified |
+| Playback, seek, loop, speed and waveform | Full 243.880 s browser playthrough; native whole-song playback; browser loop/speed; all five saved kit components at 75%; native kit backup opened at saved speed/selection | Verified; acoustic synchronization is unmeasured |
+| Supplied stems and part analysis | Real full-length supplied drums, worker validation, native cached kit analysis/audition and portable roundtrip; attachment Undo/Redo replaced actual browser audio channels | Verified supplied/cached workflows; new inference uses the AI exception |
+| Manual clean audio | Both actual panels rendered the same bound plan; native output matched shared DSP exactly; 10,755,108 browser stereo frames, zero lag, maximum decoder delta 0.00000054 | Verified functional render; musical acceptance remains with the listener |
+| Review and flags | Shared rules, actual browser queue/decisions and portable source-bound review history | Verified |
+| Team proposals | Actual browser proposal → native import/independent approval/merge → browser conflict resolution → fresh native approval → browser merge; new parts preserved | Verified file exchange and protocol tests. Authenticated GitHub writes remain untested at the user's request |
+| Recovery, undo and backups | IndexedDB restore/stale-tab guard; same-name library switching with separate histories; full project/kit roundtrips; imported first checkpoint and native/browser Undo/Redo | Verified |
+| Playable export | Actual client exports had byte-identical MIDI, editable master, vocal JSON, INI and original Ogg; partial-stem game receipt avoids duplicate mix playback | Verified export equivalence; game/controller acceptance is separate |
+| Navigation and errors | Shared controls and OS pickers; actual narrow browser layout; lazy folder discovery; explicit downloads; native dialogs expose their accessibility role | Verified exercised paths |
+| Release | Public static origin/custom domain and canonical native identity configured | Final publication verification is recorded in DEPLOYMENT.md |
 
 Do not mark a row passed from compilation alone. Record the revision, fixture,
 actual application actions, downloaded/exported results, and any limitations.
 Keep private recordings, transcripts and generated receipts outside Git.
+
+See [the dated acceptance evidence](BROWSER_ACCEPTANCE.md) for revisions, private
+artifacts, test coverage and limits. This gate concerns the supported YACE
+clients; it does not claim feature completeness against OCTAVE/Moonscraper or
+musical correctness. No throwaway GitHub repository or remote review test event
+was created. GitHub publication behavior is covered by transport tests and an
+actual anonymous read/rejection, rather than an authenticated live write.
 
 ## Platform boundaries
 
