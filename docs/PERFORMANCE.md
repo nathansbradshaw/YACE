@@ -245,3 +245,68 @@ undo/redo after restart, changed source and cancelled project switch. Optimizing
 must preserve authored data, audit/recovery history, export fidelity and musical
 acceptance boundaries. Performance results must show both median and tail
 latency with exact workload/build identity and raw traces or probe JSON.
+
+## First repair: verified source reuse and command serialization
+
+Implemented against main `3597d20`, preserving that version's immediate pause,
+library switching, retained stems, generation feedback and loading lifecycle.
+The first implementation checkpoint is `db8d91f`; this is a partial repair of
+B02/B03, not completion of the live-session/persistence-worker plan.
+
+- Each live `Store` shares one bounded source snapshot with its clones. Every
+  source access still reads and compares the actual current bytes. Matching
+  bytes reuse parsed chart/tempo data and lazily cached sorted source notes.
+  Modified bytes or a different expected hash are rejected; timestamps are
+  never trusted as proof of unchanged content. No project validation result
+  is cached, and there is no process-global accumulating source cache.
+- Cursor, playback and selection actions retain their handler checks and the
+  complete validation on project load, while avoiding a second full-content
+  validation after an action that cannot change content. Content edits,
+  undo/redo, recovery, stale revision checks and durable saves are retained.
+- The editor command lock now remains held across loading, revision checking,
+  preconditions, mutation and saving. Previously the guard was scoped to a
+  short block and dropped before the transaction, allowing another command
+  to save between a revision check and its commit. A regression test exercises
+  competing commands and verifies that a fresh command succeeds afterward.
+
+The new [in-process example](../examples/editor-performance.rs) complements the
+subprocess probe by timing a long-lived store on a disposable metadata-only
+copy. Run it in release mode:
+
+```sh
+cargo run --locked --release --example editor-performance -- /path/to/project
+```
+
+The identical example was compiled against `3597d20` and the implementation,
+with the same default release features and Rust 1.97.1. On the original
+13,601-note, 10,288,932-byte fixture, a repeated adjacent pair measured:
+
+| In-process operation | Before median / p95 (ms) | After median / p95 (ms) |
+| --- | ---: | ---: |
+| Load and validate project | 14.58 / 15.32 | 13.41 / 13.66 |
+| Resolve effective timing | 0.604 / 0.643 | 0.0184 / 0.0209 |
+| Render/hash chart | 1.783 / 1.825 | 0.462 / 0.501 |
+| Apply and durably save seek | 41.07 / 42.43 | 29.26 / 30.28 |
+
+Twenty samples plus two warmups per operation. Seek median improved by about
+29%; timing and hashing are narrower microbenchmarks, not whole-editor speedups.
+The subprocess measurements showed smaller gains and variable inspection
+timings, so they do not support a general application-speed claim. Source
+projects remained byte-identical. Host contention remains uncontrolled.
+Raw [in-process and subprocess results](performance-baseline/interactive-2026-11-01/)
+include initial/repeated observations rather than only the fastest sample.
+
+Validation: full default-feature local all-target suite (620 passed, 45 ignored),
+focused competing-save, source-tampering and invalid-content regressions,
+default-feature all-target Clippy with warnings denied, formatting/diff checks,
+and compilation of the shared static WASM app. The source-tampering regression
+also restores the file's previous modification timestamp after a same-length
+edit. A sandbox-blocked loopback HTTP mock required rerunning the local suite
+with loopback permission; no real provider requests were needed.
+
+This does not remove project JSON serialization/fsync from interaction, skip
+initial validation, change project/command JSON, or demonstrate input-to-paint
+latency. Source measurements do not establish installation or device acceptance;
+canonical app packaging and UI verification remain separate integration work.
+Next: the serialized persistence worker/live session and narrower UI state
+subscriptions, coordinated with the shared UI owner.

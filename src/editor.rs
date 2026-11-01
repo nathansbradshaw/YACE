@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    ops::Deref,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 #[cfg(not(target_arch = "wasm32"))]
 use std::{
@@ -413,9 +415,8 @@ impl Project {
             };
             let mut current: Vec<_> = notes.iter().map(|n| n.note.clone()).collect();
             current.sort();
-            let mut original = chart.notes(&section.name)?;
-            original.sort();
-            if current == original {
+            let original = chart.sorted_notes(&section.name)?;
+            if current == *original {
                 continue;
             }
             let newline = if chart.raw.contains("\r\n") {
@@ -757,6 +758,37 @@ impl Project {
 #[derive(Clone)]
 pub struct Store {
     pub root: PathBuf,
+    source: Arc<Mutex<Option<Arc<SourceSnapshot>>>>,
+}
+
+/// One source per live store, shared by UI/worker clones. Always compare current
+/// file bytes before reuse, so unchanged timestamps cannot hide source edits.
+struct SourceSnapshot {
+    chart: Chart,
+    sha256: String,
+    notes: Mutex<BTreeMap<String, Arc<Vec<Note>>>>,
+}
+impl Deref for SourceSnapshot {
+    type Target = Chart;
+    fn deref(&self) -> &Chart {
+        &self.chart
+    }
+}
+impl SourceSnapshot {
+    fn sorted_notes(&self, track: &str) -> Result<Arc<Vec<Note>>> {
+        let mut cache = self
+            .notes
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Source note cache unavailable"))?;
+        if let Some(notes) = cache.get(track) {
+            return Ok(notes.clone());
+        }
+        let mut notes = self.chart.notes(track)?;
+        notes.sort();
+        let notes = Arc::new(notes);
+        cache.insert(track.to_owned(), notes.clone());
+        Ok(notes)
+    }
 }
 #[derive(Debug, Serialize)]
 pub struct Applied {
@@ -770,27 +802,50 @@ impl Store {
     pub fn new(root: &Path) -> Self {
         Self {
             root: root.to_owned(),
+            source: Arc::new(Mutex::new(None)),
         }
     }
     pub fn source_sections(&self, project: &Project) -> Result<Vec<crate::sections::Marker>> {
-        Ok(crate::sections::imported(&self.source_chart(project)?))
+        Ok(crate::sections::imported(
+            &self.source_chart(project)?.chart,
+        ))
     }
     pub fn source_sync(&self, project: &Project) -> Result<crate::sync_track::SyncTrack> {
-        crate::sync_track::imported(&self.source_chart(project)?)
+        crate::sync_track::imported(&self.source_chart(project)?.chart)
     }
     pub fn source_star_power(&self, project: &Project) -> Result<crate::star_power::Source> {
         Ok(crate::star_power::source(
             project,
-            &self.source_chart(project)?,
+            &self.source_chart(project)?.chart,
         ))
     }
-    fn source_chart(&self, project: &Project) -> Result<Chart> {
+    fn source_chart(&self, project: &Project) -> Result<Arc<SourceSnapshot>> {
         let bytes = fs::read(self.root.join("source/notes.chart"))?;
+        let mut cache = self
+            .source
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Source chart cache unavailable"))?;
+        if let Some(source) = cache.as_ref()
+            && source.raw.as_bytes() == bytes
+        {
+            ensure!(
+                source.sha256 == project.source_chart_sha256,
+                "Source snapshot changed; refusing to edit against changed inputs"
+            );
+            return Ok(source.clone());
+        }
+        let sha256 = hash(&bytes);
         ensure!(
-            hash(&bytes) == project.source_chart_sha256,
+            sha256 == project.source_chart_sha256,
             "Source snapshot changed; refusing to edit against changed inputs"
         );
-        Chart::parse(String::from_utf8(bytes)?)
+        let source = Arc::new(SourceSnapshot {
+            chart: Chart::parse(String::from_utf8(bytes)?)?,
+            sha256,
+            notes: Mutex::new(BTreeMap::new()),
+        });
+        *cache = Some(source.clone());
+        Ok(source)
     }
     pub fn audio_path(&self, project: &Project) -> Result<PathBuf> {
         ensure!(
@@ -1232,7 +1287,7 @@ impl Store {
         };
 
         #[cfg(not(target_arch = "wasm32"))]
-        {
+        let _command_lock = {
             let lock = OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -1241,8 +1296,8 @@ impl Store {
                 .open(self.root.join("editor.lock"))?;
             lock.try_lock()
                 .context("Another editor command is saving; reload and retry")?;
-            let _command_lock = CommandLock(lock);
-        }
+            CommandLock(lock)
+        };
         let mut doc = self.load()?;
         ensure!(
             doc.revision == request.expected_revision,
@@ -1299,6 +1354,20 @@ impl Store {
                 | Action::DeleteVocalNote { .. }
                 | Action::SetVocalGeneration { .. }
                 | Action::SetVocalReview { .. }
+        );
+        // load() has already validated all content. These actions only change
+        // fields checked by their own handlers; do not revalidate every note,
+        // review region and difficulty link after moving a cursor or selection.
+        let session_action = matches!(
+            request.action,
+            Action::Seek { .. }
+                | Action::Playback { .. }
+                | Action::Pause { .. }
+                | Action::SetPlaybackRate { .. }
+                | Action::SetLoop { .. }
+                | Action::SelectTrack { .. }
+                | Action::SelectRegion { .. }
+                | Action::SelectNote { .. }
         );
         // Selecting a note, seeking or playing cannot change note content.
         // Avoid cloning every instrument and its review history for those actions.
@@ -1678,7 +1747,11 @@ impl Store {
             }
             Action::Export { .. } => unreachable!(),
         }
-        let timing = doc.timing(self)?;
+        let timing = if session_action {
+            before_timing.clone()
+        } else {
+            doc.timing(self)?
+        };
         if before_timing != timing {
             doc.transport.playing = false;
             if matches!(request.action, Action::EditSync { .. }) {
@@ -1753,18 +1826,20 @@ impl Store {
         }) {
             doc.kit_audition = None;
         }
-        doc.validate_notes(self)?;
-        for manifest in doc
-            .content
-            .stems
-            .iter()
-            .chain(doc.content.keyboard_stems.iter())
-        {
-            manifest.validate_binding(&doc.audio_sha256, doc.duration)?;
+        if !session_action {
+            doc.validate_notes(self)?;
+            for manifest in doc
+                .content
+                .stems
+                .iter()
+                .chain(doc.content.keyboard_stems.iter())
+            {
+                manifest.validate_binding(&doc.audio_sha256, doc.duration)?;
+            }
+            doc.content.stem_mix.prepare(doc.content.stem_ids())?;
+            crate::editor_validation::validate(&doc, &self.source_chart(&doc)?.chart)?;
+            crate::difficulty_links::validate(&doc.content, &timing, doc.duration)?;
         }
-        doc.content.stem_mix.prepare(doc.content.stem_ids())?;
-        crate::editor_validation::validate(&doc, &self.source_chart(&doc)?)?;
-        crate::difficulty_links::validate(&doc.content, &timing, doc.duration)?;
         if content_action {
             doc.undo
                 .push(self.checkpoint(before.as_ref().context("Missing edit checkpoint")?)?);
