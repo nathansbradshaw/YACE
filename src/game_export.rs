@@ -163,6 +163,11 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
             "DoubleBass" => "PART BASS",
             "DoubleRhythm" => "PART RHYTHM",
             "DoubleGuitar" => "PART GUITAR COOP",
+            "GHLGuitar" => "PART GUITAR GHL",
+            "GHLBass" => "PART BASS GHL",
+            "GHLRhythm" => "PART RHYTHM GHL",
+            "GHLCoop" => "PART GUITAR COOP GHL",
+            "GHLKeys" => "PART KEYS GHL",
             "Drums" => "PART DRUMS",
             "Keyboard" => "PART KEYS",
             "ProKeys" => {
@@ -174,10 +179,15 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
             .entry(label)
             .or_insert(vec![(0, 1, meta(3, label.as_bytes())?)]);
         let notes = chart.notes(&section.name)?;
-        let frets = matches!(
+        let six_fret = matches!(
             suffix,
-            "Single" | "DoubleBass" | "DoubleRhythm" | "DoubleGuitar"
+            "GHLGuitar" | "GHLBass" | "GHLRhythm" | "GHLCoop" | "GHLKeys"
         );
+        let frets = six_fret
+            || matches!(
+                suffix,
+                "Single" | "DoubleBass" | "DoubleRhythm" | "DoubleGuitar"
+            );
         if frets {
             use crate::gameplay_view::{self, Technique};
             let policy = gameplay_view::yarg_chart_policy(chart.timing.resolution, ini)?;
@@ -194,7 +204,7 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
                 "Orphan guitar type marker in {}",
                 section.name
             );
-            if notes.iter().any(|n| n.lane == 7) {
+            if !six_fret && notes.iter().any(|n| n.lane == 7) {
                 events.push((0, 1, meta(1, b"[ENHANCED_OPENS]")?));
             }
             for (tick, kind) in attacks {
@@ -267,6 +277,16 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
                     let duration = duration.parse::<u64>()?;
                     let base = 60 + difficulty as u8 * 12;
                     if frets && matches!(lane, 5 | 6) {
+                        continue;
+                    }
+                    if six_fret {
+                        let key = match lane {
+                            0..=4 => base + lane - 1,
+                            8 => base + 4,
+                            7 => base - 2,
+                            _ => bail!("Unsupported six-fret lane {lane} in {}", section.name),
+                        };
+                        note(events, tick, duration, key, 100)?;
                         continue;
                     }
                     if frets && lane == 7 {

@@ -165,9 +165,8 @@ fn supported_track(track: &str) -> Option<bool> {
     ["Easy", "Medium", "Hard", "Expert"]
         .into_iter()
         .find_map(|tier| match track.strip_prefix(tier)? {
-            "Single" | "DoubleBass" | "DoubleRhythm" | "DoubleGuitar" | "Keyboard" | "ProKeys" => {
-                Some(false)
-            }
+            "Single" | "DoubleBass" | "DoubleRhythm" | "DoubleGuitar" | "Keyboard" | "ProKeys"
+            | "GHLGuitar" | "GHLBass" | "GHLRhythm" | "GHLCoop" | "GHLKeys" => Some(false),
             "Drums" => Some(true),
             _ => None,
         })
@@ -184,6 +183,9 @@ pub fn classify(
     let drums = supported_track(track).context("Unsupported gameplay-view track")?;
     let pro_keys = track.ends_with("ProKeys");
     let keys = pro_keys || track.ends_with("Keyboard");
+    let six_fret = ["GHLGuitar", "GHLBass", "GHLRhythm", "GHLCoop", "GHLKeys"]
+        .iter()
+        .any(|suffix| track.ends_with(suffix));
     ensure!(
         policy
             .source_resolution
@@ -223,7 +225,7 @@ pub fn classify(
                 || if drums {
                     note.lane == 32
                 } else {
-                    note.lane == 7
+                    note.lane == 7 || (six_fret && note.lane == 8)
                 }
         };
         if playable {
