@@ -284,15 +284,14 @@ pub fn estimate(samples: &[f32]) -> Estimate {
     let mut bins = vec![Complex::new(0.0, 0.0); WINDOW];
     let mut previous = vec![0.0_f32; WINDOW / 2];
     let mut onset = Vec::new();
+    let window: Vec<_> = (0..WINDOW)
+        .map(|i| 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / (WINDOW - 1) as f32).cos())
+        .collect();
     for start in (0..=samples.len() - WINDOW).step_by(HOP) {
         for (i, bin) in bins.iter_mut().enumerate() {
             let value = samples[start + i];
             let value = if value.is_finite() { value } else { 0.0 };
-            *bin = Complex::new(
-                value
-                    * (0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / (WINDOW - 1) as f32).cos()),
-                0.0,
-            );
+            *bin = Complex::new(value * window[i], 0.0);
         }
         fft.process_with_scratch(&mut bins, &mut scratch);
         let mut flux = 0.0;
