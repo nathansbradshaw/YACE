@@ -8,8 +8,8 @@ use crate::{
     midi, models, song_layout,
     timing::TempoMap,
 };
-use anyhow::{Context, Result, bail, ensure};
-use serde::{Deserialize, Serialize};
+use anyhow::{Context, Result, ensure};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -717,15 +717,7 @@ pub fn transcribe_with_isolation(
     Ok(out)
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct Metadata {
-    pub name: String,
-    pub artist: String,
-    pub album: String,
-    pub year: String,
-    pub genre: String,
-    pub duration: f64,
-}
+pub use crate::recording_metadata::Metadata;
 
 pub fn metadata(audio: &Path) -> Result<Metadata> {
     let output = Command::new("ffprobe")

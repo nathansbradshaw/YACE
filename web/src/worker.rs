@@ -16,6 +16,10 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    InspectRecording {
+        audio: PathBuf,
+        output: PathBuf,
+    },
     Backup {
         root: PathBuf,
         output: PathBuf,
@@ -65,7 +69,7 @@ impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
             Self::Backup { .. } => Vec::new(),
-            Self::Tempo { audio } => vec![audio.clone()],
+            Self::Tempo { audio } | Self::InspectRecording { audio, .. } => vec![audio.clone()],
             Self::Relocate { .. } | Self::LoadKit { .. } | Self::SelectKit { .. } => Vec::new(),
             Self::Clean { audio, stem, .. } => {
                 std::iter::once(audio.clone()).chain(stem.clone()).collect()
@@ -89,6 +93,9 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
+            Self::InspectRecording { audio, output } => Ok(serde_json::to_value(
+                crate::song_import::local(audio, output)?,
+            )?),
             Self::Backup { root, .. } => {
                 crate::editor::Store::new(root).load()?;
                 Ok(serde_json::Value::Null)
@@ -291,6 +298,14 @@ async fn process(input: JsValue) -> Result<JsValue> {
             row.push(&js_sys::Uint8Array::from(
                 crate::storage::shared(path)?.as_slice(),
             ));
+            files.push(&row);
+        }
+    }
+    if let Task::InspectRecording { output, .. } = &task {
+        for (path, bytes) in crate::storage::list(output)? {
+            let row = js_sys::Array::new();
+            row.push(&path.to_string_lossy().as_ref().into());
+            row.push(&js_sys::Uint8Array::from(bytes.as_slice()));
             files.push(&row);
         }
     }

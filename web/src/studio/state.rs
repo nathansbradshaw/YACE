@@ -473,13 +473,42 @@ impl Studio {
         crate::storage::clear(root);
         self.new_song.set(None);
     }
-    pub async fn analyze_new_chart(self, root: PathBuf) -> Result<crate::tempo_analysis::Estimate> {
+    pub async fn prepare_new_chart(
+        self,
+        root: PathBuf,
+    ) -> Result<crate::song_import::RecordingInfo> {
         let audio = crate::pipeline::audio_file(&root)?;
         crate::worker::run(
-            crate::worker::Task::Tempo { audio },
+            crate::worker::Task::InspectRecording {
+                audio,
+                output: root.join(".yace/audio/import"),
+            },
             std::slice::from_ref(&root),
         )
         .await
+    }
+    pub async fn lookup_new_chart(
+        self,
+        root: PathBuf,
+        metadata: crate::pipeline::Metadata,
+        info: crate::song_import::SongInfo,
+        lyrics: bool,
+    ) -> Result<crate::song_import::RecordingInfo> {
+        crate::song_import::lookup(metadata, info, &root.join(".yace/audio/import"), lyrics).await
+    }
+    pub fn stage_new_cover(
+        self,
+        root: &std::path::Path,
+        cover: &std::path::Path,
+    ) -> Result<PathBuf> {
+        let bytes = crate::storage::shared(cover)?;
+        let extension = crate::song_metadata::cover_extension(&bytes)?;
+        let path = root.join(format!(
+            ".yace/audio/import/selected-{}.{extension}",
+            crate::storage::unique_id()
+        ));
+        crate::storage::copy(cover, &path)?;
+        Ok(path)
     }
     pub async fn finish_new_chart(
         mut self,
@@ -487,10 +516,12 @@ impl Studio {
         title: String,
         artist: String,
         timing: TempoMap,
+        info: crate::song_import::SongInfo,
     ) -> Result<()> {
         let (ini, chart) = crate::song_metadata::blank_song_with_timing(&title, &artist, &timing)?;
         crate::storage::write(root.join("song.ini"), ini)?;
         crate::storage::write(root.join("notes.chart"), chart)?;
+        crate::song_metadata::write_song_info(&root, &info)?;
         self.status.set("Preparing new chart…".into());
         self.open_project(root.clone()).await?;
         crate::storage::clear(&root);

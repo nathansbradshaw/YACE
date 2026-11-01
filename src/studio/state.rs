@@ -1125,11 +1125,39 @@ impl Studio {
             }
         });
     }
-    pub async fn analyze_new_chart(
+    pub async fn prepare_new_chart(
         self,
         source: PathBuf,
-    ) -> Result<crate::tempo_analysis::Estimate> {
-        tokio::task::spawn_blocking(move || crate::tempo_analysis::analyze(&source)).await?
+    ) -> Result<crate::song_import::RecordingInfo> {
+        tokio::task::spawn_blocking(move || crate::song_import::local(&source)).await?
+    }
+    pub async fn lookup_new_chart(
+        self,
+        source: PathBuf,
+        mut metadata: crate::pipeline::Metadata,
+        mut info: crate::song_import::SongInfo,
+        lyrics: bool,
+    ) -> Result<crate::song_import::RecordingInfo> {
+        tokio::task::spawn_blocking(move || {
+            let cache = crate::song_import::artwork_cache(&source)?;
+            crate::song_import::lookup(&mut metadata, &mut info, &cache, lyrics)?;
+            Ok(crate::song_import::RecordingInfo { metadata, info })
+        })
+        .await?
+    }
+    pub fn stage_new_cover(
+        self,
+        source: &std::path::Path,
+        cover: &std::path::Path,
+    ) -> Result<PathBuf> {
+        let bytes = crate::storage::read(cover)?;
+        let extension = crate::song_metadata::cover_extension(&bytes)?;
+        let path = crate::song_import::artwork_cache(source)?.join(format!(
+            "selected-{}.{extension}",
+            crate::storage::unique_id()
+        ));
+        crate::storage::write(&path, bytes)?;
+        Ok(path)
     }
     pub async fn finish_new_chart(
         mut self,
@@ -1137,6 +1165,7 @@ impl Studio {
         title: String,
         artist: String,
         timing: TempoMap,
+        info: crate::song_import::SongInfo,
     ) -> Result<()> {
         let (ini, chart) = crate::song_metadata::blank_song_with_timing(&title, &artist, &timing)?;
         let Some(output) = rfd::AsyncFileDialog::new()
@@ -1160,6 +1189,7 @@ impl Studio {
             )?;
             std::fs::write(song.path().join("song.ini"), ini)?;
             std::fs::write(song.path().join("notes.chart"), chart)?;
+            crate::song_metadata::write_song_info(song.path(), &info)?;
             Store::create(song.path(), None, &output)
         })
         .await??;

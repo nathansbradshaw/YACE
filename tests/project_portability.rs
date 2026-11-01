@@ -182,6 +182,19 @@ fn native_backup_imports_a_browser_compatible_zip_without_overwriting_a_backup()
     let archive = temp.path().join("project.zip");
     chart_engine::project_files::backup(&store, &archive).unwrap();
     let original = fs::read(&archive).unwrap();
+    let stem_hash = models::hash_file(&stem).unwrap();
+    let copies = chart_engine::archive_codec::decode(&original)
+        .unwrap()
+        .iter()
+        .filter(|(_, bytes)| {
+            use sha2::{Digest, Sha256};
+            format!("{:x}", Sha256::digest(bytes)) == stem_hash
+        })
+        .count();
+    assert_eq!(
+        copies, 1,
+        "Retained stems must not be duplicated in portable backups"
+    );
     assert!(chart_engine::project_files::backup(&store, &archive).is_err());
     assert_eq!(fs::read(&archive).unwrap(), original);
     fs::remove_file(stem).unwrap();

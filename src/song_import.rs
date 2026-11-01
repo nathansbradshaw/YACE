@@ -1,18 +1,16 @@
-//! Local recording preparation and editable catalogue suggestions shared by importers.
-use crate::{
-    pipeline::{self, Metadata},
-    tempo_analysis,
-};
+//! Recording metadata and catalogue matching; native operations stay platform-specific.
+#[cfg(not(target_arch = "wasm32"))]
+use crate::pipeline;
+use crate::{recording_metadata::Metadata, tempo_analysis};
+#[cfg(not(target_arch = "wasm32"))]
 use anyhow::{Context, Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{
-    fs,
-    io::Read,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::path::PathBuf;
+#[cfg(not(target_arch = "wasm32"))]
+use std::{fs, io::Read, path::Path, time::Duration};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -37,6 +35,7 @@ pub struct RecordingInfo {
 }
 
 /// Reads tags and audio locally. Online lookup is a separate, explicit operation.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn local(path: &Path) -> Result<RecordingInfo> {
     let mut metadata = pipeline::metadata(path)?;
     let filename = path.file_stem().unwrap_or_default().to_string_lossy();
@@ -105,6 +104,7 @@ pub fn local(path: &Path) -> Result<RecordingInfo> {
     Ok(RecordingInfo { metadata, info })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn artwork_cache(path: &Path) -> Result<PathBuf> {
     let parent = std::env::temp_dir().join("YACE");
     let cache = parent.join("imports").join(crate::models::hash_file(path)?);
@@ -114,6 +114,7 @@ pub fn artwork_cache(path: &Path) -> Result<PathBuf> {
 
 /// Create a blank, editable standard song folder without downloading models or
 /// inventing notes. Generation can be started later from the imported recording.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn create_project(
     audio: &Path,
     recording: &RecordingInfo,
@@ -255,6 +256,7 @@ pub fn create_project(
 
 /// The caller supplies the edited title/artist and a measured duration. Audio is
 /// never uploaded. Existing fields and chosen artwork take priority over suggestions.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn lookup(meta: &mut Metadata, info: &mut SongInfo, cache: &Path, lyrics: bool) -> Result<()> {
     ensure!(
         !meta.name.trim().is_empty(),
@@ -313,16 +315,17 @@ pub fn lookup(meta: &mut Metadata, info: &mut SongInfo, cache: &Path, lyrics: bo
     Ok(())
 }
 
-fn normalize(raw: &str) -> String {
+pub(crate) fn normalize(raw: &str) -> String {
     raw.chars()
         .filter(|c| c.is_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
 }
-fn quote(raw: &str) -> String {
+pub(crate) fn quote(raw: &str) -> String {
     format!("\"{}\"", raw.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn enrich(meta: &mut Metadata, info: &mut SongInfo) -> Result<()> {
     // MusicBrainz permits one request per second per application. UI work runs
     // on a blocking worker; serialize concurrent windows here too.
@@ -371,6 +374,7 @@ fn enrich(meta: &mut Metadata, info: &mut SongInfo) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn enrich_catalogues(meta: &mut Metadata, info: &mut SongInfo) {
     if let Err(error) = enrich(meta, info) {
         info.notes.push(format!(
@@ -388,6 +392,7 @@ pub fn enrich_catalogues(meta: &mut Metadata, info: &mut SongInfo) {
 
 // Only factual catalogue fields are used. Apple promotional artwork and audio
 // previews are deliberately not downloaded or included in game exports.
+#[cfg(not(target_arch = "wasm32"))]
 fn apple_metadata(meta: &mut Metadata, info: &mut SongInfo) -> Result<()> {
     let client = Client::builder()
         .user_agent("ChartEngine/0.1 (local desktop chart editor)")
@@ -406,36 +411,11 @@ fn apple_metadata(meta: &mut Metadata, info: &mut SongInfo) -> Result<()> {
         .send()?
         .error_for_status()?;
     let body: Value = serde_json::from_slice(&limited(response, 2_000_000)?)?;
-    if let Some(record) = apple_match(&body, meta) {
-        if meta.album.is_empty() {
-            meta.album = record["collectionName"].as_str().unwrap_or_default().into();
-        }
-        if meta.year.is_empty() {
-            meta.year = record["releaseDate"]
-                .as_str()
-                .unwrap_or_default()
-                .chars()
-                .take(4)
-                .collect();
-        }
-        if meta.genre.is_empty() {
-            meta.genre = record["primaryGenreName"]
-                .as_str()
-                .unwrap_or_default()
-                .into();
-        }
-        info.notes.push(format!("Additional release metadata matched by title, artist and duration: {}. Release editions can differ.",record["trackViewUrl"].as_str().unwrap_or("Apple catalogue")));
-        if record["trackTimeMillis"]
-            .as_f64()
-            .is_some_and(|length| (length / 1000.0 - meta.duration).abs() > 5.0)
-        {
-            info.notes.push("The selected video is longer than the catalogue track. Release fields are suggestions; the video's original audio and its measured timing are retained.".into());
-        }
-    }
+    apply_apple_body(&body, meta, info);
     Ok(())
 }
 
-fn apple_match<'a>(body: &'a Value, meta: &Metadata) -> Option<&'a Value> {
+pub(crate) fn apple_match<'a>(body: &'a Value, meta: &Metadata) -> Option<&'a Value> {
     body["results"]
         .as_array()?
         .iter()
@@ -464,7 +444,7 @@ fn apple_match<'a>(body: &'a Value, meta: &Metadata) -> Option<&'a Value> {
         })
 }
 
-fn artist_credit(record: &Value) -> String {
+pub(crate) fn artist_credit(record: &Value) -> String {
     record["artist-credit"]
         .as_array()
         .into_iter()
@@ -482,7 +462,7 @@ fn artist_credit(record: &Value) -> String {
         .collect()
 }
 
-fn matching_recording<'a>(body: &'a Value, meta: &Metadata) -> Option<&'a Value> {
+pub(crate) fn matching_recording<'a>(body: &'a Value, meta: &Metadata) -> Option<&'a Value> {
     let mut matches = body["recordings"].as_array()?.iter().filter(|record| {
         normalize(record["title"].as_str().unwrap_or_default()) == normalize(&meta.name)
             && (meta.artist.is_empty()
@@ -527,7 +507,7 @@ fn matching_recording<'a>(body: &'a Value, meta: &Metadata) -> Option<&'a Value>
     })
 }
 
-fn apply_recording(record: &Value, meta: &mut Metadata, info: &mut SongInfo) {
+pub(crate) fn apply_recording(record: &Value, meta: &mut Metadata, info: &mut SongInfo) {
     meta.name = record["title"].as_str().unwrap_or(&meta.name).into();
     let artist = artist_credit(record);
     if !artist.is_empty() {
@@ -592,6 +572,7 @@ fn apply_recording(record: &Value, meta: &mut Metadata, info: &mut SongInfo) {
     info.notes.push(format!("Title, artist and duration match MusicBrainz recording {}. Album is a release suggestion; editions may differ.",record["id"].as_str().unwrap_or_default()));
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn limited(response: reqwest::blocking::Response, limit: usize) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     response.take(limit as u64 + 1).read_to_end(&mut bytes)?;
@@ -599,6 +580,7 @@ fn limited(response: reqwest::blocking::Response, limit: usize) -> Result<Vec<u8
     Ok(bytes)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn artwork(url: &str, root: &Path) -> Result<PathBuf> {
     let allowed = |url: &reqwest::Url| {
         url.scheme() == "https"
@@ -680,6 +662,7 @@ pub fn artwork(url: &str, root: &Path) -> Result<PathBuf> {
 
 /// Try the selected release and up to three editions of the same named album.
 /// Returns a relative image filename and the successful release's source URL.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn catalogue_artwork(info: &SongInfo, root: &Path) -> Result<(PathBuf, String)> {
     let mut errors = Vec::new();
     for source in std::iter::once(&info.artwork_source)
@@ -702,11 +685,11 @@ pub fn catalogue_artwork(info: &SongInfo, root: &Path) -> Result<(PathBuf, Strin
     )
 }
 
-fn valid_id(id: &str) -> bool {
+pub(crate) fn valid_id(id: &str) -> bool {
     id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
 }
 
-fn archive_front(body: &Value) -> Option<String> {
+pub(crate) fn archive_front(body: &Value) -> Option<String> {
     let image = body["images"]
         .as_array()?
         .iter()
@@ -798,5 +781,35 @@ mod tests {
         assert!(apple_match(&body, &different).is_some());
         different.duration = 300.0;
         assert!(apple_match(&body, &different).is_none());
+    }
+}
+
+/// Apply only matched factual release fields; never promotional audio/artwork.
+pub(crate) fn apply_apple_body(body: &Value, meta: &mut Metadata, info: &mut SongInfo) {
+    if let Some(record) = apple_match(body, meta) {
+        if meta.album.is_empty() {
+            meta.album = record["collectionName"].as_str().unwrap_or_default().into();
+        }
+        if meta.year.is_empty() {
+            meta.year = record["releaseDate"]
+                .as_str()
+                .unwrap_or_default()
+                .chars()
+                .take(4)
+                .collect();
+        }
+        if meta.genre.is_empty() {
+            meta.genre = record["primaryGenreName"]
+                .as_str()
+                .unwrap_or_default()
+                .into();
+        }
+        info.notes.push(format!("Additional release metadata matched by title, artist and duration: {}. Release editions can differ.",record["trackViewUrl"].as_str().unwrap_or("Apple catalogue")));
+        if record["trackTimeMillis"]
+            .as_f64()
+            .is_some_and(|length| (length / 1000.0 - meta.duration).abs() > 5.0)
+        {
+            info.notes.push("The selected video is longer than the catalogue track. Release fields are suggestions; the video's original audio and its measured timing are retained.".into());
+        }
     }
 }

@@ -11,6 +11,12 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[path = "../src/audio_decode.rs"]
 mod audio_decode;
 #[cfg(test)]
+#[path = "../../src/recording_metadata.rs"]
+mod recording_metadata;
+#[cfg(test)]
+#[path = "../src/recording_tags.rs"]
+mod recording_tags;
+#[cfg(test)]
 mod tests;
 fn run(command: &mut Command) -> Result<()> {
     let status = command.status()?;
@@ -58,10 +64,12 @@ fn build(root: &Path) -> Result<()> {
         .arg(&dist))?;
     fs::copy(root.join("web/index.html"), dist.join("index.html"))?;
     fs::copy(root.join("web/worker.js"), dist.join("worker.js"))?;
-    copy_source(
-        &root.join("vendor/symphonia-codec-vorbis"),
-        &dist.join("sources/symphonia-codec-vorbis"),
-    )?;
+    for package in ["symphonia-codec-vorbis", "symphonia-bundle-mp3"] {
+        copy_source(
+            &root.join("vendor").join(package),
+            &dist.join("sources").join(package),
+        )?;
+    }
     for name in ["LICENSE", "THIRD_PARTY.md"] {
         fs::copy(root.join(name), dist.join(name))?;
     }

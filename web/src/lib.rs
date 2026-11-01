@@ -39,6 +39,9 @@ pub mod github_api;
 pub mod github_reviews;
 #[path = "../../src/guitar_attacks.rs"]
 pub mod guitar_attacks;
+pub mod http;
+#[path = "../../src/song_import.rs"]
+pub mod import_metadata;
 #[path = "../../src/key_ranges.rs"]
 pub mod key_ranges;
 #[path = "../../src/keyboard_audio.rs"]
@@ -77,6 +80,9 @@ pub mod pipeline;
 pub mod pro_keys;
 #[path = "../../src/project_portability.rs"]
 pub mod project_portability;
+#[path = "../../src/recording_metadata.rs"]
+pub mod recording_metadata;
+pub mod recording_tags;
 #[path = "../../src/refine.rs"]
 pub mod refine;
 #[path = "../../src/review.rs"]
@@ -89,6 +95,7 @@ pub mod review_repository;
 pub mod sections;
 #[path = "../../src/song_files.rs"]
 pub mod song_files;
+pub mod song_import;
 #[path = "../../src/song_layout.rs"]
 pub mod song_layout;
 #[path = "../../src/song_metadata.rs"]

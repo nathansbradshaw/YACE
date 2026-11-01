@@ -10,7 +10,10 @@ path = "main.rs"
 
 [dev-dependencies]
 anyhow = "1"
+serde = {version="1",features=["derive"]}
+tempfile = "3"
 symphonia = { version = "0.5.5", features = ["all"] }
 
 [patch.crates-io]
+symphonia-bundle-mp3 = { path = "../../vendor/symphonia-bundle-mp3" }
 symphonia-codec-vorbis = { path = "../../vendor/symphonia-codec-vorbis" }

@@ -142,3 +142,43 @@ pub fn song_ini(folder: &Path) -> Result<String> {
         ),
     }
 }
+
+pub fn cover_extension(bytes: &[u8]) -> Result<&'static str> {
+    anyhow::ensure!(bytes.len() <= 5_000_000, "Choose artwork smaller than 5 MB");
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Ok("png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Ok("jpg")
+    } else {
+        anyhow::bail!("Choose a PNG or JPEG cover image")
+    }
+}
+
+/// Persist editable metadata, cover and catalogue provenance on both clients.
+pub fn write_song_info(song: &Path, info: &crate::song_import::SongInfo) -> Result<()> {
+    let fields = BTreeMap::from([
+        ("album".into(), info.album.clone()),
+        ("year".into(), info.year.clone()),
+        ("genre".into(), info.genre.clone()),
+    ]);
+    anyhow::ensure!(
+        fields
+            .values()
+            .all(|value| !value.chars().any(char::is_control)),
+        "Song information must use single-line fields"
+    );
+    fs::write(song.join("song.ini"), update_ini(&song_ini(song)?, &fields))?;
+    crate::song_layout::prepare(song)?;
+    let mut retained = info.clone();
+    if let Some(artwork) = &info.artwork {
+        let bytes = fs::read(artwork).context("Cover artwork is unavailable")?;
+        let name = format!("album.{}", cover_extension(&bytes)?);
+        fs::write(song.join(&name), bytes)?;
+        retained.artwork = Some(name.into());
+    }
+    fs::write(
+        crate::song_layout::path(song, "import-information.json"),
+        serde_json::to_vec_pretty(&retained)?,
+    )?;
+    Ok(())
+}

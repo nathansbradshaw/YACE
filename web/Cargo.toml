@@ -40,6 +40,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std", "
 symphonia = { version = "0.5.5", features = ["all"] }
 
 [patch.crates-io]
+symphonia-bundle-mp3 = { path = "../vendor/symphonia-bundle-mp3" }
 symphonia-codec-vorbis = { path = "../vendor/symphonia-codec-vorbis" }
 
 [profile.release]
