@@ -15,7 +15,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies.web-sys]
 version = "=0.3.104"
-features = ["Window", "Document", "Element", "Node", "HtmlElement", "HtmlInputElement", "HtmlAnchorElement", "HtmlAudioElement", "HtmlMediaElement", "HtmlDialogElement", "Event", "EventTarget", "File", "FileList", "Blob", "BlobPropertyBag", "Url", "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioDestinationNode", "AudioNode", "AudioParam", "GainNode", "MediaElementAudioSourceNode", "Navigator", "Clipboard", "Storage", "IdbFactory", "IdbDatabase", "IdbRequest", "IdbOpenDbRequest", "IdbObjectStore", "IdbTransaction", "IdbTransactionMode", "DomException", "DomStringList", "Worker", "WorkerOptions", "WorkerType", "DedicatedWorkerGlobalScope", "MessageEvent", "ErrorEvent", "console"]
+features = ["Window", "Document", "Element", "Node", "HtmlElement", "HtmlInputElement", "HtmlAnchorElement", "HtmlAudioElement", "HtmlMediaElement", "HtmlDialogElement", "Event", "EventTarget", "File", "FileList", "Blob", "BlobPropertyBag", "Url", "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioDestinationNode", "AudioNode", "AudioParam", "GainNode", "MediaElementAudioSourceNode", "Navigator", "Clipboard", "Storage", "IdbFactory", "IdbDatabase", "IdbRequest", "IdbOpenDbRequest", "IdbObjectStore", "IdbTransaction", "IdbTransactionMode", "DomException", "DomStringList", "Worker", "WorkerOptions", "WorkerType", "DedicatedWorkerGlobalScope", "MessageEvent", "ErrorEvent", "console", "Request", "RequestInit", "RequestCredentials", "RequestRedirect", "RequestCache", "ReferrerPolicy", "Headers", "Response", "AbortController", "AbortSignal", "ReadableStream", "ReadableStreamDefaultReader"]
 
 [dependencies]
 anyhow = "1"

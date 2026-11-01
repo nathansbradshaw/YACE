@@ -26,7 +26,7 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
                 strong { title: "{title}", "{title}" }
                 if !artist.is_empty() { span { title: "{artist}", "{artist}" } }
             }
-            if !cfg!(feature = "browser") {
+            if !cfg!(feature = "browser") || cfg!(target_arch = "wasm32") {
                 if let Some(library) = (studio.library)() {
                     label { class: "chart-library-picker", title: "{library.root.display()}",
                         span { "Charts " }
@@ -35,11 +35,11 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
                             disabled: (studio.library_busy)(),
                             value: (studio.library_selected)().map_or(String::new(), |index| index.to_string()),
                             onchange: move |event| {
-                                #[cfg(not(feature = "browser"))]
+                                #[cfg(any(not(feature = "browser"), target_arch = "wasm32"))]
                                 if let Ok(index) = event.value().parse::<usize>() {
                                     dioxus::core::spawn_forever(async move { studio.open_library_chart(index).await; });
                                 }
-                                #[cfg(feature = "browser")]
+                                #[cfg(all(feature = "browser", not(target_arch = "wasm32")))]
                                 let _ = event;
                             },
                             option { value: "", disabled: true, "Choose a chart ({library.entries.len()})" }
@@ -64,6 +64,10 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
             if !cfg!(target_arch="wasm32") {button{"popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.open_zip(),"Import project ZIP…"}}
             button { "popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.import_song(),"Import song ZIP…" }
             button {disabled:!loaded,"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|studio.save_project(),"Save project ZIP…"}
+            if cfg!(target_arch="wasm32") {button {"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_| {
+                #[cfg(target_arch="wasm32")]
+                studio.open_saved_projects();
+            },"Saved in this browser…"}}
         }
         div { id: "project-tools", class: "command-popover tools-popover", "popover": "auto", onkeydown: keep_space_local,
             button { title: if cfg!(target_arch="wasm32"){ "The current assistant backends require native runtimes" }else{ "Chart assistant" }, aria_label: "Chart assistant", disabled: !loaded || cfg!(target_arch="wasm32"), "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.assistant_open.set(true), "Chart assistant" }

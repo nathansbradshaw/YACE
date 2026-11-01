@@ -4,7 +4,13 @@ use crate::{
     waveform::Waveform,
 };
 use anyhow::{Result, ensure};
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    cell::{Cell, RefCell},
+    collections::BTreeMap,
+    path::Path,
+    rc::Rc,
+    sync::Arc,
+};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{AudioContext, GainNode, HtmlAudioElement, MediaElementAudioSourceNode};
 pub struct Channel {
@@ -16,9 +22,15 @@ pub struct Channel {
 pub struct Media {
     context: AudioContext,
     pub original: Channel,
-    stems: BTreeMap<StemId, Channel>,
+    stems: BTreeMap<(bool, StemId), Channel>,
+    waveforms: [super::state::ReviewWaveforms; 2],
+    play_epoch: Rc<Cell<u64>>,
+    error: Rc<RefCell<Option<String>>>,
     kit: Option<Channel>,
     master: GainNode,
+}
+pub fn keyboard_stems(doc: &crate::editor::Project) -> bool {
+    crate::keys::is_keys(&doc.selected_track) && doc.content.keyboard_stems.is_some()
 }
 fn err(value: wasm_bindgen::JsValue) -> anyhow::Error {
     anyhow::anyhow!("Audio: {value:?}")
@@ -139,22 +151,20 @@ impl Media {
             (pcm.duration() - doc.duration).abs() < 0.2,
             "The recording duration differs from the project"
         );
-        let original_waveform = Waveform::from_stereo(&pcm.stereo, pcm.rate);
+        let original_waveform = Arc::new(Waveform::from_stereo(&pcm.stereo, pcm.rate));
         let original = channel(&context, &master, &source, &pcm.float_wave()?)?;
         drop(pcm);
         let mut stems = BTreeMap::new();
-        let mut waveforms = BTreeMap::new();
+        let mut waveforms = [BTreeMap::new(), BTreeMap::new()];
         let mut missing = 0;
-        for manifest in doc
-            .content
-            .stems
-            .iter()
-            .chain(doc.content.keyboard_stems.iter())
-        {
+        for (keyboard, manifest) in [
+            (false, doc.content.stems.as_ref()),
+            (true, doc.content.keyboard_stems.as_ref()),
+        ] {
+            let Some(manifest) = manifest else {
+                continue;
+            };
             for asset in &manifest.stems {
-                if stems.contains_key(&asset.id) {
-                    continue;
-                }
                 if !crate::storage::is_file(&asset.path) {
                     missing += 1;
                     continue;
@@ -170,9 +180,12 @@ impl Media {
                     "Stem duration differs: {}",
                     asset.id.as_str()
                 );
-                waveforms.insert(asset.id, Waveform::from_stereo(&pcm.stereo, pcm.rate));
-                stems.insert(
+                waveforms[keyboard as usize].insert(
                     asset.id,
+                    Arc::new(Waveform::from_stereo(&pcm.stereo, pcm.rate)),
+                );
+                stems.insert(
+                    (keyboard, asset.id),
                     channel(&context, &master, &asset.path, &pcm.float_wave()?)?,
                 );
                 drop(pcm);
@@ -205,6 +218,12 @@ impl Media {
             context,
             original,
             stems,
+            waveforms: waveforms.map(|stems| super::state::ReviewWaveforms {
+                original: original_waveform.clone(),
+                stems,
+            }),
+            play_epoch: Rc::new(Cell::new(0)),
+            error: Rc::new(RefCell::new(None)),
             kit,
             master,
         };
@@ -220,7 +239,12 @@ impl Media {
             !media.original.element.seeking(),
             "The browser could not finish seeking the recording"
         );
-        media.mix(&doc.content.stem_mix, 0.7, doc.kit_audition.is_some());
+        media.mix(
+            &doc.content.stem_mix,
+            0.7,
+            doc.kit_audition.is_some(),
+            keyboard_stems(doc),
+        );
         let notice = if missing > 0 {
             format!(
                 "{missing} external stems are missing. Attach matching stem files to audition them."
@@ -228,14 +252,8 @@ impl Media {
         } else {
             "Browser audio ready".into()
         };
-        Ok((
-            media,
-            super::state::ReviewWaveforms {
-                original: original_waveform,
-                stems: waveforms,
-            },
-            notice,
-        ))
+        let waves = media.waveforms(keyboard_stems(doc));
+        Ok((media, waves, notice))
     }
     pub fn position(&self) -> f64 {
         self.original.element.current_time()
@@ -247,19 +265,29 @@ impl Media {
         self.original.element.ended()
     }
     pub fn play(&self) -> Result<()> {
-        let _ = self.context.resume().map_err(err)?;
+        let epoch = self.play_epoch.get().wrapping_add(1);
+        self.play_epoch.set(epoch);
+        let promises = std::iter::once(self.context.resume().map_err(err)?);
+        let mut promises: Vec<_> = promises.collect();
         for channel in std::iter::once(&self.original)
             .chain(self.stems.values())
             .chain(self.kit.iter())
         {
-            let promise = channel.element.play().map_err(err)?;
+            promises.push(channel.element.play().map_err(err)?);
+        }
+        for promise in promises {
+            let generation = self.play_epoch.clone();
+            let error = self.error.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let _ = JsFuture::from(promise).await;
+                if JsFuture::from(promise).await.is_err() && generation.get() == epoch {
+                    *error.borrow_mut()=Some("Browser playback could not start. Press Play again and check audio output permissions; the chart and recording are retained.".into());
+                }
             });
         }
         Ok(())
     }
     pub fn pause(&self) {
+        self.play_epoch.set(self.play_epoch.get().wrapping_add(1));
         for channel in std::iter::once(&self.original)
             .chain(self.stems.values())
             .chain(self.kit.iter())
@@ -283,21 +311,30 @@ impl Media {
             channel.element.set_playback_rate(rate);
         }
     }
-    pub fn mix(&self, mix: &StemMix, volume: f32, kit: bool) {
+    pub fn waveforms(&self, keyboard: bool) -> super::state::ReviewWaveforms {
+        self.waveforms[keyboard as usize].clone()
+    }
+    pub fn take_error(&self) -> Option<String> {
+        self.error.borrow_mut().take()
+    }
+    pub fn mix(&self, mix: &StemMix, volume: f32, kit: bool, keyboard: bool) {
         self.master.gain().set_value(volume);
-        let prepared = mix.prepare(self.stems.keys().copied()).ok();
+        let ids: Vec<_> = self
+            .stems
+            .keys()
+            .filter_map(|(k, id)| (*k == keyboard).then_some(*id))
+            .collect();
+        let prepared = mix.prepare(ids.iter().copied()).ok();
         self.original.gain.gain().set_value(if kit {
             0.
-        } else if mix.mode == MixMode::Original || self.stems.is_empty() {
+        } else if mix.mode == MixMode::Original || ids.is_empty() {
             1.
         } else {
             0.
         });
-        for (id, channel) in &self.stems {
-            channel
-                .gain
-                .gain()
-                .set_value(if kit || mix.mode == MixMode::Original {
+        for ((channel_keyboard, id), channel) in &self.stems {
+            channel.gain.gain().set_value(
+                if *channel_keyboard != keyboard || kit || mix.mode == MixMode::Original {
                     0.
                 } else {
                     prepared
@@ -305,7 +342,8 @@ impl Media {
                         .and_then(|mix| mix.gains.get(id))
                         .copied()
                         .unwrap_or(0.)
-                });
+                },
+            );
         }
         if let Some(channel) = &self.kit {
             channel.gain.gain().set_value(if kit { 1. } else { 0. });

@@ -1,5 +1,6 @@
 //! Git helpers for dedicated review repositories.
 //! Sync review files without changing project.json or rewriting Git history.
+use crate::review_repository::{MARKER, allowed, event_name};
 use crate::{
     collaboration_exchange as exchange,
     editor::{Actor, Store},
@@ -12,7 +13,6 @@ use std::{
     path::Path,
     process::{Command, Output},
 };
-const MARKER: &str = ".yace-review-repository";
 fn command(folder: &Path, args: &[&str]) -> Result<Output> {
     Command::new("git")
         .arg("-C")
@@ -33,17 +33,14 @@ fn git(folder: &Path, args: &[&str]) -> Result<String> {
     );
     Ok(String::from_utf8(out.stdout)?.trim().into())
 }
-fn event_name(name: &str) -> bool {
-    name.strip_suffix(".json")
-        .is_some_and(|id| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()))
-}
-fn allowed(name: &str) -> bool {
-    event_name(name) || name == MARKER || name == ".gitignore"
-}
 fn check(folder: &Path) -> Result<()> {
     ensure!(
         folder.join(MARKER).is_file(),
         "Choose a dedicated YACE review repository, or create/clone one below"
+    );
+    ensure!(
+        fs::read(folder.join(MARKER))? == crate::review_repository::MARKER_CONTENT.as_bytes(),
+        "Unsupported YACE review repository marker"
     );
     let top = git(folder, &["rev-parse", "--show-toplevel"])?;
     ensure!(

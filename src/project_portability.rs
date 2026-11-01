@@ -77,7 +77,7 @@ fn relocate_content(
 }
 pub fn relocate<B: Bytes>(files: &mut BTreeMap<String, B>, root: &Path) -> Result<()> {
     ensure!(
-        root.is_absolute(),
+        crate::storage::is_absolute(root),
         "A portable project needs an absolute destination"
     );
     let mut doc: Project = serde_json::from_slice(

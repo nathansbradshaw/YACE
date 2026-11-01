@@ -16,6 +16,13 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    Export {
+        root: PathBuf,
+        project: Box<crate::editor::Project>,
+        audio: PathBuf,
+        output: PathBuf,
+        actor: crate::editor::Actor,
+    },
     Clean {
         audio: PathBuf,
         plan: CleanPlan,
@@ -57,19 +64,41 @@ impl Task {
             Self::ValidateStems { audio, manifest } => std::iter::once(audio.clone())
                 .chain(manifest.stems.iter().map(|s| s.path.clone()))
                 .collect(),
-            Self::Analyse { audio, project, .. } => std::iter::once(audio.clone())
-                .chain(
-                    project
-                        .content
-                        .stems
-                        .iter()
-                        .flat_map(|m| m.stems.iter().map(|s| s.path.clone())),
-                )
-                .collect(),
+            Self::Analyse { audio, project, .. } | Self::Export { audio, project, .. } => {
+                std::iter::once(audio.clone())
+                    .chain(
+                        project
+                            .content
+                            .stems
+                            .iter()
+                            .chain(project.content.keyboard_stems.iter())
+                            .flat_map(|m| m.stems.iter().map(|s| s.path.clone())),
+                    )
+                    .collect()
+            }
         }
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
+            Self::Export {
+                root,
+                project,
+                output,
+                actor,
+                ..
+            } => {
+                for manifest in project
+                    .content
+                    .stems
+                    .iter()
+                    .chain(project.content.keyboard_stems.iter())
+                {
+                    manifest.load(&crate::editor::Store::new(root).audio_path(project)?)?;
+                    crate::models::remember_stems(manifest)?;
+                }
+                crate::editor::Store::new(root).write_export(project, output, actor)?;
+                Ok(serde_json::Value::Null)
+            }
             Self::Clean {
                 audio,
                 plan,
@@ -218,7 +247,7 @@ async fn process(input: JsValue) -> Result<JsValue> {
     let response = message("done")?;
     set(&response, "value", &serde_json::to_string(&result)?.into())?;
     let files = js_sys::Array::new();
-    if let Task::Clean { output, .. } = &task {
+    if let Task::Clean { output, .. } | Task::Export { output, .. } = &task {
         let bytes = crate::files::archive(output)?;
         let row = js_sys::Array::new();
         row.push(

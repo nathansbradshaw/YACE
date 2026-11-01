@@ -15,13 +15,17 @@ pub enum EditTool {
     Place,
     Erase,
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ReviewWaveforms {
-    pub original: Waveform,
-    pub stems: BTreeMap<StemId, Waveform>,
+    pub original: Arc<Waveform>,
+    pub stems: BTreeMap<StemId, Arc<Waveform>>,
 }
 #[derive(Clone, Copy, PartialEq)]
 pub struct Studio {
+    pub library: Signal<Option<crate::chart_library::Library>>,
+    pub library_busy: Signal<bool>,
+    pub library_selected: Signal<Option<usize>>,
+    pub saved_projects: Signal<Option<Vec<crate::chart_library::Entry>>>,
     pub doc: Signal<Option<Arc<Project>>>,
     pub store: Signal<Option<Store>>,
     pub timing: Signal<Option<TempoMap>>,
@@ -74,6 +78,10 @@ pub struct Studio {
 }
 pub fn use_studio() -> Studio {
     Studio {
+        library: use_signal(|| None),
+        library_busy: use_signal(|| false),
+        library_selected: use_signal(|| None),
+        saved_projects: use_signal(|| None),
         doc: use_signal(|| None),
         store: use_signal(|| None),
         timing: use_signal(|| None),
@@ -190,7 +198,13 @@ impl Studio {
                         &doc.content.stem_mix,
                         (self.volume)(),
                         doc.kit_audition.is_some(),
+                        super::media::keyboard_stems(&doc),
                     );
+                    if selected {
+                        self.waveforms.set(Some(Arc::new(
+                            media.waveforms(super::media::keyboard_stems(&doc)),
+                        )));
+                    }
                     if seek {
                         media.seek(doc.transport.position);
                         self.view_start.set(
@@ -247,6 +261,7 @@ impl Studio {
                 &doc.content.stem_mix,
                 (self.volume)(),
                 doc.kit_audition.is_some(),
+                super::media::keyboard_stems(&doc),
             );
         }
     }
@@ -341,6 +356,11 @@ impl Studio {
         let Some(media) = self.media.read().clone() else {
             return;
         };
+        if let Some(error) = media.take_error() {
+            self.dispatch(Action::Playback { playing: false });
+            self.error.set(Some(error));
+            return;
+        }
         let mut position = media.position();
         self.audio_stalled
             .set(!media.ended() && media.original.element.ready_state() < 3);
@@ -433,10 +453,15 @@ impl Studio {
         self.open_project(root.clone()).await?;
         crate::storage::clear(&root);
         self.new_song.set(None);
+        self.library_selected.set(None);
         Ok(())
     }
     pub fn import(mut self, folder: bool) {
-        spawn(async move {
+        if (self.library_busy)() {
+            return;
+        }
+        self.library_busy.set(true);
+        dioxus::core::spawn_forever(async move {
             let result = async {
                 let Some(files) =
                     crate::files::pick(folder, if folder { "" } else { ".zip" }).await?
@@ -445,16 +470,159 @@ impl Studio {
                 };
                 self.status.set("Reading local song…".into());
                 let files = crate::files::unpack(files)?;
-                let root = crate::files::unique_root();
-                crate::files::mount(&root, files)?;
-                let root = crate::files::imported_root(&root)?;
-                self.open_project(root).await
+                let staging = crate::files::unique_root();
+                let result: Result<()> = async {
+                    crate::files::mount(&staging, files)?;
+                    let library = crate::chart_library::discover(&staging)?;
+                    self.open_library_entry(&library, 0).await?;
+                    if let Some(previous) = self.library.replace(Some(library)) {
+                        crate::storage::clear(&previous.root);
+                    }
+                    self.library_selected.set(Some(0));
+                    Ok(())
+                }
+                .await;
+                if result.is_err() {
+                    crate::storage::clear(&staging);
+                }
+                result
             }
             .await;
             if let Err(error) = result {
                 self.error.set(Some(format!("{error:#}")));
             }
+            self.library_busy.set(false);
         });
+    }
+    pub async fn open_library_chart(mut self, index: usize) {
+        if (self.library_busy)() {
+            return;
+        }
+        self.library_busy.set(true);
+        let library = (self.library)();
+        let result = async {
+            let library = library.context("Open a charting folder")?;
+            self.open_library_entry(&library, index).await?;
+            self.library_selected.set(Some(index));
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+        self.library_busy.set(false);
+        if let Err(error) = result {
+            self.error.set(Some(format!("{error:#}")));
+        }
+    }
+    async fn open_library_entry(
+        self,
+        library: &crate::chart_library::Library,
+        index: usize,
+    ) -> Result<()> {
+        use sha2::{Digest, Sha256};
+        let item = library
+            .entries
+            .get(index)
+            .context("Chart is not in this folder")?;
+        let source = if item.kind == crate::chart_library::Kind::Project {
+            item.path.join("source")
+        } else {
+            item.path.clone()
+        };
+        let mut identity = Sha256::new();
+        identity.update(
+            item.path
+                .strip_prefix(&library.root)?
+                .to_string_lossy()
+                .as_bytes(),
+        );
+        // Re-selecting a collection finds its editing copies, while replaced
+        // source audio/charts receive a separate history.
+        let chart = ["notes.chart", "notes.mid"]
+            .into_iter()
+            .map(|name| source.join(name))
+            .find(|path| crate::storage::is_file(path))
+            .context("Song has no chart")?;
+        for path in [crate::pipeline::audio_file(&source)?, chart] {
+            identity.update(crate::models::hash_file(&path)?.as_bytes());
+        }
+        for path in [source.join("song.ini"), item.path.join("project.json")] {
+            if crate::storage::is_file(&path) {
+                identity.update(crate::models::hash_file(&path)?.as_bytes());
+            }
+        }
+        let root = PathBuf::from(format!("/projects/library-{:x}", identity.finalize()));
+        self.persist_current().await?;
+        if let Some((root, revision)) = crate::persistence::load(&root).await? {
+            return self.open_project_with_revision(root, Some(revision)).await;
+        }
+        if item.kind == crate::chart_library::Kind::Project {
+            crate::pipeline::copy_folder(&item.path, &root)?;
+            self.open_project(root).await
+        } else {
+            crate::pipeline::copy_folder(&source, &root.join("source"))?;
+            crate::stem_review::game_audio::restore_recording(&root.join("source"))?;
+            let audio = crate::pipeline::audio_file(&root.join("source"))?;
+            let duration =
+                super::media::duration(crate::storage::shared(&audio)?.as_slice()).await?;
+            Store::new(&root).initialize(&root.join("source"), None, duration)?;
+            self.open_project(root).await
+        }
+    }
+    pub fn open_saved_projects(mut self) {
+        dioxus::core::spawn_forever(async move {
+            match crate::persistence::projects().await {
+                Ok(entries) => self.saved_projects.set(Some(entries)),
+                Err(error) => self.error.set(Some(format!("{error:#}"))),
+            }
+        });
+    }
+    pub async fn open_saved_project(mut self, root: PathBuf) {
+        if (self.library_busy)() {
+            return;
+        }
+        self.library_busy.set(true);
+        let result = async {
+            self.persist_current().await?;
+            let (root, revision) = crate::persistence::load(&root)
+                .await?
+                .context("Saved project is missing")?;
+            self.open_project_with_revision(root, Some(revision))
+                .await?;
+            self.library_selected.set(None);
+            self.saved_projects.set(None);
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+        self.library_busy.set(false);
+        if let Err(error) = result {
+            self.error.set(Some(format!("{error:#}")));
+        }
+    }
+    async fn persist_current(mut self) -> Result<()> {
+        while (self.persistence_busy)() {
+            gloo_timers::future::TimeoutFuture::new(20).await;
+        }
+        let Some(store) = self.store.read().clone() else {
+            return Ok(());
+        };
+        let Some(doc) = self.snapshot() else {
+            return Ok(());
+        };
+        if (self.saved_revision)() == Some(doc.revision) && !(self.dirty)() {
+            return Ok(());
+        }
+        self.persistence_busy.set(true);
+        let result =
+            crate::persistence::save(&store.root, doc.revision, (self.saved_revision)()).await;
+        self.persistence_busy.set(false);
+        result?;
+        self.saved_revision.set(Some(doc.revision));
+        ensure!(
+            self.snapshot()
+                .is_some_and(|current| current.revision == doc.revision),
+            "The chart changed while switching. Your edits are retained; choose the next chart again."
+        );
+        self.dirty.set(false);
+        Ok(())
     }
     pub async fn open_project(self, source: PathBuf) -> Result<()> {
         self.open_project_with_revision(source, None).await
@@ -472,6 +640,7 @@ impl Studio {
                 super::media::duration(crate::storage::shared(&audio)?.as_slice()).await?;
             let root = crate::files::unique_root();
             crate::pipeline::copy_folder(&source, &root.join("source"))?;
+            crate::stem_review::game_audio::restore_recording(&root.join("source"))?;
             Store::new(&root).initialize(&root.join("source"), None, duration)?;
             root
         };
@@ -530,6 +699,8 @@ impl Studio {
         if epoch != (self.epoch)() {
             return Ok(());
         }
+        self.persist_current().await?;
+        let previous_root = self.store.read().as_ref().map(|store| store.root.clone());
         self.audio_ready.set(false);
         if let Some(media) = self.media.read().as_ref() {
             media.pause();
@@ -560,31 +731,46 @@ impl Studio {
         self.audio_ready.set(true);
         self.stem_status.set(kit_notice.unwrap_or(notice));
         self.status.set("Ready · files stay in this browser".into());
+        if let Some(previous) = previous_root.filter(|previous| previous != &root) {
+            crate::storage::clear(&previous);
+        }
         Ok(())
     }
     pub fn export_dialog(mut self) {
-        let result = (|| -> Result<_> {
-            let store = self.store.read().clone().context("Open a project")?;
-            let doc = self.snapshot().context("Open a project")?;
-            let output = PathBuf::from(format!("/exports/{}", js_sys::Date::now() as u64));
-            store.write_export(
-                &doc,
-                &output,
-                &Actor {
-                    kind: ActorKind::Human,
-                    name: (self.reviewer)(),
-                },
-            )?;
-            let bytes = crate::files::archive(&output)?;
-            let name = format!("{} reviewed.zip", self.metadata_value("name"));
-            crate::files::download(&name, &bytes)?;
-            crate::storage::clear(&output);
-            Ok(())
-        })();
-        match result {
-            Ok(()) => self.status.set("Song ZIP downloaded".into()),
-            Err(error) => self.error.set(Some(format!("{error:#}"))),
-        }
+        dioxus::core::spawn_forever(async move {
+            let result = async {
+                let store = self.store.read().clone().context("Open a project")?;
+                let doc = self.snapshot().context("Open a project")?;
+                let output = PathBuf::from(format!("/exports/{}", js_sys::Date::now() as u64));
+                self.status
+                    .set("Preparing playable song ZIP locally…".into());
+                let _: () = crate::worker::run(
+                    crate::worker::Task::Export {
+                        root: store.root.clone(),
+                        project: Box::new(doc.as_ref().clone()),
+                        audio: store.audio_path(&doc)?,
+                        output: output.clone(),
+                        actor: Actor {
+                            kind: ActorKind::Human,
+                            name: (self.reviewer)(),
+                        },
+                    },
+                    std::slice::from_ref(&store.root),
+                )
+                .await?;
+                let archive = output.with_extension("zip");
+                let bytes = crate::storage::shared(&archive)?;
+                let name = format!("{} reviewed.zip", self.metadata_value("name"));
+                crate::files::download(&name, &bytes)?;
+                crate::storage::clear(&archive);
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+            match result {
+                Ok(()) => self.status.set("Song ZIP downloaded".into()),
+                Err(error) => self.error.set(Some(format!("{error:#}"))),
+            }
+        });
     }
     pub fn save_project(mut self) {
         let result = (|| -> Result<_> {

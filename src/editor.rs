@@ -1671,7 +1671,6 @@ impl Store {
                     &doc.audio_sha256,
                     doc.duration,
                 )?;
-                #[cfg(not(target_arch = "wasm32"))]
                 let manifest = crate::stem_review::game_audio::retain(&self.root, &manifest)?;
                 let manifest = Some(manifest);
                 if matches!(&request.action, Action::AttachKeyboardStems { .. }) {
@@ -2001,11 +2000,13 @@ impl Store {
             )?,
         )?;
         if let Some(manifest) = &doc.content.stems {
-            #[cfg(not(target_arch = "wasm32"))]
             let manifest = {
                 let mut retained = crate::stem_review::game_audio::retain_in(stage, manifest)?;
                 for asset in &mut retained.stems {
-                    asset.path = asset.path.strip_prefix(stage.canonicalize()?)?.to_owned();
+                    asset.path = asset
+                        .path
+                        .strip_prefix(fs::canonicalize(stage)?)?
+                        .to_owned();
                 }
                 retained
             };
@@ -2015,11 +2016,13 @@ impl Store {
             )?;
         }
         if let Some(manifest) = &doc.content.keyboard_stems {
-            #[cfg(not(target_arch = "wasm32"))]
             let manifest = {
                 let mut retained = crate::stem_review::game_audio::retain_in(stage, manifest)?;
                 for asset in &mut retained.stems {
-                    asset.path = asset.path.strip_prefix(stage.canonicalize()?)?.to_owned();
+                    asset.path = asset
+                        .path
+                        .strip_prefix(fs::canonicalize(stage)?)?
+                        .to_owned();
                 }
                 retained
             };
@@ -2050,7 +2053,6 @@ impl Store {
                 "musical_acceptance":"unverified"
             }))?,
         )?;
-        #[cfg(not(target_arch = "wasm32"))]
         crate::stem_review::game_audio::write(
             &self.audio_path(doc)?,
             doc.content.stems.as_ref(),

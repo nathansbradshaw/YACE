@@ -17,7 +17,7 @@ required-features = ["browser"]
 [features]
 default = ["separation", "editor", "vocal-alignment"]
 vocal-alignment = ["dep:practice-acoustic", "dep:whatlang"]
-studio = ["dep:dioxus", "dep:dioxus-document", "dep:tokio", "dep:base64"]
+studio = ["dep:dioxus", "dep:dioxus-document", "dep:tokio"]
 editor = ["studio", "dioxus/desktop", "dep:rodio", "dep:rfd", "dep:arboard", "dep:zip"]
 browser = ["studio", "dioxus/liveview", "dep:dioxus-liveview", "dep:axum", "dep:tower-http", "dep:getrandom", "dep:zip"]
 separation = ["dep:demucs-core", "dep:burn", "dep:pollster"]
@@ -45,7 +45,7 @@ pollster = { version = "0.4", optional = true }
 dioxus = { version = "=0.7.10", default-features = false, features = ["macro", "html", "signals", "hooks", "launch"], optional = true }
 dioxus-document = { version = "=0.7.10", default-features = false, optional = true }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "net", "fs", "io-util"], optional = true }
-base64 = { version = "0.22", optional = true }
+base64 = "0.22"
 rodio = { version = "0.22.2", default-features = false, features = ["playback"], optional = true }
 rfd = { version = "0.17.2", optional = true }
 dioxus-liveview = { version = "=0.7.10", features = ["axum"], optional = true }

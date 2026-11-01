@@ -1,11 +1,24 @@
 //! Bounded chart discovery and one predictable home for library editing copies.
+#[cfg(target_arch = "wasm32")]
+use crate::storage as fs;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
+#[cfg(not(target_arch = "wasm32"))]
 use sha2::{Digest, Sha256};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs;
+use std::path::{Path, PathBuf};
+
+fn is_file(path: impl AsRef<Path>) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        path.as_ref().is_file()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        fs::is_file(path)
+    }
+}
 
 pub const SEARCH_DEPTH: usize = 3;
 
@@ -29,12 +42,12 @@ pub struct Library {
 }
 
 fn entry(path: &Path) -> Option<Entry> {
-    if path.join("job.json").is_file() && path.join("project/project.json").is_file() {
+    if is_file(path.join("job.json")) && is_file(path.join("project/project.json")) {
         return entry(&path.join("project"));
     }
-    let kind = if path.join("project.json").is_file() {
+    let kind = if is_file(path.join("project.json")) {
         Kind::Project
-    } else if path.join("notes.chart").is_file() || path.join("notes.mid").is_file() {
+    } else if is_file(path.join("notes.chart")) || is_file(path.join("notes.mid")) {
         Kind::Song
     } else {
         return None;
@@ -73,10 +86,8 @@ fn entry(path: &Path) -> Option<Entry> {
 /// Accept a project file, a song, a containing folder, or a child of a project.
 /// Stop at project/song boundaries so copied sources never appear as extra charts.
 pub fn discover(selected: &Path) -> Result<Library> {
-    let selected = selected
-        .canonicalize()
-        .context("Cannot find the selected folder")?;
-    let root = if selected.is_file() {
+    let selected = fs::canonicalize(selected).context("Cannot find the selected folder")?;
+    let root = if is_file(&selected) {
         selected
             .parent()
             .context("Selected file has no folder")?
@@ -84,7 +95,7 @@ pub fn discover(selected: &Path) -> Result<Library> {
     } else {
         selected
     };
-    if root.join("project.json").is_file()
+    if is_file(root.join("project.json"))
         && let Some(found) = entry(&root)
     {
         return Ok(Library {
@@ -93,9 +104,9 @@ pub fn discover(selected: &Path) -> Result<Library> {
         });
     }
     for ancestor in root.ancestors().skip(1).take(SEARCH_DEPTH) {
-        if ancestor.join("project.json").is_file()
-            || (ancestor.join("job.json").is_file()
-                && ancestor.join("project/project.json").is_file())
+        if is_file(ancestor.join("project.json"))
+            || (is_file(ancestor.join("job.json"))
+                && is_file(ancestor.join("project/project.json")))
         {
             return Ok(Library {
                 root: ancestor.to_owned(),
@@ -160,6 +171,7 @@ fn scan(root: &Path, remaining: usize, out: &mut Vec<Entry>) -> Result<()> {
 impl Library {
     /// Projects stay beside a single song, or beneath the selected collection.
     /// A path digest prevents similarly named songs from sharing edit history.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn project_path(&self, item: &Entry) -> Result<PathBuf> {
         if item.kind == Kind::Project {
             return Ok(item.path.clone());

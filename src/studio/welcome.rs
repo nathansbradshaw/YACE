@@ -16,7 +16,7 @@ pub fn Welcome(mut studio: Studio) -> Element {
                     }
                     button { class: "welcome-action", disabled: (studio.library_busy)(), "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(),
                         Icon { name: "folder-open", size: 20 }
-                        div { strong { if cfg!(feature="browser") { "Open song folder" } else { "Open charting folder" } } span { if cfg!(feature="browser") { "Edit an existing chart in a separate copy." } else { "Find charts up to 3 folders deep and switch between them." } } }
+                        div { strong { "Open charting folder" } span { "Find charts up to 3 folders deep and switch between them." } }
                     }
                     button {class:"welcome-action",onclick:move |_|studio.import_song(),Icon{name:"folder-open",size:20}div{strong{"Import song ZIP"}span{"Open an existing chart and its recording."}}}
                     button { class: "welcome-action", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(),
@@ -24,7 +24,7 @@ pub fn Welcome(mut studio: Studio) -> Element {
                         div { strong { "Open saved project" } span { if cfg!(feature="browser") {"Open a saved project ZIP."} else {"Continue editing a YACE project."} } }
                     }
                 }
-                if !cfg!(feature = "browser") {
+                if !cfg!(feature = "browser") || cfg!(target_arch = "wasm32") {
                     if let Some(library) = (studio.library)() {
                         div { class: "welcome-library", aria_label: "Charts in selected folder",
                             p { "{library.entries.len()} charts in {library.root.display()}" }
@@ -32,9 +32,9 @@ pub fn Welcome(mut studio: Studio) -> Element {
                                 for (index, item) in library.entries.iter().enumerate() {
                                     button { class: "welcome-action", title: "Open chart {item.title}", disabled: (studio.library_busy)(),
                                         onclick: move |_| {
-                                            #[cfg(not(feature = "browser"))]
+                                            #[cfg(any(not(feature = "browser"), target_arch = "wasm32"))]
                                             dioxus::core::spawn_forever(async move { studio.open_library_chart(index).await; });
-                                            #[cfg(feature = "browser")]
+                                            #[cfg(all(feature = "browser", not(target_arch = "wasm32")))]
                                             let _ = index;
                                         },
                                         Icon { name: "music", size: 20 }

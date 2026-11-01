@@ -17,7 +17,6 @@ use std::{
 
 pub const SAMPLE_RATE: u32 = 44_100;
 
-#[cfg(not(target_arch = "wasm32"))]
 #[path = "stem_review/game_audio.rs"]
 pub mod game_audio;
 

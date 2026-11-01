@@ -158,14 +158,7 @@ pub fn Collaboration(mut studio: Studio) -> Element {
 }
 
 fn unique_id(prefix: &str) -> String {
-    format!(
-        "{prefix}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    )
+    format!("{prefix}-{}", crate::storage::unique_id())
 }
 #[component]
 fn SuggestNote(
@@ -325,9 +318,12 @@ fn GitReview(mut studio: Studio) -> Element {
     }
 }
 
-#[cfg(feature = "browser")]
+#[cfg(all(feature = "browser", not(target_arch = "wasm32")))]
 #[component]
 fn GitReview(studio: Studio) -> Element {
     let _ = studio;
     rsx! {p{class:"field-hint","Export and import review bundles to exchange proposals, comments and approvals."}}
 }
+
+#[cfg(target_arch = "wasm32")]
+use super::github::GitReview;

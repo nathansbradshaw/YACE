@@ -7,6 +7,8 @@ pub mod audio_decode;
 pub mod bass_analysis;
 #[path = "../../src/chart.rs"]
 pub mod chart;
+#[path = "../../src/chart_library.rs"]
+pub mod chart_library;
 #[path = "../../src/clean.rs"]
 pub mod clean;
 #[path = "../../src/clean_transcript.rs"]
@@ -32,6 +34,9 @@ pub mod game_export;
 pub mod gameplay_view;
 #[path = "../../src/generated_rules.rs"]
 pub mod generated_rules;
+pub mod github_api;
+#[path = "../../src/github_reviews.rs"]
+pub mod github_reviews;
 #[path = "../../src/guitar_attacks.rs"]
 pub mod guitar_attacks;
 #[path = "../../src/key_ranges.rs"]
@@ -78,6 +83,8 @@ pub mod refine;
 pub mod review;
 #[path = "../../src/review_regions.rs"]
 pub mod review_regions;
+#[path = "../../src/review_repository.rs"]
+pub mod review_repository;
 #[path = "../../src/sections.rs"]
 pub mod sections;
 #[path = "../../src/song_metadata.rs"]

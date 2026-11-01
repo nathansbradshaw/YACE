@@ -70,6 +70,20 @@ pub fn format(path: &Path) -> Result<(u32, usize)> {
         Ok((pcm.rate, pcm.channels))
     })
 }
+pub fn duration(path: &Path) -> Result<f64> {
+    let hash = hash_file(path)?;
+    PCM.with(|cache| {
+        let cache = cache.borrow();
+        let (bound, pcm) = cache
+            .get(path)
+            .context("Prepare audio on a browser worker first")?;
+        ensure!(
+            *bound == hash,
+            "Decoded audio belongs to different source bytes"
+        );
+        Ok(pcm.duration())
+    })
+}
 pub fn decode(path: &Path, rate: u32, channels: u32) -> Result<Vec<f32>> {
     let hash = hash_file(path)?;
     PCM.with(|cache| {

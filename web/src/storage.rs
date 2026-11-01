@@ -174,6 +174,16 @@ pub fn is_absolute(path: impl AsRef<Path>) -> bool {
 pub fn create_dir(_path: impl AsRef<Path>) -> io::Result<()> {
     Ok(())
 }
+pub fn create_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
+    create_dir(path)
+}
+pub fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
+    if !is_file(&path) {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "File is missing"));
+    }
+    clear(path.as_ref());
+    Ok(())
+}
 pub fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u64> {
     invalidate(to.as_ref())?;
     DIRTY.with(|dirty| {

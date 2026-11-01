@@ -11,6 +11,7 @@ mod dialogs;
 mod difficulty;
 #[path = "../../../src/studio/game_preview.rs"]
 mod game_preview;
+pub mod github;
 #[path = "../../../src/studio/icons.rs"]
 mod icons;
 #[path = "../../../src/studio/inline_review.rs"]
@@ -82,6 +83,8 @@ const CSS: &str = concat!(
 );
 #[component]
 pub fn App() -> Element {
+    let github = github::use_session();
+    use_context_provider(|| github);
     let studio = state::use_studio();
     use_context_provider(|| studio);
     difficulty::use_snapshot(studio);
@@ -165,6 +168,11 @@ pub fn App() -> Element {
     if (studio.review_open)(){review::ReviewPanel{studio}}
     if (studio.parts_open)(){parts::PartsPanel{studio}}
     if (studio.collaboration_open)(){collaboration::Collaboration{studio}}
+    if let Some(entries)=(studio.saved_projects)(){modal::Modal{id:"saved-projects",label:"Saved in this browser",onclose:move |_|{let mut s=studio;s.saved_projects.set(None);},h2{"Saved in this browser"}
+        if entries.is_empty(){p{"No saved projects yet. Open a chart or import a project ZIP."}}
+        for entry in entries {button{class:"welcome-action",disabled:(studio.library_busy)(),onclick:move |_|{let root=entry.path.clone();dioxus::core::spawn_forever(async move{studio.open_saved_project(root).await;});},"{entry.title}"}}
+        button{onclick:move |_|{let mut s=studio;s.saved_projects.set(None);},"Close"}
+    }}
     clean::CleanPanel{studio}
     if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
     if (studio.generation_open)(){modal::Modal{id:"browser-generation",label:"Browser generation",onclose:move |_|{let mut s=studio;s.generation_open.set(false);},h2{"Generation unavailable"}p{"The current model backends require native runtimes. Generation is disabled in this static build. Open a chart or add parts and notes manually."}button{onclick:move |_|{let mut s=studio;s.generation_open.set(false);},"Close generation"}}}
