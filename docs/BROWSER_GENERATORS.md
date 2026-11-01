@@ -92,8 +92,14 @@ through the browser app, using the actual downloaded checkpoints:
   stems one at a time and writes the ZIP into browser-backed chunks. The actual
   downloaded 31-file archive passed all CRC checks; native inspection read its
   combined MIDI. Its archived original Ogg SHA-256 exactly matched the recording.
-  A subsequent change adds fast WAV compression and shares identical audio
-  allocations on ZIP import; final compressed download/import remains to verify.
+  WAV compression level 3 reduced the complete archive to 957,505,126 bytes;
+  all CRC checks passed. Its actual file-picker import retained the three Expert
+  counts, all 298 vocal notes, the vocal review windows and all seven 243.880 s
+  audio clocks. Identical game/recovery audio shares allocations during import.
+- The resulting full-song project backup was downloaded (490,070,498 bytes),
+  passed archive integrity checks and reopened through Open saved project.
+  A guitar edit and its undo history survived: Redo restored the edited attack
+  at 0.210 seconds; Undo restored the original 0.209-second attack.
 
 Regression coverage includes shared native decoding tests, native library tests,
 static-tool audio tests and strict WASM/native Clippy. Explicit ignored tests in
@@ -106,8 +112,8 @@ they require named private input paths and never fabricate inference results.
   browser recognition/lyric alignment and the remaining optional detector modes.
 - Complete full-song cancellation/resume and edited-target conflict checks for
   recoverable browser generation jobs; the excerpt apply/Undo/reload path passed.
-- Finish compressed full-song export/import and project backup roundtrip. The
-  243.880-second generation, playback, editing/Undo, reload and first playable
-  archive/native inspection have passed the exercised engineering checks.
+- The full-song generation/playback/editing/reload/song ZIP/project backup gates
+  have passed the exercised engineering checks; game/controller and musical
+  listening acceptance remain separate.
 - Full regression checks, final source rebase, push/merge and public static deploy
   with actual live verification. Current public manual-parity release is unchanged.
