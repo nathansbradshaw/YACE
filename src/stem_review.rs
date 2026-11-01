@@ -16,7 +16,7 @@ use std::{
 
 pub const SAMPLE_RATE: u32 = 44_100;
 
-#[cfg(all(unix, not(target_arch = "wasm32")))]
+#[cfg(not(target_arch = "wasm32"))]
 mod validation;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -144,9 +144,9 @@ impl StemManifest {
         alignment: AlignmentEvidence,
     ) -> Result<Self> {
         let source_audio_sha256 = models::hash_file(source)?;
-        #[cfg(all(unix, not(target_arch = "wasm32")))]
+        #[cfg(not(target_arch = "wasm32"))]
         let frames = validation::frames(source, &source_audio_sha256, false)?;
-        #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
+        #[cfg(target_arch = "wasm32")]
         let frames = {
             let original = models::decode(source, SAMPLE_RATE, 2)?;
             (original.len() / 2) as u64
@@ -269,9 +269,9 @@ impl StemManifest {
         duration: f64,
     ) -> Result<Self> {
         self.validate_binding(expected_hash, duration)?;
-        #[cfg(all(unix, not(target_arch = "wasm32")))]
+        #[cfg(not(target_arch = "wasm32"))]
         validation::validate(self, source)?;
-        #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
+        #[cfg(target_arch = "wasm32")]
         self.load(source)?;
         Ok(self.clone())
     }

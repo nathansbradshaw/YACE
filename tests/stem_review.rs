@@ -291,6 +291,43 @@ fn reused_validation_proofs_reject_changed_bytes_frames_formats_and_nonfinite_au
 }
 
 #[test]
+fn cached_separator_wrappers_reject_unpinned_weights_before_inference() {
+    let root = tempfile::tempdir().unwrap();
+    let asset = models::assets()
+        .into_iter()
+        .find(|asset| asset.id == "separation")
+        .unwrap();
+    fs::write(
+        root.path().join(asset.filename),
+        b"not the pinned checkpoint",
+    )
+    .unwrap();
+    let cache = root.path().join("cache");
+    let error = chart_engine::pipeline::cached_separation(
+        &root.path().join("unused.wav"),
+        root.path(),
+        &cache,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("checksum mismatch"));
+    fs::write(
+        root.path()
+            .join(chart_engine::keyboard_separation::MODEL_FILENAME),
+        b"wrong HQ checkpoint",
+    )
+    .unwrap();
+    assert!(
+        chart_engine::pipeline::cached_keyboard_separation(
+            &root.path().join("unused.wav"),
+            root.path(),
+            &cache
+        )
+        .is_err()
+    );
+    assert!(!cache.exists());
+}
+
+#[test]
 fn separation_cache_identity_changes_with_source_model_backend_and_parameters() {
     let source = "a".repeat(64);
     let mut identity = SeparationIdentity {

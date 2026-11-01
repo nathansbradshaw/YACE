@@ -77,7 +77,7 @@ struct Key {
     path: PathBuf,
     sha256: String,
     stamp: Stamp,
-    decoder: Tool,
+    decoder: Option<Tool>,
     probe: Option<Tool>,
 }
 impl Key {
@@ -94,8 +94,8 @@ impl Key {
             path,
             sha256,
             stamp,
-            decoder: Tool::find("ffmpeg")?,
-            probe: native.then(|| Tool::find("ffprobe")).transpose()?,
+            decoder: Tool::find("ffmpeg").ok(),
+            probe: native.then(|| Tool::find("ffprobe").ok()).flatten(),
         })
     }
 }
@@ -113,8 +113,12 @@ fn verified_with(
     inspect: impl FnOnce() -> Result<u64>,
 ) -> Result<u64> {
     let key = Key::read(path, expected, native)?;
+    // Without a stable executable/file identity, keep ordinary validation.
+    // Proof reuse is optional; tool lookup must not change decoder behavior.
+    let cacheable = cfg!(unix) && key.decoder.is_some() && (!native || key.probe.is_some());
     let cache = PROOFS.get_or_init(|| Mutex::new(VecDeque::new()));
-    if let Ok(mut proofs) = cache.lock()
+    if cacheable
+        && let Ok(mut proofs) = cache.lock()
         && let Some(index) = proofs.iter().position(|proof| proof.key == key)
     {
         let proof = proofs.remove(index).unwrap();
@@ -128,7 +132,7 @@ fn verified_with(
         Key::read(path, expected, native)? == key,
         "Audio or decoder changed during validation"
     );
-    if let Ok(mut proofs) = cache.lock() {
+    if cacheable && let Ok(mut proofs) = cache.lock() {
         proofs.retain(|proof| proof.key.path != key.path || proof.key.probe.is_some() != native);
         proofs.push_back(Proof { key, frames });
         while proofs.len() > MAX_PROOFS {
