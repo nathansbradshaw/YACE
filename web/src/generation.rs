@@ -125,6 +125,15 @@ pub fn input(root: &Path) -> Result<Input> {
     )?)?)
 }
 pub fn validate(root: &Path) -> Result<(Request, Input)> {
+    let (request, input) = validate_saved(root)?;
+    ensure!(
+        input.implementation_sha256 == implementation_hash(),
+        "This saved job uses an earlier generator. Its completed results remain available; start a new job to generate with the current engine"
+    );
+    Ok((request, input))
+}
+/// A newer engine must not make retained completed drafts inaccessible.
+pub fn validate_saved(root: &Path) -> Result<(Request, Input)> {
     let request = read_request(root)?;
     request.validate()?;
     let state = status(root)?;
@@ -135,8 +144,8 @@ pub fn validate(root: &Path) -> Result<(Request, Input)> {
         "Saved generation settings changed; retained results were kept"
     );
     ensure!(
-        input.version == 1 && input.implementation_sha256 == implementation_hash(),
-        "This saved job uses an earlier generator. Keep its results and start a new job with the current engine"
+        input.version == 1,
+        "Unsupported saved generation input version"
     );
     let Source::Audio { path } = &request.source;
     ensure!(
