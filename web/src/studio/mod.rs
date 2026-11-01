@@ -143,7 +143,7 @@ pub fn App() -> Element {
     rsx! {style{"{CSS}"}div{class:"studio-app",tabindex:"-1",onkeydown:move|event|shortcuts::handle(studio,event),
     header::Header{studio}
     if studio.snapshot().is_some(){workspace::Workbench{studio}}else{header::Welcome{studio}}
-    div{class:"studio-status",span{"{studio.status}"}span{if (studio.dirty)()||(studio.persistence_busy)(){"Saving locally…"}else if studio.snapshot().is_some_and(|doc|(studio.saved_revision)()!=Some(doc.revision)){"Not saved locally · export project ZIP"}else{"Saved locally · Rust/WASM"}}}
+    div{class:"studio-status",span{"{studio.status}"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{if (studio.dirty)()||(studio.persistence_busy)(){"Saving locally…"}else if studio.snapshot().is_some_and(|doc|(studio.saved_revision)()!=Some(doc.revision)){"Not saved locally · export project ZIP"}else{"Saved locally · Rust/WASM"}}}
     if let Some(error)=(studio.error)(){div{class:"studio-error",role:"alert",span{"{error}"}button{onclick:move |_|{let mut studio=studio;studio.error.set(None);},"Dismiss"}}}
     if (studio.review_open)(){review::ReviewPanel{studio}}
     if (studio.parts_open)(){parts::PartsPanel{studio}}

@@ -146,13 +146,28 @@ fn serve_file(mut stream: TcpStream, root: &Path) -> Result<()> {
     println!("{method} {uri}");
     response(&mut stream, "200 OK", mime, &bytes, method == "HEAD")
 }
+fn source_root() -> Result<PathBuf> {
+    // A shared target cache can reuse this executable across Git worktrees.
+    // Compile-time CARGO_MANIFEST_DIR would silently select the last builder's
+    // checkout instead of the source requested by the current invocation.
+    let start = env::var_os("YACE_SOURCE_ROOT")
+        .map(PathBuf::from)
+        .map(Ok)
+        .unwrap_or_else(env::current_dir)?;
+    start
+        .ancestors()
+        .find(|root| {
+            root.join("web/tools/Cargo.toml").is_file()
+                && root.join("web/index.html").is_file()
+                && root.join("src/editor.rs").is_file()
+        })
+        .map(Path::to_owned)
+        .ok_or_else(|| {
+            "Run inside the YACE source checkout or set YACE_SOURCE_ROOT to its root".into()
+        })
+}
 fn main() -> Result<()> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_owned();
+    let root = source_root()?;
     let args: Vec<_> = env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("build") => build(&root),
