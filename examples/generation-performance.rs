@@ -48,6 +48,27 @@ fn project_in(root: &Path, depth: usize) -> Result<Option<PathBuf>> {
     }
     Ok(None)
 }
+fn copy_cache(source: &Path, destination: &Path) -> Result<()> {
+    ensure!(
+        !destination.exists(),
+        "Benchmark cache destination already exists"
+    );
+    fs::create_dir_all(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let target = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_cache(&entry.path(), &target)?;
+        } else {
+            ensure!(
+                entry.file_type()?.is_file(),
+                "Benchmark cache must contain ordinary files"
+            );
+            fs::copy(entry.path(), target)?;
+        }
+    }
+    Ok(())
+}
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() == 2 && args[0] == "--worker" {
@@ -62,6 +83,19 @@ fn main() -> Result<()> {
     let parse_audio = Path::new(&args[2]).canonicalize()?;
     let audio_hash = models::hash_file(&audio)?;
     let parse_hash = models::hash_file(&parse_audio)?;
+    let chart_path = parse_audio.with_file_name("notes.chart");
+    let chart_parse = chart_path
+        .is_file()
+        .then(|| {
+            repeated(|| {
+                let chart = chart_engine::chart::Chart::parse(fs::read_to_string(&chart_path)?)?;
+                for section in &chart.sections {
+                    std::hint::black_box(chart.notes(&section.name)?);
+                }
+                Ok(())
+            })
+        })
+        .transpose()?;
     let temp = tempfile::tempdir()?;
     let (metadata, metadata_ms) = phase("metadata", || pipeline::metadata(&audio))?;
     let (proposal, tempo_ms) = phase("full-song tempo analysis", || {
@@ -118,8 +152,14 @@ fn main() -> Result<()> {
             "instruments":["guitar","bass","drums"],"model_dir":model_dir,"fetch_models":false,"lyrics":false
         }))?;
         let destination = temp.path().join(format!("generation-{name}"));
+        let root = generation::create(request, &destination)?;
+        if name == "warm" {
+            copy_cache(
+                &temp.path().join("generation-cold/.yace/cache/separation"),
+                &destination.join(".yace/cache/separation"),
+            )?;
+        }
         let (_, total_ms) = phase(&format!("complete generation {name}"), || {
-            let root = generation::create(request, &destination)?;
             ensure!(
                 std::process::Command::new(std::env::current_exe()?)
                     .arg("--worker")
@@ -143,11 +183,11 @@ fn main() -> Result<()> {
         "{}",
         serde_json::to_string_pretty(&json!({
             "schema_version":1,"source_sha256":audio_hash,"source_seconds":metadata.duration,"parse_audio_sha256":parse_hash,
-            "metadata_ms":metadata_ms,"tempo_first_ms":tempo_ms,"tempo_repeat":tempo_repeat,"tempo_proposal_sha256":hash(&proposal)?,
+        "metadata_ms":metadata_ms,"chart_parse":chart_parse,"tempo_first_ms":tempo_ms,"tempo_repeat":tempo_repeat,"tempo_proposal_sha256":hash(&proposal)?,
             "cold_split_ms":cold_split_ms,"warm_split":warm_split,"stem_validation":validation,
             "inference_ms":{"drums":drums_ms,"guitar":guitar_ms,"bass":bass_ms},
             "notes_sha256":hash(&json!({"drums":drums,"guitar":guitar.candidates,"bass":bass.bass}))?,
-        "generation":jobs,"scope":"Real default six-stem GPU splitting, CPU transcription and complete local generation. Each complete generation runs in a fresh worker process, matching desktop. Cold means no application separation cache, not cold OS/GPU shader caches. Other repeats are warm same-process observations. Full-song tempo analysis is separate from the short generation fixture. No network requests or source/model writes; outputs removed on exit. Hardware contention uncontrolled."
+        "generation":jobs,"scope":"Real default six-stem GPU splitting, CPU transcription and complete local generation. Each complete generation runs in a fresh worker process, matching desktop; queued-job creation is excluded. Cold means no application separation cache, not cold OS/GPU shader caches. The warm song's matching on-disk cache is copied from the cold job before its timer; no in-memory proofs survive between workers. Other repeats are warm same-process observations. Full-song tempo/chart parsing is separate from the short generation fixture. No network requests or source/model writes; outputs removed on exit. Hardware contention uncontrolled."
         }))?
     );
     Ok(())
