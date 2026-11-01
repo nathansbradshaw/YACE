@@ -25,6 +25,9 @@ pub enum Source {
 pub struct Request {
     pub source: Source,
     pub bpm: f64,
+    /// Frozen audio-analysis proposal. Omitted legacy jobs use constant BPM.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tempo_map: Option<TempoMap>,
     pub title: String,
     pub artist: String,
     pub instruments: Vec<String>,
@@ -51,8 +54,25 @@ pub struct Request {
 }
 
 impl Request {
+    pub fn timing(&self) -> Result<TempoMap> {
+        let fallback = TempoMap::constant(self.bpm)?;
+        let Some(map) = &self.tempo_map else {
+            return Ok(fallback);
+        };
+        let canonical = TempoMap::new(map.resolution, map.offset, map.tempos.clone())?;
+        ensure!(
+            canonical == *map,
+            "Tempo map must be ordered and start at tick zero"
+        );
+        ensure!(
+            (map.tempos[0].bpm - self.bpm).abs() < 0.001,
+            "Starting BPM differs from the tempo map"
+        );
+        Ok(canonical)
+    }
+
     pub fn validate(&self) -> Result<()> {
-        TempoMap::constant(self.bpm)?;
+        self.timing()?;
         ensure!(
             !self.title.trim().is_empty() && !self.artist.trim().is_empty(),
             "Enter the song title and artist"
@@ -491,7 +511,11 @@ pub fn run(root: &Path) -> Result<()> {
 fn run_inner(root: &Path) -> Result<()> {
     let request: Request = serde_json::from_slice(&fs::read(root.join("request.json"))?)?;
     // Use the saved input on retry. The original file may have moved or been deleted.
-    let timing = crate::parts::timing(root, request.bpm)?;
+    let timing = if crate::parts::target(root)?.is_some() {
+        crate::parts::timing(root, request.bpm)?
+    } else {
+        request.timing()?
+    };
     let vocals_only = request.instruments.iter().all(|part| part == "vocals");
     update(
         root,

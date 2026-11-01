@@ -355,6 +355,8 @@ enum BenchmarkCommand {
 
 #[derive(Subcommand)]
 enum GenerationCommand {
+    /// Inspect automatically detected tempos and audio-time change boundaries.
+    AnalyzeTempo { audio: PathBuf },
     /// Create a new job from the same versioned request used by the app.
     Create {
         #[arg(long)]
@@ -915,6 +917,12 @@ fn main() -> Result<()> {
             }
         },
         Commands::Generation { action } => match action {
+            GenerationCommand::AnalyzeTempo { audio } => {
+                let estimate = chart_engine::tempo_analysis::analyze(&audio)?;
+                print(
+                    &serde_json::json!({"tempo_map": estimate.tempo_map().ok(), "analysis": estimate}),
+                )?;
+            }
             GenerationCommand::Create { request, output } => {
                 let request = serde_json::from_slice(&fs::read(request)?)?;
                 let root = chart_engine::generation::create(request, &output)?;

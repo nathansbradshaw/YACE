@@ -33,6 +33,15 @@ pub async fn duration(bytes: &[u8]) -> Result<f64> {
     let _ = context.close();
     result
 }
+pub async fn analyze_tempo(bytes: &[u8]) -> Result<crate::tempo_analysis::Estimate> {
+    let context = context()?;
+    let result = decode(&context, bytes).await;
+    let _ = context.close();
+    let pcm = result?;
+    // Let the loading state paint before running local analysis.
+    gloo_timers::future::TimeoutFuture::new(0).await;
+    crate::tempo_analysis::estimate_interleaved(&pcm.stereo, pcm.rate, 2)
+}
 /// Use Rust codecs first. Browser-only codecs such as Opus stay local too.
 async fn decode(context: &AudioContext, bytes: &[u8]) -> Result<crate::audio_decode::Pcm> {
     match crate::audio_decode::decode(bytes).await {

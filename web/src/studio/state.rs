@@ -319,7 +319,7 @@ impl Studio {
         root: PathBuf,
         title: String,
         artist: String,
-        bpm: f64,
+        timing: TempoMap,
     ) -> Result<()> {
         ensure!(
             !title.trim().is_empty() && !artist.trim().is_empty(),
@@ -330,8 +330,8 @@ impl Studio {
             "Title and artist must be single lines"
         );
         ensure!(
-            bpm.is_finite() && (1. ..=1000.).contains(&bpm),
-            "Tempo must be 1–1000 BPM"
+            timing == TempoMap::new(timing.resolution, timing.offset, timing.tempos.clone())?,
+            "Invalid tempo map"
         );
         let metadata = BTreeMap::from([
             ("name".into(), title.trim().into()),
@@ -341,11 +341,22 @@ impl Studio {
             root.join("song.ini"),
             crate::pipeline::update_ini("[song]\n", &metadata),
         )?;
-        let tempo = (bpm * 1000.).round() as u32;
+        let tempos = timing
+            .tempos
+            .iter()
+            .map(|tempo| {
+                format!(
+                    "  {} = B {}\n",
+                    tempo.tick,
+                    (tempo.bpm * 1000.).round() as u32
+                )
+            })
+            .collect::<String>();
         crate::storage::write(
             root.join("notes.chart"),
             format!(
-                "[Song]\n{{\n  Resolution = 480\n}}\n[SyncTrack]\n{{\n  0 = B {tempo}\n  0 = TS 4\n}}\n[Events]\n{{\n}}\n[ExpertSingle]\n{{\n}}\n"
+                "[Song]\n{{\n  Resolution = {}\n  Offset = {}\n}}\n[SyncTrack]\n{{\n{tempos}  0 = TS 4\n}}\n[Events]\n{{\n}}\n[ExpertSingle]\n{{\n}}\n",
+                timing.resolution, timing.offset
             ),
         )?;
         self.status.set("Preparing new chart…".into());
