@@ -8,11 +8,84 @@ use std::{
 use wasm_bindgen::{JsCast, closure::Closure};
 use wasm_bindgen_futures::JsFuture;
 pub type Files = Vec<(String, Vec<u8>)>;
+/// OS-selected File handles retain access without reading the whole library.
+pub struct FolderSelection(Vec<(String, web_sys::File)>);
+impl FolderSelection {
+    pub async fn catalogue(&self, root: &Path) -> Result<()> {
+        for (name, file) in &self.0 {
+            let bytes = if Path::new(name)
+                .file_name()
+                .is_some_and(|name| name == "song.ini")
+            {
+                ensure!(file.size() <= 65536., "Song metadata exceeds 64 KiB");
+                read_file(file).await?
+            } else {
+                Vec::new()
+            };
+            mount(root, vec![(name.clone(), bytes)])?;
+        }
+        Ok(())
+    }
+    pub async fn hydrate(&self, root: &Path, selected: &Path) -> Result<()> {
+        let selected = selected.strip_prefix(root)?;
+        let files: Vec<_> = self
+            .0
+            .iter()
+            .filter(|(name, _)| Path::new(name).starts_with(selected))
+            .collect();
+        ensure!(
+            files.len() <= 4096,
+            "The selected song contains more than 4096 files"
+        );
+        let total: f64 = files.iter().map(|(_, file)| file.size()).sum();
+        ensure!(
+            total <= 1024. * 1024. * 1024.,
+            "The selected song exceeds 1 GiB"
+        );
+        for (name, file) in files {
+            crate::storage::write_owned(root.join(name), read_file(file).await?)?;
+        }
+        Ok(())
+    }
+    pub fn release_audio(&self, root: &Path, selected: &Path) {
+        for (name, _) in &self.0 {
+            let path = root.join(name);
+            if path.starts_with(selected)
+                && !path.file_name().is_some_and(|name| name == "song.ini")
+            {
+                let _ = crate::storage::write_owned(path, Vec::new());
+            }
+        }
+    }
+}
+async fn read_file(file: &web_sys::File) -> Result<Vec<u8>> {
+    let buffer = JsFuture::from(file.array_buffer()).await.map_err(error)?;
+    Ok(js_sys::Uint8Array::new(&buffer).to_vec())
+}
 fn error(value: impl Into<wasm_bindgen::JsValue>) -> anyhow::Error {
     let value = value.into();
     anyhow::anyhow!("Browser: {value:?}")
 }
 pub async fn pick(folder: bool, accept: &str) -> Result<Option<Files>> {
+    let Some(files) = select(folder, accept).await? else {
+        return Ok(None);
+    };
+    ensure!(files.0.len() <= 4096, "Choose at most 4096 files");
+    let total: f64 = files.0.iter().map(|(_, file)| file.size()).sum();
+    ensure!(
+        total <= 1024. * 1024. * 1024.,
+        "Selected files exceed 1 GiB"
+    );
+    let mut result = Vec::new();
+    for (name, file) in files.0 {
+        result.push((name, read_file(&file).await?));
+    }
+    Ok(Some(result))
+}
+pub async fn pick_library() -> Result<Option<FolderSelection>> {
+    select(true, "").await
+}
+async fn select(folder: bool, accept: &str) -> Result<Option<FolderSelection>> {
     let document = web_sys::window()
         .context("No window")?
         .document()
@@ -71,13 +144,13 @@ pub async fn pick(folder: bool, accept: &str) -> Result<Option<Files>> {
     if files.length() == 0 {
         return Ok(None);
     };
-    ensure!(files.length() <= 4096, "Choose at most 4096 files");
+    ensure!(
+        files.length() <= 100_000,
+        "Choose a collection with at most 100,000 files"
+    );
     let mut result = Vec::new();
-    let mut total = 0u64;
     for index in 0..files.length() {
         let file = files.get(index).context("Selected file disappeared")?;
-        total += file.size() as u64;
-        ensure!(total <= 1024 * 1024 * 1024, "Selected files exceed 1 GiB");
         let relative = js_sys::Reflect::get(&file, &"webkitRelativePath".into())
             .map_err(error)?
             .as_string()
@@ -89,10 +162,9 @@ pub async fn pick(folder: bool, accept: &str) -> Result<Option<Files>> {
                 .split_once('/')
                 .map_or(relative.clone(), |(_, rest)| rest.to_owned())
         };
-        let buffer = JsFuture::from(file.array_buffer()).await.map_err(error)?;
-        result.push((name, js_sys::Uint8Array::new(&buffer).to_vec()));
+        result.push((name, file));
     }
-    Ok(Some(result))
+    Ok(Some(FolderSelection(result)))
 }
 pub fn unpack(files: Files) -> Result<Files> {
     if files.len() != 1 || !files[0].0.to_ascii_lowercase().ends_with(".zip") {

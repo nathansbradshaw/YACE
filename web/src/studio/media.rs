@@ -34,6 +34,7 @@ impl Drop for PendingContext {
     }
 }
 pub struct Media {
+    identity: MediaIdentity,
     context: AudioContext,
     pub original: Channel,
     stems: BTreeMap<(bool, StemId), Channel>,
@@ -42,6 +43,43 @@ pub struct Media {
     error: Rc<RefCell<Option<String>>>,
     kit: RefCell<Option<Channel>>,
     master: GainNode,
+}
+/// Content identity survives portable asset relocation. Track selection and
+/// mix settings reuse the same graph; undoing an attachment must rebuild it.
+#[derive(PartialEq, Eq)]
+struct MediaIdentity {
+    audio: String,
+    stems: [Option<ManifestIdentity>; 2],
+}
+#[derive(PartialEq, Eq)]
+struct ManifestIdentity {
+    rate: u32,
+    channels: u16,
+    frames: u64,
+    assets: Vec<(StemId, String)>,
+}
+impl MediaIdentity {
+    fn new(doc: &crate::editor::Project) -> Self {
+        Self {
+            audio: doc.audio_sha256.to_ascii_lowercase(),
+            stems: [
+                doc.content.stems.as_ref(),
+                doc.content.keyboard_stems.as_ref(),
+            ]
+            .map(|manifest| {
+                manifest.map(|manifest| ManifestIdentity {
+                    rate: manifest.sample_rate,
+                    channels: manifest.channels,
+                    frames: manifest.frames,
+                    assets: manifest
+                        .stems
+                        .iter()
+                        .map(|asset| (asset.id, asset.sha256.to_ascii_lowercase()))
+                        .collect(),
+                })
+            }),
+        }
+    }
 }
 pub fn keyboard_stems(doc: &crate::editor::Project) -> bool {
     crate::keys::is_keys(&doc.selected_track) && doc.content.keyboard_stems.is_some()
@@ -230,6 +268,7 @@ impl Media {
             "The browser could not load the recording"
         );
         let media = Self {
+            identity: MediaIdentity::new(doc),
             context,
             original,
             stems,
@@ -273,6 +312,9 @@ impl Media {
     }
     pub fn position(&self) -> f64 {
         self.original.element.current_time()
+    }
+    pub fn matches(&self, doc: &crate::editor::Project) -> bool {
+        self.identity == MediaIdentity::new(doc)
     }
     /// The saved set has already been decoded and validated on a worker. Reuse
     /// this graph and its clock instead of rebuilding every recording/stem.

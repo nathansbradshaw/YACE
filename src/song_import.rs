@@ -222,13 +222,6 @@ pub fn create_project(
         &crate::song_layout::path(stage.path(), "import-information.json"),
         &retained,
     )?;
-    let workspace = tempfile::tempdir_in(parent)?;
-    let store =
-        crate::editor::Store::create(stage.path(), None, &workspace.path().join("project"))?;
-    let mut project = store.load()?;
-    project.title = metadata.name;
-    project.original_folder = std::path::absolute(output)?;
-    crate::generation::write_json(&store.root.join("project.json"), &project)?;
     // Keep the full-quality source for later generation, separate from game audio.
     let extension = audio
         .extension()
@@ -247,6 +240,15 @@ pub fn create_project(
         crate::models::hash_file(&original)? == before,
         "Recording changed while retaining the original"
     );
+    // Archive before making the editable copy so portable project backups keep
+    // the encoded original as well as the playable float WAV.
+    let workspace = tempfile::tempdir_in(parent)?;
+    let store =
+        crate::editor::Store::create(stage.path(), None, &workspace.path().join("project"))?;
+    let mut project = store.load()?;
+    project.title = metadata.name;
+    project.original_folder = std::path::absolute(output)?;
+    crate::generation::write_json(&store.root.join("project.json"), &project)?;
     fs::rename(&store.root, stage.path().join(".yace/project"))?;
     pipeline::publish(stage.path(), output)?;
     let project = output.canonicalize()?.join(".yace/project");
@@ -704,6 +706,36 @@ pub(crate) fn archive_front(body: &Value) -> Option<String> {
     )
 }
 
+/// Apply only matched factual release fields; never promotional audio/artwork.
+pub(crate) fn apply_apple_body(body: &Value, meta: &mut Metadata, info: &mut SongInfo) {
+    if let Some(record) = apple_match(body, meta) {
+        if meta.album.is_empty() {
+            meta.album = record["collectionName"].as_str().unwrap_or_default().into();
+        }
+        if meta.year.is_empty() {
+            meta.year = record["releaseDate"]
+                .as_str()
+                .unwrap_or_default()
+                .chars()
+                .take(4)
+                .collect();
+        }
+        if meta.genre.is_empty() {
+            meta.genre = record["primaryGenreName"]
+                .as_str()
+                .unwrap_or_default()
+                .into();
+        }
+        info.notes.push(format!("Additional release metadata matched by title, artist and duration: {}. Release editions can differ.",record["trackViewUrl"].as_str().unwrap_or("Apple catalogue")));
+        if record["trackTimeMillis"]
+            .as_f64()
+            .is_some_and(|length| (length / 1000.0 - meta.duration).abs() > 5.0)
+        {
+            info.notes.push("The selected recording is longer than the catalogue track. Release fields are suggestions; the original audio and its measured timing are retained.".into());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -781,35 +813,5 @@ mod tests {
         assert!(apple_match(&body, &different).is_some());
         different.duration = 300.0;
         assert!(apple_match(&body, &different).is_none());
-    }
-}
-
-/// Apply only matched factual release fields; never promotional audio/artwork.
-pub(crate) fn apply_apple_body(body: &Value, meta: &mut Metadata, info: &mut SongInfo) {
-    if let Some(record) = apple_match(body, meta) {
-        if meta.album.is_empty() {
-            meta.album = record["collectionName"].as_str().unwrap_or_default().into();
-        }
-        if meta.year.is_empty() {
-            meta.year = record["releaseDate"]
-                .as_str()
-                .unwrap_or_default()
-                .chars()
-                .take(4)
-                .collect();
-        }
-        if meta.genre.is_empty() {
-            meta.genre = record["primaryGenreName"]
-                .as_str()
-                .unwrap_or_default()
-                .into();
-        }
-        info.notes.push(format!("Additional release metadata matched by title, artist and duration: {}. Release editions can differ.",record["trackViewUrl"].as_str().unwrap_or("Apple catalogue")));
-        if record["trackTimeMillis"]
-            .as_f64()
-            .is_some_and(|length| (length / 1000.0 - meta.duration).abs() > 5.0)
-        {
-            info.notes.push("The selected video is longer than the catalogue track. Release fields are suggestions; the video's original audio and its measured timing are retained.".into());
-        }
     }
 }

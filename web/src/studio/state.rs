@@ -25,6 +25,7 @@ pub struct Studio {
     pub library: Signal<Option<crate::chart_library::Library>>,
     pub library_busy: Signal<bool>,
     pub library_selected: Signal<Option<usize>>,
+    library_files: Signal<Option<Rc<crate::files::FolderSelection>>>,
     pub saved_projects: Signal<Option<Vec<crate::chart_library::Entry>>>,
     pub export_ready: Signal<Option<(PathBuf, String, bool)>>,
     pub export_busy: Signal<bool>,
@@ -83,6 +84,7 @@ pub fn use_studio() -> Studio {
         library: use_signal(|| None),
         library_busy: use_signal(|| false),
         library_selected: use_signal(|| None),
+        library_files: use_signal(|| None),
         saved_projects: use_signal(|| None),
         export_ready: use_signal(|| None),
         export_busy: use_signal(|| false),
@@ -214,8 +216,14 @@ impl Studio {
                     self.vocal_note.set(None);
                 }
                 if let Some(doc) = self.snapshot()
-                    && let Some(media) = self.media.read().as_ref()
+                    && let Some(media) = self.media.read().clone()
                 {
+                    if !media.matches(&doc) {
+                        if (self.audio_ready)() {
+                            self.refresh_audio(store, doc);
+                        }
+                        return;
+                    }
                     media.set_rate(doc.transport.playback_rate);
                     media.mix(
                         &doc.content.stem_mix,
@@ -249,6 +257,68 @@ impl Studio {
             }
             Err(error) => self.error.set(Some(format!("{error:#}"))),
         }
+    }
+    fn refresh_audio(mut self, store: Store, doc: Arc<Project>) {
+        self.epoch.set((self.epoch)().wrapping_add(1));
+        let epoch = (self.epoch)();
+        if let Some(media) = self.media.read().as_ref() {
+            media.pause();
+        }
+        self.audio_ready.set(false);
+        self.status.set("Restoring project audio…".into());
+        spawn(async move {
+            let result = Media::load(&store, &doc).await;
+            if (self.epoch)() != epoch
+                || self
+                    .store
+                    .read()
+                    .as_ref()
+                    .is_none_or(|current| current.root != store.root)
+            {
+                return;
+            }
+            match result {
+                Ok((media, _, notice)) => {
+                    let Some(current) = self.snapshot() else {
+                        return;
+                    };
+                    if !media.matches(&current) {
+                        self.refresh_audio(store, current);
+                        return;
+                    }
+                    if current.kit_audition.is_some()
+                        && let Err(error) = media.replace_kit(&store, &current)
+                    {
+                        self.error
+                            .set(Some(format!("Could not restore kit audio: {error:#}")));
+                        return;
+                    }
+                    media.set_rate(current.transport.playback_rate);
+                    media.seek(current.transport.position);
+                    media.mix(
+                        &current.content.stem_mix,
+                        (self.volume)(),
+                        current.kit_audition.is_some(),
+                        super::media::keyboard_stems(&current),
+                    );
+                    self.waveforms.set(Some(Arc::new(
+                        media.waveforms(super::media::keyboard_stems(&current)),
+                    )));
+                    if current.transport.playing
+                        && let Err(error) = media.play()
+                    {
+                        self.error.set(Some(format!("{error:#}")));
+                    }
+                    self.media.set(Some(Rc::new(media)));
+                    self.audio_ready.set(true);
+                    self.stem_status.set(notice);
+                    self.status.set("Project audio restored".into());
+                }
+                Err(error) => self
+                    .error
+                    .set(Some(format!("Could not restore project audio: {error:#}"))),
+            }
+        });
     }
     pub fn seek(self, seconds: f64) {
         if let Some(doc) = self.snapshot() {
@@ -383,6 +453,9 @@ impl Studio {
         });
     }
     pub fn tick(mut self) {
+        if !(self.audio_ready)() {
+            return;
+        }
         let Some(doc) = self.snapshot() else { return };
         if !doc.transport.playing {
             return;
@@ -536,21 +609,32 @@ impl Studio {
         self.library_busy.set(true);
         dioxus::core::spawn_forever(async move {
             let result = async {
-                let Some(files) =
-                    crate::files::pick(folder, if folder { "" } else { ".zip" }).await?
-                else {
-                    return Ok(());
+                let (selection, files) = if folder {
+                    let Some(selected) = crate::files::pick_library().await? else {
+                        return Ok(());
+                    };
+                    (Some(Rc::new(selected)), Vec::new())
+                } else {
+                    let Some(files) = crate::files::pick(false, ".zip").await? else {
+                        return Ok(());
+                    };
+                    (None, crate::files::unpack(files)?)
                 };
                 self.status.set("Reading local song…".into());
-                let files = crate::files::unpack(files)?;
                 let staging = crate::files::unique_root();
                 let result: Result<()> = async {
-                    crate::files::mount(&staging, files)?;
+                    if let Some(selection) = &selection {
+                        selection.catalogue(&staging).await?;
+                    } else {
+                        crate::files::mount(&staging, files)?;
+                    }
                     let library = crate::chart_library::discover(&staging)?;
-                    self.open_library_entry(&library, 0).await?;
+                    self.open_selected_entry(&library, 0, selection.as_deref())
+                        .await?;
                     if let Some(previous) = self.library.replace(Some(library)) {
                         crate::storage::clear(&previous.root);
                     }
+                    self.library_files.set(selection);
                     self.library_selected.set(Some(0));
                     Ok(())
                 }
@@ -575,7 +659,9 @@ impl Studio {
         let library = (self.library)();
         let result = async {
             let library = library.context("Open a charting folder")?;
-            self.open_library_entry(&library, index).await?;
+            let selection = self.library_files.read().clone();
+            self.open_selected_entry(&library, index, selection.as_deref())
+                .await?;
             self.library_selected.set(Some(index));
             Ok::<_, anyhow::Error>(())
         }
@@ -584,6 +670,29 @@ impl Studio {
         if let Err(error) = result {
             self.error.set(Some(format!("{error:#}")));
         }
+    }
+    async fn open_selected_entry(
+        self,
+        library: &crate::chart_library::Library,
+        index: usize,
+        selection: Option<&crate::files::FolderSelection>,
+    ) -> Result<()> {
+        let selected = &library
+            .entries
+            .get(index)
+            .context("Chart is not in this folder")?
+            .path;
+        let result = async {
+            if let Some(selection) = selection {
+                selection.hydrate(&library.root, selected).await?;
+            }
+            self.open_library_entry(library, index).await
+        }
+        .await;
+        if let Some(selection) = selection {
+            selection.release_audio(&library.root, selected);
+        }
+        result
     }
     async fn open_library_entry(
         self,
@@ -839,6 +948,7 @@ impl Studio {
             let result = async {
                 let store = self.store.read().clone().context("Open a project")?;
                 let doc = self.snapshot().context("Open a project")?;
+                let name = format!("{} reviewed.zip", self.metadata_value("name"));
                 let output = PathBuf::from(format!("/exports/{}", js_sys::Date::now() as u64));
                 self.status
                     .set("Preparing playable song ZIP locally…".into());
@@ -857,7 +967,6 @@ impl Studio {
                 )
                 .await?;
                 let archive = output.with_extension("zip");
-                let name = format!("{} reviewed.zip", self.metadata_value("name"));
                 if let Some((previous, _, _)) =
                     self.export_ready.replace(Some((archive, name, false)))
                 {

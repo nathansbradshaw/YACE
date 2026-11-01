@@ -48,6 +48,20 @@ fn downloaded_browser_clean_song_matches_native_source_clock_and_processing() {
         None
     };
     let expected = clean::render_pcm_stereo(&original, stem.as_deref(), 44100, &plan).unwrap();
+    if let Some(native) = std::env::var_os("YACE_PARITY_NATIVE_CLEAN") {
+        let native = models::decode(&PathBuf::from(native), 44100, 2).unwrap();
+        assert_eq!(native.len(), expected.len());
+        let difference = native
+            .iter()
+            .zip(&expected)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0f32, f32::max);
+        assert!(
+            difference < 0.000001,
+            "Native panel output differs from the bound plan: {difference}"
+        );
+        eprintln!("Verified actual native-panel render; maximum sample difference {difference}");
+    }
     assert_eq!(rendered.len(), expected.len());
     assert_eq!(receipt.frames * 2, rendered.len());
     assert_eq!(receipt.source_sha256, models::hash_file(&audio).unwrap());
