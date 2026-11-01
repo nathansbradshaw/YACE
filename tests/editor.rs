@@ -59,6 +59,125 @@ fn command(store: &Store, action: Action) -> Applied {
 }
 
 #[test]
+fn competing_command_cannot_save_between_revision_check_and_commit() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = fixture(temp.path());
+    let revision = store.load().unwrap().revision;
+    let request = |action| Request {
+        expected_revision: revision,
+        actor: Actor {
+            kind: ActorKind::Human,
+            name: "Concurrent editor".into(),
+        },
+        action,
+    };
+    let mut rejected = false;
+    store
+        .apply_guarded(
+            request(Action::SelectTrack {
+                track: "ExpertSingle".into(),
+            }),
+            |_| {
+                let error = store
+                    .clone()
+                    .apply(request(Action::Seek { seconds: 2.0 }))
+                    .unwrap_err();
+                assert!(
+                    error
+                        .to_string()
+                        .contains("Another editor command is saving")
+                );
+                rejected = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert!(rejected);
+    let saved = store.load().unwrap();
+    assert_eq!(saved.revision, revision + 1);
+    assert_eq!(saved.selected_track, "ExpertSingle");
+    assert_eq!(saved.audit.len(), 1);
+    // The command guard is released after success, allowing a fresh revision.
+    command(&store, Action::Seek { seconds: 2.0 });
+    assert_eq!(store.load().unwrap().revision, revision + 2);
+}
+
+#[test]
+fn cached_source_rejects_same_length_tampering_and_recovers_after_restoration() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = fixture(temp.path());
+    let original = store.load().unwrap();
+    let expected = original.chart_text(&store).unwrap();
+    let source = store.root.join("source/notes.chart");
+    let replacement = CHART.replace("Original", "Tampered");
+    assert_eq!(replacement.len(), CHART.len());
+    fs::write(&source, replacement).unwrap();
+    // A clone shares cached source data; it must still check actual current bytes.
+    assert!(
+        original
+            .chart_text(&store.clone())
+            .unwrap_err()
+            .to_string()
+            .contains("Source snapshot changed")
+    );
+    let before = fs::read(store.root.join("project.json")).unwrap();
+    assert!(
+        store
+            .apply(Request {
+                expected_revision: original.revision,
+                actor: Actor {
+                    kind: ActorKind::Human,
+                    name: "Cache test".into()
+                },
+                action: Action::Seek { seconds: 1.0 },
+            })
+            .is_err()
+    );
+    assert_eq!(fs::read(store.root.join("project.json")).unwrap(), before);
+    fs::write(&source, CHART).unwrap();
+    assert_eq!(original.chart_text(&store.clone()).unwrap(), expected);
+    command(&store, Action::Seek { seconds: 1.0 });
+}
+
+#[test]
+fn session_commands_still_reject_corrupt_saved_content() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = fixture(temp.path());
+    let mut project = store.load().unwrap();
+    // A warmed source cache must never act as a cache of validated project.json.
+    let duplicate = project.content.tracks["ExpertSingle"][0].clone();
+    project
+        .content
+        .tracks
+        .get_mut("ExpertSingle")
+        .unwrap()
+        .push(duplicate);
+    let bytes = serde_json::to_vec_pretty(&project).unwrap();
+    fs::write(store.root.join("project.json"), &bytes).unwrap();
+    for action in [
+        Action::Seek { seconds: 1.0 },
+        Action::Playback { playing: true },
+        Action::SelectTrack {
+            track: "ExpertSingle".into(),
+        },
+    ] {
+        assert!(
+            store
+                .apply(Request {
+                    expected_revision: project.revision,
+                    actor: Actor {
+                        kind: ActorKind::Human,
+                        name: "Validation test".into()
+                    },
+                    action,
+                })
+                .is_err()
+        );
+    }
+    assert_eq!(fs::read(store.root.join("project.json")).unwrap(), bytes);
+}
+
+#[test]
 fn pause_saves_the_audio_cursor_once_without_drifting_or_changing_notes() {
     let temp = tempfile::tempdir().unwrap();
     let store = fixture(temp.path());
