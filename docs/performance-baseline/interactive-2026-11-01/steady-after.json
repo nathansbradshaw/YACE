@@ -1,0 +1,30 @@
+{
+  "chart_hash": {
+    "max_ms": 0.5003749999999999,
+    "p50_ms": 0.461542,
+    "p95_ms": 0.488167,
+    "samples": 20
+  },
+  "load": {
+    "max_ms": 13.7725,
+    "p50_ms": 13.233417000000001,
+    "p95_ms": 13.414875,
+    "samples": 20
+  },
+  "note_count": 13601,
+  "project_bytes": 10288932,
+  "schema_version": 1,
+  "scope": "In-process release measurements on one long-lived Store, using a disposable metadata-only copy; 2 warmups and 20 samples. Excludes UI reload/paint, audio, source media, and model inference. Host contention uncontrolled.",
+  "seek": {
+    "max_ms": 31.901208,
+    "p50_ms": 29.925584,
+    "p95_ms": 31.719708,
+    "samples": 20
+  },
+  "timing": {
+    "max_ms": 0.021707999999999998,
+    "p50_ms": 0.017499999999999998,
+    "p95_ms": 0.020707999999999997,
+    "samples": 20
+  }
+}
