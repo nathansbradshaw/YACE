@@ -14,6 +14,7 @@ fn request(audio: &Path) -> Request {
             path: audio.to_owned(),
         },
         bpm: 120.0,
+        tempo_map: None,
         title: "Job fixture".into(),
         artist: "Local test".into(),
         instruments: vec!["drums".into()],
@@ -324,6 +325,93 @@ fn failed_jobs_keep_an_import_then_resume_into_an_editable_project() {
     let before = fs::read(root.join("project/project.json")).unwrap();
     generation::run(&root).unwrap();
     assert_eq!(fs::read(root.join("project/project.json")).unwrap(), before);
+}
+
+#[test]
+fn detected_timing_survives_job_recovery_arrangement_and_export() {
+    use chart_engine::{
+        chart::Chart,
+        timing::{Tempo, TempoMap},
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let original = audio(temp.path());
+    let map = TempoMap::new(
+        480,
+        0.0,
+        vec![
+            Tempo {
+                tick: 0,
+                bpm: 120.0,
+            },
+            Tempo {
+                tick: 720,
+                bpm: 90.0,
+            },
+            Tempo {
+                tick: 1200,
+                bpm: 150.0,
+            },
+        ],
+    )
+    .unwrap();
+    let mut settings = request(&original);
+    settings.tempo_map = Some(map.clone());
+    let job = generation::create(settings, &temp.path().join("job")).unwrap();
+    assert!(generation::run(&job).is_err()); // Imported recording is retained.
+    fs::remove_file(&original).unwrap();
+    saved_events(&job);
+    generation::run(&job).unwrap();
+    let store = Store::new(&job.join("project"));
+    let project = store.load().unwrap();
+    assert_eq!(project.timing(&store).unwrap(), map);
+    assert!(
+        project.content.tracks["ExpertDrums"]
+            .iter()
+            .any(|note| note.note.tick == map.tick(1.0).unwrap())
+    );
+    let exported =
+        Chart::parse(fs::read_to_string(job.join("game-song/notes.chart")).unwrap()).unwrap();
+    assert_eq!(exported.timing, map);
+    generation::run(&job).unwrap();
+    assert_eq!(store.load().unwrap().timing(&store).unwrap(), map);
+}
+
+#[test]
+fn tempo_map_requests_validate_and_legacy_jobs_keep_constant_tempo() {
+    use chart_engine::timing::{Tempo, TempoMap};
+    let temp = tempfile::tempdir().unwrap();
+    let original = audio(temp.path());
+    let mut settings = request(&original);
+    let mut saved = serde_json::to_value(&settings).unwrap();
+    saved.as_object_mut().unwrap().remove("tempo_map");
+    let legacy: Request = serde_json::from_value(saved).unwrap();
+    assert_eq!(legacy.timing().unwrap(), TempoMap::constant(120.0).unwrap());
+    settings.tempo_map = Some(
+        TempoMap::new(
+            480,
+            0.0,
+            vec![
+                Tempo {
+                    tick: 0,
+                    bpm: 120.0,
+                },
+                Tempo {
+                    tick: 480,
+                    bpm: 90.0,
+                },
+            ],
+        )
+        .unwrap(),
+    );
+    settings.validate().unwrap();
+    settings.bpm = 130.0;
+    assert!(settings.validate().is_err());
+    settings.bpm = 120.0;
+    settings.tempo_map.as_mut().unwrap().tempos.swap(0, 1);
+    assert!(generation::create(settings.clone(), &temp.path().join("invalid")).is_err());
+    settings.tempo_map.as_mut().unwrap().tempos.clear();
+    assert!(settings.validate().is_err());
+    assert!(!temp.path().join("invalid").exists());
 }
 
 #[test]

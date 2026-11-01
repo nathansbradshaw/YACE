@@ -16,6 +16,9 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    Tempo {
+        audio: PathBuf,
+    },
     Export {
         root: PathBuf,
         project: Box<crate::editor::Project>,
@@ -57,6 +60,7 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::Tempo { audio } => vec![audio.clone()],
             Self::Relocate { .. } | Self::LoadKit { .. } | Self::SelectKit { .. } => Vec::new(),
             Self::Clean { audio, stem, .. } => {
                 std::iter::once(audio.clone()).chain(stem.clone()).collect()
@@ -80,6 +84,9 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
+            Self::Tempo { audio } => Ok(serde_json::to_value(crate::tempo_analysis::estimate(
+                &crate::models::decode(audio, crate::tempo_analysis::SAMPLE_RATE, 1)?,
+            ))?),
             Self::Export {
                 root,
                 project,

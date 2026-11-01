@@ -98,6 +98,8 @@ pub mod storage;
 pub mod studio;
 #[path = "../../src/sync_track.rs"]
 pub mod sync_track;
+#[path = "../../src/tempo_analysis.rs"]
+pub mod tempo_analysis;
 #[path = "../../src/timeline.rs"]
 pub mod timeline;
 #[path = "../../src/timing.rs"]

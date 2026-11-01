@@ -439,14 +439,22 @@ impl Studio {
         crate::storage::clear(root);
         self.new_song.set(None);
     }
+    pub async fn analyze_new_chart(self, root: PathBuf) -> Result<crate::tempo_analysis::Estimate> {
+        let audio = crate::pipeline::audio_file(&root)?;
+        crate::worker::run(
+            crate::worker::Task::Tempo { audio },
+            std::slice::from_ref(&root),
+        )
+        .await
+    }
     pub async fn finish_new_chart(
         mut self,
         root: PathBuf,
         title: String,
         artist: String,
-        bpm: f64,
+        timing: TempoMap,
     ) -> Result<()> {
-        let (ini, chart) = crate::song_metadata::blank_song(&title, &artist, bpm)?;
+        let (ini, chart) = crate::song_metadata::blank_song_with_timing(&title, &artist, &timing)?;
         crate::storage::write(root.join("song.ini"), ini)?;
         crate::storage::write(root.join("notes.chart"), chart)?;
         self.status.set("Preparing new chart…".into());

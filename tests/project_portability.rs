@@ -152,6 +152,13 @@ fn missing_assets_cannot_read_old_absolute_paths_and_tampered_history_is_rejecte
     let (store, stem) = fixture(temp.path());
     let mut files = bundle(&store, &stem);
     files.remove("assets/drums.wav");
+    // Native attachments now retain their own content-addressed copy too.
+    // Remove every archived copy while leaving the old machine's files intact.
+    let stem_hash = models::hash_file(&stem).unwrap();
+    files.retain(|_, bytes| {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(bytes)) != stem_hash
+    });
     let output = temp.path().join("missing-assets");
     project_portability::relocate(&mut files, &output).unwrap();
     let doc: chart_engine::editor::Project =

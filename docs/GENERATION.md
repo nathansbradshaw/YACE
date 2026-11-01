@@ -12,7 +12,9 @@ Part jobs are saved in the review project's `generation-jobs` folder. Keep that
 folder with the project to retain generation evidence and recovery files.
 
 1. **Choose audio.** Select a local recording. Expand **Song details** to check
-   the title, artist and estimated BPM. Correct these before generating.
+   the title, artist and detected tempos. The detected tempo map is used by
+   default. Clear **Use detected tempo map**, or edit the starting BPM, to use
+   one constant tempo instead.
 2. **Choose parts.** Select Guitar, Bass, Drums, Piano, Pro Piano or Vocals.
    For vocals, choose English, Spanish or automatic language detection.
 3. **Choose where to save.** Pick a location for the new song folder, then
@@ -21,6 +23,30 @@ folder with the project to retain generation evidence and recovery files.
 The draft opens in the editor when generation finishes. Listen through each
 part before exporting. Generated notes can be missing, extra or on the wrong
 instrument. The original recording stays separate from your edits.
+
+Audio analysis compares overlapping sections throughout the recording and adds
+markers for sustained pulse changes. **Detected tempos** lists the proposed
+times and BPMs. These markers are included in the generated chart and exports;
+saved jobs retain the same map when resumed. Existing charts keep their timing
+when generating another part.
+
+The analyzer searches 60–200 BPM and favors changes lasting roughly 12 seconds
+or longer. Brief changes, small fluctuations (about 2% or less), weak beats,
+half/double-time choices and gradual drift may need manual correction. It does
+not establish the first beat or bar. Review **Timing** against the recording.
+Silence or an unreliable pulse falls back to an editable starting BPM.
+
+To inspect a recording without generating notes:
+
+```sh
+chart-engine generation analyze-tempo recording.wav
+```
+
+The command returns both analysis details and a proposed `tempo_map` (or `null`
+when no pulse was measured). Headless generation requests can supply that map
+via `tempo_map`
+(`resolution`, `offset`, and `tempos` containing `tick` and `bpm`), with `bpm`
+matching its first marker. Requests without `tempo_map` retain constant timing.
 
 ## Progress and saved files
 

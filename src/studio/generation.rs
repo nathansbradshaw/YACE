@@ -179,6 +179,7 @@ struct View {
     title: String,
     artist: String,
     bpm: String,
+    use_detected_timing: bool,
     guitar: bool,
     guitar_source: crate::mapping::GuitarSource,
     bass: bool,
@@ -218,6 +219,7 @@ impl Default for View {
             title: String::new(),
             artist: String::new(),
             bpm: String::new(),
+            use_detected_timing: true,
             guitar: true,
             guitar_source: Default::default(),
             bass: true,
@@ -302,6 +304,15 @@ impl View {
                 path: self.audio.clone().context("Choose an audio file")?,
             },
             bpm: self.bpm.parse().context("Enter the song tempo in BPM")?,
+            tempo_map: if self.target.is_none() && self.use_detected_timing {
+                self.info
+                    .as_ref()
+                    .filter(|info| !info.tempo.segments.is_empty())
+                    .map(|info| info.tempo.tempo_map())
+                    .transpose()?
+            } else {
+                None
+            },
             title: self.title.clone(),
             artist: self.artist.clone(),
             instruments: [
@@ -399,6 +410,7 @@ fn local_file(mut data: Signal<View>) {
                 v.artist = meta.artist;
                 v.song_details_open = v.title.trim().is_empty() || v.artist.trim().is_empty();
                 v.bpm = tempo.bpm.unwrap_or(120.0).to_string();
+                v.use_detected_timing = !tempo.segments.is_empty();
                 v.info = Some(song_import::SongInfo {
                     album: meta.album,
                     year: meta.year,
@@ -641,6 +653,7 @@ fn recover(mut data: Signal<View>) {
                 v.title = request.title;
                 v.artist = request.artist;
                 v.bpm = request.bpm.to_string();
+                v.use_detected_timing = request.tempo_map.is_some();
                 v.guitar = request.instruments.iter().any(|s| s == "guitar");
                 v.bass = request.instruments.iter().any(|s| s == "bass");
                 v.drums = request.instruments.iter().any(|s| s == "drums");
@@ -903,11 +916,18 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         div{class:"generation-grid",
                             label{class:"generation-field","Song title",input{class:"field-control",value:"{view.title}",oninput:move|e|data.write().title=e.value()}}
                             label{class:"generation-field","Artist",input{class:"field-control",value:"{view.artist}",oninput:move|e|data.write().artist=e.value()}}
-                            label{class:"generation-field","Tempo (BPM)",input{class:"field-control",r#type:"number",min:"1",max:"1000",step:"any",placeholder:"Enter BPM",value:"{view.bpm}",oninput:move|e|data.write().bpm=e.value()}}
+                            label{class:"generation-field","Starting tempo (BPM)",input{class:"field-control",r#type:"number",min:"1",max:"1000",step:"any",placeholder:"Enter BPM",value:"{view.bpm}",oninput:move|e|data.with_mut(|v|{v.bpm=e.value();v.use_detected_timing=false;})}}
                             label{class:"generation-field","New song folder name",input{class:"field-control",value:"{view.name}",oninput:move|e|data.write().name=e.value()}}
                         }
-                        p{class:"field-hint","Filled in from the recording. Check the estimated BPM."}
+                        p{class:"field-hint","Filled in from the recording. Editing BPM switches to a constant tempo."}
                         if let Some(info)=&view.info{
+                            if !info.tempo.segments.is_empty() {
+                                label {class:"form-check",input {r#type:"checkbox",checked:view.use_detected_timing,onchange:move|e|data.with_mut(|v|{v.use_detected_timing=e.checked();if v.use_detected_timing && let Some(bpm)=v.info.as_ref().and_then(|i|i.tempo.bpm){v.bpm=bpm.to_string();}})},"Use detected tempo map"}
+                                p {class:"field-hint","{info.tempo.note}"}
+                                details {summary {"Detected tempos"}
+                                    for segment in &info.tempo.segments {p {class:"field-hint","{segment.start_seconds:.1}s · {segment.bpm:.3} BPM"}}
+                                }
+                            }
                             if let Some(preview)=&view.cover_preview{img{class:"generation-artwork",src:"{preview}",alt:"Suggested artwork for this recording"}}
                             div{class:"generation-grid",
                                 label{class:"generation-field","Album",input{class:"field-control",value:"{info.album}",placeholder:"Unavailable",oninput:move|e|{if let Some(info)=data.write().info.as_mut(){info.album=e.value();}}}}

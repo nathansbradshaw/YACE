@@ -1125,14 +1125,20 @@ impl Studio {
             }
         });
     }
+    pub async fn analyze_new_chart(
+        self,
+        source: PathBuf,
+    ) -> Result<crate::tempo_analysis::Estimate> {
+        tokio::task::spawn_blocking(move || crate::tempo_analysis::analyze(&source)).await?
+    }
     pub async fn finish_new_chart(
         mut self,
         source: PathBuf,
         title: String,
         artist: String,
-        bpm: f64,
+        timing: TempoMap,
     ) -> Result<()> {
-        let (ini, chart) = crate::song_metadata::blank_song(&title, &artist, bpm)?;
+        let (ini, chart) = crate::song_metadata::blank_song_with_timing(&title, &artist, &timing)?;
         let Some(output) = rfd::AsyncFileDialog::new()
             .set_title("Save manual editing project in a new folder")
             .set_file_name(format!("{title} Review Project"))

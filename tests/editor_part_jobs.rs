@@ -38,6 +38,7 @@ fn request(store: &Store, instrument: &str) -> Request {
         standard_drums: false,
         lyrics: false,
         song_info: None,
+        tempo_map: None,
     }
 }
 fn human() -> Actor {
@@ -53,12 +54,26 @@ fn a_saved_detection_job_keeps_the_open_charts_tempo_and_other_parts() {
     let store = fixture(root.path());
     let project = store.load().unwrap();
     let target = parts::Target::capture(&store, &project, "ExpertDrums").unwrap();
-    let job = parts::create_job(
-        request(&store, "drums"),
-        &root.path().join("drum-job"),
-        &target,
-    )
-    .unwrap();
+    let mut settings = request(&store, "drums");
+    // Even a saved audio-analysis proposal cannot replace an open chart's clock.
+    settings.tempo_map = Some(
+        chart_engine::timing::TempoMap::new(
+            480,
+            0.0,
+            vec![
+                chart_engine::timing::Tempo {
+                    tick: 0,
+                    bpm: settings.bpm,
+                },
+                chart_engine::timing::Tempo {
+                    tick: 480,
+                    bpm: 90.0,
+                },
+            ],
+        )
+        .unwrap(),
+    );
+    let job = parts::create_job(settings, &root.path().join("drum-job"), &target).unwrap();
     // Supplied detections exercise the real job/arrangement/import path, not model accuracy.
     generation::write_json(
         &job.join("events.json"),

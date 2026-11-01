@@ -78,6 +78,13 @@ use anyhow::{Context, Result};
 use std::path::Path;
 /// Both clients start a manual project with the same validated source chart.
 pub fn blank_song(title: &str, artist: &str, bpm: f64) -> Result<(String, String)> {
+    blank_song_with_timing(title, artist, &crate::timing::TempoMap::constant(bpm)?)
+}
+pub fn blank_song_with_timing(
+    title: &str,
+    artist: &str,
+    timing: &crate::timing::TempoMap,
+) -> Result<(String, String)> {
     anyhow::ensure!(
         !title.trim().is_empty() && !artist.trim().is_empty(),
         "Enter a title and artist"
@@ -87,7 +94,10 @@ pub fn blank_song(title: &str, artist: &str, bpm: f64) -> Result<(String, String
         "Title and artist must be single lines"
     );
     anyhow::ensure!(
-        bpm.is_finite() && (1. ..=1000.).contains(&bpm),
+        timing
+            .tempos
+            .iter()
+            .all(|tempo| tempo.bpm.is_finite() && (1. ..=1000.).contains(&tempo.bpm)),
         "Tempo must be 1–1000 BPM"
     );
     let metadata = BTreeMap::from([
@@ -95,11 +105,31 @@ pub fn blank_song(title: &str, artist: &str, bpm: f64) -> Result<(String, String
         ("artist".into(), artist.trim().into()),
     ]);
     let ini = update_ini("[song]\n", &metadata);
-    let tempo = (bpm * 1000.).round() as u32;
+    anyhow::ensure!(
+        *timing
+            == crate::timing::TempoMap::new(
+                timing.resolution,
+                timing.offset,
+                timing.tempos.clone()
+            )?,
+        "Invalid tempo map"
+    );
+    let tempos = timing
+        .tempos
+        .iter()
+        .map(|tempo| {
+            format!(
+                "  {} = B {}\n",
+                tempo.tick,
+                (tempo.bpm * 1000.).round() as u32
+            )
+        })
+        .collect::<String>();
     Ok((
         ini,
         format!(
-            "[Song]\n{{\n  Resolution = 480\n}}\n[SyncTrack]\n{{\n  0 = B {tempo}\n  0 = TS 4\n}}\n[Events]\n{{\n}}\n[ExpertSingle]\n{{\n}}\n"
+            "[Song]\n{{\n  Resolution = {}\n  Offset = {}\n}}\n[SyncTrack]\n{{\n{tempos}  0 = TS 4\n}}\n[Events]\n{{\n}}\n[ExpertSingle]\n{{\n}}\n",
+            timing.resolution, timing.offset
         ),
     ))
 }
