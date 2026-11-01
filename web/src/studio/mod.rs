@@ -11,6 +11,7 @@ mod dialogs;
 mod difficulty;
 #[path = "../../../src/studio/game_preview.rs"]
 mod game_preview;
+mod generation;
 pub mod github;
 #[path = "../../../src/studio/icons.rs"]
 mod icons;
@@ -170,6 +171,7 @@ pub fn App() -> Element {
     if (studio.review_open)(){review::ReviewPanel{studio}}
     if (studio.parts_open)(){parts::PartsPanel{studio}}
     if (studio.collaboration_open)(){collaboration::Collaboration{studio}}
+    generation::GenerationPanel{studio}
     if let Some((path,name,kind))=(studio.export_ready)(){modal::Modal{id:"song-export",label:"File download",onclose:move |_|studio.close_export(),h2{match kind{state::DownloadKind::Project=>"Project backup ready",state::DownloadKind::Song=>"Song export ready",state::DownloadKind::File=>"File ready to download"}}
         p{"Download the prepared copy. Your editing project stays saved in this browser."}
         p{style:"overflow-wrap:anywhere","{name}"}

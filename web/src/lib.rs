@@ -60,6 +60,7 @@ pub mod larsnet;
 pub mod mapping;
 #[path = "../../src/midi.rs"]
 pub mod midi;
+pub mod model_assets;
 pub mod models;
 #[path = "../../src/muscriptor.rs"]
 pub mod muscriptor;
@@ -93,6 +94,7 @@ pub mod review_regions;
 pub mod review_repository;
 #[path = "../../src/sections.rs"]
 pub mod sections;
+pub mod separation;
 #[path = "../../src/song_files.rs"]
 pub mod song_files;
 pub mod song_import;

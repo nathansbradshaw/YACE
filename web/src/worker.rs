@@ -16,6 +16,10 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    Separate {
+        audio: PathBuf,
+        output: PathBuf,
+    },
     InspectRecording {
         audio: PathBuf,
         output: PathBuf,
@@ -68,6 +72,7 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::Separate { audio, .. } => vec![audio.clone()],
             Self::Backup { .. } => Vec::new(),
             Self::Tempo { audio } | Self::InspectRecording { audio, .. } => vec![audio.clone()],
             Self::Relocate { .. } | Self::LoadKit { .. } | Self::SelectKit { .. } => Vec::new(),
@@ -93,6 +98,9 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
+            Self::Separate { .. } => {
+                anyhow::bail!("Separation requires the asynchronous GPU worker")
+            }
             Self::InspectRecording { audio, output } => Ok(serde_json::to_value(
                 crate::song_import::local(audio, output)?,
             )?),
@@ -273,7 +281,33 @@ async fn process(input: JsValue) -> Result<JsValue> {
             }
         }
     }
-    let result = task.execute()?;
+    let result = if let Task::Separate { audio, output } = &task {
+        struct Progress;
+        impl demucs_core::listener::ForwardListener for Progress {
+            fn on_event(&mut self, event: demucs_core::listener::ForwardEvent) {
+                use demucs_core::listener::ForwardEvent;
+                match event {
+                    ForwardEvent::ChunkStarted { index, total } => progress(format!(
+                        "Separating vocals and instruments · chunk {} of {total}",
+                        index + 1
+                    )),
+                    ForwardEvent::ChunkDone { index, total } => {
+                        progress(format!("Separated {} of {total} chunks", index + 1))
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let weights = crate::model_assets::load("separation", &mut progress).await?;
+        let model = PathBuf::from("/models/htdemucs_6s.safetensors");
+        crate::storage::write_owned(&model, weights)?;
+        progress("Preparing the browser GPU and native separation model".into());
+        serde_json::to_value(
+            crate::separation::separate(audio, &model, output, &mut Progress).await?,
+        )?
+    } else {
+        task.execute()?
+    };
     let response = message("done")?;
     set(&response, "value", &serde_json::to_string(&result)?.into())?;
     let files = js_sys::Array::new();
@@ -301,7 +335,7 @@ async fn process(input: JsValue) -> Result<JsValue> {
             files.push(&row);
         }
     }
-    if let Task::InspectRecording { output, .. } = &task {
+    if let Task::InspectRecording { output, .. } | Task::Separate { output, .. } = &task {
         for (path, bytes) in crate::storage::list(output)? {
             let row = js_sys::Array::new();
             row.push(&path.to_string_lossy().as_ref().into());
@@ -311,6 +345,20 @@ async fn process(input: JsValue) -> Result<JsValue> {
     }
     set(&response, "files", &files)?;
     Ok(response)
+}
+fn progress(label: String) {
+    let result = (|| -> Result<()> {
+        let value = message("progress")?;
+        set(&value, "label", &label.into())?;
+        js_sys::global()
+            .unchecked_into::<web_sys::DedicatedWorkerGlobalScope>()
+            .post_message(&value)
+            .map_err(js_error)?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        web_sys::console::error_1(&format!("{error:#}").into());
+    }
 }
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn start_worker() {
@@ -345,7 +393,7 @@ impl Drop for Running {
         self.0.terminate();
     }
 }
-async fn exchange(input: &JsValue) -> Result<JsValue> {
+async fn exchange(input: &JsValue, progress: Rc<dyn Fn(String)>) -> Result<JsValue> {
     let options = web_sys::WorkerOptions::new();
     options.set_type(web_sys::WorkerType::Module);
     let worker =
@@ -354,9 +402,12 @@ async fn exchange(input: &JsValue) -> Result<JsValue> {
     let sender = Rc::new(RefCell::new(Some(sender)));
     let errors = sender.clone();
     let target = worker.0.clone();
+    let activity = Rc::new(std::cell::Cell::new(js_sys::Date::now()));
+    let last_activity = activity.clone();
     let input = input.clone();
     let onmessage =
         Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |event: web_sys::MessageEvent| {
+            activity.set(js_sys::Date::now());
             if field(&event.data(), "kind")
                 .ok()
                 .and_then(|v| v.as_string())
@@ -370,6 +421,17 @@ async fn exchange(input: &JsValue) -> Result<JsValue> {
                     && let Some(sender) = sender.borrow_mut().take()
                 {
                     let _ = sender.send(Err(js_error(error)));
+                }
+            } else if field(&event.data(), "kind")
+                .ok()
+                .and_then(|kind| kind.as_string())
+                .as_deref()
+                == Some("progress")
+            {
+                if let Ok(label) = field(&event.data(), "label")
+                    && let Some(label) = label.as_string()
+                {
+                    progress(label);
                 }
             } else if let Some(sender) = sender.borrow_mut().take() {
                 let _ = sender.send(Ok(event.data()));
@@ -388,7 +450,16 @@ async fn exchange(input: &JsValue) -> Result<JsValue> {
         .0
         .set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
     worker.0.set_onerror(Some(onerror.as_ref().unchecked_ref()));
-    let timeout = gloo_timers::future::TimeoutFuture::new(300_000);
+    // Long inference jobs remain valid while making progress; a stalled worker
+    // still has a bounded idle wait and can always be cancelled by its caller.
+    let timeout = async move {
+        loop {
+            gloo_timers::future::TimeoutFuture::new(1000).await;
+            if js_sys::Date::now() - last_activity.get() > 300_000. {
+                break;
+            }
+        }
+    };
     futures_util::pin_mut!(receiver, timeout);
     let result = match futures_util::future::select(receiver, timeout).await {
         futures_util::future::Either::Left((result, _)) => {
@@ -402,6 +473,13 @@ async fn exchange(input: &JsValue) -> Result<JsValue> {
     result
 }
 pub async fn run<T: serde::de::DeserializeOwned>(task: Task, roots: &[PathBuf]) -> Result<T> {
+    run_with_progress(task, roots, Rc::new(|_| {})).await
+}
+pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
+    task: Task,
+    roots: &[PathBuf],
+    progress: Rc<dyn Fn(String)>,
+) -> Result<T> {
     let mut selected = BTreeMap::new();
     for root in roots {
         for (path, bytes) in crate::storage::list(root)? {
@@ -449,7 +527,7 @@ pub async fn run<T: serde::de::DeserializeOwned>(task: Task, roots: &[PathBuf]) 
         set(&input, "task", &serde_json::to_string(&task)?.into())?;
         set(&input, "files", &files)?;
         set(&input, "decoded", &decoded)?;
-        let response = exchange(&input).await?;
+        let response = exchange(&input, progress.clone()).await?;
         match field(&response, "kind")?.as_string().as_deref() {
             Some("done") => {
                 if let Task::LoadKit {

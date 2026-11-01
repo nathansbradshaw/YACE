@@ -1,6 +1,93 @@
 use super::audio_decode::{self, Pcm};
 
 #[test]
+#[ignore = "Requires explicit YACE_NATIVE_STEMS and the actual browser download YACE_BROWSER_STEMS_ZIP"]
+fn actual_browser_separation_matches_the_native_model_and_source_clock() {
+    use sha2::{Digest, Sha256};
+    use std::{fs, io::Read, path::PathBuf};
+    let native =
+        PathBuf::from(std::env::var_os("YACE_NATIVE_STEMS").expect("native reference folder"));
+    let browser =
+        std::env::var_os("YACE_BROWSER_STEMS_ZIP").expect("actual browser-generated download");
+    let mut zip = zip::ZipArchive::new(fs::File::open(browser).unwrap()).unwrap();
+    let mut read = |name: &str| {
+        let mut bytes = Vec::new();
+        zip.by_name(name).unwrap().read_to_end(&mut bytes).unwrap();
+        bytes
+    };
+    let ours: serde_json::Value = serde_json::from_slice(&read("manifest.json")).unwrap();
+    let theirs: serde_json::Value =
+        serde_json::from_slice(&fs::read(native.join("stem-manifest.json")).unwrap()).unwrap();
+    assert_eq!(ours["source_audio_sha256"], theirs["source_audio_sha256"]);
+    assert_eq!(
+        ours["generation"]["model_sha256"],
+        theirs["generation"]["model_sha256"]
+    );
+    assert_eq!(ours["frames"], theirs["frames"]);
+    assert_eq!(ours["sample_rate"], 44100);
+    assert_eq!(ours["channels"], 2);
+    assert_eq!(ours["stems"].as_array().unwrap().len(), 6);
+    for name in ["drums", "bass", "vocals", "guitar", "piano", "other"] {
+        let bytes = read(&format!("{name}.wav"));
+        let asset = ours["stems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|asset| asset["id"] == name)
+            .unwrap();
+        assert_eq!(
+            asset["sha256"].as_str().unwrap(),
+            format!("{:x}", Sha256::digest(&bytes))
+        );
+        let ours = ready(audio_decode::decode(&bytes)).unwrap();
+        let reference = theirs["stems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|asset| asset["id"] == name)
+            .unwrap()["path"]
+            .as_str()
+            .unwrap();
+        let path = PathBuf::from(reference);
+        let path = if path.is_absolute() {
+            path
+        } else {
+            native.join(path)
+        };
+        let theirs = ready(audio_decode::decode(&fs::read(path).unwrap())).unwrap();
+        assert_eq!(ours.rate, theirs.rate);
+        assert_eq!(ours.stereo.len(), theirs.stereo.len());
+        assert!(ours.stereo.iter().all(|sample| sample.is_finite()));
+        let maximum = ours
+            .stereo
+            .iter()
+            .zip(&theirs.stereo)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0f32, f32::max);
+        let square: f64 = ours
+            .stereo
+            .iter()
+            .zip(&theirs.stereo)
+            .map(|(a, b)| ((*a - *b) as f64).powi(2))
+            .sum();
+        let energy: f64 = theirs
+            .stereo
+            .iter()
+            .map(|sample| (*sample as f64).powi(2))
+            .sum();
+        let normalized = (square / energy.max(1e-20)).sqrt();
+        eprintln!(
+            "{name}: {} frames; max delta {maximum}; normalized RMS delta {normalized}",
+            ours.stereo.len() / 2
+        );
+        assert!(
+            maximum < 0.0002 && normalized < 0.001,
+            "Browser/native separation differs for {name}"
+        );
+    }
+}
+
+#[test]
 fn real_mp3_tags_and_embedded_cover_are_read_without_a_native_probe() {
     use std::{fs, process::Command};
     let root = tempfile::tempdir().unwrap();

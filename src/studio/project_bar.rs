@@ -51,7 +51,7 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
                 }
             }
             nav { class: "project-actions", aria_label: "Chart workflow",
-                button { class: "project-generate", disabled:cfg!(target_arch="wasm32"),onclick: move |_| studio.generation_open.set(true), title: if cfg!(target_arch="wasm32"){ "The current model backends cannot run in-browser" }else{ "Generate charts from local audio" }, Icon { name: "music", size: 15 } "Generate" }
+                button { class: "project-generate", onclick: move |_| studio.generation_open.set(true), title: "Generate charts from local audio", Icon { name: "music", size: 15 } "Generate" }
                 button { disabled: !loaded, onclick: move |_| studio.review_open.set(true), title: "Review timed chart flags", Icon { name: "flag", size: 15 } "Review" }
                 button { disabled: !loaded, onclick: move |_| studio.export_dialog(), title: "Export a separate song folder", Icon { name: "export", size: 15 } "Export" }
             }
