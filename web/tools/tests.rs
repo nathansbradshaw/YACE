@@ -311,6 +311,41 @@ fn actual_browser_recognition_preserves_native_words_times_and_vocal_chart() {
 }
 
 #[test]
+#[ignore = "Requires YACE_BROWSER_VOCAL_GENERATION and a real native run using the same word evidence"]
+fn actual_browser_vocal_chart_matches_native_supplied_word_evidence() {
+    use serde_json::Value;
+    let read = |key| -> Value {
+        serde_json::from_slice(
+            &std::fs::read(std::env::var_os(key).expect("Explicit real model output required"))
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let browser = read("YACE_BROWSER_VOCAL_GENERATION");
+    let native = read("YACE_NATIVE_VOCAL_GENERATION");
+    for field in [
+        "audio_sha256",
+        "vocal_stem_sha256",
+        "duration_seconds",
+        "algorithm",
+        "policy",
+        "timing",
+        "words",
+        "chart",
+        "issues",
+        "status",
+    ] {
+        assert_eq!(browser[field], native[field], "{field}");
+    }
+    eprintln!(
+        "{} notes, {} phrases, {} review issues; same words and source clock",
+        browser["chart"]["notes"].as_array().unwrap().len(),
+        browser["chart"]["phrases"].as_array().unwrap().len(),
+        browser["issues"].as_array().unwrap().len()
+    );
+}
+
+#[test]
 #[ignore = "Requires explicit YACE_NATIVE_STEMS and the actual browser download YACE_BROWSER_STEMS_ZIP"]
 fn actual_browser_separation_matches_the_native_model_and_source_clock() {
     use sha2::{Digest, Sha256};

@@ -1,6 +1,8 @@
 use std::{env, path::PathBuf};
 fn main() {
-    assert_eq!(env::var("TARGET").unwrap(), "wasm32-wasip1");
+    if env::var("TARGET").unwrap() != "wasm32-wasip1" {
+        return;
+    }
     for key in ["YACE_WHISPER_SOURCE", "YACE_WHISPER_BUILD", "WASI_SDK_PATH"] {
         println!("cargo:rerun-if-env-changed={key}");
     }

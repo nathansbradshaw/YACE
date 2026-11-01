@@ -87,6 +87,11 @@ pub fn build(root: &Path, args: &[String]) -> Result<()> {
         target.join("wasm32-wasip1/release/yace_recognition_runtime.wasm"),
         &output,
     )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&output, fs::Permissions::from_mode(0o644))?;
+    }
     println!(
         "Browser recognition runtime SHA-256: {:x}",
         Sha256::digest(fs::read(output)?)

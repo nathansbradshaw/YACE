@@ -12,13 +12,30 @@ use std::{
     non_upper_case_globals,
     dead_code
 )]
+#[cfg(target_arch = "wasm32")]
 mod ffi {
     include!(concat!(env!("OUT_DIR"), "/whisper.rs"));
 }
+#[cfg(not(target_arch = "wasm32"))]
+mod ffi {
+    pub use whisper_rs_sys::*;
+}
 
 #[link(wasm_import_module = "yace")]
+#[cfg(target_arch = "wasm32")]
 unsafe extern "C" {
     fn progress(percent: i32);
+}
+#[cfg(not(target_arch = "wasm32"))]
+unsafe fn progress(percent: i32) {
+    if percent >= 0 {
+        eprintln!("Recognition {percent}%");
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub fn recognize_native(model: &[u8], samples: &[f32], language: &str) -> Result<Vec<u8>, String> {
+    let language = std::ffi::CString::new(language).map_err(|e| e.to_string())?;
+    serde_json::to_vec_pretty(&recognize(model, samples, &language)?).map_err(|e| e.to_string())
 }
 thread_local! { static RESULT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) }; }
 #[derive(Serialize)]
