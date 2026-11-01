@@ -85,7 +85,7 @@ impl AsyncFileDialog {
     }
 }
 pub async fn download(path: &Path) {
-    let result = (|| -> anyhow::Result<()> {
+    let result = async {
         let mut studio = dioxus::prelude::try_consume_context::<super::state::Studio>()
             .ok_or_else(|| anyhow::anyhow!("Open the editor to download this file"))?;
         let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -103,7 +103,14 @@ pub async fn download(path: &Path) {
                 !crate::storage::list(path)?.is_empty(),
                 "No export files were produced"
             );
-            crate::storage::write_owned(&output, crate::files::archive(path)?)?;
+            let _: serde_json::Value = crate::worker::run(
+                crate::worker::Task::Archive {
+                    root: path.to_owned(),
+                    output: output.clone(),
+                },
+                &[path.to_owned()],
+            )
+            .await?;
         }
         if let Some((previous, _, _)) =
             studio
@@ -112,8 +119,9 @@ pub async fn download(path: &Path) {
         {
             crate::storage::clear(&previous);
         }
-        Ok(())
-    })();
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
     if let Err(error) = result {
         report(error);
     }

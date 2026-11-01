@@ -266,8 +266,10 @@ impl Task {
                     .iter()
                     .chain(project.content.keyboard_stems.iter())
                 {
-                    manifest.load(&crate::editor::Store::new(root).audio_path(project)?)?;
-                    crate::models::remember_stems(manifest)?;
+                    crate::models::validate_stems(
+                        manifest,
+                        &crate::editor::Store::new(root).audio_path(project)?,
+                    )?;
                 }
                 crate::editor::Store::new(root).write_export(project, output, actor)?;
                 Ok(serde_json::Value::Null)
@@ -425,7 +427,28 @@ async fn process(input: JsValue) -> Result<JsValue> {
         .collect::<Result<_>>()?;
     crate::storage::acknowledge(crate::storage::pending(Path::new("/"))?);
     drop(input);
-    for path in task.audio() {
+    let decode = if let Task::Export { audio, project, .. } = &task {
+        std::iter::once(audio.clone())
+            .chain(
+                project
+                    .content
+                    .stems
+                    .iter()
+                    .chain(project.content.keyboard_stems.iter())
+                    .flat_map(|manifest| &manifest.stems)
+                    .filter(|asset| {
+                        !asset
+                            .path
+                            .extension()
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("wav"))
+                    })
+                    .map(|asset| asset.path.clone()),
+            )
+            .collect()
+    } else {
+        task.audio()
+    };
+    for path in decode {
         if crate::models::format(&path).is_ok() {
             continue;
         }
@@ -436,6 +459,37 @@ async fn process(input: JsValue) -> Result<JsValue> {
                 set(&response, "path", &path.to_string_lossy().as_ref().into())?;
                 return Ok(response);
             }
+        }
+    }
+    if let Task::Export { audio, project, .. } = &task {
+        for manifest in project
+            .content
+            .stems
+            .iter()
+            .chain(project.content.keyboard_stems.iter())
+        {
+            progress("Checking separated audio before export…".into());
+            manifest.validate_binding(
+                &crate::models::hash_file(audio)?,
+                crate::models::duration(audio)?,
+            )?;
+            for asset in &manifest.stems {
+                ensure!(
+                    asset.path != *audio && crate::models::hash_file(&asset.path)? == asset.sha256,
+                    "Separated audio changed before export"
+                );
+                // Validate one WAV at a time. Export copies these encoded bytes
+                // unchanged, so retaining six decoded PCM copies is unnecessary.
+                let pcm =
+                    crate::audio_decode::decode(&crate::storage::shared(&asset.path)?).await?;
+                ensure!(
+                    pcm.rate == 44100
+                        && pcm.channels == 2
+                        && pcm.stereo.len() as u64 == manifest.frames * 2,
+                    "Separated audio format or source clock changed"
+                );
+            }
+            crate::models::remember_stems(manifest)?;
         }
     }
     let result = if let Task::GenerationStage { root, stage } = &task {
@@ -496,11 +550,14 @@ async fn process(input: JsValue) -> Result<JsValue> {
         _ => None,
     };
     if let Some((folder, output)) = archive {
-        let bytes = crate::files::archive(&folder)?;
+        progress("Preparing archive download in bounded chunks…".into());
+        let blob = crate::files::archive_blob(&folder)?;
         let row = js_sys::Array::new();
         row.push(&output.to_string_lossy().as_ref().into());
-        row.push(&js_sys::Uint8Array::from(bytes.as_slice()));
-        files.push(&row);
+        row.push(&blob);
+        let downloads = js_sys::Array::new();
+        downloads.push(&row);
+        set(&response, "downloads", &downloads)?;
     }
     if matches!(task, Task::Relocate { .. }) {
         for path in serde_json::from_value::<Vec<PathBuf>>(result.clone())? {
@@ -551,7 +608,7 @@ async fn process(input: JsValue) -> Result<JsValue> {
     set(&response, "files", &files)?;
     Ok(response)
 }
-fn progress(label: String) {
+pub(crate) fn progress(label: String) {
     let result = (|| -> Result<()> {
         let value = message("progress")?;
         set(&value, "label", &label.into())?;
@@ -811,6 +868,15 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
                         .context("Worker returned no result")?,
                 )?;
                 // Publish complete results only after successful processing.
+                let downloads = field(&response, "downloads")?;
+                if !downloads.is_undefined() {
+                    for row in js_sys::Array::from(&downloads).iter() {
+                        let row = js_sys::Array::from(&row);
+                        let path = row.get(0).as_string().context("Missing download path")?;
+                        let blob = row.get(1).dyn_into::<web_sys::Blob>().map_err(js_error)?;
+                        crate::files::retain_download(path.into(), blob);
+                    }
+                }
                 let mut published = std::collections::BTreeSet::new();
                 for row in js_sys::Array::from(&field(&response, "files")?).iter() {
                     let row = js_sys::Array::from(&row);

@@ -2,7 +2,6 @@
 //! access to a browser file, and names alone cannot bind another recording.
 use crate::{editor::Project, stem_review::StemManifest};
 use anyhow::{Context, Result, ensure};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 pub fn manifest(
     files: &crate::files::Files,
@@ -25,7 +24,7 @@ pub fn manifest(
     };
     let hashes: Vec<_> = files
         .iter()
-        .map(|(_, bytes)| format!("{:x}", Sha256::digest(bytes)))
+        .map(|(_, bytes)| crate::models::hash_shared(bytes))
         .collect();
     for asset in &mut manifest.stems {
         let index = hashes
@@ -49,7 +48,7 @@ pub fn manifest(
             .iter()
             .position(|hash| hash.eq_ignore_ascii_case(&asset.sha256))
             .unwrap();
-        crate::storage::write(&asset.path, &files[index].1)?;
+        crate::storage::write_shared(&asset.path, files[index].1.clone())?;
     }
     Ok(Some(manifest))
 }

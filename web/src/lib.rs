@@ -4,6 +4,7 @@ pub mod analysis_validation;
 pub mod archive_codec;
 pub mod audio_decode;
 mod audio_identity;
+mod archive_blob;
 #[path = "../../src/bass_analysis.rs"]
 pub mod bass_analysis;
 #[path = "../../src/chart.rs"]

@@ -78,12 +78,22 @@ through the browser app, using the actual downloaded checkpoints:
   Inference retained 1,435 drum, 2,086 guitar and 971 bass detections, plus 298
   vocal notes with 466 issues. The generated project opened with twelve
   difficulty tracks, three linked families and source-bound vocal review.
-  Whole-song playback/export/recovery acceptance is still in progress.
+  The resulting Expert tracks contained 1,429 drum, 1,777 guitar and 807 bass
+  notes after arrangement, with all 298 vocal notes retained. Actual playback
+  reached the end at 100% on the original and all six stem elements. A generated
+  snare moved from tick 55,422 to 55,423; Undo restored it during playback.
+  Reload recovered the project at the song end with its twelve tracks and stems.
 - The full-song run exposed an incomplete worker input transfer: unused encoded
   stems were still required to validate the complete manifest. Keeping those
   encoded inputs fixed detection, and the saved separation resumed successfully.
   Only the required parts are decoded. Existing audio copied into the built
   project returns as verified aliases rather than repeated byte arrays.
+- Full-song export exposed a worker resource failure. Export now validates WAV
+  stems one at a time and writes the ZIP into browser-backed chunks. The actual
+  downloaded 31-file archive passed all CRC checks; native inspection read its
+  combined MIDI. Its archived original Ogg SHA-256 exactly matched the recording.
+  A subsequent change adds fast WAV compression and shares identical audio
+  allocations on ZIP import; final compressed download/import remains to verify.
 
 Regression coverage includes shared native decoding tests, native library tests,
 static-tool audio tests and strict WASM/native Clippy. Explicit ignored tests in
@@ -96,7 +106,8 @@ they require named private input paths and never fabricate inference results.
   browser recognition/lyric alignment and the remaining optional detector modes.
 - Complete full-song cancellation/resume and edited-target conflict checks for
   recoverable browser generation jobs; the excerpt apply/Undo/reload path passed.
-- Complete 243.880-second generator workflow, project recovery/backup and playable
-  export in the actual browser, plus native interchange validation.
+- Finish compressed full-song export/import and project backup roundtrip. The
+  243.880-second generation, playback, editing/Undo, reload and first playable
+  archive/native inspection have passed the exercised engineering checks.
 - Full regression checks, final source rebase, push/merge and public static deploy
   with actual live verification. Current public manual-parity release is unchanged.

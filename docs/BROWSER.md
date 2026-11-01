@@ -72,6 +72,10 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
 Files stay on the user's computer. Browser file inputs open the native picker;
 there is no custom workspace file browser and no upload endpoint. ZIP imports
 reject unsafe paths, symbolic links, duplicates and excessive expanded sizes.
+ZIP selection is limited to 1 GiB encoded; expansion allows 3 GiB of entries
+while retaining at most 1 GiB of unique data. Identical game/recovery audio shares
+one immutable allocation. Exports compress WAVs and write bounded browser chunks
+instead of growing one large WASM archive buffer.
 Folder import reads a snapshot; it does not establish ongoing disk access.
 
 IndexedDB stores the current project, source files and checkpoints in a single

@@ -1008,7 +1008,7 @@ impl Studio {
                 let output = PathBuf::from(format!("/exports/{}", js_sys::Date::now() as u64));
                 self.status
                     .set("Preparing playable song ZIP locally…".into());
-                let _: () = crate::worker::run(
+                let _: () = crate::worker::run_with_progress(
                     crate::worker::Task::Export {
                         root: store.root.clone(),
                         project: Box::new(doc.as_ref().clone()),
@@ -1020,6 +1020,10 @@ impl Studio {
                         },
                     },
                     std::slice::from_ref(&store.root),
+                    Rc::new(move |label| {
+                        let mut studio = self;
+                        studio.status.set(label);
+                    }),
                 )
                 .await?;
                 let archive = output.with_extension("zip");
@@ -1181,17 +1185,16 @@ impl Studio {
                 {
                     for asset in &manifest.stems {
                         for (name, bytes) in &files {
-                            use sha2::{Digest, Sha256};
-                            if format!("{:x}", Sha256::digest(bytes)) == asset.sha256 {
+                            if crate::models::hash_shared(bytes) == asset.sha256 {
                                 let filename = PathBuf::from(name)
                                     .file_name()
                                     .context("Invalid stem filename")?
                                     .to_owned();
-                                crate::storage::write(
+                                crate::storage::write_shared(
                                     store.root.join("source/stems").join(filename),
-                                    bytes,
+                                    bytes.clone(),
                                 )?;
-                                crate::storage::write(&asset.path, bytes)?;
+                                crate::storage::write_shared(&asset.path, bytes.clone())?;
                                 matched += 1;
                                 break;
                             }

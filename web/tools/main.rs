@@ -8,6 +8,9 @@ use std::{
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[cfg(test)]
+#[path = "../../src/archive_codec.rs"]
+mod archive_codec;
+#[cfg(test)]
 #[path = "../src/audio_decode.rs"]
 mod audio_decode;
 #[cfg(test)]

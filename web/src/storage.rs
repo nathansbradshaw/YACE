@@ -152,6 +152,7 @@ pub fn list(root: &Path) -> io::Result<Vec<(PathBuf, Arc<Vec<u8>>)>> {
     }))
 }
 pub fn clear(root: &Path) {
+    crate::files::clear_downloads(root);
     DIRECTORIES.with(|dirs| dirs.borrow_mut().retain(|path| !path.starts_with(root)));
     crate::part_analysis::forget_root(root);
     PROJECTS.with(|projects| {

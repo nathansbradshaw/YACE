@@ -1,6 +1,78 @@
 use super::audio_decode::{self, Pcm};
 
 #[test]
+#[ignore = "Requires YACE_AUDIO_EXPORT_ZIP from actual browser generation"]
+fn actual_float_audio_archive_compression_profile() {
+    use std::io::{Cursor, Read, Write};
+    let input =
+        std::fs::File::open(std::env::var_os("YACE_AUDIO_EXPORT_ZIP").expect("actual export"))
+            .unwrap();
+    let mut archive = zip::ZipArchive::new(input).unwrap();
+    let mut pcm = Vec::new();
+    archive
+        .by_name("drums.wav")
+        .unwrap()
+        .read_to_end(&mut pcm)
+        .unwrap();
+    for level in [1, 3, 6] {
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        zip.start_file(
+            "drums.wav",
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated)
+                .compression_level(Some(level)),
+        )
+        .unwrap();
+        zip.write_all(&pcm).unwrap();
+        let result = zip.finish().unwrap().into_inner();
+        eprintln!("level {level}: {} -> {} bytes", pcm.len(), result.len());
+    }
+}
+
+#[test]
+fn imported_game_archive_shares_its_identical_recovery_audio() {
+    use super::archive_codec;
+    let audio = vec![19u8; 65536];
+    let bytes = archive_codec::encode([
+        ("song.ini", b"[song]\nname=test\n".as_slice()),
+        ("guitar.ogg", audio.as_slice()),
+        (".yace/audio/stem.ogg", audio.as_slice()),
+    ])
+    .unwrap();
+    let files = archive_codec::decode_shared(&bytes).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&files[1].1, &files[2].1));
+    assert_eq!(*files[1].1, audio);
+    assert_eq!(
+        archive_codec::strip_wrapper(archive_codec::decode(&bytes).unwrap(), "song.ini")
+            .unwrap()
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn shared_archive_import_checks_the_complete_entry_crc() {
+    use super::archive_codec;
+    let mut bytes = archive_codec::encode([("recording.ogg", [19u8; 64].as_slice())]).unwrap();
+    let offset = {
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        zip.by_index(0).unwrap().data_start().unwrap() as usize
+    };
+    bytes[offset] ^= 1;
+    assert!(archive_codec::decode_shared(&bytes).is_err());
+}
+
+#[test]
+fn shared_archive_import_rejects_paths_outside_the_project() {
+    use std::io::{Cursor, Write};
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    zip.start_file("../outside", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    zip.write_all(b"no").unwrap();
+    assert!(super::archive_codec::decode_shared(&zip.finish().unwrap().into_inner()).is_err());
+}
+
+#[test]
 #[ignore = "Requires YACE_BROWSER_TRANSCRIPTION actual app download and YACE_NATIVE_TRANSCRIPTION reference"]
 fn actual_browser_transcription_matches_native_notes_and_source_clocks() {
     use serde_json::Value;
