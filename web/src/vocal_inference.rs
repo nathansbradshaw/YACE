@@ -11,6 +11,16 @@ pub async fn generate(
     timing: &crate::timing::TempoMap,
     progress: &mut impl FnMut(String),
 ) -> Result<crate::vocal_generation::Generation> {
+    generate_language(audio, manifest, timing, Default::default(), None, progress).await
+}
+pub async fn generate_language(
+    audio: &Path,
+    manifest: &crate::stem_review::StemManifest,
+    timing: &crate::timing::TempoMap,
+    language: crate::lyric_language::Language,
+    evidence_output: Option<&Path>,
+    progress: &mut impl FnMut(String),
+) -> Result<crate::vocal_generation::Generation> {
     let stem = manifest
         .stems
         .iter()
@@ -21,9 +31,47 @@ pub async fn generate(
         models::hash_file(&stem.path)? == stem.sha256,
         "Vocal stem changed"
     );
+    let pcm = models::decode(&stem.path, 16000, 1)?;
+    let asset = language.asset();
+    let model = crate::model_assets::load(&asset.id, progress).await?;
+    progress("Preparing local lyric recognition…".into());
+    let recognized =
+        crate::recognition::recognize(&pcm, &model, language.code().unwrap_or("auto")).await?;
+    drop(model);
+    let words = crate::clean::WordTimings {
+        version: 1,
+        audio_sha256: manifest.source_audio_sha256.clone(),
+        duration_seconds: manifest.frames as f64 / manifest.sample_rate as f64,
+        source: format!(
+            "Automatic local recognition; language={}; whisper.cpp-1.8.3 WASI CPU; token_timestamps; split_on_word; max_len=1; beam=5; temperature=0; model_sha256={}; recognition_audio_sha256={}; model-estimated word boundaries; listening review required",
+            recognized.language, asset.sha256, stem.sha256
+        ),
+        words: crate::clean_transcript::aligned_words(
+            &recognized.segments,
+            manifest.frames as f64 / manifest.sample_rate as f64,
+        ),
+    };
+    words.validate()?;
+    if let Some(output) = evidence_output {
+        crate::storage::write(
+            output,
+            serde_json::to_vec_pretty(&crate::clean_transcript::Recognition {
+                version: 1,
+                backend:
+                    "whisper.cpp-1.8.3/WASI; beam=5; token_timestamps; max_len=1; temperature=0"
+                        .into(),
+                model_sha256: asset.sha256,
+                recognition_audio_sha256: stem.sha256.clone(),
+                language: recognized.language,
+                words: words.clone(),
+                segments: recognized.segments,
+                warnings: vec![crate::clean_transcript::RECOGNITION_WARNING.into()],
+            })?,
+        )?;
+    }
     let candidates = crate::transcription::pitch(&stem.path, progress).await?;
     let neural = crate::vocal_generation::NeuralPitchEvidence {
-        duration_seconds:manifest.frames as f64/44100.,
+        duration_seconds: manifest.frames as f64 / 44100.,
         model_sha256: models::assets()
             .into_iter()
             .find(|a| a.id == "pitch")
@@ -34,31 +82,38 @@ pub async fn generate(
         implementation_sha256: crate::vocal_generation::neural_pitch_implementation_hash(),
         notes: candidates.into_iter().map(|e| e.candidate).collect(),
     };
-    let pcm = models::decode(&stem.path, 16000, 1)?;
     let mut evidence = swift(&pcm, progress).await?;
     evidence.audio_sha256 = manifest.source_audio_sha256.clone();
     evidence.vocal_stem_sha256 = stem.sha256.clone();
     evidence.duration_seconds = manifest.frames as f64 / 44100.;
     progress("Assembling source-bound vocal pitches and review phrases".into());
-    let last=std::cell::Cell::new(js_sys::Date::now());
-    let progress=std::cell::RefCell::new(progress);
-    crate::vocal_generation::generate_cancellable(crate::vocal_generation::Request {
-        audio,
-        vocal_stem: &stem.path,
-        alignment: &crate::clean::StemAlignment {
-            audio_sha256: manifest.source_audio_sha256.clone(),
-            stem_sha256: stem.sha256.clone(),
-            evidence: manifest.alignment.details.clone(),
+    let last = std::cell::Cell::new(js_sys::Date::now());
+    let progress = std::cell::RefCell::new(progress);
+    crate::vocal_generation::generate_cancellable(
+        crate::vocal_generation::Request {
+            audio,
+            vocal_stem: &stem.path,
+            alignment: &crate::clean::StemAlignment {
+                audio_sha256: manifest.source_audio_sha256.clone(),
+                stem_sha256: stem.sha256.clone(),
+                evidence: manifest.alignment.details.clone(),
+            },
+            timing,
+            words: Some(&words),
+            lyrics: None,
+            policy: &Default::default(),
+            neural_pitch: Some(&neural),
+            vocal_pitch: Some(&evidence),
         },
-        timing,
-        words: None,
-        lyrics: None,
-        policy: &Default::default(),
-        neural_pitch: Some(&neural),
-        vocal_pitch: Some(&evidence),
-    },&||{
-        let now=js_sys::Date::now();if now-last.get()>1000.{last.set(now);progress.borrow_mut()("Assembling vocal pitch and phrase evidence locally…".into());}false
-    })
+        &|| {
+            let now = js_sys::Date::now();
+            if now - last.get() > 1000. {
+                last.set(now);
+                progress.borrow_mut()("Assembling vocal pitch and phrase evidence locally…".into());
+            }
+            false
+        },
+    )
 }
 
 async fn swift(

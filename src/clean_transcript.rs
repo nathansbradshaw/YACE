@@ -43,6 +43,47 @@ pub struct RecognizedSegment {
     pub mean_token_probability: f32,
     pub no_speech_probability: f32,
 }
+pub const MIN_WORD_PROBABILITY: f32 = 0.30;
+/// Retain uncertain text without inventing word boundaries from sentence times.
+pub fn aligned_words(
+    segments: &[RecognizedSegment],
+    duration: f64,
+) -> Vec<crate::clean::AlignedWord> {
+    let mut words = Vec::new();
+    let mut previous_start = 0.;
+    for segment in segments {
+        let text = segment.text.trim();
+        if text.starts_with('[') || text.starts_with('(') || text.starts_with("<|") {
+            continue;
+        }
+        let lexical = crate::clean::tokens(text);
+        let start = segment.start_seconds;
+        let end = segment.end_seconds.min(duration);
+        let confident = segment.mean_token_probability.is_finite()
+            && segment.mean_token_probability >= MIN_WORD_PROBABILITY
+            && segment.no_speech_probability.is_finite()
+            && segment.no_speech_probability < 0.6;
+        let timed = confident
+            && lexical.len() == 1
+            && start.is_finite()
+            && end.is_finite()
+            && start >= previous_start
+            && start >= 0.
+            && start < end
+            && start < duration;
+        if timed {
+            previous_start = start;
+        }
+        for word in lexical {
+            words.push(crate::clean::AlignedWord {
+                text: Some(word),
+                start: timed.then_some(start),
+                end: timed.then_some(end),
+            });
+        }
+    }
+    words
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Recognition {
     pub version: u32,

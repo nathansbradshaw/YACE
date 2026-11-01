@@ -354,9 +354,36 @@ pub async fn projects() -> Result<Vec<crate::chart_library::Entry>> {
         }
         let bytes = read_bytes(&store, value, &mut blocks).await?;
         let doc: crate::editor::Project = serde_json::from_slice(&bytes)?;
+        let metadata = request(
+            store
+                .get(&format!("file:{root}/source/song.ini").into())
+                .map_err(error)?,
+        )
+        .await?;
+        let fields = if metadata.is_undefined() {
+            std::collections::BTreeMap::new()
+        } else {
+            crate::pipeline::ini_fields(std::str::from_utf8(
+                &read_bytes(&store, metadata, &mut blocks).await?,
+            )?)
+        };
+        let title = fields
+            .get("name")
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(&doc.title);
+        let title = fields
+            .get("artist")
+            .filter(|s| !s.trim().is_empty())
+            .map_or_else(|| title.clone(), |artist| format!("{artist} — {title}"));
+        let seconds = doc.duration.round() as u64;
         entries.push(crate::chart_library::Entry {
             path: root.into(),
-            title: doc.title,
+            title: format!(
+                "{title} · {}:{:02} · revision {}",
+                seconds / 60,
+                seconds % 60,
+                doc.revision
+            ),
             kind: crate::chart_library::Kind::Project,
         });
     }

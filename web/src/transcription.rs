@@ -4,7 +4,7 @@ use crate::{
     models,
     onnx::Runtime,
 };
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use std::path::Path;
 
 pub async fn instruments(
@@ -12,6 +12,26 @@ pub async fn instruments(
     manifest: &crate::stem_review::StemManifest,
     wanted: &[String],
     guitar_source: crate::mapping::GuitarSource,
+    progress: &mut impl FnMut(String),
+) -> Result<crate::mapping::Transcription> {
+    instruments_with_sound(
+        audio,
+        manifest,
+        wanted,
+        guitar_source,
+        Default::default(),
+        None,
+        progress,
+    )
+    .await
+}
+pub async fn instruments_with_sound(
+    audio: &Path,
+    manifest: &crate::stem_review::StemManifest,
+    wanted: &[String],
+    guitar_source: crate::mapping::GuitarSource,
+    keyboard_sound: crate::keyboard_detection::KeyboardSound,
+    keyboard_analysis: Option<&crate::stem_review::StemManifest>,
     progress: &mut impl FnMut(String),
 ) -> Result<crate::mapping::Transcription> {
     ensure!(
@@ -93,17 +113,31 @@ pub async fn instruments(
         crate::bass_analysis::analyze(&mut out, &path)?;
     }
     if wanted.iter().any(|n| n == "piano" || n == "pro_piano") {
-        let path = stem("piano")?;
-        let model = Runtime::load("piano", progress, true).await?;
-        let baseline = piano_samples(&models::decode(&path, 16000, 1)?, &model, progress).await?;
-        let residual = if baseline.notes.iter().any(|n| n.confidence >= 0.65) {
-            let prepared = crate::keyboard_audio::prepare(audio, manifest)?;
-            let output = piano_samples(&prepared.samples, &model, progress).await?;
-            Some((prepared.receipt, output))
+        let keyboard_manifest=keyboard_analysis.unwrap_or(manifest);
+        if let Some(analysis)=keyboard_analysis {
+            analysis.validate_binding(&manifest.source_audio_sha256,duration)?;
+            for stem in &analysis.stems {ensure!(models::hash_file(&stem.path)?==stem.sha256,"HQ separated audio changed");}
+            out.keyboard_analysis=Some(analysis.clone());
+        }
+        let evidence = if keyboard_sound == crate::keyboard_detection::KeyboardSound::Synth {
+            crate::keyboard_detection::synth_from_output(
+                manifest,
+                crate::synth::transcribe(audio, progress).await?,
+            )
         } else {
-            None
+            let path = keyboard_manifest.stems.iter().find(|s|s.id==crate::stem_review::StemId::Piano).context("Missing piano audio")?.path.clone();
+            let model = Runtime::load("piano", progress, true).await?;
+            let baseline =
+                piano_samples(&models::decode(&path, 16000, 1)?, &model, progress).await?;
+            let residual = if baseline.notes.iter().any(|n| n.confidence >= 0.65) {
+                let prepared = crate::keyboard_audio::prepare(audio, keyboard_manifest)?;
+                let output = piano_samples(&prepared.samples, &model, progress).await?;
+                Some((prepared.receipt, output))
+            } else {
+                None
+            };
+            crate::keyboard_detection::piano_from_views(keyboard_manifest, baseline, residual)?
         };
-        let evidence = crate::keyboard_detection::piano_from_views(manifest, baseline, residual)?;
         if wanted.iter().any(|n| n == "piano") {
             out.piano = evidence.raw_notes.clone();
         }

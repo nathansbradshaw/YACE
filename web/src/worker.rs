@@ -774,6 +774,7 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
                 // All six encoded assets are needed to validate the source
                 // manifest, even when this stage decodes only one part.
                 && !path.starts_with(root.join("stems"))
+                && !path.starts_with(root.join("keyboard-stems"))
             {
                 continue;
             }

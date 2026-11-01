@@ -111,6 +111,26 @@ through the browser app, using the actual downloaded checkpoints:
   while inference ran, and produced seven arranged Keys attacks. A prior
   changed-target attempt was refused; Undoing that target edit allowed retry.
   This is numerical/workflow agreement, not a musical quality judgment.
+- The corresponding Pro Keys job retained all ten native candidates too. Its
+  seven arranged Expert attacks opened on the actual keyboard timeline;
+  playback reached the five-second end on all seven audio elements. An attack
+  edit from tick 1,754 to 1,755 and Undo restored the original timing. Reload
+  recovered the project; its downloaded MIDI was read by native inspection as
+  `PART REAL_KEYS_E/M/H/X` with no error.
+- The actual browser now runs the desktop whisper.cpp 1.8.3 engine as a local
+  single-threaded SIMD WASI reactor. The reproducible Rust builder validates
+  the exact published native source archive before extraction; no registry
+  source is modified. Both the Rust host and runtime pass strict Clippy.
+  On the real three-second vocal excerpt, recognized text and word times match
+  native exactly. All vocal notes, phrases, issues and status also match exactly.
+  CPU/WASM and native Metal probabilities differ (maximum 0.0343); this is not
+  identical arithmetic or a correctness judgment about the recognized lyrics.
+  English, Spanish and automatic-language model selection use their existing
+  native pins. Raw recognition can be downloaded separately for review.
+- Actual recovery testing found anonymous `source` titles in the saved-project
+  chooser and a stale collection header after opening generated projects.
+  Saved entries now read their existing song metadata and show duration/revision;
+  external-project navigation detaches the old collection after successful open.
 
 Regression coverage includes shared native decoding tests, native library tests,
 static-tool audio tests and strict WASM/native Clippy. Explicit ignored tests in
@@ -119,8 +139,10 @@ they require named private input paths and never fabricate inference results.
 
 ## Open gates
 
-- Positive keyboard inference and native comparison, full-song vocal review,
-  browser recognition/lyric alignment and the remaining optional detector modes.
+- The corrected full-song pass with local lyric recognition is running. Optional
+  Synth/HQ Piano adapters and controls are implemented and compile checked, but
+  their actual-app/model comparisons remain open. Supplied-lyric acoustic
+  alignment and automatic clean-panel recognition also remain open.
 - Complete full-song cancellation/resume and edited-target conflict checks for
   recoverable browser generation jobs; the excerpt apply/Undo/reload path passed.
 - The full-song generation/playback/editing/reload/song ZIP/project backup gates

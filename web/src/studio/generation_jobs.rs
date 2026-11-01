@@ -180,6 +180,11 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let refresh = use_signal(|| 0u64);
     let mut requested =
         use_signal(|| vec!["guitar".to_owned(), "bass".to_owned(), "drums".to_owned()]);
+    let mut language = use_signal(|| crate::lyric_language::Language::English);
+    let mut keyboard_sound = use_signal(|| crate::keyboard_detection::KeyboardSound::Piano);
+    let mut piano_quality = use_signal(|| crate::keyboard_detection::PianoQuality::Standard);
+    let mut standard_drums = use_signal(|| false);
+    let mut full_mix_drums = use_signal(|| false);
     let saved = use_resource(move || {
         let open = (studio.generation_open)();
         let _ = refresh();
@@ -241,6 +246,38 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 fieldset{disabled:busy(),legend{"Chart parts"}
                     for(label,_,id)in crate::parts::PARTS{label{input{r#type:"checkbox",checked:requested.read().iter().any(|part|part==id),disabled:(studio.generation_target)().is_some(),onchange:move|event|{let mut values=requested.write();values.retain(|part|part!=id);if event.checked(){values.push(id.into());}}},"{label}"}}
                 }
+                if requested.read().iter().any(|part|part=="vocals") {
+                    label{"Lyric language"
+                        select{aria_label:"Lyric language",disabled:busy(),value:match language(){crate::lyric_language::Language::English=>"en",crate::lyric_language::Language::Spanish=>"es",crate::lyric_language::Language::Auto=>"auto"},onchange:move|event|language.set(match event.value().as_str(){"es"=>crate::lyric_language::Language::Spanish,"auto"=>crate::lyric_language::Language::Auto,_=>crate::lyric_language::Language::English}),
+                            option{value:"en","English"}option{value:"es","Spanish"}option{value:"auto","Detect language"}
+                        }
+                    }
+                }
+                if requested.read().iter().any(|part|part=="drums") {
+                    label{"Drum mapping"
+                        select{aria_label:"Drum mapping",disabled:busy(),value:if standard_drums(){"standard"}else{"pro"},onchange:move|event|standard_drums.set(event.value()=="standard"),
+                            option{value:"pro","Pro Drums"}option{value:"standard","Standard drums"}
+                        }
+                    }
+                    if requested.read().iter().all(|part|part=="drums") {
+                        label{input{r#type:"checkbox",disabled:busy(),checked:full_mix_drums(),onchange:move|event|full_mix_drums.set(event.checked())},"Detect drums from the full recording"}
+                    }
+                }
+                if requested.read().iter().any(|part|matches!(part.as_str(),"piano"|"pro_piano")) {
+                    label{"Keyboard sound"
+                        select{aria_label:"Keyboard sound",disabled:busy(),value:if keyboard_sound()==crate::keyboard_detection::KeyboardSound::Synth{"synth"}else{"piano"},onchange:move|event|keyboard_sound.set(if event.value()=="synth"{crate::keyboard_detection::KeyboardSound::Synth}else{crate::keyboard_detection::KeyboardSound::Piano}),
+                            option{value:"piano","Piano"}option{value:"synth","Synth (experimental)"}
+                        }
+                    }
+                    if keyboard_sound()==crate::keyboard_detection::KeyboardSound::Piano {
+                        label{"Piano separation"
+                            select{aria_label:"Piano separation",disabled:busy(),value:if piano_quality()==crate::keyboard_detection::PianoQuality::Standard{"standard"}else{"higher"},onchange:move|event|piano_quality.set(if event.value()=="higher"{crate::keyboard_detection::PianoQuality::HighQuality}else{crate::keyboard_detection::PianoQuality::Standard}),
+                                option{value:"standard","Standard"}option{value:"higher","Higher quality (optional model)"}
+                            }
+                        }
+                        if piano_quality()!=crate::keyboard_detection::PianoQuality::Standard {p{"Uses the optional 705 MB local checkpoint. Its weight terms remain unresolved; see model notices."}}
+                    }
+                }
                 if let Some(target)=(studio.generation_target)(){p{"Build {target} for this chart. Apply the finished draft when ready; other parts stay in place."}}
                 button{disabled:busy()||requested.read().is_empty(),onclick:move |_|{
                     let instruments=requested();busy.set(true);error.set(None);let mut runner=runner;
@@ -248,7 +285,8 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         let result=async{
                             let store=(studio.store)().context("Open a source chart first")?;let doc=studio.snapshot().context("Open a source chart first")?;let timing=doc.timing(&store)?;
                             let metadata=crate::pipeline::Metadata{name:studio.metadata_value("name"),artist:studio.metadata_value("artist"),album:studio.metadata_value("album"),year:studio.metadata_value("year"),genre:studio.metadata_value("genre"),duration:doc.duration};
-                            let request=generation::Request{source:generation::Source::Audio{path:store.audio_path(&doc)?},bpm:timing.tempos[0].bpm,tempo_map:Some(timing),title:metadata.name.clone(),artist:metadata.artist.clone(),instruments,guitar_source:store.guitar_source(&doc)?,keyboard_sound:Default::default(),piano_quality:Default::default(),vocal_language:Default::default(),model_dir:"/models".into(),fetch_models:true,full_mix_drums:false,standard_drums:false,lyrics:false,song_info:None};
+                            let full_mix=full_mix_drums()&&instruments.iter().all(|part|part=="drums");
+                            let request=generation::Request{source:generation::Source::Audio{path:store.audio_path(&doc)?},bpm:timing.tempos[0].bpm,tempo_map:Some(timing),title:metadata.name.clone(),artist:metadata.artist.clone(),instruments,guitar_source:store.guitar_source(&doc)?,keyboard_sound:keyboard_sound(),piano_quality:piano_quality(),vocal_language:language(),model_dir:"/models".into(),fetch_models:true,full_mix_drums:full_mix,standard_drums:standard_drums(),lyrics:false,song_info:None};
                             let root=PathBuf::from(format!("/generation-jobs/{}",crate::storage::unique_id()));
                             let created=async{
                             if let Some(track)=(studio.generation_target)(){let target=crate::parts::Target::capture(&store,&doc,&track)?;crate::parts::create_job(request,&root,&target)?;}else{generation::create_job(request,&root)?;}
@@ -285,12 +323,12 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     }
                     button{disabled:busy(),onclick:{let root=handle.root.clone();move |_|{let root=root.clone();busy.set(true);spawn(async move{
                         let result=async{studio.persist_current().await?;let copy=crate::files::unique_root();crate::pipeline::copy_folder(&generation::project_path(&root),&copy)?;studio.open_project(copy).await}.await;
-                        match result{Ok(())=>{studio.generation_open.set(false);studio.generation_target.set(None);},Err(failure)=>error.set(Some(format!("{failure:#}")))}busy.set(false);
+                        match result{Ok(())=>{studio.detach_library();studio.generation_open.set(false);studio.generation_target.set(None);},Err(failure)=>error.set(Some(format!("{failure:#}")))}busy.set(false);
                     });}},"Open as separate project"}
                 }
                 button{disabled:busy()||!crate::storage::is_file(handle.root.join("stems/stem-manifest.json")),onclick:{let root=handle.root.clone();move |_|{let root=root.clone();spawn(async move{let folder=root.join("stems");let path=download_path("separated-parts.zip");let result=crate::worker::run::<serde_json::Value>(crate::worker::Task::Archive{root:folder.clone(),output:path.clone()},&[folder]).await;match result{Ok(_)=>offer_download(studio,path,"separated-parts.zip",DownloadKind::File),Err(failure)=>error.set(Some(format!("{failure:#}")))}});}},"Save separated parts…"}
                 if result.status.state==State::Complete{button{disabled:busy(),onclick:{let root=handle.root.clone();move |_|{let root=generation::project_path(&root);spawn(async move{let path=download_path("generated-project.zip");let result=crate::worker::run::<serde_json::Value>(crate::worker::Task::Backup{root:root.clone(),output:path.clone()},&[root]).await;match result{Ok(_)=>offer_download(studio,path,"generated-project.zip",DownloadKind::Project),Err(failure)=>error.set(Some(format!("{failure:#}")))}});}},"Save generated project ZIP…"}}
-                for(relative,name)in[("transcription.json","transcription.json"),("vocals/generation.json","vocal-generation.json")]{
+                for(relative,name)in[("transcription.json","transcription.json"),("vocals/generation.json","vocal-generation.json"),("vocals/recognition.json","recognition.json")]{
                     if crate::storage::is_file(handle.root.join(relative)){button{onclick:{let source=handle.root.join(relative);move |_|{let path=download_path(name);match crate::storage::copy(&source,&path){Ok(_)=>offer_download(studio,path,name,DownloadKind::File),Err(failure)=>error.set(Some(format!("{failure:#}")))}}},"Save {name}…"}}
                 }
             }

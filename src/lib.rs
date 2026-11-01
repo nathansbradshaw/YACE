@@ -50,6 +50,7 @@ pub mod key_ranges;
 pub mod keyboard_audio;
 pub mod keyboard_detection;
 pub mod keyboard_separation;
+pub mod keyboard_separation_dsp;
 pub mod keyboard_voicing;
 pub mod keys;
 pub mod larsnet;

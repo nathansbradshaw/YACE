@@ -264,6 +264,53 @@ fn analysis_speaker_matrix_matches_the_native_float_decoder() {
 }
 
 #[test]
+#[ignore = "Requires named actual browser/native recognition and vocal-generation downloads"]
+fn actual_browser_recognition_preserves_native_words_times_and_vocal_chart() {
+    use serde_json::Value;
+    let read = |key| -> Value {
+        serde_json::from_slice(
+            &std::fs::read(std::env::var_os(key).expect("Explicit real model output required"))
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let browser = read("YACE_BROWSER_RECOGNITION");
+    let native = read("YACE_NATIVE_RECOGNITION");
+    for field in ["language", "model_sha256", "recognition_audio_sha256"] {
+        assert_eq!(browser[field], native[field], "{field}");
+    }
+    for field in ["audio_sha256", "duration_seconds", "words"] {
+        assert_eq!(browser["words"][field], native["words"][field], "{field}");
+    }
+    let ours = browser["segments"].as_array().unwrap();
+    let theirs = native["segments"].as_array().unwrap();
+    assert_eq!(ours.len(), theirs.len());
+    let mut maximum = 0f64;
+    for (a, b) in ours.iter().zip(theirs) {
+        for field in ["text", "start_seconds", "end_seconds"] {
+            assert_eq!(a[field], b[field], "{field}");
+        }
+        for field in ["mean_token_probability", "no_speech_probability"] {
+            let a = a[field].as_f64().unwrap();
+            let b = b[field].as_f64().unwrap();
+            assert!((0. ..=1.).contains(&a) && (0. ..=1.).contains(&b));
+            maximum = maximum.max((a - b).abs());
+        }
+    }
+    // CPU/WASM and native Metal confidence scores are not identical. These
+    // compare source-bound decisions, not a claim of identical arithmetic.
+    eprintln!(
+        "{} segments, identical words/times, maximum probability delta {maximum}",
+        ours.len()
+    );
+    let browser = read("YACE_BROWSER_VOCAL_GENERATION");
+    let native = read("YACE_NATIVE_VOCAL_GENERATION");
+    for field in ["chart", "issues", "status"] {
+        assert_eq!(browser[field], native[field], "{field}");
+    }
+}
+
+#[test]
 #[ignore = "Requires explicit YACE_NATIVE_STEMS and the actual browser download YACE_BROWSER_STEMS_ZIP"]
 fn actual_browser_separation_matches_the_native_model_and_source_clock() {
     use sha2::{Digest, Sha256};

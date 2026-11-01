@@ -890,31 +890,7 @@ pub fn detect(
         for id in ["muscriptor-cond", "muscriptor-lm"] {
             models::verified(model_dir, id)?;
         }
-        let indices = synth_selected_indices(&output.notes);
-        return Ok(Evidence {
-            version: 3,
-            sound,
-            source_audio_sha256: manifest.source_audio_sha256.clone(),
-            duration_seconds: manifest.frames as f64 / 44100.,
-            stem_sha256: BTreeMap::new(),
-            model_id: "muscriptor-small".into(),
-            model_sha256: synth_model_hash(),
-            implementation_sha256: implementation_hash(sound),
-            method: muscriptor::METHOD.into(),
-            score_semantics: SYNTH_PRIORITY.into(),
-            decoder_parameters: BTreeMap::from([("nominal_arrangement_priority".into(), 1.)]),
-            raw_notes: synth_notes(&output, &indices),
-            basic_pitch_candidates: vec![],
-            velocities: vec![],
-            pedals: vec![],
-            muscriptor: Some(SynthEvidence {
-                output,
-                selection_policy: SYNTH_SELECTION.into(),
-                selected_indices: indices,
-            }),
-            piano_audio: None,
-            piano_multiview: None,
-        });
+        return Ok(synth_from_output(manifest, output));
     }
     let model = models::verified(model_dir, sound.model_id())?;
     let mut baseline_manifest = manifest.clone();
@@ -1008,6 +984,35 @@ pub fn required_models_with_quality(
         ids.push("separation");
     }
     ids
+}
+
+/// Shared source-bound Synth selection and provenance, after actual inference.
+pub fn synth_from_output(manifest: &StemManifest, output: muscriptor::Output) -> Evidence {
+    let indices = synth_selected_indices(&output.notes);
+    Evidence {
+        version: 3,
+        sound: KeyboardSound::Synth,
+        source_audio_sha256: manifest.source_audio_sha256.clone(),
+        duration_seconds: manifest.frames as f64 / 44100.,
+        stem_sha256: BTreeMap::new(),
+        model_id: "muscriptor-small".into(),
+        model_sha256: synth_model_hash(),
+        implementation_sha256: implementation_hash(KeyboardSound::Synth),
+        method: muscriptor::METHOD.into(),
+        score_semantics: SYNTH_PRIORITY.into(),
+        decoder_parameters: BTreeMap::from([("nominal_arrangement_priority".into(), 1.)]),
+        raw_notes: synth_notes(&output, &indices),
+        basic_pitch_candidates: vec![],
+        velocities: vec![],
+        pedals: vec![],
+        muscriptor: Some(SynthEvidence {
+            output,
+            selection_policy: SYNTH_SELECTION.into(),
+            selected_indices: indices,
+        }),
+        piano_audio: None,
+        piano_multiview: None,
+    }
 }
 
 /// Shared piano view selection and provenance, after actual inference.

@@ -612,7 +612,7 @@ impl Studio {
         self.open_project(root.clone()).await?;
         crate::storage::clear(&root);
         self.new_song.set(None);
-        self.library_selected.set(None);
+        self.detach_library();
         if self.generation_after_import.replace(false) {
             self.generation_open.set(true);
         }
@@ -825,7 +825,7 @@ impl Studio {
                 .context("Saved project is missing")?;
             self.open_project_with_revision(root, Some(revision))
                 .await?;
-            self.library_selected.set(None);
+            self.detach_library();
             self.saved_projects.set(None);
             Ok::<_, anyhow::Error>(())
         }
@@ -864,6 +864,15 @@ impl Studio {
     }
     pub async fn open_project(self, source: PathBuf) -> Result<()> {
         self.open_project_with_revision(source, None).await
+    }
+    pub(super) fn detach_library(mut self) {
+        self.library_selected.set(None);
+        self.library_files.set(None);
+        if let Some(previous) = self.library.replace(None)
+            && self.store.read().as_ref().is_none_or(|store| !store.root.starts_with(&previous.root))
+        {
+            crate::storage::clear(&previous.root);
+        }
     }
     pub async fn open_project_with_revision(
         mut self,

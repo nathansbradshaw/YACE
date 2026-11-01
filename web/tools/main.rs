@@ -7,6 +7,7 @@ use std::{
     process::Command,
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+mod recognition_build;
 #[cfg(test)]
 #[path = "../../src/archive_codec.rs"]
 mod archive_codec;
@@ -209,6 +210,7 @@ fn main() -> Result<()> {
     let args: Vec<_> = env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("build") => build(&root),
+        Some("recognition-build") => recognition_build::build(&root, &args[1..]),
         Some("serve") => {
             let port = args
                 .get(1)
@@ -229,6 +231,6 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        _ => Err("Use: yace-static-web build | serve [port]".into()),
+        _ => Err("Use: yace-static-web build | serve [port] | recognition-build SDK CRATE WORK".into()),
     }
 }

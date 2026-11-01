@@ -186,6 +186,5 @@ pub fn App() -> Element {
     clean::CleanPanel{studio}
     source_choice::SourceChoice{studio}
     if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
-    if (studio.generation_open)(){modal::Modal{id:"browser-generation",label:"Browser generation",onclose:move |_|{let mut s=studio;s.generation_open.set(false);},h2{"Generation unavailable"}p{"The current model backends require native runtimes. Generation is disabled in this static build. Open a chart or add parts and notes manually."}button{onclick:move |_|{let mut s=studio;s.generation_open.set(false);},"Close generation"}}}
     }}
 }

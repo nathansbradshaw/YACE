@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 #[serde(rename_all = "snake_case")]
 pub enum Stage {
     Separate,
+    Keyboard,
     Transcribe,
     Vocals,
     Build,
@@ -18,8 +19,9 @@ impl Stage {
     pub fn label(self) -> &'static str {
         match self {
             Self::Separate => "Separate vocals and instruments",
+            Self::Keyboard => "Separate higher-quality piano",
             Self::Transcribe => "Detect instrument parts",
-            Self::Vocals => "Generate vocal pitches",
+            Self::Vocals => "Generate vocals and lyrics",
             Self::Build => "Build review project",
         }
     }
@@ -55,7 +57,16 @@ pub fn implementation_hash() -> String {
         include_bytes!("generation.rs").as_slice(),
         include_bytes!("transcription.rs"),
         include_bytes!("vocal_inference.rs"),
+        include_bytes!("recognition.rs"),
+        include_bytes!("../runtime/yace-recognition.wasm"),
+        include_bytes!("../../src/clean_transcript.rs"),
         include_bytes!("onnx.rs"),
+        include_bytes!("synth.rs"),
+        include_bytes!("keyboard_separation.rs"),
+        include_bytes!("../../src/keyboard_separation_dsp.rs"),
+        include_bytes!("../../src/keyboard_separation_asset.rs"),
+        include_bytes!("../../src/muscriptor.rs"),
+        include_bytes!("../../src/lyric_language.rs"),
         include_bytes!("audio_decode.rs"),
         include_bytes!("audio_resample.rs"),
         include_bytes!("../../models/manifest.json"),
@@ -101,14 +112,21 @@ pub fn freeze(root: &Path, metadata: crate::pipeline::Metadata) -> Result<()> {
 }
 pub fn reuse_stems(root: &Path, manifest: &crate::stem_review::StemManifest) -> Result<bool> {
     let input = input(root)?;
+    let request = read_request(root)?;
+    let expected = if hq_only(&request) {
+        crate::keyboard_separation::MODEL_ID
+    } else {
+        "separation"
+    };
     let pinned = crate::models::assets()
         .into_iter()
-        .find(|asset| asset.id == "separation")
+        .find(|asset| asset.id == expected)
         .context("Missing separator identity")?;
     if manifest.ids() != crate::stem_review::StemId::ALL.into_iter().collect()
-        || !manifest.generation.as_ref().is_some_and(|model| {
-            model.model_id == "separation" && model.model_sha256 == pinned.sha256
-        })
+        || !manifest
+            .generation
+            .as_ref()
+            .is_some_and(|model| model.model_id == expected && model.model_sha256 == pinned.sha256)
     {
         return Ok(false);
     }
@@ -172,6 +190,12 @@ pub fn next(root: &Path) -> Result<Option<Stage>> {
     if !request.full_mix_drums && !crate::storage::is_file(root.join("isolation.json")) {
         return Ok(Some(Stage::Separate));
     }
+    if hq(&request)
+        && !hq_only(&request)
+        && !crate::storage::is_file(root.join("keyboard-isolation.json"))
+    {
+        return Ok(Some(Stage::Keyboard));
+    }
     if !crate::storage::is_file(root.join("transcription.json")) {
         return Ok(Some(Stage::Transcribe));
     }
@@ -186,6 +210,20 @@ pub fn next(root: &Path) -> Result<Option<Stage>> {
         return Ok(Some(Stage::Build));
     }
     Ok(None)
+}
+fn hq(request: &Request) -> bool {
+    crate::keyboard_detection::high_quality_piano(
+        &request.instruments,
+        request.keyboard_sound,
+        request.piano_quality,
+    )
+}
+fn hq_only(request: &Request) -> bool {
+    hq(request)
+        && request
+            .instruments
+            .iter()
+            .all(|part| matches!(part.as_str(), "piano" | "pro_piano"))
 }
 pub fn audio_paths(root: &Path, stage: Stage) -> Result<Vec<PathBuf>> {
     let request = read_request(root)?;
@@ -203,6 +241,7 @@ pub fn audio_paths(root: &Path, stage: Stage) -> Result<Vec<PathBuf>> {
                 .into_iter()
                 .filter(|stem| match stage {
                     Stage::Separate => false,
+                    Stage::Keyboard => false,
                     Stage::Build => true,
                     Stage::Vocals => stem.id == crate::stem_review::StemId::Vocals,
                     Stage::Transcribe => request.instruments.iter().any(|part| {
@@ -217,6 +256,22 @@ pub fn audio_paths(root: &Path, stage: Stage) -> Result<Vec<PathBuf>> {
                             || ((part == "piano" || part == "pro_piano")
                                 && ["drums", "bass", "vocals"].contains(&stem.id.as_str()))
                     }),
+                })
+                .map(|stem| stem.path),
+        );
+    }
+    if matches!(stage, Stage::Transcribe | Stage::Build)
+        && crate::storage::is_file(root.join("keyboard-isolation.json"))
+    {
+        let manifest: crate::stem_review::StemManifest =
+            serde_json::from_slice(&crate::storage::read(root.join("keyboard-isolation.json"))?)?;
+        paths.extend(
+            manifest
+                .stems
+                .into_iter()
+                .filter(|stem| {
+                    stage == Stage::Build
+                        || ["piano", "drums", "bass", "vocals"].contains(&stem.id.as_str())
                 })
                 .map(|stem| stem.path),
         );
@@ -271,11 +326,19 @@ pub async fn run_stage(
                 }
                 write_json(&root.join("stems/stem-manifest.json"), &portable)?;
                 manifest
+            } else if hq_only(&request) {
+                crate::keyboard_separation::run(audio, &root.join("stems"), progress).await?
             } else {
                 crate::separation::run(audio, &root.join("stems"), progress).await?
             };
             summary.frames = Some(manifest.frames);
             write_json(&root.join("isolation.json"), &manifest)?;
+        }
+        Stage::Keyboard => {
+            let manifest =
+                crate::keyboard_separation::run(audio, &root.join("keyboard-stems"), progress)
+                    .await?;
+            write_json(&root.join("keyboard-isolation.json"), &manifest)?;
         }
         Stage::Transcribe => {
             let wanted: Vec<_> = request
@@ -296,26 +359,21 @@ pub async fn run_stage(
                         ..Default::default()
                     }
                 } else {
-                    let keyboard = wanted
-                        .iter()
-                        .any(|part| part == "piano" || part == "pro_piano");
-                    ensure!(
-                        !keyboard
-                            || request.keyboard_sound
-                                == crate::keyboard_detection::KeyboardSound::Piano,
-                        "The browser Synth detector is still being ported; retained audio and prior results were kept"
-                    );
-                    ensure!(
-                        !keyboard
-                            || request.piano_quality
-                                == crate::keyboard_detection::PianoQuality::Standard,
-                        "Higher-quality piano separation is still being ported; retained audio and prior results were kept"
-                    );
-                    crate::transcription::instruments(
+                    let keyboard: Option<crate::stem_review::StemManifest> =
+                        if crate::storage::is_file(root.join("keyboard-isolation.json")) {
+                            Some(serde_json::from_slice(&crate::storage::read(
+                                root.join("keyboard-isolation.json"),
+                            )?)?)
+                        } else {
+                            None
+                        };
+                    crate::transcription::instruments_with_sound(
                         audio,
                         &manifest,
                         &wanted,
                         request.guitar_source,
+                        request.keyboard_sound,
+                        keyboard.as_ref(),
                         progress,
                     )
                     .await?
@@ -332,10 +390,12 @@ pub async fn run_stage(
             write_json(&root.join("transcription.json"), &events)?;
         }
         Stage::Vocals => {
-            let result = crate::vocal_inference::generate(
+            let result = crate::vocal_inference::generate_language(
                 audio,
                 &isolation(root)?,
                 &request.timing()?,
+                request.vocal_language,
+                Some(&root.join("vocals/recognition.json")),
                 progress,
             )
             .await?;
@@ -353,6 +413,10 @@ pub async fn run_stage(
                 "A built song already exists; keep it and start a new job"
             );
             if let Some(manifest) = &events.isolation {
+                drop(manifest.load(audio)?);
+                crate::models::remember_stems(manifest)?;
+            }
+            if let Some(manifest) = &events.keyboard_analysis {
                 drop(manifest.load(audio)?);
                 crate::models::remember_stems(manifest)?;
             }
@@ -382,15 +446,23 @@ pub async fn run_stage(
                     .context("Missing recording format")?;
                 crate::storage::copy(audio, song.join(format!("song.{extension}")))?;
             }
-            if let Some(manifest) = &events.isolation {
+            for (manifest, name) in events
+                .isolation
+                .as_ref()
+                .map(|m| (m, "chart-engine-isolation.json"))
+                .into_iter()
+                .chain(
+                    events
+                        .keyboard_analysis
+                        .as_ref()
+                        .map(|m| (m, "chart-engine-keyboard-isolation.json")),
+                )
+            {
                 let mut manifest = crate::stem_review::game_audio::retain_in(&song, manifest)?;
                 for stem in &mut manifest.stems {
                     stem.path = stem.path.strip_prefix(song.join(".yace/audio"))?.to_owned();
                 }
-                write_json(
-                    &crate::song_layout::path(&song, "chart-engine-isolation.json"),
-                    &manifest,
-                )?;
+                write_json(&crate::song_layout::path(&song, name), &manifest)?;
             }
             let vocal_path = root.join("vocals/generation.json");
             if crate::storage::is_file(&vocal_path) {

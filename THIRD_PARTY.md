@@ -48,6 +48,14 @@ and source revision are retained in [web/runtime/README.md](web/runtime/README.m
 YACE calls that runtime through Rust bindings; the included JavaScript is the
 upstream platform runtime. Model weights retain their separate terms above.
 
+The browser also embeds whisper.cpp 1.8.3 from the exact published
+`whisper-rs-sys` 0.15.0 source archive used by desktop, compiled with official
+WASI SDK 34.0 and a Rust reactor wrapper. Its MIT notice remains in
+`licenses/whisper.cpp-MIT.txt`. Source pins and the Rust rebuilding command are
+documented in `web/recognition-runtime/README.md`; the complete upstream source
+is available in the checksum-pinned crates.io archive linked there. The static
+application gives this engine no filesystem or network access.
+
 OAF Drums attribution above records the conversion publisher's license and
 checkpoint claims; a converter's license does not relicense an original
 checkpoint. Magenta's Apache-2.0 source license and E-GMD's CC-BY-4.0 dataset

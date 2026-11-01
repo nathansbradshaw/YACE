@@ -17,7 +17,11 @@ pub struct ModelAsset {
     pub license: String,
 }
 pub fn assets() -> Vec<ModelAsset> {
-    serde_json::from_str(include_str!("../../models/manifest.json")).expect("pinned manifest")
+    let mut assets: Vec<ModelAsset> =
+        serde_json::from_str(include_str!("../../models/manifest.json")).expect("pinned manifest");
+    assets.push(crate::lyric_language::multilingual_asset());
+    assets.push(crate::keyboard_separation::asset());
+    assets
 }
 pub fn hash_file(path: &Path) -> Result<String> {
     Ok(hash_shared(&crate::storage::shared(path)?))

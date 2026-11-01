@@ -15,7 +15,7 @@ extern "C" {
     #[wasm_bindgen(js_name = Tensor)]
     type Tensor;
     #[wasm_bindgen(constructor, catch)]
-    fn new(dtype: &str, data: &Float32Array, dims: &Array) -> std::result::Result<Tensor, JsValue>;
+    fn new(dtype: &str, data: &JsValue, dims: &Array) -> std::result::Result<Tensor, JsValue>;
     #[wasm_bindgen(thread_local_v2, js_name = env)]
     static ENV: JsValue;
 }
@@ -39,6 +39,67 @@ pub struct Input<'a> {
     pub shape: &'a [usize],
 }
 impl Runtime {
+    pub fn float_tensor(values: &[f32], shape: &[usize]) -> Result<JsValue> {
+        ensure!(
+            shape.iter().try_fold(1usize, |a, b| a.checked_mul(*b)) == Some(values.len())
+                && values.iter().all(|v| v.is_finite()),
+            "Invalid float input tensor"
+        );
+        let dims = Array::new();
+        for &dim in shape {
+            dims.push(&(dim as f64).into());
+        }
+        Ok(Tensor::new("float32", &Float32Array::from(values), &dims)
+            .map_err(error)?
+            .into())
+    }
+    pub fn int_tensor(values: &[i64], shape: &[usize]) -> Result<JsValue> {
+        ensure!(
+            shape.iter().try_fold(1usize, |a, b| a.checked_mul(*b)) == Some(values.len()),
+            "Invalid integer input tensor"
+        );
+        let dims = Array::new();
+        for &dim in shape {
+            dims.push(&(dim as f64).into());
+        }
+        Ok(
+            Tensor::new("int64", &js_sys::BigInt64Array::from(values), &dims)
+                .map_err(error)?
+                .into(),
+        )
+    }
+    pub async fn run_tensors(&self, inputs: &[(&str, &JsValue)]) -> Result<JsValue> {
+        let feeds = Object::new();
+        for &(name, tensor) in inputs {
+            set(&feeds, name, tensor)?;
+        }
+        JsFuture::from(self.session.run_js(&feeds).map_err(error)?)
+            .await
+            .map_err(error)
+    }
+    /// Keep large decoder caches in the runtime instead of copying them through
+    /// Rust for every autoregressive token. The graph contract remains checked.
+    pub fn tensor(outputs: &JsValue, name: &str, shape: &[usize]) -> Result<JsValue> {
+        let tensor = Reflect::get(outputs, &name.into()).map_err(error)?;
+        ensure!(!tensor.is_undefined(), "Model output missing {name}");
+        let actual = Array::from(&Reflect::get(&tensor, &"dims".into()).map_err(error)?);
+        ensure!(
+            actual.length() as usize == shape.len()
+                && actual
+                    .iter()
+                    .zip(shape)
+                    .all(|(a, &b)| a.as_f64() == Some(b as f64)),
+            "Unexpected {name} shape"
+        );
+        let data = Reflect::get(&tensor, &"data".into()).map_err(error)?;
+        ensure!(
+            data.is_instance_of::<Float32Array>()
+                && shape.iter().try_fold(1usize, |a, b| a.checked_mul(*b))
+                    == Some(Float32Array::new(&data).length() as usize),
+            "Invalid {name} tensor data"
+        );
+        Ok(tensor)
+    }
     pub async fn load(
         id: &str,
         progress: &mut impl FnMut(String),

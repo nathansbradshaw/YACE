@@ -3,6 +3,8 @@ pub mod analysis_validation;
 #[path = "../../src/archive_codec.rs"]
 pub mod archive_codec;
 pub mod audio_decode;
+mod recognition;
+mod synth;
 mod audio_resample;
 mod audio_identity;
 mod archive_blob;
@@ -72,8 +74,11 @@ pub mod generation_protocol;
 pub mod generation;
 #[path="../../src/lyric_language.rs"]
 pub mod lyric_language;
-#[path = "../../src/keyboard_separation_asset.rs"]
 pub mod keyboard_separation;
+#[path = "../../src/keyboard_separation_asset.rs"]
+pub mod keyboard_separation_asset;
+#[path = "../../src/keyboard_separation_dsp.rs"]
+pub mod keyboard_separation_dsp;
 pub mod onnx;
 #[path = "../../src/muscriptor.rs"]
 pub mod muscriptor;
