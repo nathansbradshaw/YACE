@@ -108,7 +108,7 @@ fn vocal_game_export_keeps_ticks_tempos_signatures_events_and_exact_offset() {
 fn unsupported_chart_semantics_are_refused_instead_of_lost() {
     for raw in [
         CHART.replace("480 = N 0 240", "480 = N 0 240\n 481 = N 5 0"),
-        CHART.replace("[ExpertSingle]", "[ExpertDoubleGuitar]"),
+        CHART.replace("[ExpertSingle]", "[ExpertUnsupportedInstrument]"),
         CHART.replace("Offset = -0.01", "Offset = 0.0005"),
     ] {
         assert!(game_export::song_with_vocals(&Chart::parse(raw).unwrap(), &vocal()).is_err());

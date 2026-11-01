@@ -7,6 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 type Events = Vec<(u64, u8, Vec<u8>)>;
 
+#[cfg(test)]
+mod tests;
+
 fn variable(mut n: u64, out: &mut Vec<u8>) -> Result<()> {
     ensure!(n <= 0x0fff_ffff, "MIDI delta exceeds supported range");
     let mut bytes = [0u8; 4];
@@ -158,6 +161,8 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
         let label = match suffix {
             "Single" => "PART GUITAR",
             "DoubleBass" => "PART BASS",
+            "DoubleRhythm" => "PART RHYTHM",
+            "DoubleGuitar" => "PART GUITAR COOP",
             "Drums" => "PART DRUMS",
             "Keyboard" => "PART KEYS",
             "ProKeys" => {
@@ -169,7 +174,10 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
             .entry(label)
             .or_insert(vec![(0, 1, meta(3, label.as_bytes())?)]);
         let notes = chart.notes(&section.name)?;
-        let frets = matches!(suffix, "Single" | "DoubleBass");
+        let frets = matches!(
+            suffix,
+            "Single" | "DoubleBass" | "DoubleRhythm" | "DoubleGuitar"
+        );
         if frets {
             use crate::gameplay_view::{self, Technique};
             let policy = gameplay_view::yarg_chart_policy(chart.timing.resolution, ini)?;
