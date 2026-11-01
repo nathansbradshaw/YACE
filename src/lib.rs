@@ -59,6 +59,7 @@ pub mod mapping;
 pub mod midi;
 pub mod models;
 pub mod generation_build;
+pub mod generation_protocol;
 pub mod keyboard_separation_asset;
 pub mod mt3;
 pub mod muscriptor;

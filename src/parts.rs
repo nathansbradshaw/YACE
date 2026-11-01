@@ -1,19 +1,19 @@
 //! Add a part without changing the recording or the chart's timing.
 use crate::editor::Project;
-#[cfg(not(target_arch = "wasm32"))]
+use crate::storage as fs;
 use crate::{
     editor::{Content, EditorNote, Store},
     timing::TempoMap,
 };
-#[cfg(not(target_arch = "wasm32"))]
 use crate::{generation, models};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 #[cfg(not(target_arch = "wasm32"))]
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 use {
     sha2::{Digest, Sha256},
-    std::{collections::BTreeMap, fs, path::Path},
+    std::path::Path,
 };
 
 pub const PARTS: [(&str, &str, &str); 6] = [
@@ -38,7 +38,6 @@ pub fn instrument(track: &str) -> Result<&'static str> {
         .map(|(_, _, instrument)| *instrument)
         .context("Unsupported chart part")
 }
-#[cfg(not(target_arch = "wasm32"))]
 fn digest(value: &impl Serialize) -> Result<String> {
     Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(value)?)))
 }
@@ -75,10 +74,8 @@ pub fn create(project: &mut Project, track: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use native::*;
-#[cfg(not(target_arch = "wasm32"))]
-mod native {
+pub use portable::*;
+mod portable {
     use super::*;
     fn fingerprint(content: &Content, track: &str) -> Result<String> {
         if track == "Vocals" {
@@ -105,7 +102,7 @@ mod native {
             instrument(track)?;
             Ok(Self {
                 version: 1,
-                project: store.root.canonicalize()?,
+                project: fs::canonicalize(&store.root)?,
                 track: track.into(),
                 audio_sha256: project.audio_sha256.clone(),
                 source_chart_sha256: project.source_chart_sha256.clone(),
@@ -117,7 +114,7 @@ mod native {
             instrument(&self.track)?;
             ensure!(
                 self.version == 1
-                    && self.project == store.root.canonicalize()?
+                    && self.project == fs::canonicalize(&store.root)?
                     && self.audio_sha256 == project.audio_sha256
                     && self.source_chart_sha256 == project.source_chart_sha256
                     && self.timing == project.timing(store)?,
@@ -133,10 +130,10 @@ mod native {
 
     pub fn target(job: &Path) -> Result<Option<Target>> {
         let path = job.join("editor-target.json");
-        if path.exists() {
+        if fs::exists(&path) {
             let mut target: Target = serde_json::from_slice(&fs::read(path)?)?;
             if target.project.is_relative() {
-                target.project = job.join(&target.project).canonicalize()?;
+                target.project = fs::canonicalize(job.join(&target.project))?;
             }
             Ok(Some(target))
         } else {
@@ -178,7 +175,7 @@ mod native {
         );
         let job = generation::create_job(request, output)?;
         let mut saved_target = target.clone();
-        let project = target.project.canonicalize()?;
+        let project = fs::canonicalize(&target.project)?;
         let job_parts = job.components().collect::<Vec<_>>();
         let project_parts = project.components().collect::<Vec<_>>();
         let shared = job_parts
@@ -265,7 +262,7 @@ mod native {
                 );
             }
             let origin = Origin::Generated {
-                job: job.canonicalize()?,
+                job: fs::canonicalize(job)?,
                 chart_sha256: generated.chart_hash(&generated_store)?,
             };
             Ok(Self {
@@ -343,6 +340,7 @@ mod native {
     }
 
     /// Vocal-only jobs need an editable song container, but no instrumental inference.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn vocal_song(
         job: &Path,
         audio: &Path,

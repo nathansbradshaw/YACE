@@ -9,6 +9,7 @@ license = "MIT"
 default = ["browser"]
 browser = []
 studio = []
+separation = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -40,7 +40,9 @@ pub async fn generate(
     evidence.vocal_stem_sha256 = stem.sha256.clone();
     evidence.duration_seconds = manifest.frames as f64 / 44100.;
     progress("Assembling source-bound vocal pitches and review phrases".into());
-    crate::vocal_generation::generate(crate::vocal_generation::Request {
+    let last=std::cell::Cell::new(js_sys::Date::now());
+    let progress=std::cell::RefCell::new(progress);
+    crate::vocal_generation::generate_cancellable(crate::vocal_generation::Request {
         audio,
         vocal_stem: &stem.path,
         alignment: &crate::clean::StemAlignment {
@@ -54,6 +56,8 @@ pub async fn generate(
         policy: &Default::default(),
         neural_pitch: Some(&neural),
         vocal_pitch: Some(&evidence),
+    },&||{
+        let now=js_sys::Date::now();if now-last.get()>1000.{last.set(now);progress.borrow_mut()("Assembling vocal pitch and phrase evidence locally…".into());}false
     })
 }
 

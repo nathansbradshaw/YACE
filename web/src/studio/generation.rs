@@ -18,7 +18,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut transcribed = use_signal(|| None::<(PathBuf, crate::mapping::Transcription)>);
     let mut draft = use_signal(||None::<PathBuf>);
     let mut requested=use_signal(||vec!["drums".to_owned(),"guitar".to_owned(),"bass".to_owned()]);
-    let mut vocal_report=use_signal(||None::<crate::vocal_generation::Generation>);
+    let mut vocal_report=use_signal(||None::<(PathBuf,crate::vocal_generation::Generation)>);
     let mut cancel = use_signal(|| None::<Cancel>);
     use_drop(move || {
         if let Some(cancel) = cancel.peek().as_ref()
@@ -31,11 +31,12 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         return rsx! {};
     }
     let source = (studio.source_audio)();
+    let attached=studio.snapshot().and_then(|doc|doc.content.stems.clone()).filter(|manifest|manifest.ids()==crate::stem_review::StemId::ALL.into_iter().collect());
     rsx! {Modal{id:"browser-generation",label:"Generate charts",onclose:move |_|studio.generation_open.set(false),
         section{class:"sections-dialog",
             h2{"Generate charts"}
             p{"Process the recording locally. Models are verified and cached in this browser."}
-            button{disabled:busy(),onclick:move |_|{spawn(async move{
+            button{disabled:busy(),onclick:move |_|{busy.set(true);failure.set(None);spawn(async move{
                 let root=PathBuf::from(format!("/model-import/{}",crate::storage::unique_id()));
                 let result=async{
                     let Some(files)=crate::files::pick(false,".onnx,.safetensors,.bin").await? else{return Ok(None)};
@@ -79,6 +80,24 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         cancel.set(None);busy.set(false);
                     });
                 },"Separate vocals and instruments"}
+                if let Some(manifest)=attached {
+                    button{disabled:busy(),onclick:move |_|{
+                        let manifest=manifest.clone();let Some(audio)=(studio.source_audio)()else{return};
+                        let output=PathBuf::from(format!("/generated/{}",crate::storage::unique_id()));
+                        busy.set(true);failure.set(None);status.set("Checking the chart’s separated audio…".into());
+                        dioxus::core::spawn_forever(async move{
+                            let result=async{
+                                let mut manifest=crate::worker::run::<StemManifest>(crate::worker::Task::ValidateStems{audio,manifest},&[]).await?;
+                                for stem in &mut manifest.stems {let path=output.join(format!("{}.wav",stem.id.as_str()));crate::storage::copy(&stem.path,&path)?;stem.path=path;}
+                                crate::models::remember_stems(&manifest)?;
+                                crate::storage::write(output.join("manifest.json"),serde_json::to_vec_pretty(&manifest)?)?;
+                                Ok::<_,anyhow::Error>(manifest)
+                            }.await;
+                            match result{Ok(manifest)=>{if let Some((previous,_))=ready.take(){crate::storage::clear(&previous);}ready.set(Some((output,manifest)));status.set("The chart’s separated audio is ready".into());},Err(error)=>{crate::storage::clear(&output);failure.set(Some(format!("{error:#}")));}}
+                            busy.set(false);
+                        });
+                    },"Use this chart’s separated audio"}
+                }
             } else {
                 p{"Choose a recording to start."}
                 button{onclick:move |_|{studio.generation_open.set(false);studio.new_chart();},"Choose recording…"}
@@ -99,7 +118,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         let roots=[root];let task=crate::worker::run_with_progress::<crate::vocal_generation::Generation>(crate::worker::Task::Vocals{audio,manifest,timing,output:output.clone()},&roots,progress);
                         futures_util::pin_mut!(task,receiver);
                         let result=match futures_util::future::select(task,receiver).await{futures_util::future::Either::Left((value,_))=>value,futures_util::future::Either::Right(_)=>Err(anyhow::anyhow!("Vocal generation cancelled; existing chart kept"))};
-                        match result{Ok(report)=>{status.set("Vocal pitch draft ready; missing lyrics remain marked for review".into());vocal_report.set(Some(report));},Err(error)=>{crate::storage::clear(&output);failure.set(Some(format!("{error:#}")));}}
+                        match result{Ok(report)=>{status.set("Vocal pitch draft ready; missing lyrics remain marked for review".into());vocal_report.set(Some((output,report)));},Err(error)=>{crate::storage::clear(&output);failure.set(Some(format!("{error:#}")));}}
                         busy.set(false);cancel.set(None);
                     });
                 }},"Generate vocal pitches"}
@@ -139,7 +158,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     let events=events.clone();let roots:Vec<_>=events.isolation.iter().flat_map(|m|m.stems.iter().filter_map(|s|s.path.parent().map(|p|p.to_owned()))).collect();
                     let meta=crate::pipeline::Metadata{name:studio.metadata_value("name"),artist:studio.metadata_value("artist"),album:studio.metadata_value("album"),year:studio.metadata_value("year"),genre:studio.metadata_value("genre"),duration:doc.duration};
                     let output=PathBuf::from(format!("/drafts/{}",crate::storage::unique_id()));
-                    let vocals=vocal_report().map(Box::new);
+                    let vocals=vocal_report().map(|(_,report)|Box::new(report));
                     let(sender,receiver)=futures_channel::oneshot::channel();cancel.set(Some(Rc::new(RefCell::new(Some(sender)))));
                     busy.set(true);failure.set(None);status.set("Building chart parts and review evidence…".into());
                     dioxus::core::spawn_forever(async move{
@@ -151,7 +170,10 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     });
                 },"Build chart draft"}
             }
-            if let Some(report)=vocal_report(){p{"{report.chart.as_ref().map_or(0,|chart|chart.notes.len())} vocal notes · {report.issues.len()} review issues"}}
+            if let Some((root,report))=vocal_report(){
+                p{"{report.chart.as_ref().map_or(0,|chart|chart.notes.len())} vocal notes · {report.issues.len()} review issues"}
+                button{onclick:move |_|studio.export_ready.set(Some((root.join("vocal-generation.json"),"vocal-generation.json".into(),DownloadKind::File))),"Save vocal evidence…"}
+            }
             if let Some(path)=draft(){button{disabled:busy(),onclick:move |_|{let path=path.clone();spawn(async move{match async{studio.persist_current().await?;studio.open_project(path).await}.await{Ok(())=>studio.generation_open.set(false),Err(error)=>failure.set(Some(format!("{error:#}")))}});},"Open generated draft"}}
             button{onclick:move |_|studio.generation_open.set(false),"Close"}
         }

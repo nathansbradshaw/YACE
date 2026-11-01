@@ -99,14 +99,15 @@ pub fn write(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> 
     write_owned(path, bytes.as_ref().to_vec())
 }
 pub fn write_owned(path: impl AsRef<Path>, bytes: Vec<u8>) -> io::Result<()> {
+    write_shared(path, Arc::new(bytes))
+}
+pub fn write_shared(path: impl AsRef<Path>, bytes: Arc<Vec<u8>>) -> io::Result<()> {
     invalidate(path.as_ref())?;
     DIRTY.with(|dirty| {
         dirty.borrow_mut().insert(path.as_ref().to_owned());
     });
     FILES.with(|files| {
-        files
-            .borrow_mut()
-            .insert(path.as_ref().to_owned(), Arc::new(bytes));
+        files.borrow_mut().insert(path.as_ref().to_owned(), bytes);
     });
     Ok(())
 }
@@ -163,8 +164,23 @@ pub fn clear(root: &Path) {
     DIRTY.with(|dirty| dirty.borrow_mut().retain(|path| !path.starts_with(root)));
 }
 pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
-    if exists(&path) {
-        Ok(path.as_ref().to_owned())
+    let mut normalized = PathBuf::new();
+    for component in path.as_ref().components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !normalized.pop() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Path leaves the browser working set",
+                    ));
+                }
+            }
+            component => normalized.push(component.as_os_str()),
+        }
+    }
+    if exists(&normalized) {
+        Ok(normalized)
     } else {
         Err(io::Error::new(
             io::ErrorKind::NotFound,

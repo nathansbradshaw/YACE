@@ -64,6 +64,11 @@ pub mod model_assets;
 pub mod models;
 #[path = "../../src/generation_build.rs"]
 pub mod generation_build;
+#[path="../../src/generation_protocol.rs"]
+pub mod generation_protocol;
+pub mod generation;
+#[path="../../src/lyric_language.rs"]
+pub mod lyric_language;
 #[path = "../../src/keyboard_separation_asset.rs"]
 pub mod keyboard_separation;
 pub mod onnx;

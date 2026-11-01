@@ -48,6 +48,19 @@ through the browser app, using the actual downloaded checkpoints:
   stem channels. A generated snare moved from tick 250 to 251; Undo restored 250.
 - The actual song ZIP was downloaded. Native inspection read all twelve tracks
   successfully with no error. Source/evidence and private results stay out of Git.
+- Browser Basic Pitch/SwiftF0/DSP vocal inference produced one pitched note at
+  ticks53–570, MIDI52, with a typed missing lyric. Its exported vocal JSON was
+  byte-identical to the native no-recognition/neural-pitch reference. Native
+  validation accepted the combined export. This does not establish sung-pitch
+  accuracy or lyric recognition.
+- Fresh import attached the missing-lyric review window and both checks. After
+  save/reload, the vocal note, pending review and audio sources were recovered.
+  Existing saved projects remained readable when large audio files moved to
+  checksum-verified shared IndexedDB blocks; mutable JSON keeps its existing
+  replacement encoding. Worker output aliases avoid copying the same audio
+  again for each generated project path.
+- The actual native picker reused the desktop pitch checkpoint and rejected an
+  invalid local model. No file was sent to an inference service.
 
 Regression coverage includes shared native decoding tests, native library tests,
 static-tool audio tests and strict WASM/native Clippy. Explicit ignored tests in
@@ -56,10 +69,11 @@ they require named private input paths and never fabricate inference results.
 
 ## Open gates
 
-- Recheck the latest optimized conversion and storage changes in the actual app.
-- Positive keyboard inference and native comparison, vocal generation/review,
+- Positive keyboard inference and native comparison, full-song vocal review,
   browser recognition/lyric alignment and the remaining optional detector modes.
-- Generating a selected part into an existing chart with source/timing/edit guards.
+- Finish recoverable browser generation jobs and generating a selected part into
+  an existing chart. The desktop's request/status protocol and source/timing/edit
+  guards are now shared; the browser job-stage/restore UI still needs completion.
 - Complete 243.880-second generator workflow, project recovery/backup and playable
   export in the actual browser, plus native interchange validation.
 - Full regression checks, final source rebase, push/merge and public static deploy

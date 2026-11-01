@@ -885,6 +885,15 @@ impl Studio {
                 Some(choice),
             )?;
             Store::new(&root).initialize(&root.join("source"), None, duration)?;
+            let report = crate::song_layout::resolve(
+                &root.join("source"),
+                "chart-engine-vocal-generation.json",
+            );
+            if crate::storage::is_file(&report) {
+                let report = serde_json::from_slice(&crate::storage::read(report)?)?;
+                let store = Store::new(&root);
+                crate::vocal_review::attach_generation(&store, store.load()?, &report)?;
+            }
         }
         let store = Store::new(&root);
         if saved_revision.is_none() {

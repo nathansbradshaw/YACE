@@ -504,10 +504,19 @@ async fn process(input: JsValue) -> Result<JsValue> {
     | Task::Separate { output, .. }
     | Task::Transcribe { output, .. } = &task
     {
+        let mut aliases = BTreeMap::new();
         for (path, bytes) in crate::storage::list(output)? {
             let row = js_sys::Array::new();
             row.push(&path.to_string_lossy().as_ref().into());
-            row.push(&js_sys::Uint8Array::from(bytes.as_slice()));
+            if let Some(source) = aliases.get(&std::sync::Arc::as_ptr(&bytes)) {
+                row.push(source);
+            } else {
+                row.push(&js_sys::Uint8Array::from(bytes.as_slice()));
+                aliases.insert(
+                    std::sync::Arc::as_ptr(&bytes),
+                    JsValue::from(path.to_string_lossy().as_ref()),
+                );
+            }
             files.push(&row);
         }
     }
@@ -734,12 +743,27 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
                         .context("Worker returned no result")?,
                 )?;
                 // Publish complete results only after successful processing.
+                let mut published = std::collections::BTreeSet::new();
                 for row in js_sys::Array::from(&field(&response, "files")?).iter() {
                     let row = js_sys::Array::from(&row);
-                    crate::storage::write_owned(
-                        row.get(0).as_string().context("Missing output path")?,
-                        js_sys::Uint8Array::new(&row.get(1)).to_vec(),
-                    )?;
+                    let path = row.get(0).as_string().context("Missing output path")?;
+                    ensure!(
+                        !published.contains(&path),
+                        "Worker returned duplicate output paths"
+                    );
+                    if let Some(source) = row.get(1).as_string() {
+                        ensure!(
+                            published.contains(&source),
+                            "Worker returned an invalid file alias"
+                        );
+                        crate::storage::copy(source, &path)?;
+                    } else {
+                        crate::storage::write_owned(
+                            &path,
+                            js_sys::Uint8Array::new(&row.get(1)).to_vec(),
+                        )?;
+                    }
+                    published.insert(path);
                 }
                 return Ok(result);
             }
