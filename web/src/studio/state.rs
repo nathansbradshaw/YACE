@@ -818,7 +818,7 @@ impl Studio {
             self.error.set(Some(format!("{error:#}")));
         }
     }
-    async fn persist_current(mut self) -> Result<()> {
+    pub(super) async fn persist_current(mut self) -> Result<()> {
         while (self.persistence_busy)() {
             gloo_timers::future::TimeoutFuture::new(20).await;
         }

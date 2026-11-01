@@ -23,13 +23,29 @@ impl Pcm {
         );
         let frames = self.stereo.len() / 2;
         ensure!(frames > 0, "Empty audio");
+        // Match the native float decoder's speaker matrix. Stereo-to-mono
+        // uses -3 dB per speaker; mono-to-stereo uses -3 dB per output.
+        // An arithmetic average quietly lowered every stereo model input.
+        let mono_gain = if self.channels == 1 {
+            0.5
+        } else {
+            std::f32::consts::FRAC_1_SQRT_2
+        };
+        let stereo_gain = if self.channels == 1 {
+            std::f32::consts::FRAC_1_SQRT_2
+        } else {
+            1.
+        };
         if rate == self.rate {
             return Ok(if channels == 2 {
-                self.stereo.clone()
+                self.stereo
+                    .iter()
+                    .map(|sample| sample * stereo_gain)
+                    .collect()
             } else {
                 self.stereo
                     .chunks_exact(2)
-                    .map(|s| (s[0] + s[1]) * 0.5)
+                    .map(|s| s[0] * mono_gain + s[1] * mono_gain)
                     .collect()
             });
         }
@@ -61,9 +77,9 @@ impl Pcm {
                 weight += w;
             }
             if channels == 1 {
-                out.push(((sum[0] + sum[1]) * 0.5 / weight) as f32);
+                out.push(((sum[0] + sum[1]) * mono_gain as f64 / weight) as f32);
             } else {
-                out.extend(sum.map(|s| (s / weight) as f32));
+                out.extend(sum.map(|s| (s * stereo_gain as f64 / weight) as f32));
             }
         }
         Ok(out)

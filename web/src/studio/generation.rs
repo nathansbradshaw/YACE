@@ -16,6 +16,8 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut failure = use_signal(|| None::<String>);
     let mut ready = use_signal(|| None::<(PathBuf, StemManifest)>);
     let mut transcribed = use_signal(|| None::<(PathBuf, crate::mapping::Transcription)>);
+    let mut draft = use_signal(||None::<PathBuf>);
+    let mut requested=use_signal(||vec!["drums".to_owned(),"guitar".to_owned(),"bass".to_owned()]);
     let mut cancel = use_signal(|| None::<Cancel>);
     use_drop(move || {
         if let Some(cancel) = cancel.peek().as_ref()
@@ -32,6 +34,13 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         section{class:"sections-dialog",
             h2{"Generate charts"}
             p{"Process the recording locally. Models are verified and cached in this browser."}
+            fieldset{disabled:busy(),legend{"Chart parts"}
+                for(label,_,id)in crate::parts::PARTS.into_iter().filter(|(_,_,id)|*id!="vocals") {
+                    label{input{r#type:"checkbox",checked:requested.read().iter().any(|part|part==id),onchange:move |event|{
+                        let mut selected=requested.write();selected.retain(|part|part!=id);if event.checked(){selected.push(id.into());}
+                    }},"{label}"}
+                }
+            }
             if let Some(source)=source {
                 p{"{source.file_name().unwrap_or_default().to_string_lossy()}"}
                 button{disabled:busy(),onclick:move |_|{
@@ -64,20 +73,20 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 p{"{manifest.frames} stereo frames · 44.1 kHz · source checksums verified"}
                 ul{for asset in &manifest.stems {li{"{asset.id.as_str()}"}}}
                 button{disabled:busy(),onclick:{let root=root.clone();let manifest=manifest.clone();move |_|{
-                    let root=root.clone();let manifest=manifest.clone();let Some(audio)=(studio.source_audio)() else{return};
+                    let root=root.clone();let manifest=manifest.clone();let Some(audio)=(studio.source_audio)() else{return};let wanted=requested();
                     let output=PathBuf::from(format!("/transcribed/{}",crate::storage::unique_id()));
                     let(sender,receiver)=futures_channel::oneshot::channel();cancel.set(Some(Rc::new(RefCell::new(Some(sender)))));
                     busy.set(true);failure.set(None);transcribed.set(None);
                     dioxus::core::spawn_forever(async move{
                         let progress=Rc::new(move|label:String|{let mut current=status;current.set(label.clone());let mut global=studio;global.status.set(label);});
                         let roots=[root];
-                        let task=crate::worker::run_with_progress::<crate::mapping::Transcription>(crate::worker::Task::Transcribe{audio,manifest,wanted:vec!["drums".into(),"guitar".into(),"bass".into()],output:output.clone()},&roots,progress);
+                        let task=crate::worker::run_with_progress::<crate::mapping::Transcription>(crate::worker::Task::Transcribe{audio,manifest,wanted,output:output.clone()},&roots,progress);
                         futures_util::pin_mut!(task,receiver);
                         let result=match futures_util::future::select(task,receiver).await{futures_util::future::Either::Left((value,_))=>value,futures_util::future::Either::Right(_)=>Err(anyhow::anyhow!("Generation cancelled; current chart kept"))};
                         match result{Ok(events)=>{status.set("Instrument detections ready for arrangement".into());transcribed.set(Some((output,events)));},Err(error)=>{crate::storage::clear(&output);failure.set(Some(format!("{error:#}")));}}
                         busy.set(false);cancel.set(None);
                     });
-                }},"Detect drums, guitar and bass"}
+                }},"Detect selected parts"}
                 button{onclick:move |_|{
                     let root=root.clone();spawn(async move{
                         let path=root.with_extension("zip");
@@ -89,12 +98,25 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 },"Save separated parts…"}
             }
             if let Some((root,events))=transcribed(){
-                p{"{events.drums.len()} drum hits · {events.guitar.len()} guitar notes · {events.bass.len()} bass notes"}
+                p{"{events.drums.len()} drum hits · {events.guitar.len()} guitar notes · {events.bass.len()} bass notes · {events.piano.len()} Keys · {events.pro_piano.len()} Pro Keys"}
                 button{onclick:move |_|{
                     let path=root.join("transcription.json");
                     studio.export_ready.set(Some((path,"transcription.json".into(),DownloadKind::File)));
                 },"Save transcription evidence…"}
+                button{disabled:busy(),onclick:move |_|{
+                    let Some(audio)=(studio.source_audio)() else{return};let Some(timing)=(studio.timing)() else{return};let Some(doc)=studio.snapshot() else{return};
+                    let events=events.clone();let roots:Vec<_>=events.isolation.iter().flat_map(|m|m.stems.iter().filter_map(|s|s.path.parent().map(|p|p.to_owned()))).collect();
+                    let meta=crate::pipeline::Metadata{name:studio.metadata_value("name"),artist:studio.metadata_value("artist"),album:studio.metadata_value("album"),year:studio.metadata_value("year"),genre:studio.metadata_value("genre"),duration:doc.duration};
+                    let output=PathBuf::from(format!("/drafts/{}",crate::storage::unique_id()));
+                    busy.set(true);failure.set(None);status.set("Building chart parts and review evidence…".into());
+                    dioxus::core::spawn_forever(async move{
+                        let result=crate::worker::run::<serde_json::Value>(crate::worker::Task::BuildDraft{audio,events:Box::new(events),timing,meta,pro:true,output:output.clone()},&roots).await;
+                        match result{Ok(_)=>{draft.set(Some(output));status.set("Chart draft ready to open and review".into());},Err(error)=>{crate::storage::clear(&output);failure.set(Some(format!("{error:#}")));}}
+                        busy.set(false);
+                    });
+                },"Build chart draft"}
             }
+            if let Some(path)=draft(){button{disabled:busy(),onclick:move |_|{let path=path.clone();spawn(async move{match async{studio.persist_current().await?;studio.open_project(path).await}.await{Ok(())=>studio.generation_open.set(false),Err(error)=>failure.set(Some(format!("{error:#}")))}});},"Open generated draft"}}
             button{onclick:move |_|studio.generation_open.set(false),"Close"}
         }
     }}

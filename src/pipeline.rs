@@ -2,11 +2,7 @@ pub use crate::song_files::{
     chart_file, copy_song_source, editable_chart_file, organize_song_stage, validate_existing,
 };
 pub use crate::song_metadata::{audio_file, ini_fields, song_ini, update_ini};
-use crate::{
-    chart::Chart,
-    mapping::Transcription,
-    midi, models,
-};
+use crate::{chart::Chart, mapping::Transcription, midi, models};
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use std::{
@@ -744,7 +740,9 @@ pub fn metadata(audio: &Path) -> Result<Metadata> {
     })
 }
 
-pub use crate::generation_build::{Build, build, build_with_lyrics, with_generated_rule_reviews,lyric_events};
+pub use crate::generation_build::{
+    Build, build, build_with_lyrics, lyric_events, with_generated_rule_reviews,
+};
 use crate::generation_build::{higher_quality_manifest, isolation_limits};
 
 pub fn lyrics(meta: &Metadata) -> Result<Option<serde_json::Value>> {
@@ -777,4 +775,3 @@ pub fn lyrics(meta: &Metadata) -> Result<Option<serde_json::Value>> {
             .is_some_and(|d| (d - meta.duration).abs() <= 2.0);
     Ok(matched.then_some(record))
 }
-

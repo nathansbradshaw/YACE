@@ -16,6 +16,14 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    BuildDraft {
+        audio: PathBuf,
+        events: Box<crate::mapping::Transcription>,
+        timing: crate::timing::TempoMap,
+        meta: crate::pipeline::Metadata,
+        pro: bool,
+        output: PathBuf,
+    },
     Transcribe {
         audio: PathBuf,
         manifest: crate::stem_review::StemManifest,
@@ -82,6 +90,14 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::BuildDraft { audio, events, .. } => std::iter::once(audio.clone())
+                .chain(
+                    events
+                        .isolation
+                        .iter()
+                        .flat_map(|m| m.stems.iter().map(|s| s.path.clone())),
+                )
+                .collect(),
             Self::Transcribe {
                 audio,
                 manifest,
@@ -92,7 +108,14 @@ impl Task {
                     manifest
                         .stems
                         .iter()
-                        .filter(|stem| wanted.iter().any(|name| name == stem.id.as_str()))
+                        .filter(|stem| {
+                            wanted.iter().any(|name| {
+                                name == stem.id.as_str()
+                                    || ((name == "piano" || name == "pro_piano")
+                                        && ["piano", "drums", "bass", "vocals"]
+                                            .contains(&stem.id.as_str()))
+                            })
+                        })
                         .map(|stem| stem.path.clone()),
                 )
                 .collect(),
@@ -123,6 +146,45 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
+            Self::BuildDraft {
+                audio,
+                events,
+                timing,
+                meta,
+                pro,
+                output,
+            } => {
+                if let Some(manifest) = &events.isolation {
+                    drop(manifest.load(audio)?);
+                    crate::models::remember_stems(manifest)?;
+                }
+                let report = crate::pipeline::build(crate::pipeline::Build {
+                    audio,
+                    output,
+                    existing: None,
+                    timing: Some(timing.clone()),
+                    transcription: events,
+                    meta: meta.clone(),
+                    pro: *pro,
+                    lookup_lyrics: false,
+                })?;
+                if let Some(manifest) = &events.isolation {
+                    let mut portable = manifest.clone();
+                    for stem in &mut portable.stems {
+                        let path = output
+                            .join(".yace/audio/separated")
+                            .join(format!("{}.wav", stem.id.as_str()));
+                        crate::storage::copy(&stem.path, &path)?;
+                        stem.path =
+                            PathBuf::from("separated").join(format!("{}.wav", stem.id.as_str()));
+                    }
+                    crate::storage::write(
+                        crate::song_layout::path(output, "chart-engine-isolation.json"),
+                        serde_json::to_vec_pretty(&portable)?,
+                    )?;
+                }
+                Ok(report)
+            }
             Self::Separate { .. } | Self::Transcribe { .. } => {
                 anyhow::bail!("Separation requires the asynchronous GPU worker")
             }
@@ -377,7 +439,8 @@ async fn process(input: JsValue) -> Result<JsValue> {
             files.push(&row);
         }
     }
-    if let Task::InspectRecording { output, .. }
+    if let Task::BuildDraft { output, .. }
+    | Task::InspectRecording { output, .. }
     | Task::Separate { output, .. }
     | Task::Transcribe { output, .. } = &task
     {

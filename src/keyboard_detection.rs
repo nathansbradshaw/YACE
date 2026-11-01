@@ -922,54 +922,18 @@ pub fn detect(
     drop(baseline_manifest.load(audio)?);
     let mut transcriber = piano_model::Transcriber::load(&model)?;
     let baseline = transcriber.transcribe(&baseline_manifest.stems[0].path, Default::default())?;
-    let (version, method, hashes, output, piano_audio, piano_multiview) = if baseline
-        .notes
-        .iter()
-        .any(|n| n.confidence >= 0.65)
-    {
+    let residual = if baseline.notes.iter().any(|note| note.confidence >= 0.65) {
         let prepared = keyboard_audio::prepare(audio, manifest)?;
-        let residual = piano_model::decode(
+        let output = piano_model::decode(
             &transcriber.infer_samples(&prepared.samples)?,
             Default::default(),
         )?;
-        let indices = piano_selected_indices(&baseline.notes, &residual.notes);
-        let pedals = baseline.pedals.clone();
-        let views = PianoViews {
-            baseline,
-            residual,
-            selection_policy: PIANO_SELECTION.into(),
-            selected_indices: indices,
-        };
-        let (notes, velocities) = selected_piano(&views);
-        let output = piano_model::Output {
-            method: piano_model::METHOD.into(),
-            notes,
-            velocities,
-            pedals,
-        };
-        let mut hashes = prepared.receipt.contributing_stem_sha256.clone();
-        hashes.extend(stem_hashes(manifest, sound)?);
-        (
-            6,
-            piano_multiview_method(),
-            hashes,
-            output,
-            Some(prepared.receipt),
-            Some(views),
-        )
+        Some((prepared.receipt, output))
     } else {
-        eprintln!(
-            "Piano review: no strong baseline piano attacks; skipped harmonic residual recovery to avoid unsupported accompaniment. Existing baseline output retained."
-        );
-        (
-            1,
-            sound.method().into(),
-            stem_hashes(manifest, sound)?,
-            baseline,
-            None,
-            None,
-        )
+        None
     };
+    let evidence = piano_from_views(manifest, baseline, residual)?;
+    let hashes = &evidence.stem_sha256;
     ensure!(
         models::hash_file(&model)?
             == models::assets()
@@ -979,7 +943,7 @@ pub fn detect(
                 .sha256,
         "Keyboard model changed during inference"
     );
-    for (name, hash) in &hashes {
+    for (name, hash) in hashes {
         let stem = manifest
             .stems
             .iter()
@@ -994,26 +958,7 @@ pub fn detect(
         models::hash_file(audio)? == manifest.source_audio_sha256,
         "Keyboard source changed during inference"
     );
-    Ok(Evidence {
-        version,
-        sound,
-        source_audio_sha256: manifest.source_audio_sha256.clone(),
-        duration_seconds: manifest.frames as f64 / 44100.,
-        stem_sha256: hashes,
-        model_id: sound.model_id().into(),
-        model_sha256: models::hash_file(&model)?,
-        implementation_sha256: implementation_hash(sound),
-        method,
-        score_semantics: sound.score_semantics().into(),
-        decoder_parameters: parameters(sound),
-        raw_notes: output.notes,
-        basic_pitch_candidates: vec![],
-        velocities: output.velocities,
-        pedals: output.pedals,
-        muscriptor: None,
-        piano_audio,
-        piano_multiview,
-    })
+    Ok(evidence)
 }
 /// Model ids needed by a complete Auto-Chart job, excluding optional lyric ASR.
 #[cfg(not(target_arch = "wasm32"))]
@@ -1063,4 +1008,78 @@ pub fn required_models_with_quality(
         ids.push("separation");
     }
     ids
+}
+
+/// Shared piano view selection and provenance, after actual inference.
+pub fn piano_from_views(
+    manifest: &StemManifest,
+    baseline: piano_model::Output,
+    residual: Option<(keyboard_audio::Receipt, piano_model::Output)>,
+) -> Result<Evidence> {
+    let sound = KeyboardSound::Piano;
+    let (version, method, hashes, output, piano_audio, piano_multiview) = if baseline
+        .notes
+        .iter()
+        .any(|n| n.confidence >= 0.65)
+    {
+        let (receipt, residual) =
+            residual.context("Strong piano baseline requires source-bound residual analysis")?;
+        let indices = piano_selected_indices(&baseline.notes, &residual.notes);
+        let pedals = baseline.pedals.clone();
+        let views = PianoViews {
+            baseline,
+            residual,
+            selection_policy: PIANO_SELECTION.into(),
+            selected_indices: indices,
+        };
+        let (notes, velocities) = selected_piano(&views);
+        let output = piano_model::Output {
+            method: piano_model::METHOD.into(),
+            notes,
+            velocities,
+            pedals,
+        };
+        let mut hashes = receipt.contributing_stem_sha256.clone();
+        hashes.extend(stem_hashes(manifest, sound)?);
+        (
+            6,
+            piano_multiview_method(),
+            hashes,
+            output,
+            Some(receipt),
+            Some(views),
+        )
+    } else {
+        eprintln!(
+            "Piano review: no strong baseline piano attacks; skipped harmonic residual recovery to avoid unsupported accompaniment. Existing baseline output retained."
+        );
+        (
+            1,
+            sound.method().into(),
+            stem_hashes(manifest, sound)?,
+            baseline,
+            None,
+            None,
+        )
+    };
+    Ok(Evidence {
+        version,
+        sound,
+        source_audio_sha256: manifest.source_audio_sha256.clone(),
+        duration_seconds: manifest.frames as f64 / 44100.,
+        stem_sha256: hashes,
+        model_id: sound.model_id().into(),
+        model_sha256: piano_model::MODEL_SHA256.into(),
+        implementation_sha256: implementation_hash(sound),
+        method,
+        score_semantics: sound.score_semantics().into(),
+        decoder_parameters: parameters(sound),
+        raw_notes: output.notes,
+        basic_pitch_candidates: vec![],
+        velocities: output.velocities,
+        pedals: output.pedals,
+        muscriptor: None,
+        piano_audio,
+        piano_multiview,
+    })
 }

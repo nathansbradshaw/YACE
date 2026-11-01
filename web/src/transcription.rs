@@ -17,7 +17,8 @@ pub async fn instruments(
         !wanted.is_empty()
             && wanted
                 .iter()
-                .all(|name| ["guitar", "bass", "drums"].contains(&name.as_str())),
+                .all(|name| ["guitar", "bass", "drums", "piano", "pro_piano"]
+                    .contains(&name.as_str())),
         "Choose supported instrument parts"
     );
     let duration = manifest.frames as f64 / 44100.;
@@ -47,6 +48,7 @@ pub async fn instruments(
         out.drum_recovered_hits = recovered;
         out.drum_articulations =
             crate::drum_articulation::analyze(&models::decode(&path, 22050, 1)?, &out.drums)?;
+        cymbals(&path, &out.drums, &mut out.drum_articulations, progress).await?;
         out.drum_articulation_source =
             Some(crate::drum_articulation::Source::from_manifest(manifest)?);
     }
@@ -88,9 +90,81 @@ pub async fn instruments(
         crate::bass_analysis::record_decoder_identity(&mut out, &path, hash)?;
         crate::bass_analysis::analyze(&mut out, &path)?;
     }
+    if wanted.iter().any(|n| n == "piano" || n == "pro_piano") {
+        let path = stem("piano")?;
+        let model = Runtime::load("piano", progress, true).await?;
+        let baseline = piano_samples(&models::decode(&path, 16000, 1)?, &model, progress).await?;
+        let residual = if baseline.notes.iter().any(|n| n.confidence >= 0.65) {
+            let prepared = crate::keyboard_audio::prepare(audio, manifest)?;
+            let output = piano_samples(&prepared.samples, &model, progress).await?;
+            Some((prepared.receipt, output))
+        } else {
+            None
+        };
+        let evidence = crate::keyboard_detection::piano_from_views(manifest, baseline, residual)?;
+        if wanted.iter().any(|n| n == "piano") {
+            out.piano = evidence.raw_notes.clone();
+        }
+        if wanted.iter().any(|n| n == "pro_piano") {
+            out.pro_piano = evidence.raw_notes.clone();
+        }
+        out.keyboard_detection = Some(evidence);
+    }
     out.warnings.push("Automatic model detections and arrangements require listening review. Model scores do not establish musical correctness.".into());
     out.validate()?;
     Ok(out)
+}
+
+async fn cymbals(
+    audio: &Path,
+    hits: &[DrumHit],
+    evidence: &mut [crate::drum_articulation::Evidence],
+    progress: &mut impl FnMut(String),
+) -> Result<()> {
+    let samples = models::decode(audio, 44100, 1)?;
+    let count = samples.len() / 441 + 1;
+    let model = Runtime::load("drum-articulation", progress, false).await?;
+    let mut frames = vec![[0.; 8]; count];
+    for core in (0..samples.len()).step_by(20 * 44100) {
+        progress(format!(
+            "Detecting cymbal articulations · {:.0}/{:.0} seconds",
+            core as f64 / 44100.,
+            samples.len() as f64 / 44100.
+        ));
+        let start = core.saturating_sub(3 * 44100);
+        let end = (core + 23 * 44100).min(samples.len());
+        let mut chunk = samples[start..end].to_vec();
+        chunk.resize(chunk.len().max(44100), 0.);
+        let outputs = model.run("waveform", &chunk, &[1, chunk.len()]).await?;
+        let output = Runtime::output(&outputs, "onset_probs")?;
+        ensure!(
+            output.shape == [1, chunk.len() / 441 + 1, 8],
+            "Unexpected detailed drum output shape"
+        );
+        let local = (core - start) / 441;
+        let global = core / 441;
+        let take = if core + 20 * 44100 >= samples.len() {
+            count - global
+        } else {
+            2000.min(count - global)
+        };
+        ensure!(
+            (local + take) * 8 <= output.values.len(),
+            "Detailed drum output shorter than source clock"
+        );
+        for (frame, values) in frames[global..global + take]
+            .iter_mut()
+            .zip(output.values[local * 8..(local + take) * 8].chunks_exact(8))
+        {
+            frame.copy_from_slice(values);
+        }
+    }
+    crate::drum_articulation::classify_cymbals(
+        &frames,
+        hits,
+        evidence,
+        samples.len() as f64 / 44100.,
+    )
 }
 
 pub async fn drums(
@@ -198,14 +272,21 @@ pub async fn piano(
     audio: &Path,
     progress: &mut impl FnMut(String),
 ) -> Result<crate::piano_model::Output> {
+    let samples = models::decode(audio, 16000, 1)?;
+    let model = Runtime::load("piano", progress, true).await?;
+    piano_samples(&samples, &model, progress).await
+}
+async fn piano_samples(
+    samples: &[f32],
+    model: &Runtime,
+    progress: &mut impl FnMut(String),
+) -> Result<crate::piano_model::Output> {
     const WINDOW: usize = 160000;
     const HOP: usize = 80000;
-    let samples = models::decode(audio, 16000, 1)?;
     ensure!(
         !samples.is_empty(),
         "Piano inference requires nonempty audio"
     );
-    let model = Runtime::load("piano", progress, true).await?;
     let heads = [
         ("reg_onset_output", 88),
         ("reg_offset_output", 88),

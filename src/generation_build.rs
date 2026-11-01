@@ -694,10 +694,9 @@ impl Drop for Stage {
 }
 #[cfg(target_arch = "wasm32")]
 fn staging(output: &Path) -> Result<Stage> {
-    Ok(Stage(output.with_file_name(format!(
-        ".chart-engine-{}",
-        fs::unique_id()
-    ))))
+    let path = output.with_file_name(format!(".chart-engine-{}", fs::unique_id()));
+    fs::create_dir_all(&path)?;
+    Ok(Stage(path))
 }
 #[cfg(not(target_arch = "wasm32"))]
 fn convert_audio(audio: &Path, output: &Path) -> Result<()> {

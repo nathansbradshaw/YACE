@@ -58,6 +58,7 @@ pub fn implementation_hash() -> String {
     let mut hash = Sha256::new();
     hash.update(include_bytes!("vocal_pitch.rs"));
     hash.update(include_bytes!("models.rs"));
+    hash.update(include_bytes!("models/postprocessing.rs"));
     hash.update(include_bytes!("../Cargo.lock"));
     format!("{:x}", hash.finalize())
 }

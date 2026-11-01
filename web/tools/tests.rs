@@ -1,6 +1,76 @@
 use super::audio_decode::{self, Pcm};
 
 #[test]
+#[ignore="Requires YACE_BROWSER_TRANSCRIPTION actual app download and YACE_NATIVE_TRANSCRIPTION reference"]
+fn actual_browser_transcription_matches_native_notes_and_source_clocks(){
+    use serde_json::Value;use std::fs;
+    let read=|key|->Value{serde_json::from_slice(&fs::read(std::env::var_os(key).expect("Explicit real model output required")).unwrap()).unwrap()};
+    let browser=read("YACE_BROWSER_TRANSCRIPTION");let native=read("YACE_NATIVE_TRANSCRIPTION");
+    assert_eq!(browser["isolation"]["source_audio_sha256"],native["isolation"]["source_audio_sha256"]);
+    for instrument in ["drums","guitar","bass"]{
+        let ours=browser[instrument].as_array().unwrap();let theirs=native[instrument].as_array().unwrap();assert_eq!(ours.len(),theirs.len(),"{instrument} detection count");
+        let mut max_time=0f64;let mut max_score=0f64;
+        for(a,b)in ours.iter().zip(theirs){
+            for field in if instrument=="drums"{vec!["time"]}else{vec!["start","end"]}{let delta=(a[field].as_f64().unwrap()-b[field].as_f64().unwrap()).abs();max_time=max_time.max(delta);assert!(delta<1e-9,"{instrument} {field} differs: {a} / {b}");}
+            let identity=if instrument=="drums"{"voice"}else{"pitch"};assert_eq!(a[identity],b[identity],"{instrument} note identity");
+            let delta=(a["confidence"].as_f64().unwrap()-b["confidence"].as_f64().unwrap()).abs();max_score=max_score.max(delta);assert!(delta<0.002,"{instrument} score differs");
+        }
+        eprintln!("{instrument}: {} notes, maximum time delta {max_time}, maximum score delta {max_score}",ours.len());
+    }
+}
+
+#[test]
+fn analysis_speaker_matrix_matches_the_native_float_decoder() {
+    use std::{fs, process::Command};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("stereo.wav");
+    let pcm = Pcm {
+        stereo: (0..4410)
+            .flat_map(|i| {
+                [
+                    ((i as f32) * 0.03).sin() * 0.8,
+                    ((i as f32) * 0.07).sin() * 0.4,
+                ]
+            })
+            .collect(),
+        rate: 44100,
+        channels: 2,
+    };
+    fs::write(&path, pcm.float_wave().unwrap()).unwrap();
+    let result = Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(&path)
+        .args(["-ac", "1", "-f", "f32le", "pipe:1"])
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    let native: Vec<_> = result
+        .stdout
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+        .collect();
+    let ours = pcm.samples(44100, 1).unwrap();
+    assert_eq!(ours.len(), native.len());
+    assert!(
+        ours.iter()
+            .zip(native)
+            .all(|(a, b)| (a - b).abs() < 0.000001)
+    );
+    let mono = Pcm {
+        stereo: vec![0.25; 200],
+        rate: 44100,
+        channels: 1,
+    };
+    assert!(mono.samples(44100, 1).unwrap().iter().all(|s| *s == 0.25));
+    assert!(
+        mono.samples(44100, 2)
+            .unwrap()
+            .iter()
+            .all(|s| (*s - 0.25 * std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-8)
+    );
+}
+
+#[test]
 #[ignore = "Requires explicit YACE_NATIVE_STEMS and the actual browser download YACE_BROWSER_STEMS_ZIP"]
 fn actual_browser_separation_matches_the_native_model_and_source_clock() {
     use sha2::{Digest, Sha256};
@@ -328,7 +398,7 @@ fn sample_conversion_preserves_duration_dc_and_stereo_polarity() {
         pcm.samples(22050, 1)
             .unwrap()
             .iter()
-            .all(|s| (*s + 0.125).abs() < 1e-6)
+            .all(|s| (*s + 0.125 * std::f32::consts::SQRT_2).abs() < 1e-6)
     );
     assert_eq!(pcm.samples(48000, 2).unwrap(), pcm.stereo);
 }
