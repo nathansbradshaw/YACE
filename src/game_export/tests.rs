@@ -240,7 +240,7 @@ fn six_fret_parts_survive_project_export_and_reopen() {
     let folder = root.path().join("song");
     fs::create_dir(&folder).unwrap();
     let source = chart(
-        "[ExpertSingle]\n{\n0 = N 0 0\n}\n[ExpertGHLGuitar]\n{\n120 = N 8 240\n}\n[HardGHLBass]\n{\n240 = N 7 120\n}\n",
+        "[ExpertSingle]\n{\n0 = N 0 0\n}\n[ExpertGHLGuitar]\n{\n120 = N 8 240\n}\n[HardGHLBass]\n{\n240 = N 7 120\n}\n[ExpertKeyboard]\n{\n0 = N 0 0\n120 = N 1 0\n120 = N 5 0\n240 = N 2 0\n240 = N 6 0\n480 = N 7 120\n}\n",
     );
     fs::write(folder.join("notes.chart"), &source.raw).unwrap();
     fs::write(folder.join("song.ini"), "[song]\nname = Six fret fixture\n").unwrap();
@@ -272,6 +272,8 @@ fn six_fret_parts_survive_project_export_and_reopen() {
     let smf = Smf::parse(&bytes).unwrap();
     assert_eq!(spans(track(&smf, "PART GUITAR GHL"), 100), [(120, 360)]);
     assert_eq!(spans(track(&smf, "PART BASS GHL"), 82), [(240, 360)]);
+    assert_eq!(spans(track(&smf, "PART KEYS"), 95), [(480, 600)]);
+    assert!(spans(track(&smf, "PART KEYS"), 102).contains(&(120, 121)));
     let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
     assert_eq!(
         reopened.load().unwrap().chart_text(&reopened).unwrap(),
@@ -281,4 +283,46 @@ fn six_fret_parts_survive_project_export_and_reopen() {
         fs::read_to_string(folder.join("notes.chart")).unwrap(),
         source.raw
     );
+}
+
+#[test]
+fn five_lane_keys_preserves_open_notes_and_difficulty_scoped_techniques() {
+    let mut parts = String::from("[ExpertProKeys]\n{\n0 = N 60 120\n}\n");
+    for tier in ["Easy", "Medium", "Hard", "Expert"] {
+        parts.push_str(&format!("[{tier}Keyboard]\n{{\n0 = N 0 240\n120 = N 1 0\n240 = N 1 0\n240 = N 5 0\n360 = N 2 0\n360 = N 6 0\n480 = N 7 120\n0 = S 2 600\n}}\n"));
+    }
+    let source = chart(&parts);
+    let bytes = song(&source, Some(&vocals())).unwrap().0;
+    let smf = Smf::parse(&bytes).unwrap();
+    let events = track(&smf, "PART KEYS");
+    for difficulty in 0..4u8 {
+        let base = 60 + difficulty * 12;
+        assert_eq!(spans(events, base), [(0, 240)]);
+        assert_eq!(spans(events, base - 1), [(480, 600)]);
+        assert_eq!(
+            spans(events, base + 5),
+            [(120, 121), (240, 241), (480, 481)]
+        );
+        assert!(events.iter().any(|event| matches!(event.kind,
+            TrackEventKind::SysEx(data) if data == [b'P', b'S', 0, 0, difficulty, 4, 1, 0xf7])));
+    }
+    assert_eq!(spans(events, 116), [(0, 600)]);
+    assert_eq!(
+        crate::vocals::import_midi(&bytes).unwrap().notes,
+        vocals().notes
+    );
+    let notes = source.notes("ExpertKeyboard").unwrap();
+    let policy = crate::gameplay_view::yarg_chart_policy(480, &Default::default()).unwrap();
+    let piano =
+        crate::gameplay_view::classify("ExpertKeyboard", &notes, &source.timing, &policy).unwrap();
+    assert!(piano.iter().all(|gem| gem.technique.is_none()));
+    assert!(piano.iter().all(|gem| gem.lane <= 4));
+}
+
+#[test]
+fn five_lane_keys_rejects_orphan_flags_and_unrecognized_lanes() {
+    for row in ["0 = N 5 0", "0 = N 6 0", "0 = N 8 0"] {
+        let source = chart(&format!("[ExpertKeyboard]\n{{\n{row}\n}}\n"));
+        assert!(song(&source, Some(&vocals())).is_err());
+    }
 }

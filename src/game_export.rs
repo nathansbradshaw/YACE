@@ -186,13 +186,13 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
         let frets = six_fret
             || matches!(
                 suffix,
-                "Single" | "DoubleBass" | "DoubleRhythm" | "DoubleGuitar"
+                "Single" | "DoubleBass" | "DoubleRhythm" | "DoubleGuitar" | "Keyboard"
             );
         if frets {
             use crate::gameplay_view::{self, Technique};
             let policy = gameplay_view::yarg_chart_policy(chart.timing.resolution, ini)?;
             let attacks: BTreeMap<_, _> =
-                gameplay_view::classify(&section.name, &notes, &chart.timing, &policy)?
+                gameplay_view::classify_for_midi(&section.name, &notes, &chart.timing, &policy)?
                     .into_iter()
                     .map(|gem| (gem.tick, gem.technique))
                     .collect();
