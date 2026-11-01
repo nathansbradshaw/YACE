@@ -1195,6 +1195,9 @@ impl Store {
         let id = hash(&bytes);
         let path = self.root.join("checkpoints").join(format!("{id}.json"));
         if !path.exists() {
+            // Portable archives contain files, so a project with no edits may
+            // arrive without an empty checkpoints directory.
+            fs::create_dir_all(self.root.join("checkpoints"))?;
             let mut file = tempfile::NamedTempFile::new_in(self.root.join("checkpoints"))?;
             file.write_all(&bytes)?;
             file.as_file().sync_all()?;

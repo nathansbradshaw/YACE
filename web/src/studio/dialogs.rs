@@ -86,16 +86,33 @@ impl AsyncFileDialog {
 }
 pub async fn download(path: &Path) {
     let result = (|| -> anyhow::Result<()> {
+        let mut studio = dioxus::prelude::try_consume_context::<super::state::Studio>()
+            .ok_or_else(|| anyhow::anyhow!("Open the editor to download this file"))?;
         let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let root = crate::files::unique_root();
+        let name = if crate::storage::is_file(path) {
+            name.into_owned()
+        } else {
+            format!("{name}.zip")
+        };
+        let output = root.join(&name);
         if crate::storage::is_file(path) {
-            crate::files::download(&name, &crate::storage::shared(path)?)
+            crate::storage::copy(path, &output)?;
         } else {
             anyhow::ensure!(
                 !crate::storage::list(path)?.is_empty(),
                 "No export files were produced"
             );
-            crate::files::download(&format!("{name}.zip"), &crate::files::archive(path)?)
+            crate::storage::write_owned(&output, crate::files::archive(path)?)?;
         }
+        if let Some((previous, _, _)) =
+            studio
+                .export_ready
+                .replace(Some((output, name, super::state::DownloadKind::File)))
+        {
+            crate::storage::clear(&previous);
+        }
+        Ok(())
     })();
     if let Err(error) = result {
         report(error);

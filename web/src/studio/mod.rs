@@ -168,9 +168,10 @@ pub fn App() -> Element {
     if (studio.review_open)(){review::ReviewPanel{studio}}
     if (studio.parts_open)(){parts::PartsPanel{studio}}
     if (studio.collaboration_open)(){collaboration::Collaboration{studio}}
-    if let Some((path,name,project))=(studio.export_ready)(){modal::Modal{id:"song-export",label:"ZIP download",onclose:move |_|studio.close_export(),h2{if project{"Project backup ready"}else{"Song export ready"}}
+    if let Some((path,name,kind))=(studio.export_ready)(){modal::Modal{id:"song-export",label:"File download",onclose:move |_|studio.close_export(),h2{match kind{state::DownloadKind::Project=>"Project backup ready",state::DownloadKind::Song=>"Song export ready",state::DownloadKind::File=>"File ready to download"}}
         p{"Download the prepared copy. Your editing project stays saved in this browser."}
-        button{onclick:move |_|{let result=crate::storage::shared(&path).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download(&name,&bytes));if let Err(error)=result{let mut s=studio;s.error.set(Some(format!("{error:#}")));}},if project{"Download project ZIP"}else{"Download song ZIP"}}
+        p{style:"overflow-wrap:anywhere","{name}"}
+        button{onclick:move |_|{let result=crate::storage::shared(&path).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download(&name,&bytes));if let Err(error)=result{let mut s=studio;s.error.set(Some(format!("{error:#}")));}},match kind{state::DownloadKind::Project=>"Download project ZIP",state::DownloadKind::Song=>"Download song ZIP",state::DownloadKind::File=>"Download file"}}
         button{onclick:move |_|studio.close_export(),"Close"}
     }}
     if let Some(entries)=(studio.saved_projects)(){modal::Modal{id:"saved-projects",label:"Saved in this browser",onclose:move |_|{let mut s=studio;s.saved_projects.set(None);},h2{"Saved in this browser"}

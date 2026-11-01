@@ -29,6 +29,7 @@ pub fn Modal(
     rsx! {
         dialog {
             id,
+            role: "dialog",
             class: "studio-modal-portal",
             aria_label: label,
             aria_modal: "true",

@@ -15,6 +15,12 @@ pub enum EditTool {
     Place,
     Erase,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DownloadKind {
+    Song,
+    Project,
+    File,
+}
 #[derive(Clone, Debug)]
 pub struct ReviewWaveforms {
     pub original: Arc<Waveform>,
@@ -27,7 +33,7 @@ pub struct Studio {
     pub library_selected: Signal<Option<usize>>,
     library_files: Signal<Option<Rc<crate::files::FolderSelection>>>,
     pub saved_projects: Signal<Option<Vec<crate::chart_library::Entry>>>,
-    pub export_ready: Signal<Option<(PathBuf, String, bool)>>,
+    pub export_ready: Signal<Option<(PathBuf, String, DownloadKind)>>,
     pub export_busy: Signal<bool>,
     pub doc: Signal<Option<Arc<Project>>>,
     pub store: Signal<Option<Store>>,
@@ -968,7 +974,8 @@ impl Studio {
                 .await?;
                 let archive = output.with_extension("zip");
                 if let Some((previous, _, _)) =
-                    self.export_ready.replace(Some((archive, name, false)))
+                    self.export_ready
+                        .replace(Some((archive, name, DownloadKind::Song)))
                 {
                     crate::storage::clear(&previous);
                 }
@@ -1010,7 +1017,8 @@ impl Studio {
                 )
                 .await?;
                 if let Some((previous, _, _)) =
-                    self.export_ready.replace(Some((output, name, true)))
+                    self.export_ready
+                        .replace(Some((output, name, DownloadKind::Project)))
                 {
                     crate::storage::clear(&previous);
                 }

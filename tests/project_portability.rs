@@ -90,6 +90,39 @@ fn write(root: &Path, files: &Files) {
 }
 
 #[test]
+fn imported_unedited_project_can_make_its_first_checkpoint_and_undo() {
+    let temp = tempfile::tempdir().unwrap();
+    let (original, _) = fixture(temp.path());
+    let fresh = Store::create(
+        &original.root.join("source"),
+        None,
+        &temp.path().join("fresh"),
+    )
+    .unwrap();
+    let archive = temp.path().join("fresh.zip");
+    chart_engine::project_files::backup(&fresh, &archive).unwrap();
+    let imported =
+        chart_engine::project_files::import(&archive, &temp.path().join("imported")).unwrap();
+    assert!(!imported.root.join("checkpoints").exists());
+    command(
+        &imported,
+        Action::AddNote {
+            track: "ExpertSingle".into(),
+            tick: 480,
+            lane: 0,
+            sustain: 0,
+            cymbal: false,
+        },
+    );
+    assert_eq!(
+        imported.load().unwrap().content.tracks["ExpertSingle"].len(),
+        1
+    );
+    command(&imported, Action::Undo);
+    assert!(imported.load().unwrap().content.tracks["ExpertSingle"].is_empty());
+}
+
+#[test]
 fn relocated_stems_and_content_addressed_history_survive_undo_and_redo() {
     let temp = tempfile::tempdir().unwrap();
     let (store, stem) = fixture(temp.path());
