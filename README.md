@@ -42,7 +42,8 @@ The desktop app opens when you run YACE without arguments. The executable and
 Cargo package are named `chart-engine`.
 
 1. Choose **Import audio** and select a local audio file.
-2. Check the song information, tempo and instruments.
+2. Check the song information, tempo and instruments. [Look up missing song details
+   and cover art](docs/IMPORTING.md), or create a blank chart for manual authoring.
 3. Generate into a new folder.
 4. Listen to each part, edit the draft, then export a separate song folder.
 

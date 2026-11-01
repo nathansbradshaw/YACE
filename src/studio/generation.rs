@@ -3,7 +3,7 @@ use super::dialogs as rfd;
 use super::state::Studio;
 use crate::{
     generation::{self, Request, Source, State, Status},
-    pipeline, song_import, tempo_analysis,
+    pipeline, song_import,
 };
 use anyhow::{Context, Result, ensure};
 use dioxus::prelude::*;
@@ -209,6 +209,7 @@ struct View {
     info: Option<song_import::SongInfo>,
     song_details_open: bool,
     cover_preview: Option<String>,
+    duration: f64,
 }
 impl Default for View {
     fn default() -> Self {
@@ -249,6 +250,7 @@ impl Default for View {
             info: None,
             song_details_open: false,
             cover_preview: None,
+            duration: 0.0,
         }
     }
 }
@@ -388,15 +390,11 @@ fn local_file(mut data: Signal<View>) {
         };
         let path = selected.path().to_owned();
         let input = path.clone();
-        match tokio::task::spawn_blocking(move || -> Result<_> {
-            Ok((
-                pipeline::metadata(&input)?,
-                tempo_analysis::analyze(&input)?,
-            ))
-        })
-        .await
+        match tokio::task::spawn_blocking(move || -> Result<_> { song_import::local(&input) }).await
         {
-            Ok(Ok((meta, tempo))) => data.with_mut(|v| {
+            Ok(Ok(recording)) => data.with_mut(|v| {
+                let meta = recording.metadata;
+                let tempo = &recording.info.tempo;
                 v.busy = false;
                 v.error = None;
                 v.title = if meta.name.is_empty() {
@@ -408,24 +406,109 @@ fn local_file(mut data: Signal<View>) {
                     meta.name
                 };
                 v.artist = meta.artist;
-                v.song_details_open = v.title.trim().is_empty() || v.artist.trim().is_empty();
+                v.song_details_open = true;
                 v.bpm = tempo.bpm.unwrap_or(120.0).to_string();
                 v.use_detected_timing = !tempo.segments.is_empty();
-                v.info = Some(song_import::SongInfo {
-                    album: meta.album,
-                    year: meta.year,
-                    genre: meta.genre,
-                    tempo,
-                    ..Default::default()
-                });
+                v.cover_preview = recording.info.artwork.as_deref().and_then(cover_data);
+                v.info = Some(recording.info);
+                v.duration = meta.duration;
                 v.name = format!("{} chart", v.title.replace(['/', ':'], "-"));
                 v.notice = format!(
                     "Recording loaded · {:.1} seconds. Metadata and estimated tempo are editable.",
                     meta.duration
                 );
                 v.audio = Some(path);
-                v.cover_preview = None;
             }),
+            Ok(Err(error)) => fail(data, format!("{error:#}")),
+            Err(error) => fail(data, error),
+        }
+    });
+}
+
+fn lookup_song(mut data: Signal<View>) {
+    let view = data.read().clone();
+    let Some(audio) = view.audio else {
+        return;
+    };
+    data.with_mut(|v| {
+        v.busy = true;
+        v.started_ms = Some(crate::generation_progress::now_ms());
+        v.notice = "Looking up song information and cover art…".into();
+        v.error = None;
+    });
+    spawn(async move {
+        let result = tokio::task::spawn_blocking(move || -> Result<_> {
+            let mut info = view.info.unwrap_or_default();
+            let mut metadata = pipeline::Metadata {
+                name: view.title,
+                artist: view.artist,
+                album: info.album.clone(),
+                year: info.year.clone(),
+                genre: info.genre.clone(),
+                duration: view.duration,
+            };
+            song_import::lookup(
+                &mut metadata,
+                &mut info,
+                &song_import::artwork_cache(&audio)?,
+                view.lyrics,
+            )?;
+            let preview = info.artwork.as_deref().and_then(cover_data);
+            Ok((info, preview))
+        })
+        .await;
+        match result {
+            Ok(Ok((info, preview))) => data.with_mut(|v| { v.info = Some(info); v.cover_preview = preview; v.busy = false; v.notice = "Lookup complete. Review song details and sources; edit the title or artist and retry if needed.".into(); }),
+            Ok(Err(error)) => fail(data, format!("{error:#}")),
+            Err(error) => fail(data, error),
+        }
+    });
+}
+
+fn create_blank(mut studio: Studio, mut data: Signal<View>) {
+    let view = data.read().clone();
+    let result = (|| -> Result<_> {
+        let audio = view.audio.clone().context("Choose an audio file")?;
+        let output = view.output()?;
+        let recording = song_import::RecordingInfo {
+            metadata: pipeline::Metadata {
+                name: view.title.clone(),
+                artist: view.artist.clone(),
+                duration: view.duration,
+                ..Default::default()
+            },
+            info: view.info.clone().unwrap_or_default(),
+        };
+        let bpm = if view.use_detected_timing {
+            None
+        } else {
+            Some(view.bpm.parse().context("Enter BPM")?)
+        };
+        Ok((audio, recording, bpm, output))
+    })();
+    let (audio, recording, bpm, output) = match result {
+        Ok(values) => values,
+        Err(error) => {
+            fail(data, error);
+            return;
+        }
+    };
+    data.with_mut(|v| {
+        v.busy = true;
+        v.notice = "Creating an editable song project…".into();
+        v.error = None;
+    });
+    spawn(async move {
+        match tokio::task::spawn_blocking(move || {
+            song_import::create_project(&audio, &recording, bpm, &output)
+        })
+        .await
+        {
+            Ok(Ok(project)) => {
+                data.write().busy = false;
+                studio.open_project(project).await;
+                studio.generation_open.set(false);
+            }
             Ok(Err(error)) => fail(data, format!("{error:#}")),
             Err(error) => fail(data, error),
         }
@@ -905,6 +988,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         if saved&&!busy&&!complete{button{class:"action-primary",onclick:move|_|{let root=data.read().root.clone();if let Some(root)=root && let Err(error)=launch_worker(data,root){fail(data,format!("{error:#}"));}},"Resume generation"}}
                         if complete && part_mode { button { class: "action-primary", disabled: busy || view.applied, onclick: move |_| apply_part(studio, data), if view.applied { "Applied" } else if replaces_part { "Replace {part_title}" } else { "Add {part_title}" } } }
                         if complete && !part_mode{button{class:"action-primary",onclick:move|_|{spawn(async move{let root=data.read().root.clone();if let Some(root)=root{studio.open_project(generation::project_path(&root)).await;studio.generation_open.set(false);}});},"Open generated chart"}}
+                        if !saved && !part_mode { button { class:"action-secondary", disabled:busy || view.audio.is_none() || view.title.trim().is_empty() || view.artist.trim().is_empty() || view.output().is_err(), onclick:move |_|create_blank(studio, data), "Create blank chart" } }
                         if !saved{button{class:"action-primary",disabled:busy||!can_generate,title:"{validation}",aria_describedby: if !busy && !can_generate { Some("generation-validation") } else { None },onclick:move|_|generate(data),if busy{"Working…"}else if part_mode{"Generate part"}else{"Generate charts"}}}
                     }
                  },
@@ -921,6 +1005,12 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                             label{class:"generation-field","New song folder name",input{class:"field-control",value:"{view.name}",oninput:move|e|data.write().name=e.value()}}
                         }
                         p{class:"field-hint","Filled in from the recording. Editing BPM switches to a constant tempo."}
+                        div { class:"generation-actions",
+                            button { class:"action-secondary", disabled:view.audio.is_none() || view.title.trim().is_empty() || view.artist.trim().is_empty(), onclick:move |_|lookup_song(data), "Look up song info & cover art" }
+                            button { class:"action-secondary", disabled:view.audio.is_none(), onclick:move |_|choose_artwork(data), "Choose cover art…" }
+                            if view.info.as_ref().is_some_and(|info| info.artwork.is_some()) { button { class:"action-secondary", onclick:move |_|data.with_mut(|v| { v.cover_preview = None; if let Some(info) = &mut v.info { info.artwork = None; info.artwork_source.clear(); } }), "Clear cover art" } }
+                        }
+                        p { class:"field-hint", "Lookup shares title, artist, album and duration with music catalogues. Existing details and chosen cover art are kept. Clear a field to find a replacement." }
                         if let Some(info)=&view.info{
                             if !info.tempo.segments.is_empty() {
                                 label {class:"form-check",input {r#type:"checkbox",checked:view.use_detected_timing,onchange:move|e|data.with_mut(|v|{v.use_detected_timing=e.checked();if v.use_detected_timing && let Some(bpm)=v.info.as_ref().and_then(|i|i.tempo.bpm){v.bpm=bpm.to_string();}})},"Use detected tempo map"}
