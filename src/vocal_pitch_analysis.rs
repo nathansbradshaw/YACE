@@ -15,6 +15,10 @@ pub const ANALYSIS_ALGORITHM: &str = "rmvpe-note-comparison-v1-weighted3.2-80per
 #[serde(deny_unknown_fields)]
 pub struct Correction {
     pub index: usize,
+    #[serde(default)]
+    pub start: u64,
+    #[serde(default)]
+    pub end: u64,
     pub before: u8,
     pub after: u8,
     pub support_frames: usize,
@@ -30,6 +34,8 @@ pub struct Analysis {
     pub chart_sha256: String,
     pub generation_sha256: String,
     pub model_sha256: String,
+    #[serde(default)]
+    pub model_implementation_sha256: String,
     pub timing: TempoMap,
     pub range: TimeRange,
     pub inspected: usize,
@@ -176,6 +182,8 @@ pub fn propose(
         if before != after {
             corrections.push(Correction {
                 index,
+                start: note.start,
+                end: note.end,
                 before,
                 after,
                 support_frames: support,
@@ -191,6 +199,7 @@ pub fn propose(
         chart_sha256: chart_hash(chart)?,
         generation_sha256: format!("{:x}", Sha256::digest(serde_json::to_vec(generation)?)),
         model_sha256: crate::vocal_rmvpe::SHA256.into(),
+        model_implementation_sha256: crate::vocal_rmvpe::implementation_hash(),
         timing: timing.clone(),
         range,
         inspected,
@@ -214,6 +223,10 @@ impl Analysis {
                 && self.timing == *timing
                 && self.model_sha256 == crate::vocal_rmvpe::SHA256,
             "Vocal analysis is stale or already applied; compare again"
+        );
+        ensure!(
+            self.model_implementation_sha256 == crate::vocal_rmvpe::implementation_hash(),
+            "Vocal comparison uses an earlier model implementation; compare again"
         );
         let chart = project
             .content
@@ -263,6 +276,8 @@ impl Analysis {
                 .context("Compared note no longer exists")?;
             ensure!(
                 n.tone == VocalTone::Pitched { midi: c.before }
+                    && n.start == c.start
+                    && n.end == c.end
                     && timing.seconds(n.start) >= self.range.start
                     && timing.seconds(n.end) <= self.range.end,
                 "Compared note moved or changed"
@@ -270,6 +285,52 @@ impl Analysis {
         }
         Ok(())
     }
+}
+/// Retuned notes remain visibly uncertain drafts. Preserve the previous pitch
+/// as an alternative without rewriting the original generation's diagnostics.
+pub fn current_evidence(
+    project: &Project,
+    timing: &TempoMap,
+    note: &crate::vocals::VocalNote,
+) -> Option<crate::vocal_generation::NoteEvidence> {
+    static IMPLEMENTATION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let implementation = IMPLEMENTATION.get_or_init(crate::vocal_rmvpe::implementation_hash);
+    if let Some(a) = project.content.vocal_pitch_analysis.as_ref().filter(|a| {
+        a.applied
+            && a.algorithm == ANALYSIS_ALGORITHM
+            && a.audio_sha256 == project.audio_sha256
+            && a.timing == *timing
+            && a.model_sha256 == crate::vocal_rmvpe::SHA256
+            && &a.model_implementation_sha256 == implementation
+            && project.content.stems.as_ref().is_some_and(|m| {
+                m.stems.iter().any(|s| {
+                    s.id == crate::stem_review::StemId::Vocals && s.sha256 == a.stem_sha256
+                })
+            })
+    }) && let Some(c) = a.corrections.iter().find(|c| {
+        c.start == note.start
+            && c.end == note.end
+            && note.tone == VocalTone::Pitched { midi: c.after }
+    }) {
+        return Some(crate::vocal_generation::NoteEvidence {
+            start: c.start,
+            end: c.end,
+            selected_midi: c.after,
+            alternatives: vec![c.before],
+            support: vec![crate::vocal_generation::PitchSupport::ContourPath],
+            uncertain: true,
+            reasons: vec![format!(
+                "Independent RMVPE comparison: {} supporting frames. The previous pitch remains an alternative. Model support is not a calibrated correctness probability or singer-identity guarantee.",
+                c.support_frames
+            )],
+        });
+    }
+    project
+        .content
+        .vocal_review
+        .as_ref()?
+        .evidence_for(project, timing, note)
+        .cloned()
 }
 pub fn note_name(midi: u8) -> String {
     format!(

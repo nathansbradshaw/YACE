@@ -38,10 +38,14 @@ to recover an earlier edit. Export writes a separate song folder.
 Use **Check pitches against the recording** to analyze a selected phrase or all
 existing vocals. The computer proposes supported pitch changes and shows the
 before/after notes; **Apply supported corrections** applies the batch with one
-Undo. Unsupported notes remain unresolved. This check preserves lyrics, note
+Undo. Corrected notes remain amber drafts, with the previous pitch available in
+the inspector. Unsupported notes remain unresolved. This check preserves lyrics, note
 timing, phrases and talkies. Changing the recording, stem, tempo, notes or lyrics
 invalidates pending proposals. Analysis can be cancelled without changing notes.
 Both desktop and browser use the same model, preprocessing and correction rules.
+In the browser, **Generate vocals… → Use a downloaded model…** can import an
+existing pinned `rmvpe.onnx` instead of downloading another copy. Model imports
+are checksum verified before local caching.
 
 Check phrase boundaries, missing lyrics, talkies and note releases before
 testing the exported `PART VOCALS` track in a game. YACE supports a strict

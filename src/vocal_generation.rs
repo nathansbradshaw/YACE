@@ -1044,10 +1044,10 @@ fn generate_pcm_cancellable(
     if policy.recover_bounded_yin {
         recover_yin_gaps(&mut frames, signal, aligned.as_ref(), &mut issues);
     }
-    if let Some(neural) = neural {
+    if let Some(neural) = neural.filter(|_| policy.analysis_mode == AnalysisMode::Standard) {
         recover_neural_yin(&mut frames, signal, aligned.as_ref(), neural, &mut issues);
     }
-    if let Some(evidence) = vocal_pitch {
+    if let Some(evidence) = vocal_pitch.filter(|_| policy.analysis_mode == AnalysisMode::Standard) {
         recover_swift_frames(
             &mut frames,
             signal,

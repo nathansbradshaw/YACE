@@ -34,6 +34,9 @@ Model context can bridge at most eight DSP hops (about 80 ms), after which the
 original voicing mask is restored exactly. It cannot fill those gaps or discard
 accepted voiced frames. No key, consonance, lyric or octave-folding prior is used.
 This is an independent note-centre decoder, not a complete pYIN implementation.
+High uses this fixed DSP + RMVPE profile; Basic Pitch/SwiftF0 assistance remains
+in Standard and cannot alter High's measured voicing mask. The optional lyric
+recognizer does not select High pitches or note boundaries.
 
 **Check pitches against the recording** compares existing note intervals with a
 dense RMVPE contour. A correction needs at least four supported frames, 40%
@@ -42,7 +45,8 @@ on at least half the interior frames with salience at least 0.1. Partial notes a
 selection edges, talkies and unsupported intervals remain unchanged. The saved
 proposal binds source/stem hashes, exact chart content and tempo map. Applying
 the batch is atomic and undoable. Agreement is not a calibrated probability;
-the model can still follow a backing singer. Dissonance alone is not evidence
+corrected notes retain their draft flag and previous pitch as an inspector
+alternative. The model can still follow a backing singer. Dissonance alone is not evidence
 that a pitch is wrong.
 
 Generation reports add optional `note_evidence`: note tick bounds, selected MIDI
@@ -183,12 +187,17 @@ Language-specific recognition results are separate from pitch acceptance.
 
 ## Evaluation status
 
-Local professional-reference comparisons failed the incorrect-pitch gate:
-additional recovered notes also introduced additional wrong pitches. No backend
-was promoted. Authored-chart targets are not measurements against performed
-continuous F0. Detailed corpus manifests, measurements and limitations remain
-in private reports. A full pitch-category audit, listening and game acceptance
-are still pending; code/test success does not establish musical reliability.
+The earlier detector-only High draft failed the incorrect-pitch gate: additional
+recovered notes also introduced wrong pitches. A subsequent independent RMVPE
+contour with temporal tracking passed the numerical pitch-reduction and recall
+thresholds on a fresh eight-artist set after development-only tuning. Failed test
+sets remain disclosed as exposed diagnostics. Full promotion remains blocked by
+the pending acoustic category audit, listening and game acceptance; High remains
+experimental. Authored-chart targets are not measurements against performed
+continuous F0. Detailed corpus manifests, measurements, model/singer errors and
+limitations remain in private reports; code/test success does not establish
+musical reliability. Section corrections were also evaluated on generated note
+intervals without feeding authored pitches, timings or words to the checker.
 
 On one development recording, raw CREPE tiny/full and RMVPE F0 probes also showed
 different recall, wrong-pitch and octave-error tradeoffs. They are not chart-note

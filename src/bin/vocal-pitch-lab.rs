@@ -25,6 +25,26 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Task {
+    /// Run the same source-bound comparison as the editor, without changing notes.
+    CheckProject {
+        #[arg(long)]
+        project: PathBuf,
+        #[arg(long)]
+        model_dir: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Evaluate the section checker on generated notes, never authored intervals.
+    Repair {
+        #[arg(long)]
+        corpus: PathBuf,
+        #[arg(long)]
+        project_template: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        held_out: bool,
+    },
     Weighted {
         #[arg(long)]
         corpus: Vec<PathBuf>,
@@ -42,6 +62,9 @@ enum Task {
         output: PathBuf,
         #[arg(long)]
         held_out: bool,
+        /// Reuse source/model/implementation-bound raw F0 and require identical output.
+        #[arg(long)]
+        replay: bool,
     },
     Assemble {
         #[arg(long)]
@@ -246,7 +269,7 @@ fn weighted(corpora: &[PathBuf], evidence: &Path, output: &Path) -> Result<()> {
         &json!({"status":"development_only_weighted_note_path_ablations_no_promotion","families":["unweighted","salience","sqrt_salience","salience_with_dsp0.1","salience_with_dsp0.25","dropout0.1","salience_with_dsp0.5","all_context","all_context_salience","all_context_salience_dsp0.1","bounded_context","bounded_context_salience","bounded_context_salience_dsp0.1"],"evaluated_families":[7,8,9,10,11,12],"rows":rows}),
     )
 }
-fn generate(corpus: &Path, model: &Path, output: &Path, held: bool) -> Result<()> {
+fn generate(corpus: &Path, model: &Path, output: &Path, held: bool, replay: bool) -> Result<()> {
     use chart_engine::{vocal_generation as vg, vocal_rmvpe};
     ensure!(!output.exists(), "Output exists");
     let mut c: Corpus = read(corpus)?;
@@ -254,7 +277,7 @@ fn generate(corpus: &Path, model: &Path, output: &Path, held: bool) -> Result<()
     fs::create_dir_all(output)?;
     write(
         &output.join("frozen-run.json"),
-        &json!({"corpus_sha256":models::hash_file(corpus)?,"model_sha256":models::hash_file(model)?,"algorithm":vg::COMPARISON_ALGORITHM,"implementation_sha256":vocal_rmvpe::implementation_hash(),"executable_sha256":models::hash_file(&std::env::current_exe()?)?,"target_values_read":false,"split":if held{"held_out"}else{"development"}}),
+        &json!({"corpus_sha256":models::hash_file(corpus)?,"model_sha256":models::hash_file(model)?,"algorithm":vg::COMPARISON_ALGORITHM,"implementation_sha256":vocal_rmvpe::implementation_hash(),"executable_sha256":models::hash_file(&std::env::current_exe()?)?,"replay_requires_exact_generation_equality":replay,"target_values_read":false,"split":if held{"held_out"}else{"development"}}),
     )?;
     for r in &mut c.recordings {
         if (r.split == "held_out") != held {
@@ -275,7 +298,13 @@ fn generate(corpus: &Path, model: &Path, output: &Path, held: bool) -> Result<()
         eprintln!("{} RMVPE + temporal note centres", r.id);
         let result = output.join(&r.id);
         fs::create_dir(&result)?;
-        let e = vocal_rmvpe::analyze(&audio, &stem, &binding, model, &|| false)?;
+        let e = if replay {
+            old.rmvpe_pitch
+                .clone()
+                .context("Replay needs raw independent contour")?
+        } else {
+            vocal_rmvpe::analyze(&audio, &stem, &binding, model, &|| false)?
+        };
         let timing = old.timing.as_ref().context("Missing timing")?;
         let report = vg::generate(vg::Request {
             audio: &audio,
@@ -302,11 +331,110 @@ fn generate(corpus: &Path, model: &Path, output: &Path, held: bool) -> Result<()
                         && a.midi.is_some() == b.midi.is_some()),
             "Candidate changed the acoustic voicing mask"
         );
+        if replay {
+            ensure!(
+                serde_json::to_value(&old)? == serde_json::to_value(&report)?,
+                "Frozen generation changed during replay: {}",
+                r.id
+            );
+        }
         let path = result.join("generation.json");
         write(&path, &report)?;
         r.candidate = Some(path);
     }
     write(&output.join("corpus.json"), &c)
+}
+fn repair(corpus: &Path, template: &Path, output: &Path, held: bool) -> Result<()> {
+    let c: Corpus = read(corpus)?;
+    let base = corpus.parent().unwrap();
+    let template: chart_engine::editor::Project = read(template)?;
+    let mut rows = Vec::new();
+    for r in c
+        .recordings
+        .iter()
+        .filter(|r| (r.split == "held_out") == held)
+    {
+        let generation: Generation = read(
+            &base.join(
+                r.candidate
+                    .as_ref()
+                    .context("Missing independent contour")?,
+            ),
+        )?;
+        let baseline_path = base.join(r.baseline.as_ref().context("Missing baseline")?);
+        let old: Generation = read(&baseline_path.parent().unwrap().join("high_accuracy.json"))?;
+        let Some(chart) = old.chart.as_ref() else {
+            continue;
+        };
+        let timing = old.timing.as_ref().context("Missing source timing")?;
+        let mut project = template.clone();
+        project.audio_sha256 = old.audio_sha256.clone();
+        project.duration = old.duration_seconds;
+        project.content.vocals = Some(chart.clone());
+        let stem = project
+            .content
+            .stems
+            .as_mut()
+            .context("Template needs a vocal stem")?
+            .stems
+            .iter_mut()
+            .find(|s| s.id == chart_engine::stem_review::StemId::Vocals)
+            .context("Missing template vocal stem")?;
+        stem.sha256 = old.vocal_stem_sha256.clone();
+        // No reference is read until the same production proposal has finished.
+        let proposal =
+            chart_engine::vocal_pitch_analysis::propose(&project, timing, &generation, None)?;
+        let mut corrected = chart.clone();
+        for correction in &proposal.corrections {
+            corrected.notes[correction.index].tone = chart_engine::vocals::VocalTone::Pitched {
+                midi: correction.after,
+            };
+        }
+        let view = |chart: &chart_engine::vocals::VocalChart| {
+            let mut report = old.clone();
+            for f in &mut report.pitch_frames {
+                f.midi = chart
+                    .notes
+                    .iter()
+                    .find(|n| {
+                        timing.seconds(n.start) <= f.time_seconds
+                            && f.time_seconds < timing.seconds(n.end)
+                    })
+                    .and_then(|n| match n.tone {
+                        chart_engine::vocals::VocalTone::Pitched { midi } => Some(midi as f64),
+                        _ => None,
+                    });
+            }
+            report.chart = Some(chart.clone());
+            report
+        };
+        let reference: Reference = read(
+            &base.join(
+                r.reference
+                    .as_ref()
+                    .context("Missing evaluation reference")?,
+            ),
+        )?;
+        let checks: Vec<_> = proposal.corrections.iter().map(|c| {
+            let note = &chart.notes[c.index];
+            let (mut gained, mut lost, mut reference_voiced) = (0usize, 0usize, 0usize);
+            for f in reference.frames.iter().filter(|f| timing.seconds(note.start) <= f.time_seconds && f.time_seconds < timing.seconds(note.end)) {
+                if let Some(p) = f.midi {
+                    reference_voiced += 1;
+                    let before = (p - c.before as f64).abs() <= 0.5;
+                    let after = (p - c.after as f64).abs() <= 0.5;
+                    gained += usize::from(after && !before);
+                    lost += usize::from(before && !after);
+                }
+            }
+            json!({"index":c.index,"reference_voiced_frames":reference_voiced,"correct_frames_gained":gained,"correct_frames_lost":lost})
+        }).collect();
+        rows.push(json!({"id":r.id,"split":r.split,"proposal":proposal,"posthoc_correction_checks":checks,"baseline_generated_note_view":score(&reference,&view(chart))?,"corrected_note_view":score(&reference,&view(&corrected))?}));
+    }
+    write(
+        output,
+        &json!({"algorithm":chart_engine::vocal_pitch_analysis::ANALYSIS_ALGORITHM,"input":"legacy High generated notes; no authored intervals or lyrics enter comparison","rows":rows}),
+    )
 }
 fn assemble(
     selection: &Path,
@@ -774,6 +902,29 @@ fn sweep(corpus: &Path, evidence: &Path, output: &Path, smooth: bool, viterbi: b
 }
 fn main() -> Result<()> {
     match Args::parse().command {
+        Task::CheckProject {
+            project,
+            model_dir,
+            output,
+        } => {
+            let store = chart_engine::editor::Store::new(&project);
+            let p = store.load()?;
+            let analysis = chart_engine::vocal_pitch_analysis::analyze(
+                &p,
+                &store.audio_path(&p)?,
+                &p.timing(&store)?,
+                None,
+                &model_dir,
+                std::sync::Arc::default(),
+            )?;
+            write(&output, &analysis)
+        }
+        Task::Repair {
+            corpus,
+            project_template,
+            output,
+            held_out,
+        } => repair(&corpus, &project_template, &output, held_out),
         Task::Weighted {
             corpus,
             evidence,
@@ -784,7 +935,8 @@ fn main() -> Result<()> {
             model,
             output,
             held_out,
-        } => generate(&corpus, &model, &output, held_out),
+            replay,
+        } => generate(&corpus, &model, &output, held_out, replay),
         Task::Assemble {
             selection,
             prepared,

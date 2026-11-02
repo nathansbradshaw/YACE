@@ -306,7 +306,11 @@ pub fn generate(
         .words
         .or(acoustic_words)
         .or_else(|| recognition.as_ref().map(|r| &r.words));
-    let neural_pitch = if request.neural_pitch {
+    // High is one frozen DSP + RMVPE profile. Optional legacy models must not
+    // silently change its voicing mask relative to the measured configuration.
+    let legacy_assistance =
+        request.neural_pitch && request.analysis_mode == vocal_generation::AnalysisMode::Standard;
+    let neural_pitch = if legacy_assistance {
         control.update("Checking vocal pitch with the local note model…");
         if models::verified(request.model_dir, "pitch").is_err() && request.download_model {
             models::fetch_required(request.model_dir, &["pitch"])?;
@@ -331,11 +335,8 @@ pub fn generate(
     } else {
         None
     };
-    let (vocal_model, vocal_pitch_warning) = optional_vocal_pitch_model(
-        request.model_dir,
-        request.neural_pitch,
-        request.download_model,
-    )?;
+    let (vocal_model, vocal_pitch_warning) =
+        optional_vocal_pitch_model(request.model_dir, legacy_assistance, request.download_model)?;
     let vocal_pitch = if let Some(model) = vocal_model {
         control.update("Checking the local vocal contour…");
         Some(crate::vocal_pitch::analyze(

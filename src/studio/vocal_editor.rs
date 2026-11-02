@@ -551,10 +551,7 @@ fn VocalNoteEditor(
     let current = draft.read().clone();
     let pitched = current.mode == "pitched";
     let evidence = studio.snapshot().and_then(|doc| {
-        let review = doc.content.vocal_review.as_ref()?;
-        review
-            .evidence_for(&doc, &(studio.timing)()?, &note)
-            .cloned()
+        crate::vocal_pitch_analysis::current_evidence(&doc, &(studio.timing)()?, &note)
     });
     rsx! {div{class:"vocal-note-editor",
         if let Some(evidence) = evidence {

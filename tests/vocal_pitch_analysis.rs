@@ -146,6 +146,15 @@ fn independent_dense_contour_retunes_only_supported_intervals_and_bulk_undo_pers
     apply(&store, Action::SetVocalPitchAnalysis { analysis: result }).unwrap();
     apply(&store, Action::ApplyVocalPitchCorrections).unwrap();
     let corrected = store.load().unwrap();
+    let evidence = analysis::current_evidence(
+        &corrected,
+        &timing,
+        &corrected.content.vocals.as_ref().unwrap().notes[0],
+    )
+    .unwrap();
+    assert!(evidence.uncertain);
+    assert_eq!(evidence.selected_midi, 57);
+    assert_eq!(evidence.alternatives, vec![60]);
     let mut expected = before.content.vocals.clone().unwrap();
     expected.notes[0].tone = VocalTone::Pitched { midi: 57 };
     assert_eq!(corrected.content.vocals.as_ref().unwrap(), &expected);
@@ -284,4 +293,54 @@ fn tracking_handles_vibrato_slides_real_short_notes_gaps_and_cancellation() {
         serde_json::to_value(&f).unwrap(),
         serde_json::to_value(before).unwrap()
     );
+}
+
+#[test]
+fn comparison_refinement_preserves_every_voicing_bit_and_raw_detector_alternatives() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, generation) = setup(temp.path());
+    let evidence = generation.rmvpe_pitch.unwrap();
+    let mut pitches = vec![Some(69.); 100];
+    pitches[20..28].fill(None); // context can bridge internally, never fill output
+    pitches[50..59].fill(None); // longer gap resets context
+    let mut f = contour(&pitches);
+    tracking::refine(&mut f, &evidence, &|| false).unwrap();
+    for (frame, before) in f.iter().zip(pitches) {
+        assert_eq!(frame.midi.is_some(), before.is_some());
+        assert_eq!(frame.yin_midi, before);
+        assert_eq!(frame.mcleod_midi, before);
+        if before.is_some() {
+            assert_eq!(frame.midi, Some(57.));
+            assert_eq!(frame.support, PitchSupport::ContourPath);
+            assert!(frame.clarity <= 0.59);
+        }
+    }
+    assert!(tracking::refine(&mut f, &evidence, &|| true).is_err());
+}
+
+#[test]
+fn model_identity_clock_and_nonfinite_evidence_are_explicit_errors() {
+    let temp = tempfile::tempdir().unwrap();
+    let (store, generation) = setup(temp.path());
+    let p = store.load().unwrap();
+    let timing = p.timing(&store).unwrap();
+    for kind in 0..5 {
+        let mut bad = generation.clone();
+        let e = bad.rmvpe_pitch.as_mut().unwrap();
+        match kind {
+            0 => e.model_sha256 = "0".repeat(64),
+            1 => e.implementation_sha256 = "1".repeat(64),
+            2 => e.audio_sha256 = "2".repeat(64),
+            3 => e.frames[10].time_seconds += 0.003,
+            _ => e.frames[10].frequency_hz = Some(f64::NAN),
+        }
+        assert!(analysis::propose(&p, &timing, &bad, None).is_err());
+    }
+    assert!(
+        chart_engine::vocal_rmvpe::prepare(&temp.path().join("absent"), false, &|| false).is_err()
+    );
+    let model_dir = temp.path().join("bad-model");
+    fs::create_dir(&model_dir).unwrap();
+    fs::write(model_dir.join("rmvpe.onnx"), b"incorrect weight bytes").unwrap();
+    assert!(chart_engine::vocal_rmvpe::prepare(&model_dir, false, &|| false).is_err());
 }

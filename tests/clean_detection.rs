@@ -81,7 +81,12 @@ fn detect_cli_refuses_missing_or_corrupt_model_without_publishing_results() {
     };
     let missing = run();
     assert!(!missing.status.success());
-    assert!(String::from_utf8_lossy(&missing.stderr).contains("model is missing"));
+    let diagnostic = String::from_utf8_lossy(&missing.stderr);
+    assert!(diagnostic.contains("is missing"), "{diagnostic}");
+    assert!(
+        diagnostic.contains("ggml-small.en-q5_1.bin"),
+        "{diagnostic}"
+    );
     assert!(!model_dir.exists() && !output.exists());
     fs::create_dir(&model_dir).unwrap();
     fs::write(model_dir.join("ggml-small.en-q5_1.bin"), b"corrupt model").unwrap();

@@ -43,12 +43,19 @@ pub fn VocalPitchAnalyzer(mut studio: Studio, range: Option<TimeRange>) -> Eleme
     });
     let timing = (studio.timing)();
     let analysis = doc.content.vocal_pitch_analysis.as_ref();
+    let changes = analysis.map_or(0, |a| a.corrections.len());
+    let change_label = if changes == 1 {
+        "correction"
+    } else {
+        "corrections"
+    };
     let valid = analysis
         .zip(timing.as_ref())
         .is_some_and(|(a, t)| a.validate(&doc, t).is_ok());
     rsx! {section{class:"vocal-pitch-analysis",aria_label:"Vocal pitch comparison",
         div{class:"form-heading","Check pitches against the recording"}
         p{class:"field-hint","Find supported pitch corrections automatically. Lyrics and note timing are preserved."}
+        p{class:"field-hint","Uses the High accuracy model (362 MB, downloaded once). Phrase checks use the full recording for context."}
         div{class:"vocal-file-actions",
             button{class:"studio-tool",disabled:busy()||!ready||range.is_none(),onclick:move |_|start(studio,range,busy,status,stop),Icon{name:"music",size:13}"Analyze phrase"}
             button{class:"studio-tool",disabled:busy()||!ready,onclick:move |_|start(studio,None,busy,status,stop),"Analyze all vocals"}
@@ -57,15 +64,16 @@ pub fn VocalPitchAnalyzer(mut studio: Studio, range: Option<TimeRange>) -> Eleme
         if !ready{p{class:"field-hint","Attach a vocal stem to compare these notes with the recording."}}
         if busy(){p{role:"status","{status}"}}
         if let Some(a)=analysis {
-            if a.applied {p{role:"status","Applied {a.corrections.len()} pitch corrections. Undo restores the previous pitches."}}
+            if a.applied {p{role:"status","Applied {changes} pitch {change_label}. Undo restores the previous pitches."}}
             else if valid {
-                p{role:"status","{a.inspected} notes checked · {a.corrections.len()} corrections · {a.unresolved} unresolved"}
+                p{role:"status","{a.inspected} notes checked · {changes} {change_label} · {a.unresolved} unresolved"}
                 if !a.corrections.is_empty(){button{class:"studio-tool",disabled:busy(),onclick:move |_|studio.dispatch(Action::ApplyVocalPitchCorrections),"Apply supported corrections"}}
             }else{p{class:"field-hint","The recording, timing or vocal notes changed. Analyze again to refresh these proposals."}}
             if !a.corrections.is_empty(){details{class:"review-evidence",summary{"Pitch comparisons"}
                 for c in &a.corrections {
-                    {let index=c.index;let before=crate::vocal_pitch_analysis::note_name(c.before);let after=crate::vocal_pitch_analysis::note_name(c.after);let support=(c.support_fraction*100.).round()as usize;
-                    rsx!{button{class:"vocal-check-row",disabled:!valid&&!a.applied,title:"{support}% of supported contour frames agree; model agreement is not a calibrated correctness probability",onclick:move |_|{studio.select_vocal(index,false,false);},"Note {index}: {before} → {after} · {support}% contour support"}}}
+                    {let number=c.index+1;let before=crate::vocal_pitch_analysis::note_name(c.before);let after=crate::vocal_pitch_analysis::note_name(c.after);let support=(c.support_fraction*100.).round()as usize;
+                    let target=doc.content.vocals.as_ref().and_then(|chart|chart.notes.iter().position(|n|n.start==c.start&&n.end==c.end&&n.tone==crate::vocals::VocalTone::Pitched{midi:if a.applied{c.after}else{c.before}}));
+                    rsx!{button{class:"vocal-check-row",disabled:target.is_none()||(!valid&&!a.applied),title:"{support}% of supported contour frames agree; model agreement is not a calibrated correctness probability",onclick:move |_|{if let Some(index)=target{studio.select_vocal(index,false,false);}},"Note {number}: {before} → {after} · {support}% contour support"}}}
                 }
             }}
         }

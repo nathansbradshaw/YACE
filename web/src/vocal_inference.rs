@@ -114,23 +114,32 @@ pub async fn generate_language(
     if let (Some(output), Some(recognized)) = (evidence_output, &recognized) {
         crate::storage::write(output, serde_json::to_vec_pretty(recognized)?)?;
     }
-    let candidates = crate::transcription::pitch(&stem.path, progress).await?;
-    let neural = crate::vocal_generation::NeuralPitchEvidence {
-        duration_seconds: manifest.frames as f64 / 44100.,
-        model_sha256: models::assets()
-            .into_iter()
-            .find(|a| a.id == "pitch")
-            .unwrap()
-            .sha256,
-        audio_sha256: manifest.source_audio_sha256.clone(),
-        vocal_stem_sha256: stem.sha256.clone(),
-        implementation_sha256: crate::vocal_generation::neural_pitch_implementation_hash(),
-        notes: candidates.into_iter().map(|e| e.candidate).collect(),
+    let neural = if analysis_mode == crate::vocal_generation::AnalysisMode::Standard {
+        let candidates = crate::transcription::pitch(&stem.path, progress).await?;
+        Some(crate::vocal_generation::NeuralPitchEvidence {
+            duration_seconds: manifest.frames as f64 / 44100.,
+            model_sha256: models::assets()
+                .into_iter()
+                .find(|a| a.id == "pitch")
+                .unwrap()
+                .sha256,
+            audio_sha256: manifest.source_audio_sha256.clone(),
+            vocal_stem_sha256: stem.sha256.clone(),
+            implementation_sha256: crate::vocal_generation::neural_pitch_implementation_hash(),
+            notes: candidates.into_iter().map(|e| e.candidate).collect(),
+        })
+    } else {
+        None
     };
-    let mut evidence = swift(&models::decode(&stem.path, 16000, 1)?, progress).await?;
-    evidence.audio_sha256 = manifest.source_audio_sha256.clone();
-    evidence.vocal_stem_sha256 = stem.sha256.clone();
-    evidence.duration_seconds = manifest.frames as f64 / 44100.;
+    let evidence = if analysis_mode == crate::vocal_generation::AnalysisMode::Standard {
+        let mut e = swift(&models::decode(&stem.path, 16000, 1)?, progress).await?;
+        e.audio_sha256 = manifest.source_audio_sha256.clone();
+        e.vocal_stem_sha256 = stem.sha256.clone();
+        e.duration_seconds = manifest.frames as f64 / 44100.;
+        Some(e)
+    } else {
+        None
+    };
     let rmvpe_pitch = if analysis_mode == crate::vocal_generation::AnalysisMode::HighAccuracy {
         let mut e = rmvpe(&models::decode(&stem.path, 16000, 1)?, progress).await?;
         e.audio_sha256 = binding.audio_sha256.clone();
@@ -159,8 +168,8 @@ pub async fn generate_language(
                 analysis_mode,
                 ..Default::default()
             },
-            neural_pitch: Some(&neural),
-            vocal_pitch: Some(&evidence),
+            neural_pitch: neural.as_ref(),
+            vocal_pitch: evidence.as_ref(),
             rmvpe_pitch: rmvpe_pitch.as_ref(),
         },
         &|| {
