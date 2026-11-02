@@ -1,5 +1,100 @@
 use super::audio_decode::{self, Pcm};
 
+#[test]
+#[ignore = "Requires actual YACE_BROWSER_CHANNELS_ZIP download and YACE_CHANNELS_SOURCE real channel fixture with shorter song.wav"]
+fn actual_browser_game_channels_preserve_raw_files_and_complete_preview() {
+    use sha2::{Digest, Sha256};
+    use std::{
+        collections::BTreeSet,
+        io::{Cursor, Read},
+        path::PathBuf,
+    };
+    fn member(zip: &mut zip::ZipArchive<Cursor<Vec<u8>>>, name: &str) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        zip.by_name(name).unwrap().read_to_end(&mut bytes).unwrap();
+        bytes
+    }
+    let source = PathBuf::from(
+        std::env::var_os("YACE_CHANNELS_SOURCE").expect("Explicit real source required"),
+    );
+    let mut zip = zip::ZipArchive::new(Cursor::new(
+        std::fs::read(
+            std::env::var_os("YACE_BROWSER_CHANNELS_ZIP")
+                .expect("Actual browser download required"),
+        )
+        .unwrap(),
+    ))
+    .unwrap();
+    let mut names = BTreeSet::new();
+    let mut expected = Vec::<f64>::new();
+    let mut backing = 0;
+    for entry in std::fs::read_dir(source).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|ext| ext != "wav") {
+            continue;
+        }
+        let name = path.file_name().unwrap().to_str().unwrap();
+        let original = std::fs::read(&path).unwrap();
+        assert_eq!(
+            member(&mut zip, name),
+            original,
+            "Raw game channel changed: {name}"
+        );
+        let pcm = ready(audio_decode::decode(&original)).unwrap();
+        assert_eq!((pcm.rate, pcm.channels), (44100, 2));
+        if name == "song.wav" {
+            backing = pcm.stereo.len();
+        }
+        expected.resize(expected.len().max(pcm.stereo.len()), 0.);
+        for (out, value) in expected.iter_mut().zip(pcm.stereo) {
+            *out += f64::from(value);
+        }
+        names.insert(name.to_owned());
+    }
+    assert!(
+        backing > 0 && expected.len() > backing,
+        "Fixture must exercise shorter backing audio"
+    );
+    let exported: BTreeSet<_> = zip
+        .file_names()
+        .map(|name| name.unwrap().into_owned())
+        .filter(|name| !name.contains('/') && name.ends_with(".wav"))
+        .collect();
+    assert_eq!(exported, names, "Game export added or omitted a channel");
+    let receipt: serde_json::Value = serde_json::from_slice(&member(
+        &mut zip,
+        ".yace/audio/chart-engine-conventional-audio.json",
+    ))
+    .unwrap();
+    let raw = member(&mut zip, ".yace/audio/conventional/complete.wav");
+    let complete = ready(audio_decode::decode(&raw)).unwrap();
+    let gain = receipt["manifest"]["conventional"]["headroom"]
+        .as_f64()
+        .unwrap();
+    assert!(gain > 0. && gain <= 1.);
+    assert_eq!((complete.rate, complete.channels), (44100, 2));
+    assert_eq!(complete.stereo.len(), expected.len());
+    assert_eq!(
+        receipt["manifest"]["frames"].as_u64(),
+        Some((expected.len() / 2) as u64)
+    );
+    assert_eq!(
+        receipt["manifest"]["source_audio_sha256"].as_str(),
+        Some(format!("{:x}", Sha256::digest(raw)).as_str())
+    );
+    let mut maximum = 0_f64;
+    for (actual, expected) in complete.stereo.iter().zip(expected) {
+        assert!(actual.is_finite() && actual.abs() <= 1.000001);
+        maximum = maximum.max((f64::from(*actual) - expected * gain).abs());
+    }
+    assert!(maximum < 0.000001, "Complete mix differs by {maximum}");
+    eprintln!(
+        "{} raw game files unchanged; {} full-clock frames; maximum complete-mix sample delta {maximum}",
+        names.len(),
+        complete.stereo.len() / 2
+    );
+}
+
 fn compare_native_resampling(path: &std::path::Path) {
     let pcm = ready(audio_decode::decode(&std::fs::read(path).unwrap())).unwrap();
     for rate in [11025, 16000, 22050, 44100, 48000] {
