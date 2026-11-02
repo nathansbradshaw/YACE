@@ -21,6 +21,7 @@ pub mod clean_transcript;
 pub mod collaboration;
 #[path = "../../src/collaboration_exchange.rs"]
 pub mod collaboration_exchange;
+pub mod dance_archive;
 #[path = "../../src/difficulty_links.rs"]
 pub mod difficulty_links;
 #[path = "../../src/drum_articulation.rs"]
@@ -151,6 +152,7 @@ pub mod timeline_clock;
 #[path = "../../src/timing.rs"]
 pub mod timing;
 pub mod transcription;
+mod unload;
 #[path = "../../src/vocal_alignment.rs"]
 pub mod vocal_alignment;
 #[path = "../../src/vocal_generation.rs"]

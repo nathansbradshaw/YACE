@@ -42,6 +42,9 @@ pub struct Analysis {
     pub unresolved: usize,
     pub corrections: Vec<Correction>,
     pub applied: bool,
+    /// Applied note witnesses carried across later checks with identical inputs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained_evidence: Vec<crate::vocal_generation::NoteEvidence>,
 }
 pub fn chart_hash(chart: &VocalChart) -> Result<String> {
     Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(chart)?)))
@@ -206,6 +209,7 @@ pub fn propose(
         unresolved,
         corrections,
         applied: false,
+        retained_evidence: vec![],
     })
 }
 impl Analysis {
@@ -286,6 +290,69 @@ impl Analysis {
         Ok(())
     }
 }
+/// Keep only still-matching applied witnesses from the project's prior check.
+/// The caller discards any incoming worker-supplied retained evidence first.
+pub(crate) fn retain_prior_evidence(project: &Project, next: &mut Analysis) -> Result<()> {
+    let Some(prior) = project.content.vocal_pitch_analysis.as_ref().filter(|a| {
+        a.version == next.version
+            && a.algorithm == next.algorithm
+            && a.audio_sha256 == next.audio_sha256
+            && a.stem_sha256 == next.stem_sha256
+            && a.model_sha256 == next.model_sha256
+            && a.model_implementation_sha256 == next.model_implementation_sha256
+            && a.timing == next.timing
+    }) else {
+        return Ok(());
+    };
+    ensure!(
+        prior.retained_evidence.len() <= 200_000 && prior.corrections.len() <= 200_000,
+        "Too much retained vocal pitch evidence"
+    );
+    let keys: std::collections::BTreeSet<_> = project
+        .content
+        .vocals
+        .as_ref()
+        .into_iter()
+        .flat_map(|c| &c.notes)
+        .filter_map(|n| match n.tone {
+            VocalTone::Pitched { midi } => Some((n.start, n.end, midi)),
+            _ => None,
+        })
+        .collect();
+    let mut retained = std::collections::BTreeMap::new();
+    for e in prior.retained_evidence.iter().cloned().chain(
+        prior
+            .corrections
+            .iter()
+            .filter(|_| prior.applied)
+            .map(correction_evidence),
+    ) {
+        let key = (e.start, e.end, e.selected_midi);
+        if keys.contains(&key) {
+            retained.insert(key, e);
+        }
+    }
+    ensure!(
+        retained.len() <= 200_000,
+        "Too much retained vocal pitch evidence"
+    );
+    next.retained_evidence = retained.into_values().collect();
+    Ok(())
+}
+fn correction_evidence(c: &Correction) -> crate::vocal_generation::NoteEvidence {
+    crate::vocal_generation::NoteEvidence {
+        start: c.start,
+        end: c.end,
+        selected_midi: c.after,
+        alternatives: vec![c.before],
+        support: vec![crate::vocal_generation::PitchSupport::ContourPath],
+        uncertain: true,
+        reasons: vec![format!(
+            "Independent RMVPE comparison: {} supporting frames. The previous pitch remains an alternative. Model support is not a calibrated correctness probability or singer-identity guarantee.",
+            c.support_frames
+        )],
+    }
+}
 /// Retuned notes remain visibly uncertain drafts. Preserve the previous pitch
 /// as an alternative without rewriting the original generation's diagnostics.
 pub fn current_evidence(
@@ -296,8 +363,7 @@ pub fn current_evidence(
     static IMPLEMENTATION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let implementation = IMPLEMENTATION.get_or_init(crate::vocal_rmvpe::implementation_hash);
     if let Some(a) = project.content.vocal_pitch_analysis.as_ref().filter(|a| {
-        a.applied
-            && a.algorithm == ANALYSIS_ALGORITHM
+        a.algorithm == ANALYSIS_ALGORITHM
             && a.audio_sha256 == project.audio_sha256
             && a.timing == *timing
             && a.model_sha256 == crate::vocal_rmvpe::SHA256
@@ -307,23 +373,23 @@ pub fn current_evidence(
                     s.id == crate::stem_review::StemId::Vocals && s.sha256 == a.stem_sha256
                 })
             })
-    }) && let Some(c) = a.corrections.iter().find(|c| {
-        c.start == note.start
-            && c.end == note.end
-            && note.tone == VocalTone::Pitched { midi: c.after }
     }) {
-        return Some(crate::vocal_generation::NoteEvidence {
-            start: c.start,
-            end: c.end,
-            selected_midi: c.after,
-            alternatives: vec![c.before],
-            support: vec![crate::vocal_generation::PitchSupport::ContourPath],
-            uncertain: true,
-            reasons: vec![format!(
-                "Independent RMVPE comparison: {} supporting frames. The previous pitch remains an alternative. Model support is not a calibrated correctness probability or singer-identity guarantee.",
-                c.support_frames
-            )],
-        });
+        if let Some(c) = a.corrections.iter().filter(|_| a.applied).find(|c| {
+            c.start == note.start
+                && c.end == note.end
+                && note.tone == VocalTone::Pitched { midi: c.after }
+        }) {
+            return Some(correction_evidence(c));
+        }
+        if let VocalTone::Pitched { midi } = note.tone
+            && let Ok(index) = a
+                .retained_evidence
+                .binary_search_by_key(&(note.start, note.end, midi), |e| {
+                    (e.start, e.end, e.selected_midi)
+                })
+        {
+            return Some(a.retained_evidence[index].clone());
+        }
     }
     project
         .content

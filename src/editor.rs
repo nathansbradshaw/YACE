@@ -2000,6 +2000,10 @@ impl Store {
                 doc.content.vocal_review = Some(review.clone());
             }
             Action::SetVocalPitchAnalysis { analysis } => {
+                let mut analysis = analysis.clone();
+                // Retained witnesses come only from the existing project, not
+                // from a worker or imported proposal claiming previous edits.
+                analysis.retained_evidence.clear();
                 analysis.validate(&doc, &doc.timing(self)?)?;
                 ensure!(
                     crate::models::hash_file(&self.audio_path(&doc)?)? == analysis.audio_sha256,
@@ -2019,7 +2023,8 @@ impl Store {
                     crate::models::hash_file(&stem.path)? == analysis.stem_sha256,
                     "Vocal stem changed after comparison"
                 );
-                doc.content.vocal_pitch_analysis = Some(analysis.clone());
+                crate::vocal_pitch_analysis::retain_prior_evidence(&doc, &mut analysis)?;
+                doc.content.vocal_pitch_analysis = Some(analysis);
             }
             Action::ApplyVocalPitchCorrections => {
                 let analysis = doc

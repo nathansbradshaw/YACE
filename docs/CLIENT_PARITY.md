@@ -34,6 +34,42 @@ Do not mark a row passed from compilation alone. Record the revision, fixture,
 actual application actions, downloaded/exported results, and any limitations.
 Keep private recordings, transcripts and generated receipts outside Git.
 
+## Current integration gate (2026-11-02)
+
+The ledger above is acceptance evidence for the exercised workflows, not a
+claim that later desktop changes are automatically verified on the web. The
+current browser integration includes desktop work through `7244372`.
+
+- Local RMVPE pitch comparison ran on the real three-second vocal excerpt.
+  Deliberately moving MIDI 52 to 64 produced one supported 64-to-52 correction;
+  Apply preserved both lyrics and note intervals, retained the previous pitch
+  as an alternative, and left explicit draft uncertainty. Undo, Redo, committed
+  IndexedDB recovery and the downloaded revision-8 project backup were checked.
+- The full 243.880-second recording produced five Dance and five 4-key drafts
+  in the actual browser. Independent native runs matched all note positions,
+  lanes, kinds, lengths and estimated meters, ignoring newly allocated IDs.
+  Dance note counts were 126/373/486/941/1023; 4-key counts were
+  129/427/833/1464/1798. Actual placement/Undo/Redo and SSC downloads passed.
+  Playback reached the encoded recording's exact 243.882902-second end while
+  generation and exports were exercised. This is engineering evidence, not a
+  dance-pad, keyboard-gameplay or musical-quality assessment.
+- Browser generation fingerprints now include the RMVPE model preprocessing
+  and contour-tracking implementation, preventing changed analysis code from
+  silently resuming an older job.
+- Combined band/Dance browser backups use the existing bounded archive worker
+  and share immutable parent audio buffers while staging. Compression must not
+  run on the UI thread or allocate one archive-sized WASM vector. The actual
+  854 MiB combined project download passed every ZIP CRC check. Playback and
+  grid navigation continued during compression; picker restore retained all
+  11 Dance/4-key charts, the band tracks, and the saved Redo/Undo operation.
+
+The continuation task remains active. Before closing parity, integrate the
+shared Dance workspace revision being developed in the other workflow, exercise
+its actual browser controls and recovery, inspect any further desktop changes,
+and complete publication/live checks for each finished increment. Retain the
+documented HQ Piano/native-assistant AI exception and the user's restriction
+against throwaway GitHub write tests; neither is an implemented browser feature.
+
 During generator integration, inspect each fetched desktop change before
 rebasing and rerun the affected browser workflow. The integration through
 `4c24191` includes shared solo, drum-detail, rhythm/co-op, six-fret, five-lane
@@ -62,6 +98,14 @@ was created. GitHub publication behavior is covered by transport tests and an
 actual anonymous read/rejection, rather than an authenticated live write.
 
 ## Platform boundaries
+
+Browser reload/close protection watches unsaved band and Dance/4-key projects,
+including hidden linked parts, pending save metadata and in-flight writes. A
+failed save keeps protection active even after automatic retries stop. The
+listener is removed after persistence catches up and when the app unmounts.
+The browser controls whether and how a leave-page confirmation is presented;
+this does not protect against process termination, device failure or storage
+eviction. Keep an independent downloaded project backup for recovery.
 
 Native filesystem operations use the OS picker. Browser imports use the OS
 picker and local browser storage; exports use downloads. A folder snapshot is
