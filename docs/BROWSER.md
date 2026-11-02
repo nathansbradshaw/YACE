@@ -45,6 +45,12 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
 
 ## Open, edit, save and export
 
+- **New blank chart** creates a manual chart without audio. Its local timeline
+  supports playback, seeking and practice speed. **Attach recording** adds a
+  recording covering the authored events without removing edits; Undo returns
+  to the chart-only state. Audio tools follow this transition. Project ZIPs
+  preserve the attachment history. Chart-only game exports contain no playable
+  root recording; retained source evidence can remain in private recovery paths.
 - **New chart from audio** opens the native file picker, then asks for title,
   artist and starting tempo. Recording tags and embedded covers populate editable
   album, year and genre fields. Choose a local cover or explicitly look up matching

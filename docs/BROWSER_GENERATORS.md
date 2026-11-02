@@ -204,6 +204,13 @@ their receipt and editing history, and passed ZIP CRC checks. The native
 comparison is an explicit ignored test in `tests/larsnet.rs` requiring the real
 browser outputs and local models.
 
+The whole-song kick played to the exact end while its backup was prepared;
+all eight audio elements ended at 243.880 seconds. A generated snare also
+completed the final section at 75% speed after the browser clock update.
+Reload and the actual portable-backup picker restored all five parts without
+models. Choosing an invalid model folder displayed the missing filename and
+retained the existing kit.
+
 ## Limits and release gates
 
 - The optional 705 MB HQ Piano checkpoint failed actual local inference with

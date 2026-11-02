@@ -190,6 +190,20 @@ impl Studio {
             .unwrap_or_else(|| store.load().map(Arc::new));
         match snapshot {
             Ok(doc) => {
+                let source_audio = match doc
+                    .has_recording()
+                    .then(|| store.audio_path(&doc))
+                    .transpose()
+                {
+                    Ok(path) => path,
+                    Err(error) => {
+                        self.error.set(Some(format!("{error:#}")));
+                        return;
+                    }
+                };
+                if *self.source_audio.peek() != source_audio {
+                    self.source_audio.set(source_audio);
+                }
                 self.timing.set(doc.timing(&store).ok());
                 self.chart_hash
                     .set(doc.chart_hash(&store).unwrap_or_default());
@@ -581,6 +595,8 @@ impl Studio {
             }.await;
             if let Err(error) = result {
                 self.error.set(Some(error.to_string()));
+                self.status
+                    .set("Recording not attached · chart preserved".into());
             }
         });
     }
@@ -1057,6 +1073,18 @@ impl Studio {
         }
         let metadata =
             crate::pipeline::ini_fields(&crate::pipeline::song_ini(&root.join("source"))?);
+        // Resolve every fallible view input before replacing the active store.
+        // A chart-only project intentionally has no audio path; a failed open
+        // must not pair the previous document with the new project's store.
+        let timing = doc.timing(&store)?;
+        let sections = store.source_sections(&doc)?;
+        let sync = store.source_sync(&doc).ok();
+        let star_power = store.source_star_power(&doc)?;
+        let source_audio = doc
+            .has_recording()
+            .then(|| store.audio_path(&doc))
+            .transpose()?;
+        let guitar_source = store.guitar_source(&doc)?;
         self.epoch.set((self.epoch)().wrapping_add(1));
         let epoch = (self.epoch)();
         self.status.set("Preparing browser audio…".into());
@@ -1074,15 +1102,15 @@ impl Studio {
         self.store.set(Some(store.clone()));
         self.saved_revision.set(saved_revision);
         self.metadata.set(metadata);
-        self.timing.set(Some(doc.timing(&store)?));
-        self.source_sections.set(store.source_sections(&doc)?);
-        self.source_sync.set(store.source_sync(&doc).ok());
-        self.source_star_power.set(store.source_star_power(&doc)?);
+        self.timing.set(Some(timing));
+        self.source_sections.set(sections);
+        self.source_sync.set(sync);
+        self.source_star_power.set(star_power);
         self.star_power_open.set(false);
         self.star_power_target.set(None);
         self.timing_open.set(false);
-        self.source_audio.set(Some(store.audio_path(&doc)?));
-        self.guitar_source.set(store.guitar_source(&doc)?);
+        self.source_audio.set(source_audio);
+        self.guitar_source.set(guitar_source);
         self.group.set(Default::default());
         self.vocal_note.set(None);
         self.sections_open.set(false);
