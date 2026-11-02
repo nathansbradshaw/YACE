@@ -12,6 +12,10 @@ or both.
 
 Choose **Keyboard sound → Piano** for acoustic or electric piano. Synth is an
 experimental option and can include notes from other melodic instruments.
+Synth recognition uses the original full recording. Selecting a generated Synth
+part uses that recording for review and labels its waveform **Synth reference**.
+The piano separation stem can be silent or miss the synth entirely; it is not
+offered as a synth solo. This does not create an isolated synth audio channel.
 The higher-quality piano separator is slower and uses an additional model with
 separate terms; check [THIRD_PARTY.md](../THIRD_PARTY.md) before downloading it.
 

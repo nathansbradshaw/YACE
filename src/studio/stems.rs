@@ -96,7 +96,9 @@ pub fn StemControls(studio: Studio) -> Element {
     };
     let available = super::state::review_manifest(doc, studio.is_vocal_track());
     let selected = selected_stem(studio, doc, studio.is_vocal_track());
-    let selected_available = available.is_some_and(|m| m.stems.iter().any(|s| s.id == selected));
+    let synth_reference = (studio.synth_reference)();
+    let selected_available =
+        !synth_reference && available.is_some_and(|m| m.stems.iter().any(|s| s.id == selected));
     let kit = doc.kit_audition.as_ref();
     let original = kit.is_none() && doc.content.stem_mix.mode == MixMode::Original;
     let complete = doc.audio_filename == crate::stem_review::conventional::PREVIEW;
@@ -120,8 +122,8 @@ pub fn StemControls(studio: Studio) -> Element {
                 })
             })
     };
-    let solo_active = matches_preset(0.0);
-    let backing_active = matches_preset(0.18);
+    let solo_active = !synth_reference && matches_preset(0.0);
+    let backing_active = !synth_reference && matches_preset(0.18);
     let attachment_notice = doc
         .review
         .coverage_limits
@@ -133,9 +135,11 @@ pub fn StemControls(studio: Studio) -> Element {
                 span{class:"stem-controls-label",title:"Instrument audition",Icon{name:"volume",size:14}}
                 button{class:if original{"studio-tool active"}else{"studio-tool"},onclick:move |_|{
                     let project=studio.doc.read();if let Some(doc)=project.as_ref(){let mut mix=doc.content.stem_mix.clone();mix.mode=MixMode::Original;drop(project);studio.dispatch(Action::SetStemMix{mix});}
-                },if !doc.has_recording(){"Timeline"}else if complete {"Complete mix"} else {"Original"}}
-                button{class:if solo_active{"studio-tool active"}else{"studio-tool"},disabled:!selected_available,title:"Listen only to {label(selected)}",onclick:move |_|preset(studio,false),"{label(selected)} only"}
-                button{class:if backing_active{"studio-tool active"}else{"studio-tool"},disabled:!selected_available,title:"{label(selected)} at full gain, other stems at 18%",onclick:move |_|preset(studio,true),"With backing"}
+                },if !doc.has_recording(){"Timeline"}else if synth_reference {"Synth reference (full recording)"}else if complete {"Complete mix"} else {"Original"}}
+                if !synth_reference {
+                    button{class:if solo_active{"studio-tool active"}else{"studio-tool"},disabled:!selected_available,title:"Listen only to {label(selected)}",onclick:move |_|preset(studio,false),"{label(selected)} only"}
+                    button{class:if backing_active{"studio-tool active"}else{"studio-tool"},disabled:!selected_available,title:"{label(selected)} at full gain, other stems at 18%",onclick:move |_|preset(studio,true),"With backing"}
+                }
                 if available.is_some(){button{class:if expanded(){"studio-tool active stem-mixer-toggle"}else{"studio-tool stem-mixer-toggle"},aria_label:"Open stem mixer",aria_expanded:expanded().to_string(),title:"Stem mixer and alignment details",onclick:move |_|expanded.set(!expanded()),Icon{name:"sliders",size:13}}}
                 else if doc.has_recording(){button{class:"studio-tool stem-mixer-toggle",title:"Attach aligned local stems to isolate instruments","data-browser-pick":"file",onclick:move |_|studio.attach_stems_dialog(),Icon{name:"folder-open",size:13}"Attach stems"}}
                 else{
@@ -145,6 +149,7 @@ pub fn StemControls(studio: Studio) -> Element {
                 span{class:"stem-runtime-status",aria_label:"Audition source",title:"{studio.stem_status}",if !doc.has_recording(){"No recording"}else if let Some(kit)=kit{"Kit · {kit.label}"}else if available.is_none(){"No stems"}else if conventional {"Game channels"}else if !original{"Isolated estimate"}}
                 super::part_analysis::PartAnalysisButton{studio}
             }
+            if synth_reference {p{class:"field-hint","Synth notes were detected from the original recording. The piano stem may miss the synth or place it in another instrument. Use the full recording to review; an isolated synth stem is unavailable."}}
             if expanded(){
                 if let Some(manifest)=available{
                     div{style:"display:flex;gap:12px;flex-wrap:wrap;padding-top:8px",

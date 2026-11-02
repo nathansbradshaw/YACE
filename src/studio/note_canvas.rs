@@ -330,6 +330,13 @@ pub(super) fn Waveform(studio: Studio, #[props(default)] stem: Option<StemId>) -
 }
 #[component]
 fn InstrumentWaveform(studio: Studio, track: String) -> Element {
+    if crate::keys::is_keys(&track) && (studio.synth_reference)() {
+        return rsx! {div{class:"midi-waveform-strip",
+            div{class:"midi-waveform-label",style:"width:140px;flex-shrink:0;flex-direction:column;align-items:flex-start;justify-content:center;font-size:9px;gap:1px",
+                span{"Synth reference"}span{style:"font-size:8px;color:var(--text-muted)","Original recording · full mix"}}
+            Waveform{studio,stem:None}
+        }};
+    }
     let stem = studio.guitar_source.read().audition_stem(&track, false);
     if !has_stem_waveform(studio, stem) {
         return rsx! {};

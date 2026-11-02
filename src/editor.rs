@@ -1269,6 +1269,58 @@ impl Store {
         crate::storage::remember_project(&self.root, &doc);
         Ok(doc)
     }
+    /// Synth recognition reads the original recording. A piano-labelled
+    /// separation stem is not a synth isolation, even when it is available.
+    /// Supplied game channels and explicitly attached keyboard stems retain
+    /// their own audition routing.
+    pub fn synth_reference(&self, doc: &Project) -> bool {
+        if !crate::keys::is_keys(&doc.selected_track)
+            || doc.content.keyboard_stems.is_some()
+            || doc
+                .content
+                .stems
+                .as_ref()
+                .is_some_and(|m| m.conventional.is_some())
+        {
+            return false;
+        }
+        let generated;
+        let (store, source) = if let Some(crate::parts::Origin::Generated { job, chart_sha256 }) =
+            doc.content.track_origins.get(&doc.selected_track)
+        {
+            let store = Store::new(&crate::generation::project_path(job));
+            let Ok(project) = store.load() else {
+                return false;
+            };
+            if project.audio_sha256 != doc.audio_sha256
+                || project.chart_hash(&store).ok().as_ref() != Some(chart_sha256)
+            {
+                return false;
+            }
+            generated = (store, project);
+            (&generated.0, &generated.1)
+        } else {
+            (self, doc)
+        };
+        let path = song_layout::resolve(
+            &store.root.join("source"),
+            "chart-engine-transcription.json",
+        );
+        let Ok(bytes) = fs::read(path) else {
+            return false;
+        };
+        if source.review.input_sha256.get("transcription") != Some(&hash(&bytes))
+            || source.review.input_sha256.get("original_audio") != Some(&doc.audio_sha256)
+        {
+            return false;
+        }
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            return false;
+        };
+        value["keyboard_detection"]["sound"] == "synth"
+            && value["keyboard_detection"]["source_audio_sha256"].as_str()
+                == Some(&doc.audio_sha256)
+    }
     /// Immutable source routing is separate from undoable note content. Legacy
     /// projects infer it from the exact generation evidence copied into source/.
     pub fn guitar_source(&self, doc: &Project) -> Result<crate::mapping::GuitarSource> {
@@ -1597,10 +1649,15 @@ impl Store {
             Action::CreateTrack { track } => {
                 crate::parts::create(&mut doc, track)?;
             }
-            Action::ApplyGeneratedPart { .. } => generated_part
-                .take()
-                .context("Missing generated draft")?
-                .apply(self, &mut doc)?,
+            Action::ApplyGeneratedPart { .. } => {
+                generated_part
+                    .take()
+                    .context("Missing generated draft")?
+                    .apply(self, &mut doc)?;
+                if doc.kit_audition.is_none() && self.synth_reference(&doc) {
+                    doc.content.stem_mix.mode = crate::stem_review::MixMode::Original;
+                }
+            }
             Action::ImportCollaboration { .. } => (),
             Action::Collaborate { operation } => {
                 crate::collaboration::apply(&mut doc, operation, &request.actor)?
@@ -1654,6 +1711,9 @@ impl Store {
                 );
                 doc.selected_track = track.clone();
                 doc.selected_note = None;
+                if doc.kit_audition.is_none() && self.synth_reference(&doc) {
+                    doc.content.stem_mix.mode = crate::stem_review::MixMode::Original;
+                }
                 if doc.selected_region.as_ref().is_some_and(|id| {
                     !doc.review
                         .regions
