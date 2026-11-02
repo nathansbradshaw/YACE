@@ -38,7 +38,13 @@ Keep private recordings, transcripts and generated receipts outside Git.
 
 The ledger above is acceptance evidence for the exercised workflows, not a
 claim that later desktop changes are automatically verified on the web. The
-current browser integration includes desktop work through `d7875e3`.
+current published browser engine includes desktop work through `84ade97`.
+GitHub Pages now serves that engine on `yace.n8bradshaw.com`; its approved
+certificate and HTTPS redirect were verified. The served WASM matches the
+staged artifact. Actual hosted overview seeking, local vocal pitch analysis and
+chart-only export/reimport retain the three-second duration, two vocal notes,
+phrases and lyrics. Existing same-origin browser saves reopen after migration.
+Earlier engine assets remain accessible for tabs opened before the host change.
 
 - Local RMVPE pitch comparison ran on the real three-second vocal excerpt.
   Deliberately moving MIDI 52 to 64 produced one supported 64-to-52 correction;
