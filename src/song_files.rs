@@ -121,7 +121,10 @@ pub fn validate_existing(folder: &Path) -> Result<()> {
 }
 
 pub fn copy_song_source(source: &Path, dest: &Path) -> Result<()> {
-    fn copy(source: &Path, dest: &Path, private: bool) -> Result<()> {
+    copy_song_source_with_audio(source, dest, true)
+}
+pub fn copy_song_source_with_audio(source: &Path, dest: &Path, audio: bool) -> Result<()> {
+    fn copy(source: &Path, dest: &Path, private: bool, audio: bool) -> Result<()> {
         fs::create_dir_all(dest)?;
         for entry in fs::read_dir(source)? {
             let entry = entry?;
@@ -145,15 +148,22 @@ pub fn copy_song_source(source: &Path, dest: &Path) -> Result<()> {
             );
             let output = dest.join(&name);
             if kind.is_dir() {
-                copy(&entry.path(), &output, text == song_layout::DIRECTORY)?;
+                copy(
+                    &entry.path(),
+                    &output,
+                    text == song_layout::DIRECTORY,
+                    audio,
+                )?;
             } else {
                 ensure!(kind.is_file(), "Unsupported song source entry");
-                fs::copy(entry.path(), output)?;
+                if audio || !crate::export_options::is_audio(&entry.path()) {
+                    fs::copy(entry.path(), output)?;
+                }
             }
         }
         Ok(())
     }
-    copy(source, dest, false)
+    copy(source, dest, false, audio)
 }
 
 /// Consolidate copied legacy YACE files in an unpublished song staging folder.

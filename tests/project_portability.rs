@@ -90,6 +90,7 @@ fn write(root: &Path, files: &Files) {
 }
 
 #[test]
+#[cfg(any(feature = "editor", feature = "browser"))]
 fn imported_unedited_project_can_make_its_first_checkpoint_and_undo() {
     let temp = tempfile::tempdir().unwrap();
     let (original, _) = fixture(temp.path());

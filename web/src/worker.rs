@@ -27,6 +27,7 @@ pub enum Task {
         project: Box<crate::editor::Project>,
         output: PathBuf,
         actor: crate::editor::Actor,
+        options: crate::export_options::Options,
     },
     PrepareRecording {
         source: PathBuf,
@@ -96,6 +97,7 @@ pub enum Task {
         audio: PathBuf,
         output: PathBuf,
         actor: crate::editor::Actor,
+        options: crate::export_options::Options,
     },
     Clean {
         audio: PathBuf,
@@ -216,12 +218,14 @@ impl Task {
                 project,
                 output,
                 actor,
+                options,
             } => {
                 ensure!(
-                    !project.has_recording(),
+                    !project.has_recording() || !options.include_audio,
                     "Use recording-aware export for a recorded project"
                 );
-                crate::editor::Store::new(root).write_export(project, output, actor)?;
+                crate::editor::Store::new(root)
+                    .write_export_with_options(project, output, actor, options)?;
                 Ok(serde_json::Value::Null)
             }
             Self::PrepareRecording { source, root } => Ok(serde_json::to_value(
@@ -312,6 +316,7 @@ impl Task {
                 project,
                 output,
                 actor,
+                options,
                 ..
             } => {
                 for manifest in project
@@ -325,7 +330,8 @@ impl Task {
                         &crate::editor::Store::new(root).audio_path(project)?,
                     )?;
                 }
-                crate::editor::Store::new(root).write_export(project, output, actor)?;
+                crate::editor::Store::new(root)
+                    .write_export_with_options(project, output, actor, options)?;
                 Ok(serde_json::Value::Null)
             }
             Self::Clean {

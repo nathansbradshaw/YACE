@@ -36,6 +36,7 @@ pub struct Studio {
     pub saved_projects: Signal<Option<Vec<crate::chart_library::Entry>>>,
     pub export_ready: Signal<Option<(PathBuf, String, DownloadKind)>>,
     pub export_busy: Signal<bool>,
+    pub export_open: Signal<bool>,
     pub doc: Signal<Option<Arc<Project>>>,
     pub store: Signal<Option<Store>>,
     pub timing: Signal<Option<TempoMap>>,
@@ -98,6 +99,7 @@ pub fn use_studio() -> Studio {
         saved_projects: use_signal(|| None),
         export_ready: use_signal(|| None),
         export_busy: use_signal(|| false),
+        export_open: use_signal(|| false),
         doc: use_signal(|| None),
         store: use_signal(|| None),
         timing: use_signal(|| None),
@@ -1081,7 +1083,11 @@ impl Studio {
         self.star_power_open.set(false);
         self.star_power_target.set(None);
         self.timing_open.set(false);
-        self.source_audio.set(Some(store.audio_path(&doc)?));
+        self.source_audio.set(if doc.has_recording() {
+            Some(store.audio_path(&doc)?)
+        } else {
+            None
+        });
         self.guitar_source.set(store.guitar_source(&doc)?);
         self.group.set(Default::default());
         self.vocal_note.set(None);
@@ -1102,6 +1108,14 @@ impl Studio {
         Ok(())
     }
     pub fn export_dialog(mut self) {
+        self.export_open.set(true);
+    }
+    pub fn export_selected(
+        mut self,
+        options: crate::export_options::Options,
+        root: PathBuf,
+        revision: u64,
+    ) {
         if (self.export_busy)() {
             return;
         }
@@ -1110,6 +1124,11 @@ impl Studio {
             let result = async {
                 let store = self.store.read().clone().context("Open a project")?;
                 let doc = self.snapshot().context("Open a project")?;
+                ensure!(
+                    store.root == root && doc.revision == revision,
+                    "The project changed; reopen Export"
+                );
+                options.selected(&store, &doc)?;
                 let name = format!("{} reviewed.zip", self.metadata_value("name"));
                 let output = PathBuf::from(format!("/exports/{}", js_sys::Date::now() as u64));
                 self.status
@@ -1118,13 +1137,14 @@ impl Studio {
                     kind: ActorKind::Human,
                     name: (self.reviewer)(),
                 };
-                let task = if doc.has_recording() {
+                let task = if doc.has_recording() && options.include_audio {
                     crate::worker::Task::Export {
                         root: store.root.clone(),
                         project: Box::new(doc.as_ref().clone()),
                         audio: store.audio_path(&doc)?,
                         output: output.clone(),
                         actor,
+                        options,
                     }
                 } else {
                     crate::worker::Task::ExportChartOnly {
@@ -1132,6 +1152,7 @@ impl Studio {
                         project: Box::new(doc.as_ref().clone()),
                         output: output.clone(),
                         actor,
+                        options,
                     }
                 };
                 let _: () = crate::worker::run_with_progress(
@@ -1144,6 +1165,7 @@ impl Studio {
                 )
                 .await?;
                 let archive = output.with_extension("zip");
+                self.export_open.set(false);
                 if let Some((previous, _, _)) =
                     self.export_ready
                         .replace(Some((archive, name, DownloadKind::Song)))
