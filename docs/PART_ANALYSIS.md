@@ -1,7 +1,10 @@
 # Part analysis
 
-Open **Part analysis** in the playback strip to compare the recording, detected
-events and chart notes for an instrument.
+Open **Playback options → Part analysis** to compare the recording, detected
+events and chart notes for an instrument. The drawer stays above the selection
+desk and timeline, and remains open when you collapse Playback options. Scroll
+inside the drawer to see later sections. Use its close button or Escape to return
+to the note editor.
 
 1. Choose the instrument and a section.
 2. Listen to the original or matching stem.
