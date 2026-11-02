@@ -492,28 +492,100 @@ fn detect_automatic(mut studio: Studio, mut data: Signal<View>, source: PathBuf,
 }
 #[cfg(target_arch = "wasm32")]
 fn detect_automatic(mut studio: Studio, mut data: Signal<View>, source: PathBuf, epoch: u64) {
-    if !current(data,&source,epoch)||data.read().busy.is_some(){return;}
-    let view=data.read().clone();let policy=view.policy();if policy.validate().is_err(){return;}
-    let Some(store)=(studio.store)() else{return;};
-    let selected=view.stem.zip(view.stem_hashes).filter(|_|!view.evidence.trim().is_empty()).map(|(path,(audio_sha256,stem_sha256))|(path,StemAlignment{audio_sha256,stem_sha256,evidence:view.evidence}));
-    let attached=studio.snapshot().and_then(|doc|doc.content.stems.as_ref().and_then(|manifest|manifest.stems.iter().find(|s|s.id==crate::stem_review::StemId::Vocals).map(|stem|(stem.path.clone(),StemAlignment{audio_sha256:manifest.source_audio_sha256.clone(),stem_sha256:stem.sha256.clone(),evidence:format!("{}: {}",manifest.alignment.method,manifest.alignment.details)}))));
-    let stem=selected.or(attached);let mode=view.mode;let control=Arc::new(Control::default());
-    data.with_mut(|view|{view.busy=Some("Starting local lyric analysis…".into());view.error=None;view.recognition_control=Some(control.clone());});
+    if !current(data, &source, epoch) || data.read().busy.is_some() {
+        return;
+    }
+    let view = data.read().clone();
+    let policy = view.policy();
+    if policy.validate().is_err() {
+        return;
+    }
+    let Some(store) = (studio.store)() else {
+        return;
+    };
+    let selected = view
+        .stem
+        .zip(view.stem_hashes)
+        .filter(|_| !view.evidence.trim().is_empty())
+        .map(|(path, (audio_sha256, stem_sha256))| {
+            (
+                path,
+                StemAlignment {
+                    audio_sha256,
+                    stem_sha256,
+                    evidence: view.evidence,
+                },
+            )
+        });
+    let attached = studio.snapshot().and_then(|doc| {
+        doc.content.stems.as_ref().and_then(|manifest| {
+            manifest
+                .stems
+                .iter()
+                .find(|s| s.id == crate::stem_review::StemId::Vocals)
+                .map(|stem| {
+                    (
+                        stem.path.clone(),
+                        StemAlignment {
+                            audio_sha256: manifest.source_audio_sha256.clone(),
+                            stem_sha256: stem.sha256.clone(),
+                            evidence: format!(
+                                "{}: {}",
+                                manifest.alignment.method, manifest.alignment.details
+                            ),
+                        },
+                    )
+                })
+        })
+    });
+    let stem = selected.or(attached);
+    let mode = view.mode;
+    let control = Arc::new(Control::default());
+    data.with_mut(|view| {
+        view.busy = Some("Starting local lyric analysis…".into());
+        view.error = None;
+        view.recognition_control = Some(control.clone());
+    });
     spawn(async move {
-        let result=async {
-            let progress_source=source.clone();
-            let progress=std::rc::Rc::new(move|message:String|{let mut data=data;if current(data,&progress_source,epoch){data.write().busy=Some(message);}});
-            let task=Box::pin(crate::worker::run_with_progress::<Recognition>(crate::worker::Task::RecognizeWords{audio:source.clone(),stem:stem.clone(),language:crate::lyric_language::Language::English},std::slice::from_ref(&store.root),progress));
-            let cancelled=Box::pin(async {loop {if control.is_cancelled()||!current(data,&source,epoch){return;}gloo_timers::future::TimeoutFuture::new(50).await;}});
-            let recognition=match futures_util::future::select(task,cancelled).await {
-                futures_util::future::Either::Left((result,_))=>result?,
-                futures_util::future::Either::Right(_)=>anyhow::bail!("Automatic analysis cancelled; existing words and ranges were kept"),
+        let result = async {
+            let progress_source = source.clone();
+            let progress = std::rc::Rc::new(move |message: String| {
+                let mut data = data;
+                if current(data, &progress_source, epoch) {
+                    data.write().busy = Some(message);
+                }
+            });
+            let task = Box::pin(crate::worker::run_with_progress::<Recognition>(
+                crate::worker::Task::RecognizeWords {
+                    audio: source.clone(),
+                    stem: stem.clone(),
+                    language: crate::lyric_language::Language::English,
+                },
+                std::slice::from_ref(&store.root),
+                progress,
+            ));
+            let cancelled = Box::pin(async {
+                loop {
+                    if control.is_cancelled() || !current(data, &source, epoch) {
+                        return;
+                    }
+                    gloo_timers::future::TimeoutFuture::new(50).await;
+                }
+            });
+            let recognition = match futures_util::future::select(task, cancelled).await {
+                futures_util::future::Either::Left((result, _)) => result?,
+                futures_util::future::Either::Right(_) => anyhow::bail!(
+                    "Automatic analysis cancelled; existing words and ranges were kept"
+                ),
             };
-            check_source(&source,&recognition.words.audio_sha256)?;
-            let plan=clean::plan(&recognition.words,&policy,mode)?;
-            Ok::<_,anyhow::Error>((recognition,plan))
-        }.await;
-        if !current(data,&source,epoch){return;}
+            check_source(&source, &recognition.words.audio_sha256)?;
+            let plan = clean::plan(&recognition.words, &policy, mode)?;
+            Ok::<_, anyhow::Error>((recognition, plan))
+        }
+        .await;
+        if !current(data, &source, epoch) {
+            return;
+        }
         data.with_mut(|view|{
             view.busy=None;view.recognition_control=None;
             if control.is_cancelled(){view.status="Automatic analysis cancelled. Existing words and ranges were kept.".into();return;}
@@ -525,7 +597,11 @@ fn detect_automatic(mut studio: Studio, mut data: Signal<View>, source: PathBuf,
                 },Err(error)=>view.error=Some(format!("{error:#}")),
             }
         });
-        if let Some(error)=data.read().error.clone(){studio.error.set(Some(error));}else{studio.status.set(data.read().status.clone());}
+        if let Some(error) = data.read().error.clone() {
+            studio.error.set(Some(error));
+        } else {
+            studio.status.set(data.read().status.clone());
+        }
     });
 }
 fn render(studio: Studio, data: Signal<View>, source: PathBuf, epoch: u64) {
