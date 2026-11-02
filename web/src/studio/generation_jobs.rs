@@ -185,7 +185,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut piano_quality = use_signal(|| crate::keyboard_detection::PianoQuality::Standard);
     let mut standard_drums = use_signal(|| false);
     let mut full_mix_drums = use_signal(|| false);
-    let mut supplied_lyrics=use_signal(||None::<crate::vocal_generation::LyricSource>);
+    let mut supplied_lyrics = use_signal(|| None::<crate::vocal_generation::LyricSource>);
     let saved = use_resource(move || {
         let open = (studio.generation_open)();
         let _ = refresh();

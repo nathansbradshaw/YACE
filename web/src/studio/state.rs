@@ -757,7 +757,9 @@ impl Studio {
         for path in [crate::pipeline::audio_file(&source)?, chart] {
             identity.update(crate::models::hash_file(&path)?.as_bytes());
         }
-        if let Some(provenance)=crate::song_files::source_choice::recovery_identity(&source,choice)? {
+        if let Some(provenance) =
+            crate::song_files::source_choice::recovery_identity(&source, choice)?
+        {
             identity.update(provenance.as_bytes());
         }
         for path in [
@@ -872,7 +874,11 @@ impl Studio {
         self.library_selected.set(None);
         self.library_files.set(None);
         if let Some(previous) = self.library.replace(None)
-            && self.store.read().as_ref().is_none_or(|store| !store.root.starts_with(&previous.root))
+            && self
+                .store
+                .read()
+                .as_ref()
+                .is_none_or(|store| !store.root.starts_with(&previous.root))
         {
             crate::storage::clear(&previous.root);
         }
