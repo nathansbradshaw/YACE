@@ -559,6 +559,9 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
                             onmousedown:move|e:MouseEvent|{e.stop_propagation();gestures.note(&down_track,Some(&down_id),0,note_tick,&e);},
                             if item.note.sustain>0{rect{x:"{x.max(0.0)}",y:"{y+4.0}",width:"{(end.min(width())-x.max(0.0)).max(0.0)}",height:"6",rx:"2",fill,opacity:".55"}}
                             rect{x:"{x}",y:"{y}",width:"14",height:"14",rx:if doc.is_cymbal(&track,&item.note){"1"}else{"3"},fill,stroke,stroke_width:"1.5",role:"button","aria-pressed":is_selected.to_string(),"aria-label":"{lane_name(&track,item.note.lane)} note at {timing.seconds(item.note.tick):.3} seconds",title{"{lane_name(&track,item.note.lane)} · {timing.seconds(item.note.tick):.4}s · {item.id}"}}
+                            path{d:"M{x+3.} {y+2.5}H{x+11.}",stroke:"#fff",stroke_opacity:".55",stroke_width:"1",pointer_events:"none"}
+                            path{d:"M{x+3.} {y+11.5}H{x+11.}",stroke:"#061019",stroke_opacity:".55",stroke_width:"1",pointer_events:"none"}
+                            if doc.is_cymbal(&track,&item.note){path{d:"M{x+7.} {y+3.}L{x+11.5} {y+10.5}H{x+2.5}Z",fill:"none",stroke:"#07121b",stroke_width:"1",pointer_events:"none"}}
                             if let Some(kind)=type_markers.get(&item.note.tick) {
                                 text {x:"{x+7.}",y:"{y+10.5}",text_anchor:"middle",font_size:"8.5",font_weight:"700",fill:"#0a0c0f",pointer_events:"none",if *kind==crate::note_types::Kind::Tap {"T"}else{"F"}}
                             }

@@ -172,14 +172,20 @@ pub fn Preview(studio: Studio) -> Element {
 fn BandPreview(studio: Studio) -> Element {
     let mut pro_drums = use_signal(|| true);
     let mut lookahead = use_signal(|| DEFAULT_LOOKAHEAD);
+    let mut surface_height = use_signal(|| f64::INFINITY);
     let tracks = super::track_views::visible(studio, super::track_views::Pane::Preview);
     let has_vocals = tracks.iter().any(|id| id == "Vocals");
     let has_drums = tracks.iter().any(|id| id.ends_with("Drums"));
     let bands: Vec<_> = tracks.into_iter().filter(|id| id != "Vocals").collect();
     let multi = bands.len() + usize::from(has_vocals) > 1;
+    let overflow = surface_height() > 0.
+        && !bands.is_empty()
+        && surface_height() < 160. + if multi && has_vocals { 80. } else { 0. };
     rsx! {section {class:"audition-view",
-        header {class:"desk-heading audition-heading",h2{"Audition"}super::track_views::Controls{studio,pane:super::track_views::Pane::Preview}span{class:"audition-mode","Autoplay"}}
+        header {class:"desk-heading audition-heading",h2{"Audition"}super::track_views::Controls{studio,pane:super::track_views::Pane::Preview}span{class:"audition-mode",title:"Autoplay editing preview",if overflow{"Scroll preview ↓"}else{"Autoplay"}}}
         div{class:if multi{"audition-surface track-preview-surface multi-track-preview"}else{"audition-surface track-preview-surface"},
+            role:"region",aria_label:"Audition tracks",tabindex:"0",onkeydown:move|e:KeyboardEvent|e.stop_propagation(),
+            onresize:move|e|if let Ok(size)=e.get_content_box_size() && surface_height()!=size.height{surface_height.set(size.height);},
             if has_vocals {div{class:"preview-vocals",
                 button{tabindex:"0",aria_label:"Select Vocals for editing",onkeydown:move|e:KeyboardEvent|e.stop_propagation(),aria_pressed:(super::track_views::active(studio)=="Vocals").to_string(),onclick:move|_|super::track_views::select(studio,"Vocals".into()),"Vocals"}
                 super::vocal_preview::VocalPreview{studio,lookahead:lookahead(),compact:multi}
@@ -227,6 +233,9 @@ fn Highway(
                 .map_err(|error| format!("Cannot interpret this track: {error:#}"))
         },
     ));
+    let power = use_memo(use_reactive(&track, move |track| {
+        super::star_power::current(studio, &track)
+    }));
     let animation = use_memo(use_reactive(&track, move |track| {
         let document = studio.doc.read();
         let Some(doc) = document.as_ref() else {
@@ -263,7 +272,7 @@ fn Highway(
             let classified = classified.read();
             let (notes, _) = classified.as_ref().ok()?;
             let beats = beat_lines(&timing, position, lookahead());
-            Some(render_highway(&Scene {
+            let mut geometry = render_highway(&Scene {
                 notes,
                 beats: &beats,
                 flashes: &animation().flashes,
@@ -273,7 +282,11 @@ fn Highway(
                 pro_piano: crate::keys::is_pro(&track),
                 pro_drums: pro_drums(),
                 playing: doc.transport.playing && (studio.audio_ready)(),
-            }))
+            });
+            if let Some(phrases) = power.read().as_ref() {
+                geometry.push_str(&render_power(phrases, &timing, position, lookahead()));
+            }
+            Some(geometry)
         })
         .unwrap_or_default();
     let geometry = scoped_geometry(&geometry, &scope());
@@ -483,6 +496,18 @@ fn render_highway(scene: &Scene<'_>) -> String {
         return render_piano_highway(scene);
     }
     let lanes = if scene.drums { 4 } else { 5 };
+    let activity: Vec<_> = (0..lanes)
+        .map(|index| {
+            lane_activity(
+                scene,
+                if scene.drums {
+                    index as u8 + 1
+                } else {
+                    index as u8
+                },
+            )
+        })
+        .collect();
     let mut out = String::from(DEFINITIONS);
     // The board continues beneath the receptors, avoiding floating fret buttons.
     let (left_far, far_y, _) = project(0.0, scene.lookahead, scene.lookahead);
@@ -505,7 +530,30 @@ fn render_highway(scene: &Scene<'_>) -> String {
         let (right, _, _) = project(1.0, distance, scene.lookahead);
         let _ = write!(
             out,
-            "<path d='M{left:.2} {y:.2}H{right:.2}' stroke='#bdc8d5' stroke-opacity='.045' stroke-width='1'/>"
+            "<path data-kind='board-grain' d='M{left:.2} {y:.2}H{right:.2}' stroke='#bdc8d5' stroke-opacity='.045' stroke-width='1'/>"
+        );
+    }
+    for (index, (strength, _)) in activity
+        .iter()
+        .enumerate()
+        .filter(|(_, (strength, _))| *strength > 0.)
+    {
+        let a = index as f64 / lanes as f64;
+        let b = (index + 1) as f64 / lanes as f64;
+        let (left, near, _) = project(a, 0., scene.lookahead);
+        let (right, _, _) = project(b, 0., scene.lookahead);
+        let (far_left, far, _) = project(a, scene.lookahead * 0.35, scene.lookahead);
+        let (far_right, _, _) = project(b, scene.lookahead * 0.35, scene.lookahead);
+        let lane = if scene.drums {
+            index as u8 + 1
+        } else {
+            index as u8
+        };
+        let color = lane_color(scene.drums, lane);
+        let _ = write!(
+            out,
+            "<path data-kind='lane-light' data-lane='{lane}' d='M{left:.2} {near:.2}L{far_left:.2} {far:.2}L{far_right:.2} {far:.2}L{right:.2} {near:.2}Z' fill='{color}' opacity='{:.3}'/>",
+            strength * 0.13
         );
     }
     for lane in 1..lanes {
@@ -549,7 +597,7 @@ fn render_highway(scene: &Scene<'_>) -> String {
     for note in visible {
         render_note(&mut out, scene, note, lanes);
     }
-    render_receptors(&mut out, scene, lanes);
+    render_receptors(&mut out, scene, lanes, &activity);
     out
 }
 
@@ -669,8 +717,8 @@ fn render_note(out: &mut String, scene: &Scene<'_>, note: &PreviewNote, lanes: u
             rx * 0.18,
             ry * 0.23
         );
-    } else {
-        let kind = if scene.drums { "tom" } else { "gem" };
+    } else if scene.drums {
+        let kind = "tom";
         let _ = write!(
             out,
             "<g data-kind='{kind}' data-lane='{}'><ellipse cx='{x:.2}' cy='{:.2}' rx='{rx:.2}' ry='{ry:.2}' fill='#000' opacity='.55'/><ellipse cx='{x:.2}' cy='{y:.2}' rx='{rx:.2}' ry='{ry:.2}' fill='url(#game-gem-base)' stroke='{selected}' stroke-width='{stroke:.2}'/><ellipse cx='{x:.2}' cy='{:.2}' rx='{:.2}' ry='{:.2}' fill='{color}'/><ellipse cx='{x:.2}' cy='{:.2}' rx='{:.2}' ry='{:.2}' fill='url(#game-gem-sheen)'/><path d='M{:.2} {:.2}Q{x:.2} {:.2} {:.2} {:.2}' fill='none' stroke='#fff' stroke-opacity='.75' stroke-width='{:.2}'/></g>",
@@ -688,6 +736,18 @@ fn render_note(out: &mut String, scene: &Scene<'_>, note: &PreviewNote, lanes: u
             x + rx * 0.64,
             y - ry * 0.3,
             stroke
+        );
+    } else {
+        let body = gem_outline(x, y + ry * 0.5, rx, ry);
+        let rim = gem_outline(x, y, rx, ry);
+        let cap = gem_outline(x, y - ry * 0.2, rx * 0.82, ry * 0.68);
+        let _ = write!(
+            out,
+            "<g data-kind='gem' data-profile='faceted' data-lane='{}'><path d='{body}' fill='#05090f' stroke='#020509' stroke-width='{stroke:.2}'/><path d='{rim}' fill='url(#game-gem-base)' stroke='{selected}' stroke-width='{stroke:.2}'/><path d='{cap}' fill='{color}'/><path d='{cap}' fill='url(#game-gem-sheen)'/><path d='M{:.2} {:.2}H{:.2}' stroke='#fff' stroke-opacity='.65' stroke-width='{stroke:.2}'/></g>",
+            note.lane,
+            x - rx * 0.58,
+            y - ry * 0.58,
+            x + rx * 0.58
         );
     }
     match note.technique {
@@ -732,7 +792,86 @@ fn render_note(out: &mut String, scene: &Scene<'_>, note: &PreviewNote, lanes: u
     }
 }
 
-fn render_receptors(out: &mut String, scene: &Scene<'_>, lanes: usize) {
+fn gem_outline(x: f64, y: f64, rx: f64, ry: f64) -> String {
+    format!(
+        "M{:.2} {:.2}L{:.2} {:.2}L{:.2} {y:.2}L{:.2} {:.2}L{:.2} {:.2}L{:.2} {y:.2}Z",
+        x - rx * 0.72,
+        y - ry,
+        x + rx * 0.72,
+        y - ry,
+        x + rx,
+        x + rx * 0.72,
+        y + ry,
+        x - rx * 0.72,
+        y + ry,
+        x - rx
+    )
+}
+
+fn render_power(
+    phrases: &[crate::star_power::Phrase],
+    timing: &TempoMap,
+    position: f64,
+    ahead: f64,
+) -> String {
+    if !position.is_finite() || !ahead.is_finite() || ahead <= 0. {
+        return String::new();
+    }
+    let first = phrases.partition_point(|p| timing.seconds(p.end) <= position);
+    let mut out = String::new();
+    for phrase in phrases[first..]
+        .iter()
+        .take_while(|p| timing.seconds(p.start) < position + ahead)
+    {
+        let start = timing.seconds(phrase.start).max(position);
+        let end = timing.seconds(phrase.end).min(position + ahead);
+        if end <= start {
+            continue;
+        }
+        let _ = write!(
+            out,
+            "<g data-kind='star-power' data-start='{start:.4}' data-end='{end:.4}'><title>Star Power phrase</title>"
+        );
+        for side in [0., 1.] {
+            let (x, y, scale) = project(side, start - position, ahead);
+            let (tx, ty, tail_scale) = project(side, end - position, ahead);
+            let width = 5. * scale;
+            let tail_width = 5. * tail_scale;
+            let _ = write!(
+                out,
+                "<path d='M{:.2} {y:.2}L{:.2} {ty:.2}L{:.2} {ty:.2}L{:.2} {y:.2}Z' fill='#7ce5f0' opacity='.8'/><path d='M{x:.2} {y:.2}L{tx:.2} {ty:.2}' stroke='#f1ffff' stroke-width='1' stroke-dasharray='4 3'/>",
+                x - width,
+                tx - tail_width,
+                tx + tail_width,
+                x + width
+            );
+        }
+        out.push_str("</g>");
+    }
+    out
+}
+
+fn lane_activity(scene: &Scene<'_>, lane: u8) -> (f64, bool) {
+    if !scene.playing {
+        return (0., false);
+    }
+    let flash = scene
+        .flashes
+        .iter()
+        .filter(|flash| flash.lane == lane)
+        .map(|flash| (1. - (scene.position - flash.at) / FLASH_SECONDS).clamp(0., 1.))
+        .fold(0., f64::max);
+    let holding = !scene.drums
+        && scene.notes.iter().any(|note| {
+            note.lane == lane
+                && note.end > note.start
+                && note.start < scene.position
+                && note.end > scene.position
+        });
+    (flash.max(if holding { 0.70 } else { 0. }), holding)
+}
+
+fn render_receptors(out: &mut String, scene: &Scene<'_>, lanes: usize, activity: &[(f64, bool)]) {
     let left = CENTER_X - HALF_WIDTH;
     let right = CENTER_X + HALF_WIDTH;
     let _ = write!(
@@ -742,7 +881,7 @@ fn render_receptors(out: &mut String, scene: &Scene<'_>, lanes: usize) {
         STRIKE_Y + 4.0,
         STRIKE_Y + 2.0
     );
-    for index in 0..lanes {
+    for (index, &(active, holding)) in activity.iter().take(lanes).enumerate() {
         let lane = if scene.drums {
             index as u8 + 1
         } else {
@@ -750,25 +889,6 @@ fn render_receptors(out: &mut String, scene: &Scene<'_>, lanes: usize) {
         };
         let (x, _, _) = project((index as f64 + 0.5) / lanes as f64, 0.0, scene.lookahead);
         let color = lane_color(scene.drums, lane);
-        let flash = if scene.playing {
-            scene
-                .flashes
-                .iter()
-                .filter(|flash| flash.lane == lane)
-                .map(|flash| (1.0 - (scene.position - flash.at) / FLASH_SECONDS).clamp(0.0, 1.0))
-                .fold(0.0, f64::max)
-        } else {
-            0.0
-        };
-        let holding = !scene.drums
-            && scene.playing
-            && scene.notes.iter().any(|note| {
-                note.lane == lane
-                    && note.end > note.start
-                    && note.start < scene.position
-                    && note.end > scene.position
-            });
-        let active = flash.max(if holding { 0.70 } else { 0.0 });
         let rx = HALF_WIDTH / lanes as f64 * 0.81;
         let _ = write!(
             out,
@@ -856,6 +976,83 @@ const DEFINITIONS: &str = "<defs><linearGradient id='game-board' x1='0' y1='0' x
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn authored_power_rails_clip_to_the_source_window_across_tempo_changes() {
+        let timing = TempoMap::new(
+            480,
+            0.,
+            vec![
+                crate::timing::Tempo { tick: 0, bpm: 120. },
+                crate::timing::Tempo {
+                    tick: 1920,
+                    bpm: 60.,
+                },
+            ],
+        )
+        .unwrap();
+        let phrases = [
+            crate::star_power::Phrase { start: 0, end: 480 },
+            crate::star_power::Phrase {
+                start: 1920,
+                end: 3840,
+            },
+        ];
+        let svg = render_power(&phrases, &timing, 3., 2.);
+        assert_eq!(svg.matches("data-kind='star-power'").count(), 1);
+        assert!(svg.contains("data-start='3.0000' data-end='5.0000'"));
+        assert_eq!(svg.matches("stroke-dasharray='4 3'").count(), 2);
+        assert!(render_power(&phrases, &timing, 6., 2.).is_empty());
+        assert!(render_power(&phrases, &timing, 0., 0.).is_empty());
+        assert!(render_power(&phrases, &timing, f64::NAN, 2.).is_empty());
+    }
+    #[test]
+    fn faceted_guitar_notes_keep_techniques_and_drums_keep_distinct_shapes() {
+        let mut notes = [
+            note(0., 2., 0, false),
+            note(0.5, 0.5, 1, false),
+            note(1., 1., 2, false),
+        ];
+        notes[1].technique = Some(Technique::Hopo);
+        notes[2].technique = Some(Technique::Tap);
+        let scene = Scene {
+            notes: &notes,
+            beats: &[],
+            flashes: &[],
+            position: 0.,
+            lookahead: 3.6,
+            drums: false,
+            pro_piano: false,
+            pro_drums: true,
+            playing: true,
+        };
+        let svg = render_highway(&scene);
+        assert_eq!(svg.matches("data-profile='faceted'").count(), 3);
+        assert!(svg.contains("data-technique='hopo'"));
+        assert!(svg.contains("data-technique='tap'"));
+        assert!(svg.contains("data-kind='sustain'"));
+        let held = render_highway(&Scene {
+            position: 0.1,
+            ..scene
+        });
+        assert!(held.contains("data-kind='lane-light' data-lane='0'"));
+        assert!(
+            !render_highway(&Scene {
+                position: 0.1,
+                playing: false,
+                ..scene
+            })
+            .contains("data-kind='lane-light'")
+        );
+        let drum_notes = [note(0., 0., 2, true), note(0.5, 0.5, 3, false)];
+        let drums = render_highway(&Scene {
+            notes: &drum_notes,
+            drums: true,
+            ..scene
+        });
+        assert!(drums.contains("data-kind='cymbal'"));
+        assert!(drums.contains("data-kind='tom'"));
+        assert!(!drums.contains("data-profile='faceted'"));
+    }
     #[test]
     fn concurrent_highways_keep_definitions_and_references_in_their_own_scene() {
         let notes = [note(0., 1., 0, false)];
