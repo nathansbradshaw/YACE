@@ -128,15 +128,20 @@ fn finish(studio: Studio, mut drag: Signal<Option<Drag>>, pointer: Option<i32>) 
 // bridge. WASM calls the same browser operation directly from Rust.
 fn capture(pointer: i32) {
     #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen::JsCast;
+    #[cfg(target_arch = "wasm32")]
     if let Some(element) = web_sys::window()
         .and_then(|w| w.document())
         .and_then(|d| d.get_element_by_id("song-overview-seek"))
     {
+        if let Some(input) = element.dyn_ref::<web_sys::HtmlInputElement>() {
+            let _ = input.focus();
+        }
         let _ = element.set_pointer_capture(pointer);
     }
     #[cfg(not(target_arch = "wasm32"))]
     spawn(async move {
-        let _=dioxus_document::eval(&format!("const e=document.getElementById('song-overview-seek');if(e){{try{{e.setPointerCapture({pointer});}}catch(_){{}}}}" )).await;
+        let _=dioxus_document::eval(&format!("const e=document.getElementById('song-overview-seek');if(e){{e.focus({{preventScroll:true}});try{{e.setPointerCapture({pointer});}}catch(_){{}}}}" )).await;
     });
 }
 fn reflect_position(seconds: f64) {
@@ -232,7 +237,7 @@ pub fn SongOverview(studio: Studio) -> Element {
             div{class:"song-overview-window",style:"left:{left}%;width:{width}%",aria_hidden:"true"}
             if let Some(range)=t.loop_range {div{class:"song-overview-loop",style:"left:{percent(range.start)}%;width:{percent(range.end)-percent(range.start)}%",aria_hidden:"true"}}
             div{class:"song-overview-playhead",style:"left:{playhead}%",aria_hidden:"true"}
-            input{id:"song-overview-seek",r#type:"range",min:"0",max:"{duration}",step:"0.001",value:"{position}",disabled:duration<=0.,aria_label:"Seek song and timeline",aria_valuetext:"{clock(position)} of {clock(duration)}",title:help,
+            input{id:"song-overview-seek",r#type:"range",tabindex:"0",min:"0",max:"{duration}",step:"0.001",value:"{position}",disabled:duration<=0.,aria_label:"Seek song and timeline",aria_valuetext:"{clock(position)} of {clock(duration)}",title:help,
                 onpointerdown:move|event:PointerEvent|{
                     if !event.is_primary()||event.trigger_button()!=Some(dioxus::html::input_data::MouseButton::Primary)||drag.peek().is_some(){return;}
                     let Some(key)=source(studio) else{return;};let Some(t)=session::transport(studio)else{return;};
