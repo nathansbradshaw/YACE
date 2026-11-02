@@ -343,7 +343,21 @@ pub fn RollHeading(studio: Studio, track: String) -> Element {
     let target = track.clone();
     let toggle = track.clone();
     let title = label(studio, &track);
+    let count = studio.snapshot().and_then(|doc| {
+        if track == "Vocals" {
+            doc.content.vocals.as_ref().map(|v| v.notes.len())
+        } else {
+            doc.content.tracks.get(&track).map(|notes| {
+                notes
+                    .iter()
+                    .filter(|n| crate::editor::playable(&track, n.note.lane))
+                    .count()
+            })
+        }
+    });
     rsx! {header{class:"track-view-heading",onkeydown:move|event:KeyboardEvent|event.stop_propagation(),button{aria_label:"Select {title} for editing",aria_pressed:(active(studio)==track).to_string(),onclick:move|_|select(studio,target.clone()),"{title}"}
+        if !track.starts_with("dance:")&&track!="Vocals"{super::difficulty::TrackLinkBadge{track:track.clone()}}
+        if let Some(count)=count {span{class:"track-view-count","{count} notes"}}
         button{aria_label:if hidden{format!("Expand {title} piano roll")}else{format!("Collapse {title} piano roll")},aria_expanded:(!hidden).to_string(),onclick:move|_|update(studio,|p|{if !p.collapsed.remove(&toggle){p.collapsed.insert(toggle.clone());}}),if hidden{"Expand"}else{"Collapse"}}
     }}
 }

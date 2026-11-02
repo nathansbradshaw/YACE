@@ -173,8 +173,7 @@ fn BandPreview(studio: Studio) -> Element {
     let bands: Vec<_> = tracks.into_iter().filter(|id| id != "Vocals").collect();
     let multi = bands.len() + usize::from(has_vocals) > 1;
     rsx! {section {class:"audition-view",
-        header {class:"desk-heading audition-heading",h2{"Audition"}span{class:"audition-mode","Autoplay"}}
-        super::track_views::Controls{studio,pane:super::track_views::Pane::Preview}
+        header {class:"desk-heading audition-heading",h2{"Audition"}super::track_views::Controls{studio,pane:super::track_views::Pane::Preview}span{class:"audition-mode","Autoplay"}}
         div{class:if multi{"audition-surface track-preview-surface multi-track-preview"}else{"audition-surface track-preview-surface"},
             if has_vocals {div{class:"preview-vocals",
                 button{aria_label:"Select Vocals for editing",onkeydown:move|e:KeyboardEvent|e.stop_propagation(),aria_pressed:(super::track_views::active(studio)=="Vocals").to_string(),onclick:move|_|super::track_views::select(studio,"Vocals".into()),"Vocals"}
