@@ -17,6 +17,12 @@ The four columns are left, down, up, right. Holds and rolls have editable length
 Mines, lifts and fake notes remain distinct types. The beat grid stays independent
 of scrolling effects; the preview follows the recording's clock.
 
+Shift-click adds notes to a passage selection. Copy/paste, mirror, quantize and
+earlier/later shifts keep sustains together and form one undo step. The 1–4 keys
+toggle the four lanes at the cursor; arrow keys move the cursor and Page Up/Down
+move the grid. Ctrl/Cmd-Z, Shift-Z, A, C, X and V provide history and selection
+shortcuts. Inputs keep these keys local while editing text or numbers.
+
 **Advanced timing** edits the song map or a complete selected-chart override:
 BPM, stops, delays, warps, fake sections, speeds, scrolls, time signatures, labels,
 tick counts and combo settings. A stop occurs after a note at its beat; a delay
@@ -40,6 +46,9 @@ Desktop recovery lives under the OS temporary directory in
 backup. Save project ZIPs to a durable location. Browser recovery uses IndexedDB
 and a separate StepMania pointer, with revision checks against competing tabs.
 A failed save is reported; export a project ZIP before reopening.
+Combined-project backups include both families, including the current dance
+working copy after a conflicting save. Browser saves check the band and dance
+revisions in the same transaction so another tab cannot overwrite either family.
 
 **Export → Dance simfiles (.ssc)** produces a playable song directory and a recovery subtree.
 Pad and keyboard charts go into separate `YACE-pad` / `YACE-keyboard` directories.
@@ -114,6 +123,12 @@ independent running-engine oracle. Code checks and synthetic generation fixtures
 also do not establish native gameplay, synchronization on a particular audio
 system, musical quality, difficulty accuracy or dance-pad acceptance. Those
 require explicit exported-song playtests, separately for pad and keyboard.
+
+Synthetic native checks exercise recording playback, the preview clock, note
+placement, persistence and undo. Browser checks exercise normal New chart and
+Add part setup, switching between band and dance tracks, reload recovery,
+five-difficulty generation and rejection of a stale edit from another tab.
+These checks are engineering evidence, not game or musical acceptance.
 
 ## Integrated chart families
 

@@ -131,7 +131,7 @@ official distribution, conversion hashes and attribution are recorded in
 The frontend/converter do not import or execute upstream Python/TorchScript or
 copy the unrelated LARS plugin implementation.
 
-## StepMania authoring
+## Dance authoring
 
 The shared Rust StepMania core adapts SMEditor's before/note/after timing-cache
 organization at revision `bff17f0839109acd5dbcbe6f2febca7002f3f20c`.
