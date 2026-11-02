@@ -1,24 +1,30 @@
 //! Lossless song metadata helpers shared by native and WebAssembly.
 use std::collections::BTreeMap;
 pub fn audio_file(folder: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+    recording_file(folder)?.with_context(|| {
+        format!(
+            "No supported audio found in {}; supply song, guitar or instrument channel audio",
+            folder.display()
+        )
+    })
+}
+/// Absence is distinct from a corrupt recording or source receipt.
+pub fn recording_file(folder: &std::path::Path) -> anyhow::Result<Option<std::path::PathBuf>> {
     if let Some(preview) = crate::stem_review::conventional::preview(folder)? {
-        return Ok(preview);
+        return Ok(Some(preview));
     }
     for name in ["song", "guitar"] {
         for extension in ["ogg", "opus", "mp3", "flac", "wav", "m4a"] {
             let path = folder.join(format!("{name}.{extension}"));
             if crate::storage::is_file(&path) {
-                return Ok(path);
+                return Ok(Some(path));
             }
         }
     }
     if let Some(channel) = crate::stem_review::conventional::inputs(folder)?.first() {
-        return Ok(folder.join(&channel.filename));
+        return Ok(Some(folder.join(&channel.filename)));
     }
-    anyhow::bail!(
-        "No supported audio found in {}; supply song, guitar or instrument channel audio",
-        folder.display()
-    )
+    Ok(None)
 }
 pub fn ini_fields(text: &str) -> BTreeMap<String, String> {
     let mut fields = BTreeMap::new();

@@ -55,6 +55,7 @@ fn fixture() -> (Project, Chart) {
         })
         .collect();
     let project = Project {
+        recording: None,
         version: 1,
         revision: 0,
         title: "Validation fixture".into(),

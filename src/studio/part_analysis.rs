@@ -470,10 +470,15 @@ pub fn PartAnalysisButton(studio: Studio) -> Element {
         mut open,
         mut selected,
     } = use_context();
-    let disabled = studio.store.read().is_none() || studio.doc.read().is_none();
+    let disabled = studio.store.read().is_none()
+        || studio
+            .doc
+            .read()
+            .as_ref()
+            .is_none_or(|doc| !doc.has_recording());
     rsx! {
         button {class:if open(){"studio-tool active"}else{"studio-tool"},disabled,
-            title:"Find where source attacks, saved detections and chart notes differ",aria_expanded:open().to_string(),aria_controls:"part-analysis-panel",
+            title:if disabled{"Attach a recording to analyze audio"}else{"Find where source attacks, saved detections and chart notes differ"},aria_expanded:open().to_string(),aria_controls:"part-analysis-panel",
             onclick:move |_|{
                 if !open() && let Some(project)=studio.snapshot(){
                     let instrument=if project.selected_track.ends_with("Drums"){Some(StemId::Drums)}else if project.selected_track.ends_with("DoubleBass"){Some(StemId::Bass)}else if project.selected_track.ends_with("Single"){Some(StemId::Guitar)}else{None};

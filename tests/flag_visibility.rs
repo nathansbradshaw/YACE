@@ -43,6 +43,7 @@ fn fixture(root: &Path) -> Store {
         })
         .collect();
     let project = Project {
+        recording: None,
         version: 1,
         revision: 0,
         title: "Visibility fixture".into(),
