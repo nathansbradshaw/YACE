@@ -2,12 +2,18 @@
 //! independent Rust frontend/converter does not relicense them. No model is
 //! bundled, downloaded, selected by default, or used to approve chart notes.
 pub use crate::larsnet_receipt::*;
-use anyhow::{Context, Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
+use anyhow::Context;
+use anyhow::{Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
 use ort::{session::Session, value::Tensor};
-use rustfft::{FftPlanner, num_complex::Complex32};
+#[cfg(not(target_arch = "wasm32"))]
+use rustfft::FftPlanner;
+use rustfft::num_complex::Complex32;
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
+#[cfg(not(target_arch = "wasm32"))]
 use std::{
-    borrow::Cow,
     collections::BTreeMap,
     fs::{self, File},
     io::{BufWriter, Write},
@@ -16,13 +22,16 @@ use std::{
     time::Instant,
 };
 
-const FFT: usize = 4096;
-const HOP: usize = 1024;
-const BINS: usize = 2048;
-const BLOCK: usize = 512;
+pub(crate) const FFT: usize = 4096;
+pub(crate) const HOP: usize = 1024;
+pub(crate) const BINS: usize = 2048;
+pub(crate) const BLOCK: usize = 512;
 const MAX_FRAMES: usize = 44100 * 600;
 
-fn sanitized_mask<'a>(mask: &'a [f32], numeric: &mut MaskNumeric) -> Result<Cow<'a, [f32]>> {
+pub(crate) fn sanitized_mask<'a>(
+    mask: &'a [f32],
+    numeric: &mut MaskNumeric,
+) -> Result<Cow<'a, [f32]>> {
     ensure!(!mask.is_empty(), "Empty LarsNet mask");
     let mut clipped = 0;
     for (index, value) in mask.iter().copied().enumerate() {
@@ -52,20 +61,21 @@ pub struct Separation {
     pub receipt: SeparationReceipt,
 }
 
-fn pcm_hash(values: &[f32]) -> String {
+pub(crate) fn pcm_hash(values: &[f32]) -> String {
     let mut hash = Sha256::new();
     for v in values {
         hash.update(v.to_le_bytes());
     }
     format!("{:x}", hash.finalize())
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn file_hash(path: &Path) -> Result<String> {
     let mut file = File::open(path)?;
     let mut hash = Sha256::new();
     std::io::copy(&mut file, &mut hash)?;
     Ok(format!("{:x}", hash.finalize()))
 }
-fn validate_input(input: &[f32]) -> Result<usize> {
+pub(crate) fn validate_input(input: &[f32]) -> Result<usize> {
     ensure!(
         !input.is_empty() && input.len().is_multiple_of(2),
         "LarsNet requires nonempty interleaved stereo44.1kHz PCM"
@@ -80,6 +90,7 @@ fn validate_input(input: &[f32]) -> Result<usize> {
     );
     Ok(input.len() / 2)
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn verify_models(directory: &Path) -> Result<BTreeMap<String, String>> {
     let mut hashes = BTreeMap::new();
     for (part, expected) in MODELS {
@@ -110,12 +121,12 @@ fn reflect(index: i64, length: usize) -> usize {
         index as usize
     }
 }
-fn window() -> Vec<f32> {
+pub(crate) fn window() -> Vec<f32> {
     (0..FFT)
         .map(|i| (0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / FFT as f64).cos()) as f32)
         .collect()
 }
-fn spectrum_block(
+pub(crate) fn spectrum_block(
     input: &[f32],
     start: usize,
     win: &[f32],
@@ -151,7 +162,7 @@ fn spectrum_block(
     }
     (original, magnitude, count)
 }
-fn synthesize(
+pub(crate) fn synthesize(
     original: &[Complex32],
     mask: &[f32],
     start: usize,
@@ -182,7 +193,7 @@ fn synthesize(
         }
     }
 }
-fn denominator(frames: usize, win: &[f32]) -> Vec<f32> {
+pub(crate) fn denominator(frames: usize, win: &[f32]) -> Vec<f32> {
     let mut result = vec![0.; frames];
     let padded = frames.div_ceil(HOP) * HOP;
     for time in 0..=padded / HOP {
@@ -198,12 +209,14 @@ fn denominator(frames: usize, win: &[f32]) -> Vec<f32> {
 
 /// Process local 44.1 kHz stereo without changing gain or timing.
 /// The independent masks may not sum back to the original mixture.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn separate_stereo(input: &[f32], model_dir: &Path) -> Result<Separation> {
     separate_stereo_with_progress(input, model_dir, |_, _| Ok(()))
 }
 /// Call progress before and after each 512-frame ONNX block.
 /// Returning Err cancels between blocks and leaves source files untouched.
 /// A block already running must finish first.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn separate_stereo_with_progress(
     input: &[f32],
     model_dir: &Path,
@@ -311,6 +324,7 @@ pub fn separate_stereo_with_progress(
     );
     Ok(Separation{parts,receipt:SeparationReceipt{version:1,algorithm:ALGORITHM.into(),implementation_sha256:implementation_hash(),source_audio_sha256:None,source_pcm_sha256:pcm_hash(input),sample_rate:SAMPLE_RATE,channels:2,frames:frames as u64,models,weight_license:WEIGHT_LICENSE.into(),outputs,elapsed_seconds:start_time.elapsed().as_secs_f64(),warnings:vec!["Estimated drum components can contain bleed, omissions and artifacts; not approved physical-instrument truth.".into(),"Independent native graph/STFT implementation; upstream LibTorch numerical parity and professional-chart quality improvement have not been established.".into(),"Five non-normalized masks; component sum need not reconstruct the original drum mixture.".into()]}})
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn write_wav(path: &Path, samples: &[f32]) -> Result<()> {
     let bytes = u32::try_from(samples.len() * 4)?;
     let mut out = BufWriter::new(File::create(path)?);
@@ -333,9 +347,11 @@ fn write_wav(path: &Path, samples: &[f32]) -> Result<()> {
     out.get_ref().sync_all()?;
     Ok(())
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub fn separate_files(audio: &Path, model_dir: &Path, output: &Path) -> Result<SeparationReceipt> {
     separate_files_with_progress(audio, model_dir, output, |_, _| Ok(()))
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub fn separate_files_with_progress(
     audio: &Path,
     model_dir: &Path,

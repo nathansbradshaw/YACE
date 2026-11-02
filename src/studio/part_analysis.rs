@@ -32,6 +32,8 @@ struct KitUi {
     split_epoch: Signal<u64>,
     restore_attempt: Signal<Option<(RequestKey, u64)>>,
     restoring: Signal<Option<(RequestKey, u64)>>,
+    #[cfg(target_arch = "wasm32")]
+    progress: Signal<String>,
 }
 fn restore_kit(studio: Studio, mut kit: KitUi, key: RequestKey, epoch: u64) {
     let Some(store) = studio.store.read().clone() else {
@@ -224,9 +226,10 @@ fn kit_panel(studio: Studio, kit: KitUi) -> Element {
         summary{"Kit isolation"}
         div{class:"part-analysis-kit-heading",
             span{class:"part-analysis-caption",if restoring && !(kit.busy)(){"Loading saved kit…"}else{"Five estimated parts"}}
-            button{class:"studio-tool",disabled:cfg!(target_arch="wasm32") || !source_available || (kit.busy)() || pending.is_some(),title:if cfg!(target_arch="wasm32"){ "The LarsNet inference backend cannot run in-browser; saved kit audio can still be played" }else{ "Choose your local LarsNet ONNX models. CC-BY-NC-4.0 weights; no download or note changes." },"data-browser-pick":"folder",onclick:move |_|split_kit(studio,kit),if (kit.busy)(){"Splitting…"}else if has_cache{"Split again…"}else{"Split kit…"}}
+            button{class:"studio-tool",disabled:!source_available || (kit.busy)() || pending.is_some(),title:"Choose your local LarsNet ONNX model folder. CC-BY-NC-4.0 weights; no download or note changes.","data-browser-pick":"folder",onclick:move |_|split_kit(studio,kit),if (kit.busy)(){"Splitting…"}else if has_cache{"Split again…"}else{"Split kit…"}}
         }
         p{class:"part-analysis-caption","Local LarsNet models · CC-BY-NC-4.0. Audio only; notes stay unchanged."}
+        {#[cfg(target_arch="wasm32")] {rsx!{if (kit.busy)(){p{class:"part-analysis-caption",role:"status","{kit.progress}"}}}} #[cfg(not(target_arch="wasm32"))] {rsx!{}}}
         if !source_available{p{class:"part-analysis-caption","Attach aligned drum audio first."}}
         if let Some(error)=error{p{class:"part-analysis-kit-error",role:"alert","{error}"}}
         if let Some(cache)=cache{
@@ -256,7 +259,79 @@ fn KitTransportClock(studio: Studio) -> Element {
     rsx! {time{"{super::state::clock((studio.playhead)())}"}}
 }
 #[cfg(target_arch = "wasm32")]
-fn split_kit(_studio: Studio, _kit: KitUi) {}
+fn split_kit(studio: Studio, mut kit: KitUi) {
+    let Some(key) = kit_key(studio) else { return };
+    let Some(store) = studio.store.read().clone() else {
+        return;
+    };
+    let Some(project) = studio.snapshot() else {
+        return;
+    };
+    if (kit.busy)() || studio.kit_audition_busy.read().is_some() {
+        return;
+    }
+    kit.busy.set(true);
+    kit.split_epoch.set((kit.split_epoch)().wrapping_add(1));
+    kit.error.set(None);
+    kit.progress
+        .set("Choose the local LarsNet model folder…".into());
+    spawn(async move {
+        let mounted = crate::files::unique_root();
+        let result = async {
+            let Some(files) = crate::files::pick(true, "").await? else {
+                return Ok(None);
+            };
+            crate::files::mount(&mounted, files)?;
+            let model_dir = crate::files::imported_root(&mounted)?;
+            anyhow::ensure!(
+                kit_key(studio).as_ref() == Some(&key),
+                "Drum source changed while selecting models"
+            );
+            let audio = store.audio_path(&project)?;
+            let progress = std::rc::Rc::new(move |text: String| {
+                let mut state = kit.progress;
+                state.set(text);
+            });
+            let set = crate::worker::run_with_progress::<part_analysis::DrumPartSet>(
+                crate::worker::Task::SplitKit {
+                    root: store.root.clone(),
+                    project: Box::new(project.as_ref().clone()),
+                    audio,
+                    model_dir: model_dir.clone(),
+                },
+                std::slice::from_ref(&model_dir),
+                progress,
+            )
+            .await?;
+            anyhow::ensure!(
+                kit_key(studio).as_ref() == Some(&key) && set.source_key == key.content,
+                "Drum source changed during separation"
+            );
+            if let Some(part) = set.parts.first() {
+                let selected = part_analysis::kit_descriptor(&set, &part.id)?;
+                part_analysis::remember_selection(&store, &project, selected)?;
+            }
+            let mut studio = studio;
+            studio.dirty.set(true);
+            studio.persist_current().await?;
+            Ok::<_, anyhow::Error>(Some(set))
+        }
+        .await;
+        crate::storage::clear(&mounted);
+        kit.busy.set(false);
+        if kit_key(studio).as_ref() != Some(&key) {
+            return;
+        }
+        match result {
+            Ok(Some(set)) => kit.cached.set(Some(KitCache {
+                key,
+                set: Arc::new(set),
+            })),
+            Ok(None) => {}
+            Err(error) => kit.error.set(Some((key, format!("{error:#}")))),
+        }
+    });
+}
 
 fn snapshot(studio: Studio) -> Option<(Store, std::sync::Arc<Project>, RequestKey)> {
     let store = studio.store.read().clone()?;
@@ -525,6 +600,8 @@ pub fn PartAnalysisPanel(studio: Studio) -> Element {
         split_epoch: use_signal(|| 0),
         restore_attempt: use_signal(|| None),
         restoring: use_signal(|| None),
+        #[cfg(target_arch = "wasm32")]
+        progress: use_signal(String::new),
     };
     let kit_context = use_memo(move || {
         if open() && selected() == StemId::Drums {

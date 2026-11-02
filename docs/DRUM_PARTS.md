@@ -9,6 +9,14 @@ kick, snare or cymbal identities.
 LarsNet estimates kick, snare, toms, hi-hat and cymbals from an existing drum stem.
 It does not separate individual toms or distinguish ride from crash.
 
+Desktop and browser both expose **Playback options → Part analysis → Drums →
+Kit isolation → Split kit…**. Select the folder containing `kick.onnx`,
+`snare.onnx`, `toms.onnx`, `hihat.onnx` and `cymbals.onnx`. Browser processing
+uses the shared Rust frontend and local ONNX Runtime in a worker. It opens no
+generation service and uploads no audio or weights. Only the recording and drum
+source are decoded for this operation; completed components are encoded one at
+a time. Saved results can be auditioned, backed up and restored without models.
+
 The five local ONNX models are optional. YACE does not bundle or automatically
 download them. The authors license the weights under **CC-BY-NC-4.0**;
 [the weight notice](../tools/larsnet-convert/LARSNET-WEIGHTS-NOTICE.md) retains

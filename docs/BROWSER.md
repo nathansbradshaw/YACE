@@ -107,8 +107,15 @@ an AudioContext gain graph and resynchronize to the original recording's clock;
 this does not establish sample-perfect stem synchronization or acoustic latency.
 
 **Part analysis** runs the shared read-only analysis on a local Rust worker.
-Existing validated kit results can be reviewed and auditioned; generating new
-separations is being verified separately below. **Clean audio** accepts
+In the Drums tab, **Kit isolation → Split kit…** opens the operating system's
+folder picker for the five optional local LarsNet ONNX files. Their lengths and
+checksums must match the desktop pins. Inference runs locally in a worker with
+one model session at a time and shares the desktop Rust FFT and reconstruction.
+Five full-clock float WAVs and their source-bound receipt are saved with the
+project; notes and review decisions remain unchanged. The weights are not bundled
+or downloaded automatically. See [DRUM_PARTS.md](DRUM_PARTS.md) for their license.
+Existing validated results remain available after reload or project restore.
+**Clean audio** accepts
 local English word recognition, word timings, saved plans and manual ranges. It auditions the source and renders
 a separate float WAV, plan and receipt locally. Download and listen to the
 rendered copy before accepting it; clean-panel edits require an explicit saved

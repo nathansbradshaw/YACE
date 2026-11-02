@@ -1,6 +1,62 @@
 use chart_engine::larsnet::{self, MODELS, RECEIPT_FILENAME};
 use std::{fs, path::Path};
 
+/// Compare retained output from an actual browser run with native inference on
+/// the identical decoded drum source. This does not assert musical quality.
+#[test]
+#[ignore = "requires actual browser kit export, its source WAV and optional local models"]
+fn actual_browser_kit_matches_native_clock_and_audio() {
+    let model_dir = std::env::var_os("YACE_LARSNET_MODELS").expect("YACE_LARSNET_MODELS");
+    let source = std::env::var_os("YACE_LARSNET_AUDIO").expect("YACE_LARSNET_AUDIO");
+    let browser =
+        std::env::var_os("YACE_LARSNET_BROWSER_PARTS").expect("YACE_LARSNET_BROWSER_PARTS");
+    let browser = Path::new(&browser);
+    let receipt: larsnet::SeparationReceipt =
+        serde_json::from_slice(&fs::read(browser.join(RECEIPT_FILENAME)).unwrap()).unwrap();
+    assert_eq!(
+        receipt.source_audio_sha256.as_ref().unwrap(),
+        &chart_engine::models::hash_file(Path::new(&source)).unwrap()
+    );
+    let pcm = chart_engine::models::decode(Path::new(&source), 44100, 2).unwrap();
+    let native = larsnet::separate_stereo(&pcm, Path::new(&model_dir)).unwrap();
+    assert_eq!(native.receipt.source_pcm_sha256, receipt.source_pcm_sha256);
+    assert_eq!(native.receipt.frames, receipt.frames);
+    assert_eq!(native.receipt.models, receipt.models);
+    assert_eq!(native.parts.len(), 5);
+    for (part, output) in native.parts.iter().zip(&receipt.outputs) {
+        assert_eq!(part.part, output.part);
+        let path = browser.join(&output.filename);
+        assert_eq!(
+            output.wav_sha256.as_ref().unwrap(),
+            &chart_engine::models::hash_file(&path).unwrap()
+        );
+        let actual = chart_engine::models::decode(&path, 44100, 2).unwrap();
+        assert_eq!(part.samples.len(), actual.len());
+        let mut max_delta = 0.0f64;
+        let mut squared = 0.0;
+        for (&expected, actual) in part.samples.iter().zip(actual) {
+            assert!(actual.is_finite());
+            let delta = (expected as f64 - actual as f64).abs();
+            max_delta = max_delta.max(delta);
+            squared += delta * delta;
+        }
+        let rms = (squared / part.samples.len() as f64).sqrt();
+        eprintln!(
+            "{}: {} frames, maximum delta {max_delta}, RMS delta {rms}",
+            part.part,
+            actual_frames(&part.samples)
+        );
+        assert!(
+            max_delta <= 1e-5 && rms <= 1e-6,
+            "{} exceeds bounded runtime roundoff",
+            part.part
+        );
+    }
+}
+fn actual_frames(samples: &[f32]) -> usize {
+    samples.len() / 2
+}
+
 #[test]
 fn optional_models_missing_or_corrupt_never_publish_output() {
     let temp = tempfile::tempdir().unwrap();
