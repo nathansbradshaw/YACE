@@ -582,7 +582,7 @@ fn TimingEditor(s: DanceStudio) -> Element {
         &p.content.document.timing
     };
     let timing = t.clone();
-    rsx! {details{summary{"Advanced timing"}label{"Offset (seconds) " input {r#type:"number",step:"0.001",value:"{timing.offset}",onchange:{let id=id.clone();let timing=timing.clone();move |event:FormEvent|{let result=(||{let mut timing=timing.clone();timing.offset=event.value().parse::<f64>()?;timing.validate()?;Ok::<_,anyhow::Error>(Action::SetTiming{chart_id:local().then(||id.clone()),timing:Some(timing)})})();match result{Ok(action)=>s.apply(action),Err(error)=>s.report(Err(error))}}}}}label{"Scope " select {value:if local(){"chart"}else{"song"},onchange:move |e|{local.set(e.value()=="chart");selected.set(None);},option{value:"song","Song timing"}option{value:"chart","Selected chart timing"}}}
+    rsx! {details{summary{"Advanced timing"}label{"Offset (seconds) " input {r#type:"number",aria_label:if local(){"Chart offset seconds"}else{"Song offset seconds"},step:"0.001",value:"{timing.offset}",oninput:{let id=id.clone();let timing=timing.clone();move |event:FormEvent|{let result=(||{let mut timing=timing.clone();timing.offset=event.value().parse::<f64>()?;timing.validate()?;Ok::<_,anyhow::Error>(Action::SetTiming{chart_id:local().then(||id.clone()),timing:Some(timing)})})();match result{Ok(action)=>s.apply(action),Err(error)=>s.report(Err(error))}}}}}label{"Scope " select {value:if local(){"chart"}else{"song"},onchange:move |e|{local.set(e.value()=="chart");selected.set(None);},option{value:"song","Song timing"}option{value:"chart","Selected chart timing"}}}
         if local(){p{if chart.is_some_and(|c|c.timing.is_some()){"This chart has its own timing map."}else{"This chart inherits the song map. Editing creates a complete chart override."}}button{onclick:{let id=id.clone();move |_|s.apply(Action::SetTiming{chart_id:Some(id.clone()),timing:None})},"Inherit song timing"}}
         div{class:"step-toolbar",onkeydown:move |e|e.stop_propagation(),
             label{"Event " select {value:kind().tag(),onchange:move |e|if let Some(k)=TimingKind::parse(&e.value()){kind.set(k);selected.set(None);first.set(if k==TimingKind::Bpms{"120"}else{"1"}.into());},for k in TimingKind::ALL{option{value:k.tag(),"{k.tag()}"}}}}
@@ -770,6 +770,133 @@ mod tests {
         assert_eq!(s.project.read().as_ref().unwrap().encode().unwrap(), before);
     }
     type RecentSlot = Rc<RefCell<Option<super::super::state::Studio>>>;
+    #[tokio::test]
+    async fn sustain_length_input_changes_the_document_backup_and_undo() {
+        dioxus::html::set_event_converter(Box::new(dioxus::html::SerializedHtmlEventConverter));
+        let slot: Slot = Rc::new(RefCell::new(None));
+        let mut dom = VirtualDom::new(app);
+        dom.provide_root_context(slot.clone());
+        dom.rebuild_in_place();
+        dom.in_scope(ScopeId::ROOT, || {
+            let mut s = slot.borrow().unwrap();
+            s.apply(Action::AddChart {
+                difficulty: Difficulty::Edit,
+                meter: 1,
+                description: "Manual".into(),
+            });
+            s.apply(Action::AddNote {
+                chart_id: (s.selected)(),
+                row: 48,
+                lane: 0,
+                kind: NoteKind::Hold,
+                end_row: Some(96),
+            });
+            let id = s.project.read().as_ref().unwrap().content.document.charts[0].notes[0]
+                .id
+                .clone();
+            s.selection.set([id].into());
+        });
+        let changes = dom.render_immediate_to_vec();
+        let input = changes
+            .edits
+            .iter()
+            .find_map(|m| match m {
+                Mutation::SetAttribute {
+                    name: "aria-label",
+                    value: AttributeValue::Text(value),
+                    id,
+                    ..
+                } if value == "Hold length in beats" => Some(*id),
+                _ => None,
+            })
+            .expect("Sustain property in the common Selection pane");
+        let offset = changes
+            .edits
+            .iter()
+            .find_map(|m| match m {
+                Mutation::SetAttribute {
+                    name: "aria-label",
+                    value: AttributeValue::Text(value),
+                    id,
+                    ..
+                } if value == "Song offset seconds" => Some(*id),
+                _ => None,
+            })
+            .expect("Advanced timing offset field");
+        dom.runtime().handle_event(
+            "input",
+            dioxus::prelude::Event::new(
+                Rc::new(dioxus::html::PlatformEventData::new(Box::new(
+                    dioxus::html::SerializedFormData {
+                        value: "2".into(),
+                        values: Vec::new(),
+                        valid: true,
+                    },
+                ))) as Rc<dyn Any>,
+                true,
+            ),
+            input,
+        );
+        dom.render_immediate_to_vec();
+        let s = slot.borrow().unwrap();
+        let project = s.project.read().as_ref().unwrap().clone();
+        assert_eq!(
+            project.content.document.charts[0].notes[0].end_row,
+            Some(144)
+        );
+        let files = bundle::backup(&project, &Files::new()).unwrap();
+        let restored = Project::decode(&files[MANIFEST]).unwrap();
+        assert_eq!(
+            restored.content.document.charts[0].notes[0].end_row,
+            Some(144)
+        );
+        dom.in_scope(ScopeId::ROOT, || {
+            history(false);
+        });
+        assert_eq!(
+            s.project.read().as_ref().unwrap().content.document.charts[0].notes[0].end_row,
+            Some(96)
+        );
+        dom.render_immediate_to_vec();
+        dom.runtime().handle_event(
+            "input",
+            dioxus::prelude::Event::new(
+                Rc::new(dioxus::html::PlatformEventData::new(Box::new(
+                    dioxus::html::SerializedFormData {
+                        value: "0.125".into(),
+                        values: Vec::new(),
+                        valid: true,
+                    },
+                ))) as Rc<dyn Any>,
+                true,
+            ),
+            offset,
+        );
+        dom.render_immediate_to_vec();
+        assert_eq!(
+            s.project
+                .read()
+                .as_ref()
+                .unwrap()
+                .content
+                .document
+                .timing
+                .offset,
+            0.125
+        );
+        dom.in_scope(ScopeId::ROOT, || history(false));
+        assert_eq!(
+            s.project
+                .read()
+                .as_ref()
+                .unwrap()
+                .content
+                .document
+                .timing
+                .offset,
+            0.
+        );
+    }
     fn recent_app() -> Element {
         provide();
         let studio = super::super::state::use_studio();
