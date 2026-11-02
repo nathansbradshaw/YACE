@@ -177,10 +177,10 @@ fn BandPreview(studio: Studio) -> Element {
         super::track_views::Controls{studio,pane:super::track_views::Pane::Preview}
         div{class:if multi{"audition-surface track-preview-surface multi-track-preview"}else{"audition-surface track-preview-surface"},
             if has_vocals {div{class:"preview-vocals",
-                button{aria_label:"Select Vocals for editing",aria_pressed:(super::track_views::active(studio)=="Vocals").to_string(),onclick:move|_|super::track_views::select(studio,"Vocals".into()),"Vocals"}
+                button{aria_label:"Select Vocals for editing",onkeydown:move|e:KeyboardEvent|e.stop_propagation(),aria_pressed:(super::track_views::active(studio)=="Vocals").to_string(),onclick:move|_|super::track_views::select(studio,"Vocals".into()),"Vocals"}
                 super::vocal_preview::VocalPreview{studio,lookahead:lookahead()}
             }}
-            if !bands.is_empty(){div{class:"preview-highways",role:"region",aria_label:"Visible instrument previews",tabindex:"0",
+            if !bands.is_empty(){div{class:"preview-highways",role:"region",aria_label:"Visible instrument previews",tabindex:"0",onkeydown:move|e:KeyboardEvent|e.stop_propagation(),
                 for track in bands {Highway{key:"{track}",studio,track,pro_drums,lookahead}}
             }}
             if !has_vocals&&super::track_views::available(studio).is_empty(){div{class:"studio-empty-preview","Open a chart to preview its notes."}}

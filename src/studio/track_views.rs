@@ -320,7 +320,7 @@ pub fn Controls(studio: Studio, pane: Pane) -> Element {
     let chosen = view.resolve(&tracks, &active);
     let warning =
         try_consume_context::<TrackViews>().and_then(|views| views.value.read().warning.clone());
-    rsx! {div{class:"track-view-controls",onkeydown:super::shortcuts::keep_space_local,
+    rsx! {div{class:"track-view-controls",onkeydown:move|event:KeyboardEvent|event.stop_propagation(),
         label{span{"{name}"}select{aria_label:"{name} track visibility",value:view.mode.value(),onkeydown:move|e|e.stop_propagation(),onchange:move|e|update(studio,|p|{
             let view=match pane{Pane::Preview=>&mut p.preview,Pane::Roll=>&mut p.roll};
             let next=Mode::parse(&e.value());
@@ -343,7 +343,7 @@ pub fn RollHeading(studio: Studio, track: String) -> Element {
     let target = track.clone();
     let toggle = track.clone();
     let title = label(studio, &track);
-    rsx! {header{class:"track-view-heading",button{aria_label:"Select {title} for editing",aria_pressed:(active(studio)==track).to_string(),onclick:move|_|select(studio,target.clone()),"{title}"}
+    rsx! {header{class:"track-view-heading",onkeydown:move|event:KeyboardEvent|event.stop_propagation(),button{aria_label:"Select {title} for editing",aria_pressed:(active(studio)==track).to_string(),onclick:move|_|select(studio,target.clone()),"{title}"}
         button{aria_label:if hidden{format!("Expand {title} piano roll")}else{format!("Collapse {title} piano roll")},aria_expanded:(!hidden).to_string(),onclick:move|_|update(studio,|p|{if !p.collapsed.remove(&toggle){p.collapsed.insert(toggle.clone());}}),if hidden{"Expand"}else{"Collapse"}}
     }}
 }
