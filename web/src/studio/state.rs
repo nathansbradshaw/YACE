@@ -28,6 +28,8 @@ pub struct ReviewWaveforms {
 }
 #[derive(Clone, Copy, PartialEq)]
 pub struct Studio {
+    pub analysis_preview: Signal<Option<Arc<Project>>>,
+    pub follow_analysis_sources: Signal<bool>,
     pub recent_projects: Signal<crate::recent_projects::History>,
     pub library: Signal<Option<crate::chart_library::Library>>,
     pub library_busy: Signal<bool>,
@@ -95,6 +97,8 @@ pub struct Studio {
 }
 pub fn use_studio() -> Studio {
     Studio {
+        analysis_preview: use_signal(|| None),
+        follow_analysis_sources: use_signal(|| true),
         recent_projects: use_signal(|| crate::recent_projects::History::load().unwrap_or_default()),
         library: use_signal(|| None),
         library_busy: use_signal(|| false),
@@ -215,7 +219,19 @@ impl Studio {
     }
 
     pub fn snapshot(self) -> Option<Arc<Project>> {
-        self.doc.read().clone()
+        self.analysis_preview
+            .read()
+            .clone()
+            .or_else(|| self.doc.read().clone())
+    }
+    pub fn show_analysis_preview(mut self, proposed: Option<Project>) {
+        self.analysis_preview.set(proposed.map(Arc::new));
+        if let (Some(store), Some(doc)) = ((self.store)(), self.snapshot()) {
+            let media = self.media.peek().clone();
+            if media.as_ref().is_none_or(|media| !media.matches(&doc)) {
+                self.refresh_audio(store, doc);
+            }
+        }
     }
     pub fn metadata_value(self, key: &str) -> String {
         self.metadata.read().get(key).cloned().unwrap_or_default()
@@ -233,6 +249,17 @@ impl Studio {
             .unwrap_or_else(|| store.load().map(Arc::new));
         match snapshot {
             Ok(doc) => {
+                let preview = self.analysis_preview.peek().clone();
+                if let Some(preview) = preview {
+                    if preview.audio_sha256 != doc.audio_sha256 {
+                        self.analysis_preview.set(None);
+                    } else {
+                        let mut preview = (*preview).clone();
+                        preview.transport = doc.transport.clone();
+                        preview.revision = doc.revision;
+                        self.analysis_preview.set(Some(Arc::new(preview)));
+                    }
+                }
                 let reference_changed = self.doc.peek().as_ref().is_none_or(|old| {
                     old.selected_track != doc.selected_track
                         || old.audio_sha256 != doc.audio_sha256
@@ -271,10 +298,19 @@ impl Studio {
         }
     }
     pub fn dispatch(mut self, action: Action) {
+        if self.analysis_preview.peek().is_some() && !crate::reanalysis::preview_transport(&action)
+        {
+            self.error.set(Some(
+                "Switch to Current before editing; the proposed draft is read-only".into(),
+            ));
+            return;
+        }
         let Some(store) = self.store.read().clone() else {
             return;
         };
-        let Some(doc) = self.snapshot() else { return };
+        let Some(doc) = self.doc.read().clone() else {
+            return;
+        };
         let seek = matches!(
             action,
             Action::Seek { .. } | Action::SelectRegion { .. } | Action::SetLoop { .. }
@@ -552,6 +588,14 @@ impl Studio {
             return;
         }
         let Some(doc) = self.snapshot() else { return };
+        if let Some(media) = self.media.peek().as_ref() {
+            media.analysis_route(
+                &doc,
+                (self.guitar_source)(),
+                (self.follow_analysis_sources)(),
+                (self.volume)(),
+            );
+        }
         if !doc.transport.playing {
             return;
         }
@@ -1078,6 +1122,7 @@ impl Studio {
         source: PathBuf,
         saved_revision: Option<u64>,
     ) -> Result<()> {
+        self.analysis_preview.set(None);
         super::dance::flush().await?;
         if super::dance::try_open_path(&source)? {
             super::dance::remember_recent(self);

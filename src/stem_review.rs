@@ -453,6 +453,7 @@ pub struct StemMix {
 /// Frozen weights: prepare once per UI action, then mix without allocation.
 #[derive(Clone, Debug)]
 pub struct PreparedMix {
+    pub route: Option<crate::reanalysis::AuditionRoute>,
     pub original: bool,
     pub gains: BTreeMap<StemId, f32>,
 }
@@ -489,6 +490,7 @@ impl StemMix {
             })
             .collect();
         Ok(PreparedMix {
+            route: None,
             original: self.mode == MixMode::Original,
             gains,
         })
@@ -548,7 +550,15 @@ impl LoadedStems {
         }
         let offset = frame * 2;
         let mut output = [0.0f64; 2];
-        if mix.original {
+        if let Some(route) = &mix.route {
+            for (id, gain) in
+                route.weights(frame as f64 / f64::from(self.sample_rate) * route.playback_rate)
+            {
+                let pcm = self.stems.get(&id).unwrap_or(&self.original);
+                output[0] += f64::from(pcm[offset]) * f64::from(gain);
+                output[1] += f64::from(pcm[offset + 1]) * f64::from(gain);
+            }
+        } else if mix.original {
             output = [
                 self.original[offset] as f64,
                 self.original[offset + 1] as f64,

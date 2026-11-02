@@ -76,10 +76,24 @@ pub fn supported_drum_peaks(
     activations: &[f32],
     audio_22050: &[f32],
 ) -> (Vec<DrumHit>, Vec<DrumHit>) {
-    let mut hits = drum_peaks(activations);
+    supported_drum_peaks_configured(activations, audio_22050, Default::default())
+}
+pub fn supported_drum_peaks_configured(
+    activations: &[f32],
+    audio_22050: &[f32],
+    settings: crate::detection_settings::Settings,
+) -> (Vec<DrumHit>, Vec<DrumHit>) {
+    let mut hits = drum_peaks_with_thresholds(
+        activations,
+        [0.22, 0.24, 0.32, 0.22, 0.30].map(|v| settings.threshold(v)),
+        [0.; 5],
+    );
     let attacks = crate::review::attacks(audio_22050);
-    let candidates =
-        drum_peaks_with_thresholds(activations, [0.10; 5], [0.50, 0.50, 0.60, 0.55, 0.60]);
+    let candidates = drum_peaks_with_thresholds(
+        activations,
+        [settings.threshold(0.10); 5],
+        [0.50, 0.50, 0.60, 0.55, 0.60],
+    );
     let mut recovered = Vec::new();
     for hit in candidates {
         if crate::review::nearest(hit.time, &attacks)
@@ -122,7 +136,15 @@ pub fn guitar_from_activations(
     pitch_audio: &[f32],
     source: crate::mapping::GuitarSource,
 ) -> GuitarPitchInference {
-    let short = recover_short_plucks(&activations, pitch_audio, 40..=88);
+    guitar_from_activations_configured(activations, pitch_audio, source, Default::default())
+}
+pub fn guitar_from_activations_configured(
+    activations: PitchActivations,
+    pitch_audio: &[f32],
+    source: crate::mapping::GuitarSource,
+    settings: crate::detection_settings::Settings,
+) -> GuitarPitchInference {
+    let short = recover_short_plucks_configured(&activations, pitch_audio, 40..=88, settings);
     let (diagnostics, proposed, polyphonic_notes) =
         if source == crate::mapping::GuitarSource::Guitar {
             guitar_polyphonic::recover(
@@ -153,21 +175,37 @@ pub fn recover_short_bass(
     activations: &PitchActivations,
     pitch_audio: &[f32],
 ) -> BassPitchInference {
-    recover_short_plucks(activations, pitch_audio, 24..=67)
+    recover_short_bass_configured(activations, pitch_audio, Default::default())
+}
+pub fn recover_short_bass_configured(
+    activations: &PitchActivations,
+    pitch_audio: &[f32],
+    settings: crate::detection_settings::Settings,
+) -> BassPitchInference {
+    recover_short_plucks_configured(activations, pitch_audio, 24..=67, settings)
 }
 
+#[cfg(test)]
 fn recover_short_plucks(
     activations: &PitchActivations,
     pitch_audio: &[f32],
     pitches: std::ops::RangeInclusive<u8>,
 ) -> ShortPitchInference {
+    recover_short_plucks_configured(activations, pitch_audio, pitches, Default::default())
+}
+fn recover_short_plucks_configured(
+    activations: &PitchActivations,
+    pitch_audio: &[f32],
+    pitches: std::ops::RangeInclusive<u8>,
+    settings: crate::detection_settings::Settings,
+) -> ShortPitchInference {
     let duration = activations.audio.len() as f64 / 22050.;
     let baseline = clip_pitch_candidates(
-        decode_pitch_with_evidence(&activations.frames, &activations.onsets),
+        decode_pitch_configured(&activations.frames, &activations.onsets, settings),
         duration,
     );
     let hypotheses: Vec<_> = clip_pitch_candidates(
-        decode_pitch_with_limits(&activations.frames, &activations.onsets, 4, 11),
+        decode_pitch_with_limits(&activations.frames, &activations.onsets, 4, 11, settings),
         duration,
     )
     .into_iter()
@@ -265,7 +303,14 @@ pub fn decode_pitch(frames: &[f32], onsets: &[f32]) -> Vec<PitchNote> {
 }
 
 pub fn decode_pitch_with_evidence(frames: &[f32], onsets: &[f32]) -> Vec<PitchCandidateEvidence> {
-    decode_pitch_with_limits(frames, onsets, 11, usize::MAX)
+    decode_pitch_configured(frames, onsets, Default::default())
+}
+pub fn decode_pitch_configured(
+    frames: &[f32],
+    onsets: &[f32],
+    settings: crate::detection_settings::Settings,
+) -> Vec<PitchCandidateEvidence> {
+    decode_pitch_with_limits(frames, onsets, 11, usize::MAX, settings)
 }
 
 /// Frame bounds affect returned candidates, with the ordinary consumption order
@@ -275,6 +320,7 @@ fn decode_pitch_with_limits(
     onsets: &[f32],
     minimum_frames: usize,
     maximum_frames: usize,
+    settings: crate::detection_settings::Settings,
 ) -> Vec<PitchCandidateEvidence> {
     let count = frames.len() / 88;
     if count < 3 || frames.len() != onsets.len() {
@@ -304,14 +350,16 @@ fn decode_pitch_with_limits(
     for start in (1..count - 1).rev() {
         for p in (0..88).rev() {
             let v = inferred[start * 88 + p];
-            if v < 0.5 || v <= inferred[(start - 1) * 88 + p] || v <= inferred[(start + 1) * 88 + p]
+            if v < settings.threshold(0.5)
+                || v <= inferred[(start - 1) * 88 + p]
+                || v <= inferred[(start + 1) * 88 + p]
             {
                 continue;
             }
             let mut end = start + 1;
             let mut below = 0;
             while end < count - 1 && below < 11 {
-                if remaining[end * 88 + p] < 0.3 {
+                if remaining[end * 88 + p] < settings.threshold(0.3) {
                     below += 1;
                 } else {
                     below = 0;
@@ -339,7 +387,7 @@ fn decode_pitch_with_limits(
                     pitch: p as u8 + 21,
                     confidence: amplitude.clamp(0.0, 1.0),
                 },
-                source: if onsets[start * 88 + p] >= 0.5 {
+                source: if onsets[start * 88 + p] >= settings.threshold(0.5) {
                     PitchCandidateSource::NetworkOnset
                 } else {
                     PitchCandidateSource::InferredFrameRise
@@ -354,12 +402,12 @@ fn decode_pitch_with_limits(
     let mut candidates: Vec<_> = remaining
         .iter()
         .enumerate()
-        .filter(|(_, v)| **v > 0.3)
+        .filter(|(_, v)| **v > settings.threshold(0.3))
         .map(|(i, v)| (i, *v))
         .collect();
     candidates.sort_by(|(ia, a), (ib, b)| b.total_cmp(a).then(ia.cmp(ib)));
     for (index, _) in candidates {
-        if remaining[index] <= 0.3 {
+        if remaining[index] <= settings.threshold(0.3) {
             continue;
         }
         let middle = index / 88;
@@ -368,7 +416,7 @@ fn decode_pitch_with_limits(
         let mut i = middle + 1;
         let mut below = 0;
         while i < count - 1 && below < 11 {
-            if remaining[i * 88 + pitch] < 0.3 {
+            if remaining[i * 88 + pitch] < settings.threshold(0.3) {
                 below += 1;
             } else {
                 below = 0;
@@ -382,7 +430,7 @@ fn decode_pitch_with_limits(
         let mut i = middle as isize - 1;
         let mut below = 0;
         while i > 0 && below < 11 {
-            if remaining[i as usize * 88 + pitch] < 0.3 {
+            if remaining[i as usize * 88 + pitch] < settings.threshold(0.3) {
                 below += 1;
             } else {
                 below = 0;
@@ -863,5 +911,47 @@ mod pitch_clock_tests {
             assert_eq!(note.start, pitch_frame_seconds(start));
             assert_eq!(note.end, pitch_frame_seconds(end));
         }
+    }
+}
+
+#[cfg(test)]
+mod sensitivity_tests {
+    use super::*;
+    #[test]
+    fn sensitivity_changes_admission_and_preserves_default_evidence() {
+        let mut frames = vec![0.; 80 * 88];
+        let mut onsets = frames.clone();
+        for t in 10..50 {
+            frames[t * 88 + 40] = 0.25;
+        }
+        onsets[10 * 88 + 40] = 0.4;
+        let default = crate::detection_settings::Settings::default();
+        assert_eq!(
+            serde_json::to_value(decode_pitch_with_evidence(&frames, &onsets)).unwrap(),
+            serde_json::to_value(decode_pitch_configured(&frames, &onsets, default)).unwrap()
+        );
+        assert!(decode_pitch_configured(&frames, &onsets, default).is_empty());
+        let high = crate::detection_settings::Settings {
+            sensitivity: 100,
+            ..default
+        };
+        assert!(!decode_pitch_configured(&frames, &onsets, high).is_empty());
+        let low = crate::detection_settings::Settings {
+            sensitivity: 0,
+            ..default
+        };
+        assert!(decode_pitch_configured(&frames, &onsets, low).is_empty());
+        let mut peaks = vec![0.; 80 * 5];
+        peaks[20 * 5] = 0.2;
+        assert!(
+            supported_drum_peaks_configured(&peaks, &[], default)
+                .0
+                .is_empty()
+        );
+        assert!(
+            !supported_drum_peaks_configured(&peaks, &[], high)
+                .0
+                .is_empty()
+        );
     }
 }

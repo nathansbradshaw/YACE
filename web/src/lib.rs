@@ -22,6 +22,8 @@ pub mod collaboration;
 #[path = "../../src/collaboration_exchange.rs"]
 pub mod collaboration_exchange;
 pub mod dance_archive;
+#[path = "../../src/detection_settings.rs"]
+pub mod detection_settings;
 #[path = "../../src/difficulty_links.rs"]
 pub mod difficulty_links;
 #[path = "../../src/drum_articulation.rs"]
@@ -107,6 +109,8 @@ pub mod pro_keys;
 pub mod project_portability;
 #[path = "../../src/project_recording.rs"]
 pub mod project_recording;
+#[path = "../../src/reanalysis.rs"]
+pub mod reanalysis;
 #[path = "../../src/recent_projects.rs"]
 pub mod recent_projects;
 mod recognition;

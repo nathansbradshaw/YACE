@@ -8,8 +8,6 @@ use crate::{
 use crate::{generation, models};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
-#[cfg(not(target_arch = "wasm32"))]
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use {
     sha2::{Digest, Sha256},
@@ -77,6 +75,8 @@ pub fn create(project: &mut Project, track: &str) -> Result<()> {
 pub use portable::*;
 mod portable {
     use super::*;
+    use crate::{editor::TimeRange, reanalysis};
+    use std::collections::BTreeMap;
     fn fingerprint(content: &Content, track: &str) -> Result<String> {
         if track == "Vocals" {
             digest(&(&content.vocals, &content.vocal_review))
@@ -84,6 +84,19 @@ mod portable {
             // A link change can alter the target even if its visible notes match.
             digest(&(content.tracks.get(track), &content.difficulty_links))
         }
+    }
+    fn current_fingerprint(content: &Content, track: &str) -> Result<String> {
+        digest(&(
+            fingerprint(content, track)?,
+            content.analysis_sources.get(track),
+            if track == "Vocals" {
+                content.vocal_pitch_analysis.as_ref()
+            } else {
+                None
+            },
+            &content.stems,
+            &content.keyboard_stems,
+        ))
     }
 
     #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -96,30 +109,100 @@ mod portable {
         pub source_chart_sha256: String,
         pub timing: TempoMap,
         pub fingerprint: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub requested_range: Option<TimeRange>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub effective_range: Option<TimeRange>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        pub affected_fingerprints: BTreeMap<String, String>,
     }
     impl Target {
         pub fn capture(store: &Store, project: &Project, track: &str) -> Result<Self> {
             instrument(track)?;
             Ok(Self {
-                version: 1,
+                version: 2,
                 project: fs::canonicalize(&store.root)?,
                 track: track.into(),
                 audio_sha256: project.audio_sha256.clone(),
                 source_chart_sha256: project.source_chart_sha256.clone(),
                 timing: project.timing(store)?,
                 fingerprint: fingerprint(&project.content, track)?,
+                requested_range: None,
+                effective_range: None,
+                affected_fingerprints: reanalysis::affected(&project.content, track)
+                    .into_iter()
+                    .map(|track| {
+                        Ok((
+                            track.clone(),
+                            current_fingerprint(&project.content, &track)?,
+                        ))
+                    })
+                    .collect::<Result<_>>()?,
             })
+        }
+        pub fn with_range(mut self, project: &Project, range: Option<TimeRange>) -> Result<Self> {
+            self.requested_range = range;
+            self.effective_range = range
+                .map(|range| {
+                    reanalysis::expand(
+                        range,
+                        &[&project.content],
+                        &self
+                            .affected_fingerprints
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                        &self.timing,
+                        project.duration,
+                    )
+                })
+                .transpose()?;
+            Ok(self)
         }
         pub fn validate(&self, store: &Store, project: &Project) -> Result<()> {
             instrument(&self.track)?;
+            if self.version >= 2 {
+                ensure!(
+                    self.affected_fingerprints
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        == reanalysis::affected(&project.content, &self.track),
+                    "Affected difficulties changed; analyze again"
+                );
+                ensure!(
+                    self.requested_range.is_some() == self.effective_range.is_some(),
+                    "Incomplete saved analysis range"
+                );
+                if let (Some(requested), Some(effective)) =
+                    (self.requested_range, self.effective_range)
+                {
+                    ensure!(
+                        effective.start <= requested.start && effective.end >= requested.end,
+                        "Effective range does not cover the requested loop"
+                    );
+                }
+            }
             ensure!(
-                self.version == 1
+                matches!(self.version, 1 | 2)
                     && self.project == fs::canonicalize(&store.root)?
                     && self.audio_sha256 == project.audio_sha256
                     && self.source_chart_sha256 == project.source_chart_sha256
                     && self.timing == project.timing(store)?,
                 "This draft belongs to a different project or recording"
             );
+            if let Some(range) = self.requested_range {
+                reanalysis::validate_range(range, project.duration)?;
+            }
+            if let Some(range) = self.effective_range {
+                reanalysis::validate_range(range, project.duration)?;
+            }
+            for (track, expected) in &self.affected_fingerprints {
+                ensure!(
+                    current_fingerprint(&project.content, track)? == *expected,
+                    "An affected difficulty or sound source changed. Both versions were kept; analyze again."
+                );
+            }
             ensure!(
                 fingerprint(&project.content, &self.track)? == self.fingerprint,
                 "This part changed during generation. Your edits and the generated draft were kept; start a new draft to replace this part."
@@ -150,15 +233,54 @@ mod portable {
             TempoMap::constant(bpm)
         }
     }
+    pub fn save_review(job: &Path) -> Result<()> {
+        let target = target(job)?.context("Missing part target")?;
+        let store = Store::new(&target.project);
+        let current = store.load()?;
+        let prepared = Prepared::load(&store, &current, job)?;
+        let proposed = prepared.preview(&current)?;
+        let request = generation::read_request(job)?;
+        generation::write_json(
+            &job.join("reanalysis-review.json"),
+            &serde_json::json!({"version":1,"policy":crate::detection_settings::POLICY,"detection":request.detection,"requested_range":target.requested_range,"effective_range":prepared.range(),"changes":reanalysis::changes(&current,&proposed,&reanalysis::affected(&current.content,&target.track)),"musical_acceptance":"unverified"}),
+        )
+    }
 
     pub fn create_job(
-        request: generation::Request,
+        mut request: generation::Request,
         output: &Path,
         target: &Target,
     ) -> Result<PathBuf> {
         let store = Store::new(&target.project);
         let project = store.load()?;
         target.validate(&store, &project)?;
+        if target.track == "Vocals"
+            && let Some(chart) = &project.content.vocals
+        {
+            let mut text = String::new();
+            let mut join = false;
+            for note in &chart.notes {
+                if let crate::vocals::Syllable::Text {
+                    text: syllable,
+                    join_next,
+                } = &note.lyric
+                {
+                    if !text.is_empty() && !join {
+                        text.push(' ');
+                    }
+                    text.push_str(syllable);
+                    join = *join_next;
+                }
+            }
+            if !text.is_empty() {
+                request
+                    .song_info
+                    .get_or_insert_with(Default::default)
+                    .lyrics = Some(
+                    serde_json::json!({"plainLyrics":text,"source":"Existing authored vocal text; reanalysis changes detection only"}),
+                );
+            }
+        }
         let generation::Source::Audio { path } = &request.source;
         ensure!(
             models::hash_file(path)? == target.audio_sha256,
@@ -169,7 +291,8 @@ mod portable {
             "Generate only the requested part"
         );
         ensure!(
-            instrument(&target.track)? != "guitar"
+            target.version >= 2
+                || instrument(&target.track)? != "guitar"
                 || request.guitar_source == store.guitar_source(&project)?,
             "Keep the chart's existing Guitar sound source"
         );
@@ -195,10 +318,12 @@ mod portable {
         Ok(job)
     }
 
+    #[derive(Clone)]
     pub struct Prepared {
         target: Target,
         generated: Project,
         origin: Origin,
+        source: crate::mapping::GuitarSource,
     }
     impl Prepared {
         pub fn load(store: &Store, project: &Project, job: &Path) -> Result<Self> {
@@ -206,7 +331,7 @@ mod portable {
                 generation::status(job)?.state == generation::State::Complete,
                 "Draft is not finished"
             );
-            let target = target(job)?.context("This job was not created for an open chart")?;
+            let mut target = target(job)?.context("This job was not created for an open chart")?;
             target.validate(store, project)?;
             ensure!(
                 models::hash_file(&store.audio_path(project)?)? == target.audio_sha256,
@@ -224,12 +349,22 @@ mod portable {
                 "Draft names a different part"
             );
             ensure!(
-                instrument(&target.track)? != "guitar"
+                target.version >= 2
+                    || instrument(&target.track)? != "guitar"
                     || request.guitar_source == store.guitar_source(project)?,
                 "Draft uses a different Guitar sound source"
             );
             let generated_store = Store::new(&generation::project_path(job));
             let generated = generated_store.load()?;
+            if let Some(range) = target.effective_range {
+                target.effective_range = Some(reanalysis::expand(
+                    range,
+                    &[&project.content, &generated.content],
+                    &reanalysis::affected(&project.content, &target.track),
+                    &target.timing,
+                    project.duration,
+                )?);
+            }
             ensure!(
                 generated.audio_sha256 == target.audio_sha256
                     && generated.timing(&generated_store)? == target.timing
@@ -246,7 +381,12 @@ mod portable {
                         .content
                         .vocals
                         .as_ref()
-                        .is_some_and(|chart| !chart.notes.is_empty()),
+                        .is_some_and(|chart| chart.notes.iter().any(|note| target
+                            .effective_range
+                            .is_none_or(|range| reanalysis::contains(
+                                range,
+                                target.timing.seconds(note.start)
+                            )))),
                     "No vocal notes were detected; the current part was kept"
                 );
             } else {
@@ -255,9 +395,15 @@ mod portable {
                         .content
                         .tracks
                         .get(&target.track)
-                        .is_some_and(|notes| notes
-                            .iter()
-                            .any(|note| crate::editor::playable(&target.track, note.note.lane))),
+                        .is_some_and(|notes| notes.iter().any(|note| crate::editor::playable(
+                            &target.track,
+                            note.note.lane
+                        ) && target
+                            .effective_range
+                            .is_none_or(|range| reanalysis::contains(
+                                range,
+                                target.timing.seconds(note.note.tick)
+                            )))),
                     "No notes were detected for this difficulty; the current part was kept"
                 );
             }
@@ -265,15 +411,52 @@ mod portable {
                 job: fs::canonicalize(job)?,
                 chart_sha256: generated.chart_hash(&generated_store)?,
             };
-            Ok(Self {
+            let mut prepared = Self {
                 target,
                 generated,
                 origin,
-            })
+                source: request.guitar_source,
+            };
+            while let Some(range) = prepared.target.effective_range {
+                let preview = prepared.preview(project)?;
+                let expanded = reanalysis::include_linked_changes(
+                    range,
+                    &project.content,
+                    &preview.content,
+                    &reanalysis::affected(&project.content, &prepared.target.track),
+                    &prepared.target.timing,
+                    project.duration,
+                )?;
+                if expanded == range {
+                    break;
+                }
+                prepared.target.effective_range = Some(expanded);
+            }
+            Ok(prepared)
         }
-        pub fn apply(mut self, store: &Store, project: &mut Project) -> Result<()> {
+        pub fn range(&self) -> Option<TimeRange> {
+            self.target.effective_range
+        }
+        pub fn preview(&self, project: &Project) -> Result<Project> {
+            let mut preview = project.clone();
+            if preview.content.stems.is_none() {
+                preview.content.stems = self.generated.content.stems.clone();
+            }
+            if preview.content.keyboard_stems.is_none() {
+                preview.content.keyboard_stems = self.generated.content.keyboard_stems.clone();
+            }
+            self.clone().apply_content(&mut preview)?;
+            crate::difficulty_links::after_note_edit(
+                &mut preview.content,
+                &project.content,
+                &self.target.timing,
+                project.duration,
+            )?;
+            Ok(preview)
+        }
+        pub fn apply(self, store: &Store, project: &mut Project) -> Result<()> {
             self.target.validate(store, project)?;
-            let track = self.target.track;
+            let track = self.target.track.clone();
             let audio = store.audio_path(project)?;
             let mut attached = false;
             let mut retain =
@@ -306,9 +489,53 @@ mod portable {
             if attached {
                 project.content.stem_mix = Default::default();
             }
+            self.apply_content(project)
+        }
+        fn apply_content(mut self, project: &mut Project) -> Result<()> {
+            let track = self.target.track.clone();
+            let range = self.target.effective_range;
+            let in_scope = |tick| {
+                range.is_none_or(|range| {
+                    reanalysis::contains(range, self.target.timing.seconds(tick))
+                })
+            };
             if track == "Vocals" {
-                project.content.vocals = self.generated.content.vocals;
-                project.content.vocal_review = self.generated.content.vocal_review;
+                if range.is_some() {
+                    let mut generated = self
+                        .generated
+                        .content
+                        .vocals
+                        .take()
+                        .context("Missing vocal draft")?;
+                    generated.notes.retain(|note| in_scope(note.start));
+                    generated.phrases.retain(|phrase| in_scope(phrase.start));
+                    if let Some(old) = &project.content.vocals {
+                        generated.notes.extend(
+                            old.notes
+                                .iter()
+                                .filter(|note| !in_scope(note.start))
+                                .cloned(),
+                        );
+                        generated.phrases.extend(
+                            old.phrases
+                                .iter()
+                                .filter(|phrase| !in_scope(phrase.start))
+                                .cloned(),
+                        );
+                    }
+                    generated.notes.sort_by_key(|note| note.start);
+                    generated.phrases.sort_by_key(|phrase| phrase.start);
+                    generated.validate()?;
+                    project.content.vocals = Some(generated);
+                    // Historical evidence uses exact note timing and pitch; changed
+                    // notes cannot inherit an unrelated per-note model vote.
+                    project.content.vocal_pitch_analysis = None;
+                } else {
+                    project.content.vocals = self.generated.content.vocals;
+                    project.content.vocal_review = self.generated.content.vocal_review;
+                    project.content.vocal_pitch_analysis =
+                        self.generated.content.vocal_pitch_analysis;
+                }
             } else {
                 let notes = self
                     .generated
@@ -318,6 +545,9 @@ mod portable {
                     .context("Generated part is missing")?;
                 let mut imported = Vec::with_capacity(notes.len());
                 for item in notes {
+                    if !in_scope(item.note.tick) {
+                        continue;
+                    }
                     let id = format!("edit-note-{}", project.next_id);
                     project.next_id = project.next_id.checked_add(1).context("Note ID overflow")?;
                     imported.push(EditorNote {
@@ -326,7 +556,29 @@ mod portable {
                         note: item.note,
                     });
                 }
+                if range.is_some() {
+                    imported.extend(
+                        project
+                            .content
+                            .tracks
+                            .get(&track)
+                            .into_iter()
+                            .flatten()
+                            .filter(|note| !in_scope(note.note.tick))
+                            .cloned(),
+                    );
+                }
+                imported.sort_by(|a, b| a.note.cmp(&b.note).then(a.id.cmp(&b.id)));
                 project.content.tracks.insert(track.clone(), imported);
+            }
+            if self.target.version >= 2 && instrument(&track)? == "guitar" {
+                let range = range.unwrap_or(TimeRange {
+                    start: 0.,
+                    end: project.duration,
+                });
+                for affected in reanalysis::affected(&project.content, &track) {
+                    reanalysis::replace_source(&mut project.content, &affected, range, self.source);
+                }
             }
             project
                 .content

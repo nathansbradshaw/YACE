@@ -126,6 +126,7 @@ pub fn reduce_generated(
         effective.insert(track.clone(), notes.clone());
     }
     let content = Content {
+        analysis_sources: Default::default(),
         star_power: Default::default(),
         sync: None,
         sections: None,

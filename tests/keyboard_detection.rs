@@ -35,6 +35,7 @@ fn fixture(sound: KeyboardSound) -> Transcription {
         .unwrap();
     let raw_notes = vec![note()];
     let evidence = Evidence {
+        detection: Default::default(),
         version: 1,
         sound,
         source_audio_sha256: "a".repeat(64),

@@ -42,6 +42,10 @@ mod parts;
 mod practice;
 #[path = "../../../src/studio/project_bar.rs"]
 mod project_bar;
+#[path = "../../../src/studio/reanalysis_panel.rs"]
+mod reanalysis_panel;
+#[path = "../../../src/studio/reanalysis_review.rs"]
+mod reanalysis_review;
 #[path = "../../../src/studio/review.rs"]
 mod review;
 #[path = "../../../src/studio/sections.rs"]

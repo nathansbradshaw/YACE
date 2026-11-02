@@ -29,7 +29,7 @@ pub fn ChartDesk(mut studio: Studio) -> Element {
             super::track_views::Controls{studio,pane:super::track_views::Pane::Roll}
             div { class: "chart-desk-scroll", onwheel: move |event| super::song_overview::pan(studio,event),
                 div { class: "chart-desk-ruler", super::sections::SectionStrip { studio } super::timing_editor::TimingStrip { studio } Ruler { studio }
-                    div { class: "midi-waveform-strip", div { class: "midi-waveform-label", style: "width:140px;flex-shrink:0", "Recording" } Waveform { studio } }
+                    div { class: "midi-waveform-strip", div { class: "midi-waveform-label", "Recording" } Waveform { studio } }
                 }
                 for track in tracks {
                     section { key: "{track}", class: "chart-desk-track",

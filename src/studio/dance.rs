@@ -1071,21 +1071,21 @@ pub fn active() -> bool {
 pub fn view_epoch() -> u64 {
     try_consume_context::<DanceStudio>().map_or(0, |s| (s.epoch)())
 }
-pub(super) fn overview_source() -> Option<(PathBuf,u64)> {
-    let s=try_consume_context::<DanceStudio>()?;
-    Some(((s.root)()?,(s.epoch)()))
+pub(super) fn overview_source() -> Option<(PathBuf, u64)> {
+    let s = try_consume_context::<DanceStudio>()?;
+    Some(((s.root)()?, (s.epoch)()))
 }
 pub(super) fn overview_playback_stamp() -> Option<u64> {
-    try_consume_context::<DanceStudio>().map(|s|(s.playback_intent)())
+    try_consume_context::<DanceStudio>().map(|s| (s.playback_intent)())
 }
-pub(super) fn overview_window(studio: super::state::Studio) -> (f64,f64) {
+pub(super) fn overview_window(studio: super::state::Studio) -> (f64, f64) {
     workspace::overview_window(studio)
 }
-pub(super) fn overview_reveal(studio: super::state::Studio, seconds:f64) {
-    workspace::overview_reveal(studio,seconds)
+pub(super) fn overview_reveal(studio: super::state::Studio, seconds: f64) {
+    workspace::overview_reveal(studio, seconds)
 }
-pub(super) fn overview_pan(studio: super::state::Studio, amount:f64) {
-    workspace::overview_pan(studio,amount)
+pub(super) fn overview_pan(studio: super::state::Studio, amount: f64) {
+    workspace::overview_pan(studio, amount)
 }
 pub fn save_status() -> Option<&'static str> {
     let s = try_consume_context::<DanceStudio>()?;

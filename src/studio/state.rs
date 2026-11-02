@@ -290,6 +290,13 @@ impl Audio {
         })
     }
     fn set_mix(&self, mix: &StemMix) -> Result<()> {
+        self.set_routed_mix(mix, None)
+    }
+    fn set_routed_mix(
+        &self,
+        mix: &StemMix,
+        route: Option<crate::reanalysis::AuditionRoute>,
+    ) -> Result<()> {
         let Some(buffer) = &self.buffer else {
             mix.prepare([])?;
             return Ok(());
@@ -305,7 +312,8 @@ impl Audio {
         let mut mix = mix.clone();
         mix.channels
             .retain(|id, _| buffer.loaded.stems.contains_key(id));
-        let prepared = mix.prepare(buffer.loaded.stems.keys().copied())?;
+        let mut prepared = mix.prepare(buffer.loaded.stems.keys().copied())?;
+        prepared.route = route;
         *buffer
             .mix
             .write()
@@ -344,6 +352,8 @@ impl Drop for WindowLock {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Studio {
+    pub analysis_preview: Signal<Option<Arc<Project>>>,
+    pub follow_analysis_sources: Signal<bool>,
     pub recent_projects: Signal<crate::recent_projects::History>,
     pub doc: Signal<Option<Arc<Project>>>,
     pub store: Signal<Option<Store>>,
@@ -453,9 +463,39 @@ impl Studio {
     }
 
     pub fn snapshot(self) -> Option<Arc<Project>> {
-        self.doc.read().clone()
+        self.analysis_preview
+            .read()
+            .clone()
+            .or_else(|| self.doc.read().clone())
+    }
+    pub fn show_analysis_preview(mut self, proposed: Option<Project>) {
+        let was = self.snapshot();
+        self.playhead.set(self.current_audio_position());
+        self.analysis_preview.set(proposed.map(Arc::new));
+        let current = self.snapshot();
+        if was
+            .as_ref()
+            .map(|doc| stem_assets_key(doc, doc.selected_track == "Vocals"))
+            != current
+                .as_ref()
+                .map(|doc| stem_assets_key(doc, doc.selected_track == "Vocals"))
+        {
+            if let Some(audio) = self.audio.read().as_ref() {
+                audio.player.pause();
+            }
+            spawn(async move {
+                self.prepare_practice_audio().await;
+            });
+        }
     }
     pub fn dispatch(mut self, action: Action) {
+        if self.analysis_preview.peek().is_some() && !crate::reanalysis::preview_transport(&action)
+        {
+            self.error.set(Some(
+                "Switch to Current before editing; the proposed draft is read-only".into(),
+            ));
+            return;
+        }
         // Stop sound before reading, validating or saving a project. Large charts
         // and a busy disk must never delay a musician's pause command.
         let action = if matches!(
@@ -500,7 +540,9 @@ impl Studio {
         let Some(store) = self.store.read().clone() else {
             return;
         };
-        let Some(doc) = self.snapshot() else { return };
+        let Some(doc) = self.doc.read().clone() else {
+            return;
+        };
         let actor = Actor {
             kind: ActorKind::Human,
             name: self.reviewer.read().clone(),
@@ -575,6 +617,17 @@ impl Studio {
         };
         match store.load() {
             Ok(doc) => {
+                let preview = self.analysis_preview.peek().clone();
+                if let Some(preview) = preview {
+                    if preview.audio_sha256 != doc.audio_sha256 {
+                        self.analysis_preview.set(None);
+                    } else {
+                        let mut preview = (*preview).clone();
+                        preview.transport = doc.transport.clone();
+                        preview.revision = doc.revision;
+                        self.analysis_preview.set(Some(Arc::new(preview)));
+                    }
+                }
                 let reference_changed = self.doc.peek().as_ref().is_none_or(|old| {
                     old.selected_track != doc.selected_track
                         || old.audio_sha256 != doc.audio_sha256
@@ -1687,6 +1740,7 @@ impl Studio {
         });
     }
     pub async fn open_project(mut self, path: PathBuf) {
+        self.analysis_preview.set(None);
         if let Err(error) = super::dance::flush().await {
             self.error.set(Some(format!("{error:#}")));
             return;
@@ -1901,6 +1955,22 @@ impl Studio {
         }
     }
     pub fn tick(mut self, publish: bool) {
+        if let (Some(doc), Some(audio)) = (self.snapshot(), self.audio.peek().as_ref()) {
+            let original = StemMix::default();
+            let route = crate::reanalysis::audition_route(
+                &doc,
+                (self.guitar_source)(),
+                (self.follow_analysis_sources)(),
+            );
+            let _ = audio.set_routed_mix(
+                if (self.follow_analysis_sources)() {
+                    &doc.content.stem_mix
+                } else {
+                    &original
+                },
+                route,
+            );
+        }
         if !(self.audio_ready)() {
             return;
         }
@@ -2064,6 +2134,8 @@ impl Studio {
 }
 pub fn use_studio() -> Studio {
     Studio {
+        analysis_preview: use_signal(|| None),
+        follow_analysis_sources: use_signal(|| true),
         recent_projects: use_signal(|| crate::recent_projects::History::load().unwrap_or_default()),
         doc: use_signal(|| None),
         store: use_signal(|| None),
