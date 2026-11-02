@@ -205,15 +205,24 @@ pub fn fetch(dir: &Path) -> Result<()> {
 
 /// Fetch only the assets needed by the selected generation instruments.
 pub fn fetch_required(dir: &Path, wanted: &[&str]) -> Result<()> {
+    let selected: Vec<_> = assets()
+        .into_iter()
+        .filter(|asset| wanted.contains(&asset.id.as_str()))
+        .collect();
+    fetch_selected_assets(dir, &selected, &|| false)
+}
+pub(crate) fn fetch_selected_assets(
+    dir: &Path,
+    assets: &[ModelAsset],
+    cancelled: &dyn Fn() -> bool,
+) -> Result<()> {
     fs::create_dir_all(dir)?;
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(900))
         .user_agent("chart-engine/0.1")
         .build()?;
-    for asset in assets() {
-        if !wanted.contains(&asset.id.as_str()) {
-            continue;
-        }
+    for asset in assets {
+        ensure!(!cancelled(), "Model preparation cancelled");
         let target = dir.join(&asset.filename);
         crate::generation_progress::detail(format!("Verifying {} model", asset.id));
         if target.exists() {
@@ -236,6 +245,7 @@ pub fn fetch_required(dir: &Path, wanted: &[&str]) -> Result<()> {
         let mut reported = 0usize;
         let mut buffer = [0u8; 64 * 1024];
         loop {
+            ensure!(!cancelled(), "Model preparation cancelled");
             let count = response.read(&mut buffer)?;
             if count == 0 {
                 break;

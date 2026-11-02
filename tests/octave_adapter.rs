@@ -67,6 +67,7 @@ fn fixture() -> (Project, Chart) {
             difficulty_links: Default::default(),
             vocals: None,
             vocal_review: None,
+            vocal_pitch_analysis: None,
             tracks,
             decisions: vec![],
             hidden_flags: Default::default(),

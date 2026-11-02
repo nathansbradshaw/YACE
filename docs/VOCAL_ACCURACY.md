@@ -22,8 +22,32 @@ can remain missing; all recognized/supplied text remains in the report.
 Choose the analysis mode in Auto-Chart or the native vocal editor's Options.
 CLI generation accepts `--analysis-mode standard|high-accuracy`. Omitted fields
 in saved jobs/policies select Standard. Resuming a cached proposal with a
-different requested mode is refused. No new neural backend is selected by
-this setting, and no higher-accuracy result is promised by its name.
+different requested mode is refused. High accuracy now requires optional RMVPE
+evidence; unavailable or unsupported resources fail explicitly, without falling
+back to Standard. The faster Standard model selection remains unchanged.
+
+The experimental comparison uses the pinned RVC RMVPE ONNX model listed below.
+Its continuous F0 and salience are retained independently of the selected notes.
+A shared Rust change-point decoder compares 49 chromatic centres (MIDI 36–84),
+salience-weighted squared residual capped at four, and note-change cost 3.2.
+Model context can bridge at most eight DSP hops (about 80 ms), after which the
+original voicing mask is restored exactly. It cannot fill those gaps or discard
+accepted voiced frames. No key, consonance, lyric or octave-folding prior is used.
+This is an independent note-centre decoder, not a complete pYIN implementation.
+High uses this fixed DSP + RMVPE profile; Basic Pitch/SwiftF0 assistance remains
+in Standard and cannot alter High's measured voicing mask. The optional lyric
+recognizer does not select High pitches or note boundaries.
+
+**Check pitches against the recording** compares existing note intervals with a
+dense RMVPE contour. A correction needs at least four supported frames, 40%
+interval coverage, 80% contour agreement, and raw model support within 75 cents
+on at least half the interior frames with salience at least 0.1. Partial notes at
+selection edges, talkies and unsupported intervals remain unchanged. The saved
+proposal binds source/stem hashes, exact chart content and tempo map. Applying
+the batch is atomic and undoable. Agreement is not a calibrated probability;
+corrected notes retain their draft flag and previous pitch as an inspector
+alternative. The model can still follow a backing singer. Dissonance alone is not evidence
+that a pitch is wrong.
 
 Generation reports add optional `note_evidence`: note tick bounds, selected MIDI
 pitch, raw alternative detector pitches, support and uncertainty reasons. Source,
@@ -37,7 +61,7 @@ Silence and passages with no acoustic pitch evidence remain gaps.
 
 ## Research tools
 
-These commands run locally and keep heavier models outside production defaults.
+These commands run locally and keep heavier models outside Standard defaults.
 Use a private directory for audio, model weights, charts, lyrics and reports.
 Model pins are enforced before inference; downloads occur only with the explicit
 research recognition download flag. Source/stem durations alone do not prove
@@ -157,17 +181,23 @@ annotated separately; they are not a prerequisite for pitch evaluation. An expli
 Lyric improvements cannot offset a failed pitch gate. Listening, actual native
 and browser interaction, and game acceptance remain separate requirements.
 
-New model backends remain research-only and High accuracy remains experimental.
+CREPE, FCPE and other unaccepted backends remain research-only. RMVPE comparison
+is optional and High accuracy remains experimental pending acceptance.
 Language-specific recognition results are separate from pitch acceptance.
 
 ## Evaluation status
 
-Local professional-reference comparisons failed the incorrect-pitch gate:
-additional recovered notes also introduced additional wrong pitches. No backend
-was promoted. Authored-chart targets are not measurements against performed
-continuous F0. Detailed corpus manifests, measurements and limitations remain
-in private reports. A full pitch-category audit, listening and game acceptance
-are still pending; code/test success does not establish musical reliability.
+The earlier detector-only High draft failed the incorrect-pitch gate: additional
+recovered notes also introduced wrong pitches. A subsequent independent RMVPE
+contour with temporal tracking passed the numerical pitch-reduction and recall
+thresholds on a fresh eight-artist set after development-only tuning. Failed test
+sets remain disclosed as exposed diagnostics. Full promotion remains blocked by
+the pending acoustic category audit, listening and game acceptance; High remains
+experimental. Authored-chart targets are not measurements against performed
+continuous F0. Detailed corpus manifests, measurements, model/singer errors and
+limitations remain in private reports; code/test success does not establish
+musical reliability. Section corrections were also evaluated on generated note
+intervals without feeding authored pitches, timings or words to the checker.
 
 On one development recording, raw CREPE tiny/full and RMVPE F0 probes also showed
 different recall, wrong-pitch and octave-error tradeoffs. They are not chart-note
@@ -177,3 +207,15 @@ split ran locally; unreviewed transcripts and stems do not establish WER,
 alignment accuracy, singer identity or improved lead pitches. Recordings,
 reference targets, full transcripts, model weights and detailed reports stay
 outside public Git history.
+
+Further methods worth comparing include [pYIN's multiple-candidate temporal
+tracking](https://ieeexplore.ieee.org/abstract/document/6853678),
+[FCPE](https://github.com/CNChTu/FCPE) and
+[PESTO](https://github.com/SonyCSLParis/pesto). Published results and confidence
+values do not establish YACE accuracy. FCPE's current paper and older bundled
+weights differ; PESTO also introduces a distinct frontend/runtime and license.
+Neither is silently substituted for the pinned comparison. Development sweeps
+are available through the Rust `vocal-pitch-lab`; its sweep/weighted commands use
+development entries only. Fresh held-out artists must be reserved after tuning;
+failed held-out sets become exposed diagnostics and cannot be reused as fresh
+evidence. Keep all corpus/run files outside public history.

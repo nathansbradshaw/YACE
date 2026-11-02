@@ -35,14 +35,23 @@ Research-only source checkouts and private recordings are not included.
 
 ## Intentional port changes
 
-The optional Rust singing-pitch probe additionally translates RMVPE mel/decoder
+The optional Rust singing-pitch probe and experimental desktop/browser vocal
+comparison share Rust RMVPE mel/decoder
 conventions from RVC revision `81eed5e8f68b6bed1789f682fe78cdd324495afc`.
 Its original MIT notice is retained in
-`tools/singing-pitch-probe/licenses/RVC-MIT.txt`. Research model source/revision,
+`licenses/RMVPE-RVC-MIT.txt` (also retained in the probe). Research model source/revision,
 checksums, preprocessing and separate weight-term limitations are recorded in
 [vocal research documentation](docs/VOCAL_ACCURACY.md) and the
 [probe README](tools/singing-pitch-probe/README.md). Research weights are neither
-bundled nor selected by production generation.
+bundled nor selected by Standard generation. Optional High accuracy downloads
+the RVC publisher's `rmvpe.onnx`, revision
+`e6d0c1a17da07c33557852f9dfa2bd44cc75737d`, SHA-256
+`5370e71ac80af8b4b7c793d27efd51fd8bf962de3a7ede0766dac0befa3660fd`.
+The mirror declares MIT; the original RMVPE project source is Apache-2.0. That
+publisher declaration is not independent verification of weight lineage. The
+optional weights remain separate and their identity and terms are exposed in
+the model catalog. The change-point note tracker is independent YACE Rust code;
+no pYIN/librosa implementation is copied or invoked.
 
 The static client also uses the same MPL-2.0 `practice-acoustic` Rust model and
 patched Candle CPU implementation for optional English supplied-lyric alignment.

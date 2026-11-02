@@ -79,6 +79,7 @@ fn fixture(root: &Path) -> Store {
             difficulty_links: Default::default(),
             vocals: None,
             vocal_review: None,
+            vocal_pitch_analysis: None,
             tracks,
             decisions: vec![],
             hidden_flags: BTreeSet::new(),
@@ -470,6 +471,7 @@ fn vocal_report(store: &Store) -> chart_engine::vocal_generation::Generation {
         pitch_frames: vec![],
         neural_pitch: None,
         vocal_pitch: None,
+        rmvpe_pitch: None,
         words: None,
         lyrics: None,
         issues: vec![

@@ -132,6 +132,7 @@ pub fn reduce_generated(
         track_origins: Default::default(),
         vocals: None,
         vocal_review: None,
+        vocal_pitch_analysis: None,
         tracks: effective
             .into_iter()
             .map(|(track, notes)| {

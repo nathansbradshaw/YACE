@@ -82,6 +82,7 @@ fn fixture(root: &Path) -> Store {
             difficulty_links: Default::default(),
             vocals: None,
             vocal_review: None,
+            vocal_pitch_analysis: None,
             tracks,
             decisions: vec![],
             hidden_flags: BTreeSet::new(),
@@ -710,6 +711,7 @@ fn vocal_flags_use_same_pending_approval_hide_and_stale_edit_queue() {
         warnings: vec![],
         neural_pitch: None,
         vocal_pitch: None,
+        rmvpe_pitch: None,
     };
     doc.content.vocals = Some(chart.clone());
     doc.content.vocal_review = Some(VocalReviewMap::from_generation(&report).unwrap());
@@ -1095,6 +1097,7 @@ fn replacing_aligned_vocal_stem_keeps_stale_checks_inspectable_hideable_and_navi
         warnings: vec![],
         neural_pitch: None,
         vocal_pitch: None,
+        rmvpe_pitch: None,
     };
     command(
         &store,

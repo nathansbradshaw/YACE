@@ -134,6 +134,7 @@ fn main() -> Result<()> {
                 policy: &original.policy,
                 neural_pitch: original.neural_pitch.as_ref(),
                 vocal_pitch: original.vocal_pitch.as_ref(),
+                rmvpe_pitch: None,
             },
             &|| false,
         )?;

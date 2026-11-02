@@ -114,23 +114,41 @@ pub async fn generate_language(
     if let (Some(output), Some(recognized)) = (evidence_output, &recognized) {
         crate::storage::write(output, serde_json::to_vec_pretty(recognized)?)?;
     }
-    let candidates = crate::transcription::pitch(&stem.path, progress).await?;
-    let neural = crate::vocal_generation::NeuralPitchEvidence {
-        duration_seconds: manifest.frames as f64 / 44100.,
-        model_sha256: models::assets()
-            .into_iter()
-            .find(|a| a.id == "pitch")
-            .unwrap()
-            .sha256,
-        audio_sha256: manifest.source_audio_sha256.clone(),
-        vocal_stem_sha256: stem.sha256.clone(),
-        implementation_sha256: crate::vocal_generation::neural_pitch_implementation_hash(),
-        notes: candidates.into_iter().map(|e| e.candidate).collect(),
+    let neural = if analysis_mode == crate::vocal_generation::AnalysisMode::Standard {
+        let candidates = crate::transcription::pitch(&stem.path, progress).await?;
+        Some(crate::vocal_generation::NeuralPitchEvidence {
+            duration_seconds: manifest.frames as f64 / 44100.,
+            model_sha256: models::assets()
+                .into_iter()
+                .find(|a| a.id == "pitch")
+                .unwrap()
+                .sha256,
+            audio_sha256: manifest.source_audio_sha256.clone(),
+            vocal_stem_sha256: stem.sha256.clone(),
+            implementation_sha256: crate::vocal_generation::neural_pitch_implementation_hash(),
+            notes: candidates.into_iter().map(|e| e.candidate).collect(),
+        })
+    } else {
+        None
     };
-    let mut evidence = swift(&models::decode(&stem.path, 16000, 1)?, progress).await?;
-    evidence.audio_sha256 = manifest.source_audio_sha256.clone();
-    evidence.vocal_stem_sha256 = stem.sha256.clone();
-    evidence.duration_seconds = manifest.frames as f64 / 44100.;
+    let evidence = if analysis_mode == crate::vocal_generation::AnalysisMode::Standard {
+        let mut e = swift(&models::decode(&stem.path, 16000, 1)?, progress).await?;
+        e.audio_sha256 = manifest.source_audio_sha256.clone();
+        e.vocal_stem_sha256 = stem.sha256.clone();
+        e.duration_seconds = manifest.frames as f64 / 44100.;
+        Some(e)
+    } else {
+        None
+    };
+    let rmvpe_pitch = if analysis_mode == crate::vocal_generation::AnalysisMode::HighAccuracy {
+        let mut e = rmvpe(&models::decode(&stem.path, 16000, 1)?, progress).await?;
+        e.audio_sha256 = binding.audio_sha256.clone();
+        e.vocal_stem_sha256 = binding.stem_sha256.clone();
+        e.duration_seconds = manifest.frames as f64 / 44100.;
+        Some(e)
+    } else {
+        None
+    };
     progress("Assembling source-bound vocal pitches and review phrases".into());
     let last = std::cell::Cell::new(js_sys::Date::now());
     let progress = std::cell::RefCell::new(progress);
@@ -150,8 +168,9 @@ pub async fn generate_language(
                 analysis_mode,
                 ..Default::default()
             },
-            neural_pitch: Some(&neural),
-            vocal_pitch: Some(&evidence),
+            neural_pitch: neural.as_ref(),
+            vocal_pitch: evidence.as_ref(),
+            rmvpe_pitch: rmvpe_pitch.as_ref(),
         },
         &|| {
             let now = js_sys::Date::now();
@@ -175,6 +194,89 @@ pub async fn generate_language(
         result.warnings.extend(alignment.warnings);
     }
     Ok(result)
+}
+
+pub async fn pitch_comparison(
+    audio: &Path,
+    manifest: &crate::stem_review::StemManifest,
+    timing: &crate::timing::TempoMap,
+    progress: &mut impl FnMut(String),
+) -> Result<crate::vocal_generation::Generation> {
+    let stem = manifest
+        .stems
+        .iter()
+        .find(|s| s.id == crate::stem_review::StemId::Vocals)
+        .context("Attach a vocal stem before comparing pitches")?;
+    manifest.validate_binding(&models::hash_file(audio)?, models::duration(audio)?)?;
+    ensure!(
+        models::hash_file(&stem.path)? == stem.sha256,
+        "Vocal stem changed"
+    );
+    let binding = crate::clean::StemAlignment {
+        audio_sha256: manifest.source_audio_sha256.clone(),
+        stem_sha256: stem.sha256.clone(),
+        evidence: manifest.alignment.details.clone(),
+    };
+    let mut e = rmvpe(&models::decode(&stem.path, 16000, 1)?, progress).await?;
+    e.audio_sha256 = binding.audio_sha256.clone();
+    e.vocal_stem_sha256 = binding.stem_sha256.clone();
+    e.duration_seconds = manifest.frames as f64 / 44100.;
+    progress("Comparing stable note centres with the recording…".into());
+    crate::vocal_generation::generate(crate::vocal_generation::Request {
+        audio,
+        vocal_stem: &stem.path,
+        alignment: &binding,
+        timing,
+        words: None,
+        lyrics: None,
+        policy: &crate::vocal_generation::Policy {
+            analysis_mode: crate::vocal_generation::AnalysisMode::HighAccuracy,
+            ..Default::default()
+        },
+        neural_pitch: None,
+        vocal_pitch: None,
+        rmvpe_pitch: Some(&e),
+    })
+}
+
+async fn rmvpe(
+    pcm: &[f32],
+    progress: &mut impl FnMut(String),
+) -> Result<crate::vocal_pitch::Evidence> {
+    ensure!(
+        pcm.len() > 512 && pcm.len() <= 16000 * 3600,
+        "High accuracy requires finite audio between 33ms and one hour"
+    );
+    let model = Runtime::load("vocal-rmvpe", progress, false).await?;
+    let count = pcm.len() / 160 + 1;
+    let mut frames = Vec::with_capacity(count);
+    for start in (0..count).step_by(3000) {
+        let end = (start + 3000).min(count);
+        progress(format!(
+            "Comparing vocal pitch · section {} of {}",
+            start / 3000 + 1,
+            count.div_ceil(3000)
+        ));
+        let input = crate::rmvpe_frontend::input(pcm, start, end)?;
+        let outputs = model
+            .run_inputs(&[Input {
+                name: "input",
+                values: &input.values,
+                shape: &[1, 128, input.frames],
+            }])
+            .await?;
+        let output = Runtime::output(&outputs, "output")?;
+        ensure!(
+            output.shape == [1, input.frames, 360],
+            "Unsupported RMVPE output shape"
+        );
+        frames.extend(crate::vocal_rmvpe::decode_chunk(
+            pcm,
+            start,
+            &output.values[input.skip * 360..(input.skip + input.count) * 360],
+        )?);
+    }
+    crate::vocal_rmvpe::finish_pcm(pcm, frames)
 }
 
 async fn swift(

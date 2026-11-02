@@ -161,6 +161,7 @@ fn vocal_review_import_uses_revision_guard_and_retains_notes_without_models() {
         warnings: vec![],
         neural_pitch: None,
         vocal_pitch: None,
+        rmvpe_pitch: None,
     };
     let report_path = temporary.path().join("generation.json");
     fs::write(&report_path, serde_json::to_vec(&report).unwrap()).unwrap();

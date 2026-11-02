@@ -19,6 +19,7 @@ const HOP: usize = 220;
 #[path = "vocal_acoustics.rs"]
 mod acoustics;
 pub const ALGORITHM: &str = "rust-yin-mcleod-v8; acoustic-recovery-independent-of-lyrics; 22050Hz; centered2048; hop220; consensus0.55semitone; local-energy; anchored-YIN-period0.85; neural-YIN-score0.6-margin0.15-period0.75; SwiftF0-score0.8-stable3of5-period0.75; median5; high-accuracy-experimental-acoustic-boundaries-and-flagged-alternatives; no-transposition; source-time";
+pub const COMPARISON_ALGORITHM: &str = "rust-vocal-v10; DSP-supported-voicing; RMVPE-e6d0c1a; mel-HTK128-Hann1024-hop160-reflect; 30s-context1s; local-mean9bins-salience0.03; salience-weighted-note-centres49states-cost3.2-residual-cap4-floor0.1; model-context-at-most8DSP-hops-with-voicing-mask-restored; source-time; no-voicing-deletion; no-key-or-scale-or-octave-folding";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(not(target_arch = "wasm32"), derive(clap::ValueEnum))]
@@ -206,6 +207,7 @@ pub enum PitchSupport {
     NeuralYin,
     SwiftF0,
     AcousticAlternative,
+    ContourPath,
 }
 
 /// Source-bound sidecar data. The MIDI and editable note type stay unchanged.
@@ -270,6 +272,8 @@ pub struct Generation {
     pub neural_pitch: Option<NeuralPitchEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vocal_pitch: Option<crate::vocal_pitch::Evidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rmvpe_pitch: Option<crate::vocal_pitch::Evidence>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub note_evidence: Vec<NoteEvidence>,
 }
@@ -283,6 +287,7 @@ pub struct Request<'a> {
     pub policy: &'a Policy,
     pub neural_pitch: Option<&'a NeuralPitchEvidence>,
     pub vocal_pitch: Option<&'a crate::vocal_pitch::Evidence>,
+    pub rmvpe_pitch: Option<&'a crate::vocal_pitch::Evidence>,
 }
 
 /// Audio must be an isolated, full-length, explicitly source-aligned vocal
@@ -322,7 +327,10 @@ pub fn generate_cancellable(
     let duration = original.len() as f64 / 88200.;
     drop(original);
     drop(stem);
-    if let Some(evidence) = request.vocal_pitch {
+    for evidence in [request.vocal_pitch, request.rmvpe_pitch]
+        .into_iter()
+        .flatten()
+    {
         let pcm = models::decode(request.vocal_stem, 16000, 1)?;
         let mut hash = Sha256::new();
         for sample in pcm {
@@ -345,6 +353,7 @@ pub fn generate_cancellable(
         request.policy,
         request.neural_pitch,
         request.vocal_pitch,
+        request.rmvpe_pitch,
         cancelled,
     )?;
     ensure!(
@@ -788,6 +797,7 @@ pub fn generate_pcm(
         policy,
         None,
         None,
+        None,
         &|| false,
     )
 }
@@ -814,6 +824,7 @@ pub fn generate_pcm_with_neural_pitch(
         lyrics,
         policy,
         Some(neural),
+        None,
         None,
         &|| false,
     )
@@ -843,6 +854,7 @@ pub fn generate_pcm_with_vocal_pitch(
         policy,
         neural,
         Some(vocal_pitch),
+        None,
         &|| false,
     )
 }
@@ -859,6 +871,7 @@ fn generate_pcm_cancellable(
     policy: &Policy,
     neural: Option<&NeuralPitchEvidence>,
     vocal_pitch: Option<&crate::vocal_pitch::Evidence>,
+    rmvpe_pitch: Option<&crate::vocal_pitch::Evidence>,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Generation> {
     ensure!(!cancelled(), "Vocal generation cancelled");
@@ -908,6 +921,9 @@ fn generate_pcm_cancellable(
     }
     if let Some(evidence) = vocal_pitch {
         validate_vocal_frame_evidence(evidence, audio_sha256, stem_sha256, duration)?;
+    }
+    if let Some(evidence) = rmvpe_pitch {
+        crate::vocal_rmvpe::validate(evidence, audio_sha256, stem_sha256, duration)?;
     }
     // Validate caller-constructed timing maps, not just deserialized maps.
     let timing = TempoMap::new(timing.resolution, timing.offset, timing.tempos.clone())?;
@@ -1028,10 +1044,10 @@ fn generate_pcm_cancellable(
     if policy.recover_bounded_yin {
         recover_yin_gaps(&mut frames, signal, aligned.as_ref(), &mut issues);
     }
-    if let Some(neural) = neural {
+    if let Some(neural) = neural.filter(|_| policy.analysis_mode == AnalysisMode::Standard) {
         recover_neural_yin(&mut frames, signal, aligned.as_ref(), neural, &mut issues);
     }
-    if let Some(evidence) = vocal_pitch {
+    if let Some(evidence) = vocal_pitch.filter(|_| policy.analysis_mode == AnalysisMode::Standard) {
         recover_swift_frames(
             &mut frames,
             signal,
@@ -1043,6 +1059,9 @@ fn generate_pcm_cancellable(
     }
     if policy.analysis_mode == AnalysisMode::HighAccuracy {
         acoustics::recover_alternatives(&mut frames, signal, gate, &mut issues);
+        if let Some(evidence) = rmvpe_pitch {
+            crate::vocal_pitch_tracking::refine(&mut frames, evidence, cancelled)?;
+        }
     }
     let spans = pitch_spans(
         &frames,
@@ -1130,7 +1149,12 @@ fn generate_pcm_cancellable(
         audio_sha256: audio_sha256.into(),
         vocal_stem_sha256: stem_sha256.into(),
         duration_seconds: duration,
-        algorithm: ALGORITHM.into(),
+        algorithm: if policy.analysis_mode == AnalysisMode::HighAccuracy && rmvpe_pitch.is_some() {
+            COMPARISON_ALGORITHM
+        } else {
+            ALGORITHM
+        }
+        .into(),
         timing: Some(timing.clone()),
         policy: policy.clone(),
         status,
@@ -1143,6 +1167,7 @@ fn generate_pcm_cancellable(
         warnings,
         neural_pitch: neural.cloned(),
         vocal_pitch: vocal_pitch.cloned(),
+        rmvpe_pitch: rmvpe_pitch.cloned(),
         note_evidence,
     })
 }
@@ -2014,6 +2039,7 @@ mod coverage_probes {
             policy: &Policy::default(),
             neural_pitch: None,
             vocal_pitch: Some(&e),
+            rmvpe_pitch: None,
         })
         .unwrap_err();
         assert!(error.to_string().contains("decoded source PCM"));

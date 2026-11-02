@@ -505,6 +505,23 @@ pub async fn run_stage(
                         && report.policy.analysis_mode == request.vocal_analysis_mode,
                     "Saved vocal draft does not match the frozen source, timing or analysis mode"
                 );
+                if request.vocal_analysis_mode
+                    == crate::vocal_generation::AnalysisMode::HighAccuracy
+                {
+                    ensure!(
+                        report.algorithm == crate::vocal_generation::COMPARISON_ALGORITHM,
+                        "Saved High accuracy draft uses an earlier pitch algorithm"
+                    );
+                    crate::vocal_rmvpe::validate(
+                        report
+                            .rmvpe_pitch
+                            .as_ref()
+                            .context("High accuracy cache lacks independent pitch evidence")?,
+                        &input.audio_sha256,
+                        &report.vocal_stem_sha256,
+                        report.duration_seconds,
+                    )?;
+                }
                 write_json(
                     &crate::song_layout::path(&song, "chart-engine-vocal-generation.json"),
                     &report,

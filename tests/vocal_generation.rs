@@ -452,6 +452,7 @@ fn cancelled_vocal_request_never_reads_or_publishes_a_chart() {
             policy: &Policy::default(),
             neural_pitch: None,
             vocal_pitch: None,
+            rmvpe_pitch: None,
         },
         &|| true,
     );
@@ -599,6 +600,7 @@ fn local_recording_generates_reviewable_game_vocals() {
         policy: &Policy::default(),
         neural_pitch: None,
         vocal_pitch: None,
+        rmvpe_pitch: None,
     })
     .unwrap();
     let vocals = generated

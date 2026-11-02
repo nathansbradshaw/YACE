@@ -74,7 +74,7 @@ fn source_bound_model_free_workflow_is_atomic_and_can_export_game_vocals_without
     let generated = run().unwrap();
     let without_recognition = vocal_workflow::generate(
         vocal_workflow::Request {
-            analysis_mode: chart_engine::vocal_generation::AnalysisMode::HighAccuracy,
+            analysis_mode: chart_engine::vocal_generation::AnalysisMode::Standard,
             audio: &audio,
             manifest: &path,
             timing: &map,
@@ -101,6 +101,31 @@ fn source_bound_model_free_workflow_is_atomic_and_can_export_game_vocals_without
     assert!(generated.chart.is_some());
     assert!(output.join("vocals.mid").exists());
     assert!(!missing_models.exists());
+    let high_output = temp.path().join("missing-high-model");
+    let error = vocal_workflow::generate(
+        vocal_workflow::Request {
+            analysis_mode: chart_engine::vocal_generation::AnalysisMode::HighAccuracy,
+            audio: &audio,
+            manifest: &path,
+            timing: &map,
+            words: None,
+            lyrics: None,
+            recognize: false,
+            language: Default::default(),
+            neural_pitch: true, // Standard's assistance switch must not change High's profile.
+            model_dir: &missing_models,
+            download_model: false,
+        },
+        &high_output,
+        Arc::default(),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("no lower-quality mode was substituted")
+    );
+    assert!(!high_output.exists() && !missing_models.exists());
     let before = fs::read(output.join("generation.json")).unwrap();
     assert!(run().is_err());
     assert_eq!(before, fs::read(output.join("generation.json")).unwrap());

@@ -227,13 +227,33 @@ fn validate_vocal_cache(
         "Saved vocal proposals have a different or unknown tempo/offset map. Reuse source-time words, then regenerate notes for this job; the existing proposal is retained."
     );
     ensure!(
-        report.algorithm == crate::vocal_generation::ALGORITHM,
+        report.algorithm
+            == if report.policy.analysis_mode == crate::vocal_generation::AnalysisMode::HighAccuracy
+            {
+                crate::vocal_generation::COMPARISON_ALGORITHM
+            } else {
+                crate::vocal_generation::ALGORITHM
+            },
         "Saved vocal proposals use an earlier pitch algorithm; regenerate into a new proposal before reuse"
     );
     report.policy.validate()?;
+    if report.policy.analysis_mode == crate::vocal_generation::AnalysisMode::HighAccuracy {
+        crate::vocal_rmvpe::validate(
+            report
+                .rmvpe_pitch
+                .as_ref()
+                .context("High accuracy cache lacks independent pitch evidence")?,
+            audio_sha256,
+            stem_sha256,
+            duration,
+        )?;
+    }
     ensure!(
         serde_json::to_value(&report.policy)?
-            == serde_json::to_value(crate::vocal_generation::Policy::default())?,
+            == serde_json::to_value(crate::vocal_generation::Policy {
+                analysis_mode: report.policy.analysis_mode,
+                ..Default::default()
+            })?,
         "Saved vocal proposals use different pitch/recovery settings; retain the proposal and regenerate for the current job settings"
     );
     if let Some(evidence) = &report.vocal_pitch {
@@ -243,6 +263,9 @@ fn validate_vocal_cache(
             stem_sha256,
             duration,
         )?;
+    }
+    if report.policy.analysis_mode == crate::vocal_generation::AnalysisMode::HighAccuracy {
+        return Ok(()); // Its required independent contour was validated above.
     }
     let neural = report.neural_pitch.as_ref().context(
         "Saved vocal proposals do not include the requested neural pitch analysis; regenerate with neural pitch assistance",
@@ -1631,6 +1654,7 @@ mod vocal_cache_tests {
             pitch_candidates: vec![],
             pitch_frames: vec![],
             vocal_pitch: None,
+            rmvpe_pitch: None,
             words: None,
             lyrics: None,
             issues: vec![],
@@ -1654,6 +1678,31 @@ mod vocal_cache_tests {
             5.,
             &TempoMap::constant(125.)?,
         )
+    }
+
+    #[test]
+    fn high_cache_requires_its_own_contour_and_needs_no_legacy_note_model() {
+        let mut report = report();
+        report.policy.analysis_mode = crate::vocal_generation::AnalysisMode::HighAccuracy;
+        report.algorithm = crate::vocal_generation::COMPARISON_ALGORITHM.into();
+        report.neural_pitch = None;
+        assert!(check(&report).is_err());
+        let pcm = vec![0.; 80000];
+        let frames = (0..=500)
+            .map(|i| crate::vocal_pitch::Frame {
+                time_seconds: i as f64 * 0.01,
+                frequency_hz: None,
+                confidence: 0.,
+                rms: 0.,
+            })
+            .collect();
+        let mut e = crate::vocal_rmvpe::finish_pcm(&pcm, frames).unwrap();
+        e.audio_sha256 = report.audio_sha256.clone();
+        e.vocal_stem_sha256 = report.vocal_stem_sha256.clone();
+        report.rmvpe_pitch = Some(e);
+        assert!(check(&report).is_ok());
+        report.rmvpe_pitch.as_mut().unwrap().implementation_sha256 = "0".repeat(64);
+        assert!(check(&report).is_err());
     }
 
     #[test]

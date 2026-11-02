@@ -57,6 +57,7 @@ fn fixture(root: &Path) -> Store {
             difficulty_links: Default::default(),
             vocals: None,
             vocal_review: None,
+            vocal_pitch_analysis: None,
             tracks: BTreeMap::from([("ExpertDrums".into(), notes)]),
             decisions: vec![],
             hidden_flags: Default::default(),
