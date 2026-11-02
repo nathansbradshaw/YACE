@@ -94,6 +94,7 @@ pub fn seek(seconds: f64) {
     let duration = transport().map_or(0., |t| t.duration);
     let seconds = seconds.clamp(0., duration);
     s.clock.set(seconds);
+    s.motion_epoch.set((s.motion_epoch)().wrapping_add(1));
     media(Media::Seek(seconds));
 }
 pub fn playback(playing: bool) {
@@ -107,7 +108,9 @@ pub fn set_rate(rate: f64) {
     if !rate.is_finite() || !(0.25..=2.).contains(&rate) {
         return;
     }
-    consume_context::<DanceStudio>().rate.set(rate);
+    let mut s = consume_context::<DanceStudio>();
+    s.rate.set(rate);
+    s.motion_epoch.set((s.motion_epoch)().wrapping_add(1));
     media(Media::Rate(rate));
 }
 pub fn set_volume(volume: f32) {
@@ -133,6 +136,7 @@ pub fn AudioEngine() -> Element {
     let mut s = use_context::<DanceStudio>();
     let studio = use_context::<super::super::state::Studio>();
     let sample = move || async move {
+        let epoch = (s.motion_epoch)();
         #[cfg(target_arch = "wasm32")]
         let reading = {
             use wasm_bindgen::JsCast;
@@ -145,6 +149,9 @@ pub fn AudioEngine() -> Element {
         #[cfg(not(target_arch="wasm32"))]
         let reading = dioxus_document::eval("const a=document.getElementById('dance-audio');return a?[a.currentTime,Number.isFinite(a.duration)?a.duration:0,a.paused]:null;")
             .await.ok().and_then(|v|Some((v.get(0)?.as_f64()?,v.get(1)?.as_f64()?,v.get(2)?.as_bool()?)));
+        if epoch != (s.motion_epoch)() {
+            return;
+        }
         if let Some((seconds, length, paused)) = reading {
             if length.is_finite() && length > 0. {
                 s.length.set(length);
@@ -160,11 +167,24 @@ pub fn AudioEngine() -> Element {
             }
         }
     };
+    // Imported standalone simfiles use this media backend. Sampling its actual
+    // counter avoids the coarse HTML timeupdate cadence for moving arrows.
+    use_future(move || async move {
+        loop {
+            #[cfg(target_arch = "wasm32")]
+            gloo_timers::future::TimeoutFuture::new(16).await;
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+            if (s.playing)() && (s.open)() && !uses_recording(studio) {
+                sample().await;
+            }
+        }
+    });
     rsx! {
         if !uses_recording(studio) && !(s.audio)().is_empty() {
             audio { key:"{s.epoch}", id:"dance-audio", hidden:true, src:"{s.audio}",
                 onloadedmetadata:move |_| { set_volume((studio.volume)()); sample() },
-                ontimeupdate:move |_| sample(), onplay:move |_|s.playing.set(true),
+                ontimeupdate:move |_|async move{if !(s.playing)(){sample().await;}}, onplay:move |_|s.playing.set(true),
                 onpause:move |_|s.playing.set(false), onended:move |_|{if let Some(range)=(s.loop_range)(){seek(range.start);playback(true);}else{s.playing.set(false);}},
                 onerror:move |_|{s.length.set(0.);s.playing.set(false);s.error.set(Some("Could not play the recording.".into()));}
             }
