@@ -132,6 +132,7 @@ fn implementation_hash() -> String {
     let mut digest = Sha256::new();
     digest.update(include_bytes!("main.rs"));
     digest.update(include_bytes!("rmvpe.rs"));
+    digest.update(include_bytes!("../../../src/rmvpe_frontend.rs"));
     digest.update(include_bytes!("../Cargo.toml"));
     digest.update(include_bytes!("../Cargo.lock"));
     format!("{:x}", digest.finalize())

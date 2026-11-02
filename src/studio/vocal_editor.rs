@@ -418,6 +418,7 @@ fn VocalPhrases(studio: Studio) -> Element {
     rsx! {
         div {class:"vocal-editor",
             div {class:"vocal-summary",strong{"Lead vocals"}span{"{chart.phrases.len()} phrases · {chart.notes.len()} notes"}}
+            super::vocal_pitch_analysis::VocalPitchAnalyzer{studio,range:selected.map(|p|TimeRange{start:timing.seconds(p.start),end:timing.seconds(p.end)})}
             div {class:"vocal-phrase-list",role:"group",aria_label:"Vocal phrases",
                 for (index,phrase) in chart.phrases.iter().enumerate() {
                     {let start=timing.seconds(phrase.start);let end=timing.seconds(phrase.end);

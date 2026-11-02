@@ -42,6 +42,7 @@ mod timeline_player;
 mod timing_editor;
 mod track_picker;
 mod vocal_editor;
+mod vocal_pitch_analysis;
 mod vocal_preview;
 mod welcome;
 mod workspace;

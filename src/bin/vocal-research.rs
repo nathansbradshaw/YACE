@@ -574,6 +574,7 @@ fn main() -> Result<()> {
                     },
                     neural_pitch: None,
                     vocal_pitch: None,
+                    rmvpe_pitch: None,
                 })?;
                 write(&output.join(format!("{name}.json")), &report)?;
                 write(

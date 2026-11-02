@@ -14,7 +14,10 @@ while its word remains unknown. Review those gaps rather than assuming the
 draft contains every sung word.
 
 Choose **Standard** or **High accuracy (experimental)** for vocal analysis.
-The experimental mode fixes acoustic note boundaries before attaching words and
+The experimental mode requires the separately downloaded, checksum-verified
+RMVPE model (about 362 MB). It compares an independent contour with the existing
+acoustic evidence and tracks stable note centres without using a musical key or
+lyrics. It preserves the acoustic voicing mask, fixes note boundaries before attaching words and
 retains supported uncertain pitches as amber draft notes. The note inspector
 shows their evidence and alternative detector pitches. Failed optional lyric
 recognition leaves the pitch draft available with a warning.
@@ -31,6 +34,14 @@ see [THIRD_PARTY.md](../THIRD_PARTY.md).
 Use the vocal selection desk to work with phrases, notes and syllables. Select a
 phrase or note, listen around it, then adjust pitch, timing and text. Use Undo
 to recover an earlier edit. Export writes a separate song folder.
+
+Use **Check pitches against the recording** to analyze a selected phrase or all
+existing vocals. The computer proposes supported pitch changes and shows the
+before/after notes; **Apply supported corrections** applies the batch with one
+Undo. Unsupported notes remain unresolved. This check preserves lyrics, note
+timing, phrases and talkies. Changing the recording, stem, tempo, notes or lyrics
+invalidates pending proposals. Analysis can be cancelled without changing notes.
+Both desktop and browser use the same model, preprocessing and correction rules.
 
 Check phrase boundaries, missing lyrics, talkies and note releases before
 testing the exported `PART VOCALS` track in a game. YACE supports a strict

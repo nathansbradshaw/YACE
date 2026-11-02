@@ -81,6 +81,7 @@ fn fixture(root: &Path, generated: bool) -> Store {
         track_origins: Default::default(),
         vocals: None,
         vocal_review: None,
+        vocal_pitch_analysis: None,
         tracks: tracks
             .into_iter()
             .map(|(track, notes)| {

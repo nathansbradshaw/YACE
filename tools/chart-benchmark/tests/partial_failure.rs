@@ -148,6 +148,7 @@ fn vocal_stage_failure_retains_source_bound_band_artifact_and_never_scores_parti
         warnings: vec![],
         neural_pitch: None,
         vocal_pitch: None,
+        rmvpe_pitch: None,
     };
     let models = temp.path().join("models");
     fs::create_dir_all(models.join("vocal-alignment/en")).unwrap();

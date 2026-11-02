@@ -174,6 +174,8 @@ pub struct Content {
     pub vocals: Option<crate::vocals::VocalChart>,
     #[serde(default)]
     pub vocal_review: Option<crate::vocal_review::VocalReviewMap>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vocal_pitch_analysis: Option<crate::vocal_pitch_analysis::Analysis>,
     #[serde(default)]
     pub difficulty_links: crate::difficulty_links::LinkState,
     pub decisions: Vec<Decision>,
@@ -366,6 +368,10 @@ pub enum Action {
     SetVocalReview {
         review: crate::vocal_review::VocalReviewMap,
     },
+    SetVocalPitchAnalysis {
+        analysis: crate::vocal_pitch_analysis::Analysis,
+    },
+    ApplyVocalPitchCorrections,
     Undo,
     Redo,
     Export {
@@ -1211,6 +1217,7 @@ impl Store {
                 },
                 difficulty_links: Default::default(),
                 vocal_review: None,
+                vocal_pitch_analysis: None,
                 decisions: Vec::new(),
                 hidden_flags: BTreeSet::new(),
                 stems,
@@ -1559,6 +1566,8 @@ impl Store {
                 | Action::DeleteVocalNote { .. }
                 | Action::SetVocalGeneration { .. }
                 | Action::SetVocalReview { .. }
+                | Action::SetVocalPitchAnalysis { .. }
+                | Action::ApplyVocalPitchCorrections
         );
         // load() has already validated all content. These actions only change
         // fields checked by their own handlers; do not revalidate every note,
@@ -1989,6 +1998,61 @@ impl Store {
                 review.validate_generated_chart(document)?;
                 doc.content.vocals = Some(document.clone());
                 doc.content.vocal_review = Some(review.clone());
+            }
+            Action::SetVocalPitchAnalysis { analysis } => {
+                analysis.validate(&doc, &doc.timing(self)?)?;
+                ensure!(
+                    crate::models::hash_file(&self.audio_path(&doc)?)? == analysis.audio_sha256,
+                    "Recording changed after comparison"
+                );
+                let stem = doc
+                    .content
+                    .stems
+                    .as_ref()
+                    .and_then(|m| {
+                        m.stems
+                            .iter()
+                            .find(|s| s.id == crate::stem_review::StemId::Vocals)
+                    })
+                    .context("Compared stem is unavailable")?;
+                ensure!(
+                    crate::models::hash_file(&stem.path)? == analysis.stem_sha256,
+                    "Vocal stem changed after comparison"
+                );
+                doc.content.vocal_pitch_analysis = Some(analysis.clone());
+            }
+            Action::ApplyVocalPitchCorrections => {
+                let analysis = doc
+                    .content
+                    .vocal_pitch_analysis
+                    .as_ref()
+                    .context("Compare vocal pitches first")?
+                    .clone();
+                analysis.validate(&doc, &doc.timing(self)?)?;
+                ensure!(
+                    crate::models::hash_file(&self.audio_path(&doc)?)? == analysis.audio_sha256,
+                    "Recording changed after comparison"
+                );
+                let stem = doc
+                    .content
+                    .stems
+                    .as_ref()
+                    .and_then(|m| {
+                        m.stems
+                            .iter()
+                            .find(|s| s.id == crate::stem_review::StemId::Vocals)
+                    })
+                    .context("Compared stem is unavailable")?;
+                ensure!(
+                    crate::models::hash_file(&stem.path)? == analysis.stem_sha256,
+                    "Vocal stem changed after comparison"
+                );
+                let chart = doc.content.vocals.as_mut().context("No vocal notes")?;
+                for c in &analysis.corrections {
+                    chart.notes[c.index].tone = crate::vocals::VocalTone::Pitched { midi: c.after };
+                }
+                chart.validate()?;
+                doc.content.vocal_pitch_analysis.as_mut().unwrap().applied = true;
             }
             Action::SetVocalReview { review } => {
                 review.validate()?;

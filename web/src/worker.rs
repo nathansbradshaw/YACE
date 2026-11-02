@@ -27,6 +27,12 @@ pub enum Task {
         project: Box<crate::stepmania::Project>,
         request: crate::stepmania::GenerationRequest,
     },
+    CompareVocalPitch {
+        root: PathBuf,
+        project: Box<crate::editor::Project>,
+        audio: PathBuf,
+        range: Option<crate::editor::TimeRange>,
+    },
     ExportChartOnly {
         root: PathBuf,
         project: Box<crate::editor::Project>,
@@ -145,6 +151,14 @@ impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
             Self::StepMania { audio, .. } => vec![audio.clone()],
+            Self::CompareVocalPitch { audio, project, .. } => std::iter::once(audio.clone())
+                .chain(project.content.stems.iter().flat_map(|m| {
+                    m.stems
+                        .iter()
+                        .filter(|s| s.id == crate::stem_review::StemId::Vocals)
+                        .map(|s| s.path.clone())
+                }))
+                .collect(),
             Self::ExportChartOnly { .. } => Vec::new(),
             Self::PrepareRecording { source, .. } => vec![source.clone()],
             Self::PrepareGameChannels { root } => {
@@ -271,7 +285,7 @@ impl Task {
             Self::PrepareRecording { source, root } => Ok(serde_json::to_value(
                 crate::project_recording::prepare_recording(source, root)?,
             )?),
-            Self::SplitKit { .. } => {
+            Self::SplitKit { .. } | Self::CompareVocalPitch { .. } => {
                 anyhow::bail!("Split kit must run on the asynchronous inference worker")
             }
             Self::PrepareGameChannels { root } => Ok(serde_json::to_value(
@@ -662,6 +676,29 @@ async fn process(input: JsValue) -> Result<JsValue> {
             serde_json::to_vec_pretty(&events)?,
         )?;
         serde_json::to_value(events)?
+    } else if let Task::CompareVocalPitch {
+        root,
+        project,
+        audio,
+        range,
+    } = &task
+    {
+        let store = crate::editor::Store::new(root);
+        let timing = project.timing(&store)?;
+        let manifest = project
+            .content
+            .stems
+            .as_ref()
+            .context("Attach a vocal stem before comparing pitches")?;
+        let generation =
+            crate::vocal_inference::pitch_comparison(audio, manifest, &timing, &mut progress)
+                .await?;
+        serde_json::to_value(crate::vocal_pitch_analysis::propose(
+            project,
+            &timing,
+            &generation,
+            *range,
+        )?)?
     } else if let Task::Vocals {
         audio,
         manifest,
@@ -936,7 +973,7 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
     let mut selected = BTreeMap::new();
     for root in roots {
         for (path, bytes) in crate::storage::list(root)? {
-            if matches!(task, Task::GenerationStage { .. } | Task::RecognizeWords { .. })
+            if matches!(task, Task::GenerationStage { .. } | Task::RecognizeWords { .. } | Task::CompareVocalPitch { .. })
                 && path
                     .extension()
                     .and_then(|value| value.to_str())

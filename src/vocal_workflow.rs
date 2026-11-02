@@ -348,6 +348,22 @@ pub fn generate(
     } else {
         None
     };
+    let rmvpe_pitch = if request.analysis_mode == vocal_generation::AnalysisMode::HighAccuracy {
+        control.update("Preparing High accuracy vocal comparison (RMVPE)…");
+        let model =
+            crate::vocal_rmvpe::prepare(request.model_dir, request.download_model, &|| {
+                control.is_cancelled()
+            })?;
+        Some(crate::vocal_rmvpe::analyze(
+            request.audio,
+            &stem.path,
+            &alignment,
+            &model,
+            &|| control.is_cancelled(),
+        )?)
+    } else {
+        None
+    };
     let mut result = vocal_generation::generate_cancellable(
         vocal_generation::Request {
             audio: request.audio,
@@ -362,6 +378,7 @@ pub fn generate(
             },
             neural_pitch: neural_pitch.as_ref(),
             vocal_pitch: vocal_pitch.as_ref(),
+            rmvpe_pitch: rmvpe_pitch.as_ref(),
         },
         &|| control.is_cancelled(),
     )?;

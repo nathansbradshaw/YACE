@@ -120,6 +120,8 @@ pub mod review;
 pub mod review_regions;
 #[path = "../../src/review_repository.rs"]
 pub mod review_repository;
+#[path = "../../src/rmvpe_frontend.rs"]
+pub mod rmvpe_frontend;
 #[path = "../../src/sections.rs"]
 pub mod sections;
 pub mod separation;
@@ -156,8 +158,14 @@ pub mod vocal_generation;
 pub mod vocal_inference;
 #[path = "../../src/vocal_pitch.rs"]
 pub mod vocal_pitch;
+#[path = "../../src/vocal_pitch_analysis.rs"]
+pub mod vocal_pitch_analysis;
+#[path = "../../src/vocal_pitch_tracking.rs"]
+pub mod vocal_pitch_tracking;
 #[path = "../../src/vocal_review.rs"]
 pub mod vocal_review;
+#[path = "../../src/vocal_rmvpe.rs"]
+pub mod vocal_rmvpe;
 #[path = "../../src/vocals.rs"]
 pub mod vocals;
 #[path = "../../src/waveform.rs"]

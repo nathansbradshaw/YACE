@@ -128,6 +128,7 @@ fn compare_cached_vocal_pitch_policies() -> Result<()> {
             policy: &policy,
             neural_pitch: neural.as_ref(),
             vocal_pitch: swift.then_some(&evidence),
+            rmvpe_pitch: None,
         })?;
         let words = serde_json::to_value(&result.words)?;
         if let Some(expected) = &expected_words {

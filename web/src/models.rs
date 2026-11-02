@@ -22,6 +22,7 @@ pub fn assets() -> Vec<ModelAsset> {
     assets.push(crate::lyric_language::multilingual_asset());
     assets.push(crate::keyboard_separation::asset());
     assets.push(crate::acoustic_alignment::asset());
+    assets.push(crate::vocal_rmvpe::asset());
     assets
 }
 pub fn hash_file(path: &Path) -> Result<String> {

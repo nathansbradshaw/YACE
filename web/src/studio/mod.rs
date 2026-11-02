@@ -67,6 +67,8 @@ mod timing_editor;
 mod track_picker;
 #[path = "../../../src/studio/vocal_editor.rs"]
 mod vocal_editor;
+#[path = "../../../src/studio/vocal_pitch_analysis.rs"]
+mod vocal_pitch_analysis;
 #[path = "../../../src/studio/vocal_preview.rs"]
 mod vocal_preview;
 #[path = "../../../src/studio/welcome.rs"]
