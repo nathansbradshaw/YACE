@@ -19,6 +19,9 @@ mod audio_identity;
 #[cfg(test)]
 #[path = "../src/audio_resample.rs"]
 mod audio_resample;
+#[cfg(test)]
+#[path = "../src/media_clock.rs"]
+mod media_clock;
 mod recognition_build;
 #[cfg(test)]
 #[path = "../../src/recording_metadata.rs"]

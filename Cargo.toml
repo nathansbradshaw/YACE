@@ -14,6 +14,10 @@ name = "yace-browser"
 path = "src/bin/yace-browser.rs"
 required-features = ["browser"]
 
+[[example]]
+name = "separation-preview"
+required-features = ["separation"]
+
 [features]
 default = ["separation", "editor", "vocal-alignment"]
 vocal-alignment = ["dep:practice-acoustic", "dep:whatlang"]
