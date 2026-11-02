@@ -144,7 +144,12 @@ fn relocated_stems_and_content_addressed_history_survive_undo_and_redo() {
     assert_ne!(doc.undo, original.undo);
     assert_eq!(
         doc.content.stems.as_ref().unwrap().stems[0].path,
-        output.join("assets/drums.wav")
+        output.join(
+            original.content.stems.as_ref().unwrap().stems[0]
+                .path
+                .strip_prefix(&store.root)
+                .unwrap()
+        )
     );
     doc.content
         .stems

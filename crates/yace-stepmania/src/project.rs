@@ -208,7 +208,12 @@ impl Project {
     }
     pub fn encode(&self) -> Result<Vec<u8>> {
         self.validate()?;
-        Ok(serde_json::to_vec(self)?)
+        let bytes = serde_json::to_vec(self)?;
+        ensure!(
+            bytes.len() <= 128 * 1024 * 1024,
+            "Project exceeds 128 MiB; export or split this chart before adding more history"
+        );
+        Ok(bytes)
     }
     pub fn chart_hash(&self, id: &str) -> Result<String> {
         let c = self
@@ -387,7 +392,7 @@ impl Project {
                     actor: request.actor,
                     action: action_name,
                 });
-                candidate.validate()?;
+                candidate.encode()?;
                 *self = candidate;
                 return Ok(());
             }
@@ -401,7 +406,7 @@ impl Project {
                     actor: request.actor,
                     action: action_name,
                 });
-                candidate.validate()?;
+                candidate.encode()?;
                 *self = candidate;
                 return Ok(());
             }
@@ -549,7 +554,7 @@ impl Project {
             }
         }
         candidate.checkpoint(old, request.actor, action_name)?;
-        candidate.validate()?;
+        candidate.encode()?;
         *self = candidate;
         Ok(())
     }
@@ -593,7 +598,7 @@ impl Project {
         }
         candidate.content.document.charts.extend(charts);
         candidate.checkpoint(old, actor, "generate".into())?;
-        candidate.validate()?;
+        candidate.encode()?;
         *self = candidate;
         Ok(ids)
     }

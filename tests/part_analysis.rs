@@ -671,7 +671,15 @@ fn kit_transport_fixture() -> (tempfile::TempDir, tempfile::TempDir, Store) {
     let store = Store::create(source.path(), None, &destination.path().join("project")).unwrap();
     let mut doc = store.load().unwrap();
     let drums = destination.path().join("transport-drums.wav");
-    fs::copy(store.audio_path(&doc).unwrap(), &drums).unwrap();
+    // Components use the native float-WAV header. Match the canonical mix's
+    // decoded samples, rather than copying its container/encoding into a cache.
+    let samples = models::decode(&store.audio_path(&doc).unwrap(), 44100, 2).unwrap();
+    let mut native = fs::read(source.path().join("guitar.wav")).unwrap();
+    assert_eq!(native.len(), 44 + samples.len() * 4);
+    for (bytes, sample) in native[44..].chunks_exact_mut(4).zip(samples) {
+        bytes.copy_from_slice(&sample.to_le_bytes());
+    }
+    fs::write(&drums, native).unwrap();
     doc.content.stems = Some(
         StemManifest::build(
             &store.audio_path(&doc).unwrap(),
@@ -799,7 +807,7 @@ fn kit_audio_matches_the_same_source_clock_at_each_practice_rate_and_rejects_sub
     let doc = store.load().unwrap();
     let selected = part_analysis::select_kit_audition(&store, &doc, "kick").unwrap();
     for rate in [0.5, 1., 1.5] {
-        // The controlled component is a byte-identical copy of this original.
+        // The controlled component has the same decoded PCM as the original.
         // This exercises real atempo execution, not a fabricated duration field.
         let reference =
             models::decode_at_tempo(&store.audio_path(&doc).unwrap(), 44100, 2, rate).unwrap();

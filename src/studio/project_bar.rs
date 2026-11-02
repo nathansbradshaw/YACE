@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 pub fn ProjectBar(mut studio: Studio) -> Element {
     let document = studio.snapshot();
     let loaded = document.is_some() || super::dance::active();
+    let band = !super::dance::active();
     let title = studio.metadata_value("name");
     let title = if title.is_empty() {
         document
@@ -72,9 +73,9 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
             },"Saved in this browser…"}}
         }
         div { id: "project-tools", class: "command-popover tools-popover", "popover": "auto", onkeydown: keep_space_local,
-            button { title: if cfg!(target_arch="wasm32"){ "The current assistant backends require native runtimes".to_owned() }else{ format!("Assistant for {title}") }, aria_label: "Chart assistant", disabled: !loaded || cfg!(target_arch="wasm32"), "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.assistant_open.set(true), "Chart assistant" }
-            button { disabled: document.as_ref().is_none_or(|doc|!doc.has_recording()),title:"Attach a recording before cleaning audio", "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.clean_open.set(true), "Clean audio" }
-            button { disabled: !loaded, "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.collaboration_open.set(true), "Collaborate" }
+            button { title: if !band {"Chart assistant is unavailable for this chart type".to_owned()}else if cfg!(target_arch="wasm32"){ "The current assistant backends require native runtimes".to_owned() }else{ format!("Assistant for {title}") }, aria_label: "Chart assistant", disabled: !band || !loaded || cfg!(target_arch="wasm32"), "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.assistant_open.set(true), "Chart assistant" }
+            button { disabled: !band || document.as_ref().is_none_or(|doc|!doc.has_recording()),title:"Attach a recording before cleaning audio", "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.clean_open.set(true), "Clean audio" }
+            button { disabled: !band || !loaded, "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.collaboration_open.set(true), "Collaborate" }
         }
     }
 }

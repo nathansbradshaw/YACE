@@ -8,6 +8,49 @@ use std::{
 };
 pub const MANIFEST: &str = "stepmania-project.json";
 pub type Files = BTreeMap<String, Vec<u8>>;
+/// Choose the shallowest song/document in an archive. A band project owns its
+/// nested dance sidecar; a wrapped dance backup owns its immutable source files.
+pub fn entry(files: &Files) -> Option<String> {
+    let depth = |p: &str| p.matches('/').count();
+    let band = files
+        .keys()
+        .filter(|p| {
+            Path::new(p)
+                .file_name()
+                .is_some_and(|n| n == "project.json" || n == "notes.chart" || n == "notes.mid")
+        })
+        .map(|p| depth(p))
+        .min();
+    let chosen = files
+        .keys()
+        .filter_map(|p| {
+            let manifest = Path::new(p).file_name().is_some_and(|n| n == MANIFEST);
+            let extension = Path::new(p)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            (manifest
+                || extension.eq_ignore_ascii_case("ssc")
+                || extension.eq_ignore_ascii_case("sm"))
+            .then_some((
+                depth(p),
+                if manifest {
+                    0
+                } else if extension.eq_ignore_ascii_case("ssc") {
+                    1
+                } else {
+                    2
+                },
+                p,
+            ))
+        })
+        .min()?;
+    if band.is_some_and(|d| d <= chosen.0) {
+        None
+    } else {
+        Some(chosen.2.clone())
+    }
+}
 pub fn safe_path(name: &str) -> bool {
     !name.is_empty()
         && !name.contains(['\\', '\0'])

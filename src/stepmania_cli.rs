@@ -20,7 +20,7 @@ pub enum Command {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Start a separate dance project from a local recording.
+    /// Start dance charts from a local recording.
     New {
         #[arg(long)]
         audio: PathBuf,

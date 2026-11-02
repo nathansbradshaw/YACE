@@ -157,7 +157,7 @@ impl Timing {
         if cmod {
             (self.seconds(note, Boundary::Note) - audio_seconds) * self.bpm(0.) / 60.
         } else {
-            self.display(note, beat, false)
+            self.display_with_audio(note, beat, Some(audio_seconds), false)
         }
     }
     pub fn validate(&self) -> Result<()> {
@@ -432,6 +432,15 @@ impl Timing {
     /// XMod display distance integrates SCROLLS; SPEEDS scales the complete
     /// field at the current clock. CMod deliberately ignores both.
     pub fn display(&self, note: f64, clock: f64, cmod: bool) -> f64 {
+        self.display_with_audio(note, clock, None, cmod)
+    }
+    fn display_with_audio(
+        &self,
+        note: f64,
+        clock: f64,
+        audio_seconds: Option<f64>,
+        cmod: bool,
+    ) -> f64 {
         if cmod {
             return (self.seconds(note, Boundary::Note) - self.seconds(clock, Boundary::Note))
                 * self.bpm(0.)
@@ -475,7 +484,8 @@ impl Timing {
             let elapsed = if e.values[2] == 0. {
                 clock - e.beat
             } else {
-                self.seconds(clock, Boundary::Note) - self.seconds(e.beat, Boundary::Note)
+                audio_seconds.unwrap_or_else(|| self.seconds(clock, Boundary::Note))
+                    - self.seconds(e.beat, Boundary::Note)
             };
             let previous = if i == 0 { 1. } else { speeds[i - 1].values[0] };
             let ratio = if e.values[1] == 0. {

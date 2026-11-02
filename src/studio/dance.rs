@@ -114,6 +114,7 @@ impl DanceStudio {
         root: Option<PathBuf>,
         saved: Option<u64>,
     ) -> Result<()> {
+        project.encode()?;
         if project.assets_sha256.is_empty() {
             bundle::bind(&mut project, &assets)?;
         }
@@ -251,11 +252,38 @@ impl DanceStudio {
     async fn prepare(mut self, format: Option<Format>) {
         let result = async {
             let project = self.project.read().clone().context("No project")?;
-            let files = if let Some(format) = format {
+            let mut files = if let Some(format) = format {
                 bundle::export(&project, &self.assets.read(), format)?
             } else {
                 bundle::backup(&project, &self.assets.read())?
             };
+            if format.is_none()
+                && let Some(parent) = self.parent.read().clone()
+            {
+                #[cfg(not(target_arch = "wasm32"))]
+                let mut combined = {
+                    let temporary = tempfile::tempdir()?;
+                    let path = temporary.path().join("backup.zip");
+                    crate::project_files::backup(&crate::editor::Store::new(&parent), &path)?;
+                    crate::archive_codec::decode(&std::fs::read(path)?)?
+                        .into_iter()
+                        .collect::<Files>()
+                };
+                #[cfg(target_arch = "wasm32")]
+                let mut combined = crate::storage::list(&parent)?
+                    .into_iter()
+                    .map(|(path, bytes)| {
+                        Ok((
+                            path.strip_prefix(&parent)?.to_string_lossy().into_owned(),
+                            bytes.as_ref().clone(),
+                        ))
+                    })
+                    .collect::<Result<Files>>()?;
+                for (name, bytes) in files {
+                    combined.insert(format!("dance/{name}"), bytes);
+                }
+                files = combined;
+            }
             let bytes = crate::archive_codec::encode(
                 files.iter().map(|(n, b)| (n.as_str(), b.as_slice())),
             )?;
@@ -271,7 +299,16 @@ impl DanceStudio {
                     "Download ready: {}",
                     path.file_name().unwrap_or_default().to_string_lossy()
                 ));
-                self.download_ready(Some(path));
+                if format.is_none() {
+                    let mut studio = consume_context::<super::state::Studio>();
+                    studio.export_ready.set(Some((
+                        path,
+                        "YACE-project.zip".into(),
+                        super::state::DownloadKind::Project,
+                    )));
+                } else {
+                    self.download_ready(Some(path));
+                }
             }
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -448,7 +485,7 @@ pub fn Workbench() -> Element {
             {prepared_download(s, download)}
             if let Some(project)=project.as_ref(){
                 div{class:"step-toolbar",onkeydown:move |e|e.stop_propagation(),
-                    label{"Profile " select {value:profile.name(),disabled:(s.busy)(),onchange:move |e|s.apply(Action::SetProfile{profile:if e.value()=="keyboard"{Profile::Keyboard}else{Profile::Pad}}),option{value:"pad","Dance pad"}option{value:"keyboard","4-key keyboard"}}}
+                    label{"Profile " select {value:profile.name(),disabled:(s.busy)(),onchange:move |e|s.apply(Action::SetProfile{profile:if e.value()=="keyboard"{Profile::Keyboard}else{Profile::Pad}}),option{value:"pad",selected:profile==Profile::Pad,"Dance pad"}option{value:"keyboard",selected:profile==Profile::Keyboard,"4-key keyboard"}}}
                     super::track_picker::TrackPicker{studio:consume_context::<super::state::Studio>()}
                     button{title:"Add a chart for {profile.name()}",onclick:move |_|{s.apply(Action::AddChart{difficulty:Difficulty::Edit,meter:1,description:"Manual chart".into()});if let Some(c)=s.project.read().as_ref().and_then(|p|p.content.document.charts.last()){s.selected.set(c.id.clone());}},"Add chart"}
                     button{disabled:project.undo.is_empty()||(s.busy)(),onclick:move |_|s.apply(Action::Undo),"Undo"}
@@ -475,7 +512,7 @@ pub fn Workbench() -> Element {
                             button{onclick:move |_|start.set((start()-192).max(0)),"Previous 4 beats"}
                             button{onclick:move |_|start.set(start()+192),"Next 4 beats"}
                             button{onclick:move |_|start.set(((beat*48.)as i64/192*192).max(0)),"Follow playhead"}
-                            label{"Grid " select {value:"{snap}",onchange:move |e|if let Ok(value)=e.value().parse(){snap.set(value)},for(step,label)in [(48,"1/4"),(24,"1/8"),(16,"1/12"),(12,"1/16"),(8,"1/24"),(6,"1/32"),(4,"1/48"),(3,"1/64"),(2,"1/96"),(1,"1/192")]{option{value:"{step}","{label}"}}}}
+                            label{"Grid " select {value:"{snap}",onchange:move |e|if let Ok(value)=e.value().parse(){snap.set(value)},for(step,label)in [(48,"1/4"),(24,"1/8"),(16,"1/12"),(12,"1/16"),(8,"1/24"),(6,"1/32"),(4,"1/48"),(3,"1/64"),(2,"1/96"),(1,"1/192")]{option{value:"{step}",selected:step==snap(),"{label}"}}}}
                         }
                         div{class:"step-toolbar",onkeydown:move |e|e.stop_propagation(),p{"Shift-click notes to select a passage."}button{onclick:move |_|s.copy_selection(),"Copy"}button{disabled:s.clipboard.read().is_empty(),onclick:move |_|s.paste(),"Paste at cursor"}button{onclick:move |_|s.edit_selection(sm::project::SelectionEdit::Delete),"Delete selection"}button{onclick:move |_|s.edit_selection(sm::project::SelectionEdit::Mirror),"Mirror"}button{onclick:move |_|s.edit_selection(sm::project::SelectionEdit::Quantize{rows:snap()}),"Quantize"}button{onclick:move |_|s.edit_selection(sm::project::SelectionEdit::Move{rows:-snap()}),"Earlier"}button{onclick:move |_|s.edit_selection(sm::project::SelectionEdit::Move{rows:snap()}),"Later"}span{"Cursor: {(s.cursor)() as f64/48.:.3}"}}
                         div{class:"step-editor-columns",
@@ -484,7 +521,7 @@ pub fn Workbench() -> Element {
                                 for r in (start()..start()+192).step_by(snap()as usize){
                                     div{class:"step-grid-row",span{"{r as f64/48.:.3}"}for col in 0u8..4{
                                         button{class:if chart.notes.iter().any(|n|n.row==r&&n.lane==col){"step-cell occupied"}else{"step-cell"},"data-selected":chart.notes.iter().any(|n|n.row==r&&n.lane==col&&s.selection.read().contains(&n.id)).to_string(),aria_label:"Beat {r as f64/48.} lane {col}",onclick:{let id=id.clone();let existing=chart.notes.iter().find(|n|n.row==r&&n.lane==col).cloned();move |event:MouseEvent|{s.cursor.set(r);if let Some(n)=&existing{if !event.modifiers().shift(){s.selection.set(Default::default());}s.selection.write().insert(n.id.clone());selected_note.set(n.id.clone());row.set((n.row as f64/48.).to_string());lane.set(n.lane);kind.set(n.kind);duration.set((n.end_row.map_or(48,|end|end-n.row)as f64/48.).to_string());}else{let end=if kind().sustained(){Some(r+(duration().parse::<f64>().unwrap_or(1.)*48.).round()as i64)}else{None};s.apply(Action::AddNote{chart_id:id.clone(),row:r,lane:col,kind:kind(),end_row:end});}}},
-                                            if let Some(n)=chart.notes.iter().find(|n|n.row==r&&n.lane==col){"{n.kind.symbol()}"}else if chart.notes.iter().any(|n|n.lane==col&&n.row<r&&n.end_row.is_some_and(|end|end>=r)){"│"}else{"·"}
+                                            if let Some(n)=chart.notes.iter().find(|n|n.row==r&&n.lane==col){"{note_symbol(n.kind,col)}"}else if chart.notes.iter().any(|n|n.lane==col&&n.row<r&&n.end_row.is_some_and(|end|end>=r)){"│"}else{"·"}
                                         }
                                     }}
                                 }
@@ -497,8 +534,8 @@ pub fn Workbench() -> Element {
                         }
                         div{class:"step-toolbar",onkeydown:move |e|e.stop_propagation(),aria_label:"Note properties",
                             label{"Beat " input {r#type:"number",min:"0",step:"0.020833333",value:"{row}",oninput:move |e|row.set(e.value())}}
-                            label{"Lane " select {value:"{lane}",onchange:move |e|if let Ok(v)=e.value().parse(){lane.set(v)},for(i,arrow)in ["←","↓","↑","→"].iter().enumerate(){option{value:"{i}","{arrow}"}}}}
-                            label{"Type " select {value:"{kind().symbol()}",onchange:move |e|if let Some(v)=NoteKind::ALL.into_iter().find(|k|k.symbol().to_string()==e.value()){kind.set(v)},for k in NoteKind::ALL{option{value:"{k.symbol()}","{k:?}"}}}}
+                            label{"Lane " select {value:"{lane}",onchange:move |e|if let Ok(v)=e.value().parse(){lane.set(v)},for(i,arrow)in ["←","↓","↑","→"].iter().enumerate(){option{value:"{i}",selected:i==lane()as usize,"{arrow}"}}}}
+                            label{"Type " select {value:"{kind().symbol()}",onchange:move |e|if let Some(v)=NoteKind::ALL.into_iter().find(|k|k.symbol().to_string()==e.value()){kind.set(v)},for k in NoteKind::ALL{option{value:"{k.symbol()}",selected:k==kind(),"{k:?}"}}}}
                             if kind().sustained(){label{"Length (beats) " input {value:"{duration}",oninput:move |e|duration.set(e.value())}}}
                             button{onclick:{let id=id.clone();move |_|{let result=(||{let row=sm::row_from_beat(row().parse::<f64>()?)?;let end_row=if kind().sustained(){Some(row+sm::row_from_beat(duration().parse::<f64>()?)?)}else{None};Ok::<_,anyhow::Error>(Action::AddNote{chart_id:id.clone(),row,lane:lane(),kind:kind(),end_row})})();match result{Ok(action)=>s.apply(action),Err(error)=>s.report(Err(error))}}},"Add note"}
                             if let Some(note)=selected.clone(){
@@ -515,6 +552,16 @@ pub fn Workbench() -> Element {
             }else{p{"Import a song or start a chart from audio."}}
         }
     }}
+}
+fn note_symbol(kind: NoteKind, lane: u8) -> &'static str {
+    match kind {
+        NoteKind::Mine => "✕",
+        NoteKind::Lift => "◇",
+        NoteKind::Fake => "○",
+        NoteKind::Hold => ["←━", "↓━", "↑━", "→━"][lane as usize],
+        NoteKind::Roll => ["←≋", "↓≋", "↑≋", "→≋"][lane as usize],
+        NoteKind::Tap => ["←", "↓", "↑", "→"][lane as usize],
+    }
 }
 #[component]
 fn SongProperties(s: DanceStudio) -> Element {
@@ -757,14 +804,8 @@ pub fn save(studio: super::state::Studio) {
     if active() || linked {
         let s = consume_context::<DanceStudio>();
         dioxus::core::spawn_forever(async move {
-            if s.parent.read().is_some() {
-                s.save().await;
-                if !(s.blocked)() {
-                    studio.save_project();
-                }
-            } else {
-                s.prepare(None).await;
-            }
+            s.save().await;
+            s.prepare(None).await;
         });
     } else {
         studio.save_project();
@@ -886,6 +927,10 @@ pub fn from_recording(mut studio: super::state::Studio, profile: Profile, genera
             let assets = Files::from([(name, crate::storage::read(source)?)]);
             s.load(p, assets, Some(root), None)?;
         }
+        #[cfg(target_arch = "wasm32")]
+        if !reused {
+            crate::persistence::remember_linked(&store.root, (s.saved)());
+        }
         s.parent.set(Some(store.root));
         s.apply(Action::SetProfile { profile });
         s.apply(Action::AddChart {
@@ -985,6 +1030,15 @@ pub fn attach_existing(studio: super::state::Studio) {
     match try_open_path(&root.join("dance")) {
         Ok(true) => {
             let mut s = consume_context::<DanceStudio>();
+            #[cfg(target_arch = "wasm32")]
+            crate::persistence::remember_linked(
+                &root,
+                if (studio.saved_revision)().is_some() {
+                    (s.saved)()
+                } else {
+                    None
+                },
+            );
             s.parent.set(Some(root));
             s.open.set(false);
         }
@@ -1010,29 +1064,21 @@ pub fn band_visible(studio: super::state::Studio) -> bool {
     })
 }
 pub fn try_open_files(files: Files) -> Result<bool> {
-    if files
-        .keys()
-        .any(|p| p == "project.json" || p == "notes.chart" || p == "notes.mid")
-    {
+    let Some(selected) = bundle::entry(&files) else {
         return Ok(false);
-    }
+    };
     let Some(mut s) = try_consume_context::<DanceStudio>() else {
         return Ok(false);
     };
-    if files.contains_key(MANIFEST) {
+    if std::path::Path::new(&selected)
+        .file_name()
+        .is_some_and(|n| n == MANIFEST)
+    {
         let (p, assets) = bundle::restore(files)?;
         s.load(p, assets, None, None)?;
         s.parent.set(None);
         return Ok(true);
     }
-    let choices = bundle::candidates(&files);
-    let Some(selected) = choices
-        .iter()
-        .min_by_key(|p| (p.matches('/').count(), !p.ends_with(".ssc")))
-    else {
-        return Ok(false);
-    };
-    let selected = selected.clone();
     let (p, assets) = bundle::import(files, &selected, Profile::Pad)?;
     s.load(p, assets, None, None)?;
     s.parent.set(None);
@@ -1053,18 +1099,45 @@ pub fn tracks(studio: super::state::Studio) -> Vec<(String, String)> {
                 .document
                 .charts
                 .iter()
-                .map(|c| {
+                .enumerate()
+                .map(|(index, c)| {
+                    let duplicate = p
+                        .content
+                        .document
+                        .charts
+                        .iter()
+                        .filter(|other| {
+                            other.profile == c.profile
+                                && other.difficulty == c.difficulty
+                                && other.meter == c.meter
+                        })
+                        .count()
+                        > 1;
+                    let suffix = if duplicate {
+                        format!(
+                            " · {} ({})",
+                            if c.description.is_empty() {
+                                "Chart"
+                            } else {
+                                &c.description
+                            },
+                            index + 1
+                        )
+                    } else {
+                        String::new()
+                    };
                     (
                         format!("dance:{}", c.id),
                         format!(
-                            "{} · {} · {}",
+                            "{} · {} · {}{}",
                             if c.profile.unwrap_or(p.content.profile) == Profile::Pad {
                                 "Dance"
                             } else {
                                 "4-key"
                             },
                             c.difficulty,
-                            c.meter
+                            c.meter,
+                            suffix
                         ),
                     )
                 })
@@ -1197,6 +1270,22 @@ pub fn handle(event: KeyboardEvent) {
             }
             Key::Character(k) if k == " " => {
                 spawn(async move {
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        use wasm_bindgen::JsCast;
+                        if let Some(audio) = web_sys::window()
+                            .and_then(|w| w.document())
+                            .and_then(|d| d.get_element_by_id("dance-audio"))
+                            .and_then(|e| e.dyn_into::<web_sys::HtmlAudioElement>().ok())
+                        {
+                            if audio.paused() {
+                                let _ = audio.play();
+                            } else {
+                                let _ = audio.pause();
+                            }
+                        }
+                    }
+                    #[cfg(not(target_arch="wasm32"))]
                     let _=dioxus_document::eval("const a=document.getElementById('dance-audio'); if(a){if(a.paused) await a.play();else a.pause();}").await;
                 });
             }

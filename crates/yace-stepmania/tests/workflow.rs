@@ -527,4 +527,36 @@ fn constant_scroll_uses_audio_clock_during_stops() {
     assert_eq!(t.display_at(4., 2., 1.25, true), 3.5);
     assert_eq!(t.display_at(4., 2., 1.75, true), 2.5);
     assert_eq!(t.display_at(4., 2., 1.25, false), 2.);
+    t.events.push(Event {
+        kind: TimingKind::Speeds,
+        beat: 2.,
+        values: vec![2., 1., 1.],
+        text: String::new(),
+    });
+    assert_eq!(t.display_at(4., 2., 1.25, false), 2.5);
+    assert_eq!(t.display_at(4., 2., 1.75, false), 3.5);
+}
+#[test]
+fn archive_entry_keeps_combined_projects_and_wrapped_backups_together() {
+    use yace_stepmania::bundle::{self, Files, MANIFEST};
+    let mut files = Files::from([
+        ("Pack/Song/notes.SSC".into(), vec![]),
+        (format!("Pack/Song/yace-history/{MANIFEST}"), vec![]),
+    ]);
+    assert_eq!(
+        bundle::entry(&files).as_deref(),
+        Some("Pack/Song/notes.SSC")
+    );
+    files.insert("Pack/Song/notes.chart".into(), vec![]);
+    assert_eq!(bundle::entry(&files), None);
+    let files = Files::from([
+        (format!("Backup/{MANIFEST}"), vec![]),
+        ("Backup/source/original.ssc".into(), vec![]),
+    ]);
+    assert_eq!(bundle::entry(&files), Some(format!("Backup/{MANIFEST}")));
+    let files = Files::from([
+        ("Backup/project.json".into(), vec![]),
+        (format!("Backup/dance/{MANIFEST}"), vec![]),
+    ]);
+    assert_eq!(bundle::entry(&files), None);
 }

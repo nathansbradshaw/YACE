@@ -9,6 +9,17 @@ use std::{
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{IdbDatabase, IdbRequest, IdbTransaction, IdbTransactionMode};
 type Sender = Rc<RefCell<Option<futures_channel::oneshot::Sender<Result<JsValue, JsValue>>>>>;
+thread_local! {static LINKED_BASES:RefCell<std::collections::BTreeMap<PathBuf,Option<u64>>>=RefCell::default();}
+/// Capture the loaded dance revision before any edits. Its revision advances
+/// independently of the band's, so both must be checked in one transaction.
+pub fn remember_linked(root: &Path, revision: Option<u64>) {
+    LINKED_BASES.with(|bases| {
+        bases.borrow_mut().insert(
+            root.join("dance").join(crate::stepmania::bundle::MANIFEST),
+            revision,
+        );
+    });
+}
 fn error(value: JsValue) -> anyhow::Error {
     anyhow::anyhow!("Browser storage: {value:?}")
 }
@@ -180,6 +191,38 @@ async fn save_snapshot(
         );
     }
     let files = crate::storage::list(root)?;
+    let linked_path = root.join("dance").join(crate::stepmania::bundle::MANIFEST);
+    let linked = if crate::storage::is_file(&linked_path) {
+        let incoming = crate::stepmania::Project::decode(&crate::storage::read(&linked_path)?)?;
+        let expected = LINKED_BASES
+            .with(|bases| bases.borrow().get(&linked_path).copied())
+            .context("Linked chart revision was not loaded; reopen this project before saving")?;
+        let value = request(
+            store
+                .get(&format!("file:{}", linked_path.display()).into())
+                .map_err(error)?,
+        )
+        .await?;
+        let current = if value.is_undefined() {
+            None
+        } else {
+            Some(crate::stepmania::Project::decode(
+                &js_sys::Uint8Array::new(&value).to_vec(),
+            )?)
+        };
+        let idempotent = current
+            .as_ref()
+            .map(crate::stepmania::Project::encode)
+            .transpose()?
+            == Some(incoming.encode()?);
+        ensure!(
+            current.as_ref().map(|p| p.revision) == expected || idempotent,
+            "Dance/4-key parts changed in another tab. Export a project ZIP before reopening the saved project."
+        );
+        Some(incoming.revision)
+    } else {
+        None
+    };
     let dirty = crate::storage::pending(root)?;
     let paths: Vec<_> = files
         .iter()
@@ -238,6 +281,11 @@ async fn save_snapshot(
         .put_with_key(&root.to_string_lossy().as_ref().into(), &last_key.into())
         .map_err(error)?;
     transaction.finish().await?;
+    if let Some(revision) = linked {
+        LINKED_BASES.with(|bases| {
+            bases.borrow_mut().insert(linked_path, Some(revision));
+        });
+    }
     crate::storage::acknowledge(dirty);
     Ok(())
 }
@@ -362,6 +410,35 @@ pub async fn projects() -> Result<Vec<crate::chart_library::Entry>> {
         )
         .await?;
         if value.is_undefined() {
+            let dance = request(
+                store
+                    .get(&format!("file:{root}/{}", crate::stepmania::bundle::MANIFEST).into())
+                    .map_err(error)?,
+            )
+            .await?;
+            if !dance.is_undefined() {
+                let project = crate::stepmania::Project::decode(
+                    &read_bytes(&store, dance, &mut blocks).await?,
+                )?;
+                let metadata = &project.content.document.metadata;
+                let title = metadata
+                    .get("TITLE")
+                    .cloned()
+                    .unwrap_or_else(|| "Untitled chart".into());
+                let title = metadata
+                    .get("ARTIST")
+                    .filter(|s| !s.trim().is_empty())
+                    .map_or(title.clone(), |artist| format!("{artist} — {title}"));
+                entries.push(crate::chart_library::Entry {
+                    path: root.into(),
+                    title: format!(
+                        "{title} · {} charts · revision {}",
+                        project.content.document.charts.len(),
+                        project.revision
+                    ),
+                    kind: crate::chart_library::Kind::Project,
+                });
+            }
             continue;
         }
         let bytes = read_bytes(&store, value, &mut blocks).await?;
