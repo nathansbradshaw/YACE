@@ -104,6 +104,32 @@ fn write_pcm(path: &Path, pcm: &[f32], sample_rate: u32) -> Result<()> {
     Ok(())
 }
 impl Audio {
+    pub(super) fn set_routed_mix(
+        &self,
+        mix: &StemMix,
+        route: Option<crate::reanalysis::AuditionRoute>,
+    ) -> Result<()> {
+        let mut prepared = mix.prepare(self.buffer.loaded.stems.keys().copied())?;
+        if let Some(route) = route {
+            prepared.original = false;
+            for gain in prepared.gains.values_mut() {
+                *gain = 0.;
+            }
+            for (id, gain) in route.weights(self.position()) {
+                if self.buffer.loaded.stems.contains_key(&id) {
+                    *prepared.gains.entry(id).or_default() += gain;
+                } else {
+                    prepared.original = true;
+                }
+            }
+        }
+        *self
+            .buffer
+            .mix
+            .write()
+            .map_err(|_| anyhow::anyhow!("Audio mix lock poisoned"))? = prepared;
+        Ok(())
+    }
     pub(super) async fn new(
         loaded: LoadedStems,
         kit_audio: Option<Arc<Vec<f32>>>,

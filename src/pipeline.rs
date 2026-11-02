@@ -178,6 +178,7 @@ pub const STEM_MANIFEST: &str = "stem-manifest.json";
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IsolationOptions<'a> {
+    pub detection: crate::detection_settings::Settings,
     pub guitar_source: crate::mapping::GuitarSource,
     /// Compatibility folder option; it must contain stem-manifest.json.
     pub stems: Option<&'a Path>,
@@ -556,8 +557,11 @@ pub fn transcribe_with_isolation(
         } else {
             audio.to_owned()
         };
-        let (hits, recovered) =
-            models::drums_with_recovery(&drum_audio, &models::verified(model_dir, "drums")?)?;
+        let (hits, recovered) = models::drums_configured(
+            &drum_audio,
+            &models::verified(model_dir, "drums")?,
+            options.detection,
+        )?;
         out.drums = hits;
         out.drum_recovered_hits = recovered;
         if let Some(manifest) = &manifest {
@@ -591,10 +595,11 @@ pub fn transcribe_with_isolation(
     if wanted.iter().any(|n| n == "guitar") {
         crate::generation_progress::detail("Transcribing guitar pitches and attacks");
         out.guitar_source = options.guitar_source;
-        let inference = models::guitar_pitch_with_evidence_for_source(
+        let inference = models::guitar_configured(
             &find_stem(options.guitar_source.stem().as_str())?,
             &models::verified(model_dir, "pitch")?,
             options.guitar_source,
+            options.detection,
         )?;
         out.guitar = inference
             .candidates
@@ -615,15 +620,16 @@ pub fn transcribe_with_isolation(
     }
     if wanted.iter().any(|n| n == "bass") {
         crate::generation_progress::detail("Transcribing bass and resolving note lengths");
-        crate::bass_analysis::infer(
+        crate::bass_analysis::infer_configured(
             &mut out,
             &find_stem("bass")?,
             &models::verified(model_dir, "pitch")?,
+            options.detection,
         )?;
     }
     if wanted.iter().any(|n| n == "piano" || n == "pro_piano") {
         crate::generation_progress::detail("Transcribing keyboard notes and key releases");
-        let evidence = crate::keyboard_detection::detect(
+        let evidence = crate::keyboard_detection::detect_configured(
             audio,
             keyboard_analysis
                 .as_ref()
@@ -631,6 +637,7 @@ pub fn transcribe_with_isolation(
                 .context("Keyboard detection requires source-bound stems")?,
             model_dir,
             options.keyboard_sound,
+            options.detection,
         )?;
         let notes = evidence.raw_notes.clone();
         if evidence.sound == crate::keyboard_detection::KeyboardSound::Piano

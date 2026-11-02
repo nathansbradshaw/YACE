@@ -637,6 +637,7 @@ impl InferenceOptions {
     }
     fn isolation(&self) -> pipeline::IsolationOptions<'_> {
         pipeline::IsolationOptions {
+            detection: Default::default(),
             guitar_source: self.guitar_source,
             stems: self.stems.as_deref(),
             manifest: self.stem_manifest.as_deref(),

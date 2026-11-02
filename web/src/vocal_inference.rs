@@ -34,6 +34,32 @@ pub async fn generate_language(
     lyrics: Option<&crate::vocal_generation::LyricSource>,
     progress: &mut impl FnMut(String),
 ) -> Result<crate::vocal_generation::Generation> {
+    generate_language_configured(
+        audio,
+        manifest,
+        timing,
+        language,
+        analysis_mode,
+        evidence_output,
+        lyrics,
+        Default::default(),
+        progress,
+    )
+    .await
+}
+#[allow(clippy::too_many_arguments)]
+pub async fn generate_language_configured(
+    audio: &Path,
+    manifest: &crate::stem_review::StemManifest,
+    timing: &crate::timing::TempoMap,
+    language: crate::lyric_language::Language,
+    analysis_mode: crate::vocal_generation::AnalysisMode,
+    evidence_output: Option<&Path>,
+    lyrics: Option<&crate::vocal_generation::LyricSource>,
+    settings: crate::detection_settings::Settings,
+    progress: &mut impl FnMut(String),
+) -> Result<crate::vocal_generation::Generation> {
+    settings.validate()?;
     let stem = manifest
         .stems
         .iter()
@@ -164,10 +190,7 @@ pub async fn generate_language(
             timing,
             words,
             lyrics,
-            policy: &crate::vocal_generation::Policy {
-                analysis_mode,
-                ..Default::default()
-            },
+            policy: &settings.vocals(analysis_mode),
             neural_pitch: neural.as_ref(),
             vocal_pitch: evidence.as_ref(),
             rmvpe_pitch: rmvpe_pitch.as_ref(),
