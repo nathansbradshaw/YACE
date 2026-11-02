@@ -2181,6 +2181,26 @@ impl Store {
         actor: &Actor,
         options: &crate::export_options::Options,
     ) -> Result<()> {
+        if let Some(warning) = self.export_with_status(doc, output, actor, options)? {
+            eprintln!("Song exported, but its history could not be saved: {warning}");
+        }
+        Ok(())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn export_with_status(
+        &self,
+        doc: &Project,
+        output: &Path,
+        actor: &Actor,
+        options: &crate::export_options::Options,
+    ) -> Result<Option<String>> {
+        let receipt = crate::export_state::Receipt::capture(
+            self,
+            doc,
+            options,
+            output.display().to_string(),
+            crate::export_state::Delivery::PublishedFolder,
+        );
         let source = self.root.join("source");
         pipeline::destination(output, Some(&source))?;
         if doc.original_folder.exists() {
@@ -2192,7 +2212,11 @@ impl Store {
             .unwrap_or(Path::new("."));
         let stage = tempfile::tempdir_in(parent)?;
         self.write_export_with_options(doc, stage.path(), actor, options)?;
-        pipeline::publish(stage.path(), output)
+        pipeline::publish(stage.path(), output)?;
+        Ok(receipt
+            .and_then(|receipt| receipt.save(self))
+            .err()
+            .map(|error| format!("{error:#}")))
     }
     /// Write the same validated game export into a native or browser staging area.
     pub fn write_export(&self, doc: &Project, stage: &Path, actor: &Actor) -> Result<()> {

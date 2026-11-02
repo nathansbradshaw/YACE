@@ -15,6 +15,7 @@ pub mod drum_articulation;
 pub mod drum_parts;
 pub mod editor;
 pub mod export_options;
+pub mod export_state;
 pub mod github_reviews;
 pub mod kit_audition;
 pub mod note_groups;
