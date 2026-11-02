@@ -366,6 +366,7 @@ pub struct Studio {
     pub review_open: Signal<bool>,
     pub export_open: Signal<bool>,
     pub export_busy: Signal<bool>,
+    pub export_state: Signal<crate::export_state::State>,
     pub assistant_open: Signal<bool>,
     pub view_start: Signal<f64>,
     pub span: Signal<f64>,
@@ -519,6 +520,19 @@ impl Studio {
             Ok(result) => {
                 self.error.set(None);
                 if let Some(path) = result.exported_to {
+                    let receipt = crate::export_state::Receipt::capture(
+                        &store,
+                        &doc,
+                        &Default::default(),
+                        path.display().to_string(),
+                        crate::export_state::Delivery::PublishedFolder,
+                    )
+                    .and_then(|receipt| receipt.save(&store));
+                    if let Err(error) = receipt {
+                        self.error.set(Some(format!(
+                            "Song exported, but its history could not be saved: {error:#}"
+                        )));
+                    }
                     #[cfg(not(feature = "browser"))]
                     self.status.set(format!("Exported {}", path.display()));
                     #[cfg(feature = "browser")]
@@ -641,6 +655,10 @@ impl Studio {
                     self.group.set(group);
                 }
                 self.file_stamp.set(project_stamp(&store));
+                if !transport || timing_changed || recording_changed {
+                    self.export_state
+                        .set(crate::export_state::State::load(&store, &doc));
+                }
                 match doc.chart_hash(&store) {
                     Ok(hash) => self.chart_hash.set(hash),
                     Err(error) => {
@@ -1602,13 +1620,31 @@ impl Studio {
                         name: (self.reviewer)(),
                     };
                     let download = output.clone();
+                    let receipt = crate::export_state::Receipt::capture(
+                        &store,
+                        &doc,
+                        &options,
+                        output.display().to_string(),
+                        crate::export_state::Delivery::PublishedFolder,
+                    )?;
                     self.status.set("Preparing song export…".into());
-                    tokio::task::spawn_blocking(move || {
-                        store.export_with_options(&doc, &output, &actor, &options)
+                    let receipt_error = tokio::task::spawn_blocking(move || {
+                        store.export_with_options(&doc, &output, &actor, &options)?;
+                        Ok::<_, anyhow::Error>(receipt.save(&store).err().map(|e| format!("{e:#}")))
                     })
                     .await??;
-                    self.status
-                        .set(format!("Song exported to {}", download.display()));
+                    if self.store.peek().as_ref().is_some_and(|s| s.root == root) {
+                        self.reload(false);
+                        self.status.set(format!(
+                            "Song r{revision} exported to {}",
+                            download.display()
+                        ));
+                        if let Some(error) = receipt_error {
+                            self.error.set(Some(format!(
+                                "Song exported, but its history could not be saved: {error}"
+                            )));
+                        }
+                    }
                     rfd::download(&download).await;
                     self.export_open.set(false);
                 }
@@ -1794,6 +1830,8 @@ impl Studio {
         if let Some(store) = self.store.read().as_ref() {
             self.chart_hash
                 .set(doc.chart_hash(store).unwrap_or_default());
+            self.export_state
+                .set(crate::export_state::State::load(store, &doc));
         }
         self.metadata.set(metadata);
         self.guitar_source.set(guitar_source);
@@ -1999,6 +2037,7 @@ pub fn use_studio() -> Studio {
         review_open: use_signal(|| false),
         export_open: use_signal(|| false),
         export_busy: use_signal(|| false),
+        export_state: use_signal(Default::default),
         assistant_open: use_signal(|| false),
         view_start: use_signal(|| 0.0),
         span: use_signal(|| 12.0),
