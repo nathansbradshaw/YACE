@@ -18,6 +18,7 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 | Start from recording or existing chart | Both OS-picker/manual starts exercised; native setup now reaches Ready after save; identical chart/INI settings and unchanged encoded source | Verified |
 | Blank charts and recording attachment | Actual browser blank creation, note placement, silent timeline playback, short-recording rejection, attachment/Undo/Redo, export, backup and restored Undo; source WAV unchanged and post-Undo export has no playable root recording | Verified; fixed browser open/source-state handling after the chart-only rebase |
 | Instrument/difficulty editing | Shared command tests plus actual guitar timing/Tap, Keys, Pro Keys, vocal editing, and native edit/Undo; paired full-song MIDI/master/vocal export matches | Verified supported workflows |
+| Independent preview and piano-roll tracks | Native and browser Focused/Selected/All choices, stable order, collapse and reopen; actual hosted reload preserves separate choices without changing chart revision | Verified exercised paths; browser preferences stay in that profile/project |
 | Timing, sections and Star Power | Browser edits/Undo and native tempo, section and phrase Add/Undo exercised through their actual dialogs | Verified |
 | Playback, seek, loop, speed and waveform | Full 243.880 s browser playthrough; native whole-song playback; browser loop/speed; all five saved kit components at 75%; native kit backup opened at saved speed/selection | Verified; acoustic synchronization is unmeasured |
 | Supplied stems and part analysis | Real full-length supplied drums, worker validation, native cached kit analysis/audition and portable roundtrip; attachment Undo/Redo replaced actual browser audio channels | Verified supplied/cached workflows |
@@ -38,13 +39,18 @@ Keep private recordings, transcripts and generated receipts outside Git.
 
 The ledger above is acceptance evidence for the exercised workflows, not a
 claim that later desktop changes are automatically verified on the web. The
-current published browser engine includes desktop work through `84ade97`.
+current published browser engine includes desktop work through `6e70367`.
 GitHub Pages now serves that engine on `yace.n8bradshaw.com`; its approved
 certificate and HTTPS redirect were verified. The served WASM matches the
 staged artifact. Actual hosted overview seeking, local vocal pitch analysis and
 chart-only export/reimport retain the three-second duration, two vocal notes,
 phrases and lyrics. Existing same-origin browser saves reopen after migration.
 Earlier engine assets remain accessible for tabs opened before the host change.
+Independent track visibility passed an additional full-song browser check: preview
+All with roll Focused, separate Selected preview choices with roll All, and
+collapse/reload persistence kept the existing chart revision and selected note's
+240-tick sustain unchanged. A hosted mixed-part project repeated All/All and
+collapse/reload at the same revision. View hotkeys left the note tool unchanged.
 
 - Local RMVPE pitch comparison ran on the real three-second vocal excerpt.
   Deliberately moving MIDI 52 to 64 produced one supported 64-to-52 correction;
