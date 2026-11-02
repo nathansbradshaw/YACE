@@ -59,6 +59,7 @@ for the full workflow.
 
 | Task | Guide |
 | --- | --- |
+| Generate, edit and export Dance and 4-key charts | [Dance charting](docs/DANCE.md) |
 | Edit notes, note types, Star Power, tempo and song sections | [Editor](docs/EDITOR.md) |
 | Generate guitar, bass and drum drafts | [Generation](docs/GENERATION.md) |
 | Edit five-lane Keys or pitch-based Pro Keys | [Piano and synth](docs/PIANO.md) |

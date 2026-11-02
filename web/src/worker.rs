@@ -16,6 +16,11 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    StepMania {
+        audio: PathBuf,
+        project: Box<crate::stepmania::Project>,
+        request: crate::stepmania::GenerationRequest,
+    },
     PrepareGameChannels {
         root: PathBuf,
     },
@@ -115,6 +120,7 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::StepMania { audio, .. } => vec![audio.clone()],
             Self::PrepareGameChannels { root } => {
                 crate::stem_review::conventional::decode_inputs(root).unwrap_or_default()
             }
@@ -193,6 +199,23 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
+            Self::StepMania {
+                audio,
+                project,
+                request,
+            } => {
+                let samples = crate::models::decode(audio, 11025, 1)?;
+                let mut project = project.as_ref().clone();
+                project.generate(
+                    project.revision,
+                    "human".into(),
+                    request,
+                    &samples,
+                    11025,
+                    || false,
+                )?;
+                Ok(serde_json::to_value(project)?)
+            }
             Self::PrepareGameChannels { root } => Ok(serde_json::to_value(
                 crate::stem_review::conventional::prepare(root)?,
             )?),

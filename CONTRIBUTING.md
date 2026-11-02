@@ -9,6 +9,7 @@ Use the pinned Rust toolchain and install FFmpeg/ffprobe, CMake and a C/C++ comp
 
 ```sh
 cargo fmt --all -- --check
+cargo test --locked --manifest-path crates/yace-stepmania/Cargo.toml
 CCACHE_DISABLE=1 cargo test --locked --all-targets
 CCACHE_DISABLE=1 cargo clippy --locked --all-targets -- -D warnings
 ```

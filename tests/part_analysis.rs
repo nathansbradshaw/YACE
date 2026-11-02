@@ -374,6 +374,9 @@ fn kit_audition_is_bounded_source_bound_and_survives_note_edits() {
     let store = Store::create(p, None, &dest.path().join("project")).unwrap();
     let mut doc = store.load().unwrap();
     let mut manifest = StemManifest::read(&p.join("stems.json")).unwrap();
+    // Import prepares canonical game audio; bind this synthetic control
+    // to that authoritative recording rather than its old container bytes.
+    manifest.source_audio_sha256 = doc.audio_sha256.clone();
     let drum_hash = models::hash_file(&p.join("guitar.wav")).unwrap();
     manifest.stems.push(StemAsset {
         id: StemId::Drums,
@@ -667,7 +670,8 @@ fn kit_transport_fixture() -> (tempfile::TempDir, tempfile::TempDir, Store) {
     let destination = tempfile::tempdir().unwrap();
     let store = Store::create(source.path(), None, &destination.path().join("project")).unwrap();
     let mut doc = store.load().unwrap();
-    let drums = source.path().join("guitar.wav");
+    let drums = destination.path().join("transport-drums.wav");
+    fs::copy(store.audio_path(&doc).unwrap(), &drums).unwrap();
     doc.content.stems = Some(
         StemManifest::build(
             &store.audio_path(&doc).unwrap(),

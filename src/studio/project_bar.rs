@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 #[component]
 pub fn ProjectBar(mut studio: Studio) -> Element {
     let document = studio.snapshot();
-    let loaded = document.is_some();
+    let loaded = document.is_some() || super::dance::active();
     let title = studio.metadata_value("name");
     let title = if title.is_empty() {
         document
@@ -15,6 +15,7 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
         title
     };
     let artist = studio.metadata_value("artist");
+    let (title, artist) = super::dance::identity().unwrap_or((title, artist));
     rsx! {
         header { class: "project-bar", onkeydown: keep_space_local,
             button { class: "project-menu-trigger", "popovertarget": "project-actions", aria_label: "Project actions",
@@ -51,19 +52,19 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
                 }
             }
             nav { class: "project-actions", aria_label: "Chart workflow",
-                button { class: "project-generate", onclick: move |_| studio.generation_open.set(true), title: "Generate charts from local audio", Icon { name: "music", size: 15 } "Generate" }
-                button { disabled: !loaded, onclick: move |_| studio.review_open.set(true), title: "Review timed chart flags", Icon { name: "flag", size: 15 } "Review" }
-                button { disabled: !loaded, onclick: move |_| studio.export_dialog(), title: "Export a separate song folder", Icon { name: "export", size: 15 } "Export" }
+                button { class: "project-generate", onclick: move |_| super::dance::generate(studio), title: "Generate charts from local audio", Icon { name: "music", size: 15 } "Generate" }
+                button { disabled: !loaded, onclick: move |_| super::dance::review(studio), title: "Review timed chart flags", Icon { name: "flag", size: 15 } "Review" }
+                button { disabled: !loaded, onclick: move |_| super::dance::export(studio), title: "Export a separate song folder", Icon { name: "export", size: 15 } "Export" }
             }
             button { "popovertarget": "project-tools", aria_label: "More tools", "Tools" Icon { name: "chevron-down", size: 12 } }
         }
         div { id: "project-actions", class: "command-popover project-popover", "popover": "auto", onkeydown: keep_space_local,
-            button { "popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|studio.new_chart(),Icon{name:"music",size:15}"New chart from audio…"}
+            button { "popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|super::dance::new_recording(studio,false),Icon{name:"music",size:15}"New chart from audio…"}
             button { disabled: (studio.library_busy)(), "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(), Icon { name: "folder-open", size: 15 } if cfg!(feature="browser") { "Open saved project…" } else { "Open project or charting folder…" } }
             if cfg!(feature="browser") {button { disabled:(studio.library_busy)(),"popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(), Icon { name: "file-plus", size: 15 } "Open charting folder…" }}
             if !cfg!(target_arch="wasm32") {button{"popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.open_zip(),"Import project ZIP…"}}
             button { "popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.import_song(),"Import song ZIP…" }
-            button {disabled:!loaded,"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|studio.save_project(),"Save project ZIP…"}
+            button {disabled:!loaded,"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|super::dance::save(studio),"Save project ZIP…"}
             if cfg!(target_arch="wasm32") {button {"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_| {
                 #[cfg(target_arch="wasm32")]
                 studio.open_saved_projects();

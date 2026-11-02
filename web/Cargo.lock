@@ -6921,6 +6921,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
 
 [[package]]
+name = "yace-stepmania"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "yace-web"
 version = "0.1.0"
 dependencies = [
@@ -6950,6 +6961,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "whatlang",
+ "yace-stepmania",
  "zip 9.1.3",
 ]
 

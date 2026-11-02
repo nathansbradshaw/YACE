@@ -1061,6 +1061,20 @@ impl Studio {
             else {
                 return;
             };
+            let dance = (|| -> Result<bool> {
+                let files = crate::archive_codec::decode(&std::fs::read(input.path())?)?
+                    .into_iter()
+                    .collect();
+                super::dance::try_open_files(files)
+            })();
+            match dance {
+                Ok(true) => return,
+                Ok(false) => {}
+                Err(error) => {
+                    self.error.set(Some(format!("{error:#}")));
+                    return;
+                }
+            }
             let Some(output) = rfd::AsyncFileDialog::new()
                 .set_title("Save the imported editing project in a new folder")
                 .set_file_name("Imported Review Project")
@@ -1254,6 +1268,20 @@ impl Studio {
         let Some(item) = library.entries.get(index).cloned() else {
             return;
         };
+        match super::dance::try_open_path(&item.path) {
+            Ok(true) => {
+                if self.snapshot().is_some() {
+                    self.dispatch(Action::Playback { playing: false });
+                }
+                self.library_selected.set(Some(index));
+                return;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                return;
+            }
+        }
         if self
             .snapshot()
             .is_some_and(|project| project.transport.playing)
@@ -1379,6 +1407,19 @@ impl Studio {
         });
     }
     pub async fn open_project(mut self, path: PathBuf) {
+        match super::dance::try_open_path(&path) {
+            Ok(true) => {
+                if self.snapshot().is_some() {
+                    self.dispatch(Action::Playback { playing: false });
+                }
+                return;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                return;
+            }
+        }
         self.library_selected.set(None);
         // Command-line opens and generation recovery may point to a containing
         // folder rather than the saved project itself.
@@ -1532,6 +1573,8 @@ impl Studio {
         self.star_power_target.set(None);
         self.timing_open.set(false);
         self.doc.set(Some(Arc::new(doc.clone())));
+        super::dance::deactivate();
+        super::dance::attach_existing(self);
         if let Some(store) = self.store.read().as_ref() {
             self.file_stamp.set(project_stamp(store));
         }

@@ -91,3 +91,5 @@ pub mod vocal_review;
 pub mod vocal_workflow;
 pub mod vocals;
 pub mod waveform;
+pub use yace_stepmania as stepmania;
+pub mod stepmania_files;

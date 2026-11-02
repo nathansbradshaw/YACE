@@ -136,16 +136,31 @@ impl Drop for Database {
     }
 }
 pub async fn save(root: &Path, revision: u64, expected: Option<u64>) -> Result<()> {
-    save_snapshot(root, revision, expected, true).await
+    save_snapshot(root, revision, expected, "last").await
 }
 pub async fn save_job(root: &Path, revision: u64, expected: Option<u64>) -> Result<()> {
-    save_snapshot(root, revision, expected, false).await
+    save_snapshot(root, revision, expected, "last-generation").await
+}
+pub async fn save_stepmania(root: &Path, revision: u64, expected: Option<u64>) -> Result<()> {
+    save_snapshot(root, revision, expected, "last-stepmania").await
+}
+pub async fn restore_stepmania() -> Result<Option<(PathBuf, u64)>> {
+    let db = Database(open().await?);
+    let tx = db.0.transaction_with_str("files").map_err(error)?;
+    let store = tx.object_store("files").map_err(error)?;
+    let Some(root) = request(store.get(&"last-stepmania".into()).map_err(error)?)
+        .await?
+        .as_string()
+    else {
+        return Ok(None);
+    };
+    load(Path::new(&root)).await
 }
 async fn save_snapshot(
     root: &Path,
     revision: u64,
     expected: Option<u64>,
-    project: bool,
+    last_key: &str,
 ) -> Result<()> {
     let db = Database(open().await?);
     let tx =
@@ -220,10 +235,7 @@ async fn save_snapshot(
         .put_with_key(&JsValue::from_f64(revision as f64), &revision_key)
         .map_err(error)?;
     store
-        .put_with_key(
-            &root.to_string_lossy().as_ref().into(),
-            &if project { "last" } else { "last-generation" }.into(),
-        )
+        .put_with_key(&root.to_string_lossy().as_ref().into(), &last_key.into())
         .map_err(error)?;
     transaction.finish().await?;
     crate::storage::acknowledge(dirty);
