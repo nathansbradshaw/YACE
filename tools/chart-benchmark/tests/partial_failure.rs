@@ -93,6 +93,7 @@ fn vocal_stage_failure_retains_source_bound_band_artifact_and_never_scores_parti
             player: 1,
         }],
         notes: vec![VocalNote {
+            midi: None,
             start: 192,
             end: 288,
             tone: VocalTone::Pitched { midi: 60 },

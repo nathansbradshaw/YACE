@@ -274,6 +274,7 @@ fn offset_archives_vocal_checks_and_undo_restores_their_original_clock() {
             Sha256::digest(serde_json::to_vec(&document).unwrap())
         ),
         regions: vec![],
+        note_evidence: vec![],
     };
     action(
         &store,

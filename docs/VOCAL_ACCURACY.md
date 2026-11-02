@@ -160,17 +160,14 @@ and browser interaction, and game acceptance remain separate requirements.
 New model backends remain research-only and High accuracy remains experimental.
 Language-specific recognition results are separate from pitch acceptance.
 
-## Initial diagnostics (not promotion evidence)
+## Evaluation status
 
-A frozen six-song professional-reference batch (two development, four held-out
-artists) compared the prior v7 DSP generator with experimental High accuracy.
-Across its four held-out recordings, correct-pitch coverage rose from 35.05% to
-39.26%, but the incorrect-pitch frame rate rose from 3.74% to 6.07%. Voiced recall
-rose from 38.79% to 45.34%. This fails the pitch-first requirement: additional
-recovered notes also introduce additional wrong pitches. These are authored-chart
-target comparisons, not measurements against performed continuous F0. The initial
-batch predates executable snapshotting; acoustic policy was unchanged while
-research/review instrumentation was rebuilt. It remains diagnostic only.
+Local professional-reference comparisons failed the incorrect-pitch gate:
+additional recovered notes also introduced additional wrong pitches. No backend
+was promoted. Authored-chart targets are not measurements against performed
+continuous F0. Detailed corpus manifests, measurements and limitations remain
+in private reports. A full pitch-category audit, listening and game acceptance
+are still pending; code/test success does not establish musical reliability.
 
 On one development recording, raw CREPE tiny/full and RMVPE F0 probes also showed
 different recall, wrong-pitch and octave-error tradeoffs. They are not chart-note

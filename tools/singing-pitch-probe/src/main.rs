@@ -1,4 +1,4 @@
-//! Native, source-bound raw CREPE research evidence. Never generates charts.
+//! Native, source-bound CREPE/RMVPE research evidence. Never generates charts.
 use anyhow::{Context, Result, ensure};
 use clap::{Parser, ValueEnum};
 use ort::{session::Session, value::Tensor};
@@ -363,7 +363,7 @@ fn infer(pcm: &[f32], model: Model, model_path: &Path, stage: &Path) -> Result<E
         hop_samples: HOP,
         window_samples: WINDOW,
         duration_seconds: pcm.len() as f64 / RATE as f64,
-        decoder: "Original CREPE local salience-weighted mean +/-4 bins; no second sigmoid, dither, Viterbi or confidence calibration".into(),
+        decoder: if model == Model::Rmvpe { "RVC local salience-weighted mean +/-4 bins, 20-cent spacing and 1997.3794084376191-cent offset; F0 zero below salience threshold 0.03; no singer identity or confidence calibration" } else { "Original CREPE local salience-weighted mean +/-4 bins; no second sigmoid, dither, Viterbi or confidence calibration" }.into(),
         padding: if model==Model::Rmvpe { "Centered reflect STFT; 30s chunks with 1s context each side; mel frames zero-padded to multiple of 32; no time offset. Chunked recurrent inference is experimental." } else { "Centered 1024 samples, zero outside source, first frame at 0, exact 10ms hop, EOF frame retained when sample count is divisible by hop" }.into(),
         normalization: if model==Model::Rmvpe { "16kHz; periodic Hann1024/hop160; magnitude HTK128 mel30..8000Hz; Slaney area normalization; ln(max(x,1e-5)); unvoiced when max salience<=0.03" } else { "Z-score embedded in pinned ONNX; raw amplitude input" }.into(),
         confidence_meaning: "Maximum model salience, not probability of correct lead singing; nonvoice periodic signals can receive high confidence".into(),
