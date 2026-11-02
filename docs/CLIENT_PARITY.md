@@ -99,6 +99,13 @@ actual anonymous read/rejection, rather than an authenticated live write.
 
 ## Platform boundaries
 
+Chart-only exports archive vocal generation diagnostics with the omitted
+recording's evidence. The authored vocal notes remain editable on reimport;
+checks are not rebound to an absent recording. Actual browser export/reimport
+of a dense full-song chart retained a Guitar Tap and a 240-tick Bass sustain.
+Native regression coverage also verifies that an export including audio still
+attaches its matching vocal checks.
+
 Browser reload/close protection watches unsaved band and Dance/4-key projects,
 including hidden linked parts, pending save metadata and in-flight writes. A
 failed save keeps protection active even after automatic retries stop. The
