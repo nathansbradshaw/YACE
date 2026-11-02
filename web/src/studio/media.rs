@@ -18,6 +18,7 @@ pub struct Channel {
     pub gain: GainNode,
     _node: MediaElementAudioSourceNode,
     _url: ObjectUrl,
+    clock: RefCell<crate::media_clock::Follower>,
 }
 struct ObjectUrl(String);
 impl Drop for ObjectUrl {
@@ -43,6 +44,7 @@ pub struct Media {
     error: Rc<RefCell<Option<String>>>,
     kit: RefCell<Option<Channel>>,
     master: GainNode,
+    rate: Cell<f64>,
 }
 /// Content identity survives portable asset relocation. Track selection and
 /// mix settings reuse the same graph; undoing an attachment must rebuild it.
@@ -183,6 +185,7 @@ fn channel(
         gain,
         _node: node,
         _url: url,
+        clock: RefCell::new(Default::default()),
     })
 }
 impl Media {
@@ -291,6 +294,7 @@ impl Media {
             error: Rc::new(RefCell::new(None)),
             kit: RefCell::new(kit),
             master,
+            rate: Cell::new(doc.transport.playback_rate),
         };
         pending_context.0.take();
         media.set_rate(doc.transport.playback_rate);
@@ -387,6 +391,8 @@ impl Media {
             .chain(self.kit.borrow().iter())
         {
             let _ = channel.element.pause();
+            channel.clock.borrow_mut().reset();
+            channel.element.set_playback_rate(self.rate.get());
         }
     }
     pub fn seek(&self, position: f64) {
@@ -394,14 +400,18 @@ impl Media {
             .chain(self.stems.values())
             .chain(self.kit.borrow().iter())
         {
+            channel.clock.borrow_mut().reset();
+            channel.element.set_playback_rate(self.rate.get());
             channel.element.set_current_time(position.max(0.));
         }
     }
     pub fn set_rate(&self, rate: f64) {
+        self.rate.set(rate);
         for channel in std::iter::once(&self.original)
             .chain(self.stems.values())
             .chain(self.kit.borrow().iter())
         {
+            channel.clock.borrow_mut().reset();
             channel.element.set_playback_rate(rate);
         }
     }
@@ -445,11 +455,27 @@ impl Media {
     }
     pub fn synchronize(&self) {
         let position = self.position();
+        let leader = &self.original.element;
+        let running = !leader.paused() && !leader.seeking() && leader.ready_state() >= 3;
+        let now = self.context.current_time();
+        let rate = self.rate.get();
         for channel in self.stems.values().chain(self.kit.borrow().iter()) {
-            if channel.element.ready_state() >= 1
-                && (channel.element.current_time() - position).abs() > 0.03
-            {
-                channel.element.set_current_time(position);
+            let element = &channel.element;
+            let ready =
+                running && !element.paused() && !element.seeking() && element.ready_state() >= 3;
+            match channel.clock.borrow_mut().update(
+                now,
+                position,
+                element.current_time(),
+                rate,
+                ready,
+            ) {
+                crate::media_clock::Correction::None => {}
+                crate::media_clock::Correction::Rate(value) => element.set_playback_rate(value),
+                crate::media_clock::Correction::Seek(target) => {
+                    element.set_playback_rate(rate);
+                    element.set_current_time(target);
+                }
             }
         }
     }

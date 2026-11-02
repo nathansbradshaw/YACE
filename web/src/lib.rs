@@ -74,6 +74,7 @@ pub mod larsnet;
 pub mod lyric_language;
 #[path = "../../src/mapping.rs"]
 pub mod mapping;
+mod media_clock;
 #[path = "../../src/midi.rs"]
 pub mod midi;
 pub mod model_assets;
