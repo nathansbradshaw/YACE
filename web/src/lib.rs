@@ -68,8 +68,9 @@ pub mod keyboard_voicing;
 pub mod keys;
 #[path = "../../src/kit_audition.rs"]
 pub mod kit_audition;
-#[path = "../../src/larsnet_receipt.rs"]
 pub mod larsnet;
+#[path = "../../src/larsnet_receipt.rs"]
+pub mod larsnet_receipt;
 #[path = "../../src/lyric_language.rs"]
 pub mod lyric_language;
 #[path = "../../src/mapping.rs"]

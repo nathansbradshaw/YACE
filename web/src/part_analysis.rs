@@ -10,6 +10,107 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+pub async fn prepare_project_drum_parts(
+    store: &crate::editor::Store,
+    project: &crate::editor::Project,
+    model_dir: &Path,
+    progress: &mut impl FnMut(String),
+) -> Result<DrumPartSet> {
+    let audio = store.audio_path(project)?;
+    ensure!(
+        crate::models::hash_file(&audio)? == project.audio_sha256,
+        "Project recording changed"
+    );
+    let manifest = project
+        .content
+        .stems
+        .as_ref()
+        .context("Attach aligned drum audio first")?;
+    manifest.validate_binding(&project.audio_sha256, crate::models::duration(&audio)?)?;
+    let drums = manifest
+        .stems
+        .iter()
+        .find(|s| s.id == crate::stem_review::StemId::Drums)
+        .context("No drum stem is attached")?;
+    let hash = crate::models::hash_file(&drums.path)?;
+    ensure!(hash == drums.sha256, "Attached drum audio changed");
+    ensure!(
+        crate::models::format(&drums.path)? == (44100, 2),
+        "Drum audio must be 44.1 kHz stereo"
+    );
+    let samples = crate::models::decode(&drums.path, 44100, 2)?;
+    ensure!(
+        samples.len() as u64 == manifest.frames * 2,
+        "Drum source and chart clock differ"
+    );
+    let analysis = store.root.join("analysis");
+    crate::storage::create_dir_all(&analysis)?;
+    let unique = crate::files::unique_root();
+    let stage = analysis.join(format!(
+        "kit-{}",
+        unique
+            .file_name()
+            .context("Missing kit cache identity")?
+            .to_string_lossy()
+    ));
+    crate::storage::create_dir(&stage)?;
+    let directory = stage.join("parts");
+    crate::storage::create_dir(&directory)?;
+    let mut receipt =
+        crate::larsnet::separate_to_directory(&samples, model_dir, &directory, progress).await?;
+    ensure!(
+        receipt.frames == manifest.frames,
+        "Separated kit changed recording length"
+    );
+    receipt.source_audio_sha256 = Some(hash.clone());
+    let mut parts = Vec::new();
+    for output in &receipt.outputs {
+        let label = match output.part.as_str() {
+            "kick" => "Kick",
+            "snare" => "Snare",
+            "toms" => "Toms",
+            "hihat" => "Hi-hat",
+            "cymbals" => "Cymbals",
+            _ => anyhow::bail!("Unexpected separated kit output"),
+        };
+        parts.push(DrumPartFile {
+            id: output.part.clone(),
+            label: label.into(),
+            filename: output.filename.clone(),
+            sha256: output
+                .wav_sha256
+                .clone()
+                .context("Separated audio hash missing")?,
+            frames: output.frames,
+        });
+    }
+    ensure!(
+        crate::models::hash_file(&drums.path)? == hash,
+        "Drum source changed during separation"
+    );
+    crate::storage::write(
+        directory.join(crate::larsnet::RECEIPT_FILENAME),
+        serde_json::to_vec_pretty(&receipt)?,
+    )?;
+    let set = DrumPartSet {
+        source_key: kit_source_key(project)?,
+        original_audio_sha256: project.audio_sha256.clone(),
+        drum_audio_sha256: hash,
+        directory,
+        parts,
+        receipt,
+    };
+    crate::storage::write(
+        stage.join("kit-parts.json"),
+        serde_json::to_vec_pretty(&set)?,
+    )?;
+    // Use the same reader as restored desktop/browser caches before publishing.
+    ensure!(
+        common::load_project_drum_parts(store, project)?.is_some(),
+        "Separated kit failed cache validation"
+    );
+    Ok(set)
+}
 #[derive(Clone)]
 struct Prepared {
     root: PathBuf,

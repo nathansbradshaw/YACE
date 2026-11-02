@@ -126,6 +126,12 @@ pub enum Task {
         project: Box<crate::editor::Project>,
         audio: PathBuf,
     },
+    SplitKit {
+        root: PathBuf,
+        project: Box<crate::editor::Project>,
+        audio: PathBuf,
+        model_dir: PathBuf,
+    },
     SelectKit {
         root: PathBuf,
         project: Box<crate::editor::Project>,
@@ -201,6 +207,17 @@ impl Task {
             Self::ValidateStems { audio, manifest } => std::iter::once(audio.clone())
                 .chain(manifest.stems.iter().map(|s| s.path.clone()))
                 .collect(),
+            Self::SplitKit { audio, project, .. } => std::iter::once(audio.clone())
+                .chain(
+                    project
+                        .content
+                        .stems
+                        .iter()
+                        .flat_map(|m| &m.stems)
+                        .filter(|asset| asset.id == crate::stem_review::StemId::Drums)
+                        .map(|asset| asset.path.clone()),
+                )
+                .collect(),
             Self::Analyse { audio, project, .. } | Self::Export { audio, project, .. } => {
                 std::iter::once(audio.clone())
                     .chain(
@@ -250,6 +267,9 @@ impl Task {
             Self::PrepareRecording { source, root } => Ok(serde_json::to_value(
                 crate::project_recording::prepare_recording(source, root)?,
             )?),
+            Self::SplitKit { .. } => {
+                anyhow::bail!("Split kit must run on the asynchronous inference worker")
+            }
             Self::PrepareGameChannels { root } => Ok(serde_json::to_value(
                 crate::stem_review::conventional::prepare(root)?,
             )?),
@@ -594,7 +614,24 @@ async fn process(input: JsValue) -> Result<JsValue> {
             crate::models::remember_stems(manifest)?;
         }
     }
-    let result = if let Task::GenerationStage { root, stage } = &task {
+    let result = if let Task::SplitKit {
+        root,
+        project,
+        model_dir,
+        ..
+    } = &task
+    {
+        let store = crate::editor::Store::new(root);
+        serde_json::to_value(
+            crate::part_analysis::prepare_project_drum_parts(
+                &store,
+                project,
+                model_dir,
+                &mut progress,
+            )
+            .await?,
+        )?
+    } else if let Task::GenerationStage { root, stage } = &task {
         serde_json::to_value(crate::generation::run_stage(root, *stage, &mut progress).await?)?
     } else if let Task::Separate { audio, output } = &task {
         serde_json::to_value(crate::separation::run(audio, output, &mut progress).await?)?
@@ -690,6 +727,7 @@ async fn process(input: JsValue) -> Result<JsValue> {
         }
     }
     if let Task::GenerationStage { root: output, .. }
+    | Task::SplitKit { root: output, .. }
     | Task::PrepareGameChannels { root: output }
     | Task::PrepareRecording { root: output, .. }
     | Task::Vocals { output, .. }
