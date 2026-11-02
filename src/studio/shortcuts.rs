@@ -28,40 +28,43 @@ pub fn handle(mut studio: Studio, event: KeyboardEvent) {
     if modifiers.meta() || modifiers.ctrl() {
         if let Some(action) = undo_action(&key, modifiers.shift()) {
             event.prevent_default();
-            studio.dispatch(action);
+            super::session::undo(studio, matches!(action, Action::Redo));
         } else if let Key::Character(value) = &key {
             match value.to_ascii_lowercase().as_str() {
                 "a" => {
                     event.prevent_default();
-                    studio.select_all();
+                    super::session::select_all(studio);
                 }
                 "c" => {
                     event.prevent_default();
-                    studio.copy_selection(false);
+                    super::session::copy(studio, false);
                 }
                 "x" => {
                     event.prevent_default();
-                    studio.copy_selection(true);
+                    super::session::copy(studio, true);
                 }
                 "v" => {
                     event.prevent_default();
-                    studio.paste_selection();
+                    super::session::paste(studio);
                 }
                 _ => {}
             }
         }
         return;
     }
+    if super::dance::active() && super::dance::handle_navigation(&event) {
+        return;
+    }
     match key {
         Key::Character(value) if value == " " => {
             event.prevent_default();
-            studio.toggle_playback();
+            super::session::toggle_playback(studio);
         }
         Key::Delete | Key::Backspace => {
             event.prevent_default();
-            studio.delete_selection();
+            super::session::delete(studio);
         }
-        Key::Escape => studio.clear_selection(),
+        Key::Escape => super::session::clear(studio),
         Key::Character(value) => {
             let tool = match value.as_str() {
                 "1" => EditTool::Select,

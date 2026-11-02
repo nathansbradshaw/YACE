@@ -321,6 +321,46 @@ fn both_profiles_are_deterministic_and_cancel_without_edits() {
         Document::parse(p.content.document.export(Format::Ssc).unwrap(), Format::Ssc).unwrap();
     }
 }
+
+#[test]
+fn peer_profiles_generate_without_reclassifying_imported_charts() {
+    let mut p = Project::import(sm(), Format::Sm, Profile::Pad).unwrap();
+    let imported = p.content.document.charts.clone();
+    edit(
+        &mut p,
+        Action::SetProfile {
+            profile: Profile::Keyboard,
+        },
+    )
+    .unwrap();
+    for profile in [Profile::Keyboard, Profile::Pad] {
+        p.generate(
+            p.revision,
+            "test".into(),
+            &GenerationRequest {
+                profile,
+                difficulties: vec![Difficulty::Beginner],
+                ..Default::default()
+            },
+            &clicks(),
+            11025,
+            || false,
+        )
+        .unwrap();
+        assert_eq!(
+            p.content.document.charts.last().unwrap().profile,
+            Some(profile)
+        );
+    }
+    for (actual, mut original) in p.content.document.charts.iter().zip(imported) {
+        original.profile = Some(Profile::Pad);
+        assert_eq!(
+            *actual, original,
+            "The new part's default must not change imported charts"
+        );
+    }
+    assert_eq!(p.content.profile, Profile::Keyboard);
+}
 #[test]
 fn foot_overrides_detect_three_foot_chords() {
     let raw = "#BPMS:0=120;#NOTES:dance-single::Hard:9::1110\n0000\n0000\n0000;";
@@ -519,6 +559,58 @@ fn passage_editing_preserves_tails_ids_and_fails_atomically_on_collisions() {
     assert_eq!(before, p.encode().unwrap());
     edit(&mut p, Action::Undo).unwrap();
     assert_eq!(p.content.document.charts[0].notes.len(), 2);
+}
+
+#[test]
+fn moving_a_passage_between_lanes_is_atomic_and_keeps_sustains() {
+    use yace_stepmania::project::SelectionEdit;
+    let mut p = Project::import(sm(), Format::Sm, Profile::Pad).unwrap();
+    let original = p.content.document.charts[0].notes[0].clone();
+    edit(
+        &mut p,
+        Action::EditNotes {
+            chart_id: "chart-1".into(),
+            note_ids: vec![original.id.clone()],
+            edit: SelectionEdit::MoveLanes {
+                rows: 192,
+                lanes: 1,
+            },
+        },
+    )
+    .unwrap();
+    let shifted = p.content.document.charts[0]
+        .notes
+        .iter()
+        .find(|n| n.id == original.id)
+        .unwrap();
+    assert_eq!(
+        (shifted.row, shifted.lane, shifted.end_row),
+        (
+            original.row + 192,
+            original.lane + 1,
+            original.end_row.map(|end| end + 192)
+        )
+    );
+    let before = p.encode().unwrap();
+    assert!(
+        edit(
+            &mut p,
+            Action::EditNotes {
+                chart_id: "chart-1".into(),
+                note_ids: vec![original.id],
+                edit: SelectionEdit::MoveLanes {
+                    rows: 192,
+                    lanes: 4
+                }
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(
+        p.encode().unwrap(),
+        before,
+        "Rejected moves preserve both document and undo history"
+    );
 }
 #[test]
 fn constant_scroll_uses_audio_clock_during_stops() {

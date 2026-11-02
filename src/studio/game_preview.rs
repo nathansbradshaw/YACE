@@ -154,6 +154,13 @@ fn preview_policy(studio: Studio, timing: &TempoMap, pro_drums: bool) -> (Policy
 
 #[component]
 pub fn Preview(studio: Studio) -> Element {
+    rsx! {style { "{PREVIEW_STYLE}" }
+        if super::dance::active(){super::dance::Audition{studio}}
+        else{BandPreview{studio}}
+    }
+}
+#[component]
+fn BandPreview(studio: Studio) -> Element {
     let mut pro_drums = use_signal(|| true);
     let mut lookahead = use_signal(|| DEFAULT_LOOKAHEAD);
     let animation_history = use_hook(|| Rc::new(RefCell::new(Animation::default())));
@@ -229,7 +236,6 @@ pub fn Preview(studio: Studio) -> Element {
     let telemetry_playing =
         doc.as_ref().is_some_and(|doc| doc.transport.playing) && (studio.audio_ready)();
     rsx! {
-        style { "{PREVIEW_STYLE}" }
         section { class: "audition-view", "data-preview-position":"{position}", "data-preview-playing":"{telemetry_playing}", "data-preview-revision":"{telemetry_revision}", "data-preview-audio":"{telemetry_audio}",
             header { class: "desk-heading audition-heading",
                 h2 { "Audition" }

@@ -50,6 +50,8 @@ mod sections;
 mod selection;
 #[path = "../../../src/studio/selection_desk.rs"]
 mod selection_desk;
+#[path = "../../../src/studio/session.rs"]
+mod session;
 #[path = "../../../src/studio/sheet.rs"]
 mod sheet;
 #[path = "../../../src/studio/shortcuts.rs"]
@@ -90,7 +92,8 @@ const CSS: &str = concat!(
     include_str!("../../../assets/dialogs.css"),
     include_str!("../../../assets/details.css"),
     include_str!("../../../assets/workbench.css"),
-    include_str!("../../../assets/part-analysis.css")
+    include_str!("../../../assets/part-analysis.css"),
+    include_str!("../../../assets/dance.css")
 );
 #[component]
 pub fn App() -> Element {
@@ -175,9 +178,9 @@ pub fn App() -> Element {
             studio.tick();
         }
     });
-    rsx! {style{"{CSS}"}div{class:"studio-app",tabindex:"-1",onkeydown:move|event|{if dance::active(){dance::handle(event);}else{shortcuts::handle(studio,event);}},
+    rsx! {style{"{CSS}"}div{class:"studio-app",tabindex:"-1",onkeydown:move|event|{shortcuts::handle(studio,event);},
     project_bar::ProjectBar{studio}
-    if dance::active(){dance::Workbench{key:"{dance::view_epoch()}"}}else if studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
+    if dance::active()||studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
     div{class:"studio-status",span{"{studio.status}"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{role:"status",title:"Browser saves stay in this browser profile. Download a project backup to keep an independent copy.",if let Some(status)=dance::save_status(){"{status}"}else if let Some(doc)=studio.snapshot(){if (studio.dirty)()||(studio.persistence_busy)(){"Project r{doc.revision} · saving in this browser…"}else if (studio.saved_revision)()!=Some(doc.revision){"Project r{doc.revision} not saved · download backup"}else{"Project saved in this browser · r{doc.revision}"}}else{"Projects save automatically in this browser"}} project_bar::ExportSummary{studio}}
     if let Some(error)=(studio.error)(){div{class:"studio-error",role:"alert",span{"{error}"}button{onclick:move |_|{let mut studio=studio;studio.error.set(None);},"Dismiss"}}}
     if (studio.review_open)(){review::ReviewPanel{studio}}

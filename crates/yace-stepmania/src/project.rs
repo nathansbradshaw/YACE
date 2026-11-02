@@ -120,6 +120,7 @@ pub enum Action {
 pub enum SelectionEdit {
     Delete,
     Move { rows: i64 },
+    MoveLanes { rows: i64, lanes: i8 },
     Mirror,
     Quantize { rows: i64 },
 }
@@ -312,12 +313,21 @@ impl Project {
                 } else {
                     for n in chart.notes.iter_mut().filter(|n| ids.contains(&n.id)) {
                         match edit {
-                            SelectionEdit::Move { rows } => {
+                            SelectionEdit::Move { rows }
+                            | SelectionEdit::MoveLanes { rows, .. } => {
                                 n.row = n.row.checked_add(rows).context("Row overflow")?;
                                 n.end_row = n
                                     .end_row
                                     .map(|end| end.checked_add(rows).context("Tail overflow"))
                                     .transpose()?;
+                                if let SelectionEdit::MoveLanes { lanes, .. } = edit {
+                                    let lane = i16::from(n.lane) + i16::from(lanes);
+                                    ensure!(
+                                        (0..4).contains(&lane),
+                                        "Selection would leave the four lanes"
+                                    );
+                                    n.lane = lane as u8;
+                                }
                             }
                             SelectionEdit::Mirror => n.lane = 3 - n.lane,
                             SelectionEdit::Quantize { rows } => {
@@ -500,7 +510,13 @@ impl Project {
                     candidate.content.foot_overrides.remove(&note_id);
                 }
             }
-            Action::SetProfile { profile } => candidate.content.profile = profile,
+            Action::SetProfile { profile } => {
+                let previous = candidate.content.profile;
+                for chart in &mut candidate.content.document.charts {
+                    chart.profile.get_or_insert(previous);
+                }
+                candidate.content.profile = profile;
+            }
             Action::Review { chart_id, comment } => {
                 let content_sha256 = candidate.chart_hash(&chart_id)?;
                 candidate.content.reviews.insert(
@@ -573,10 +589,6 @@ impl Project {
         ensure!(
             self.revision == expected_revision,
             "Stale generation revision"
-        );
-        ensure!(
-            self.content.profile == request.profile,
-            "Choose the matching project profile"
         );
         let mut charts = generation::generate(
             samples,
