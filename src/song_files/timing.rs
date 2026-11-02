@@ -43,6 +43,12 @@ pub fn apply_ini(chart: Chart, ini: &str) -> Result<Chart> {
     let Some(offset) = legacy_delay(ini)? else {
         return Ok(chart);
     };
+    with_offset(chart, offset)
+}
+
+/// Replace the chart origin without changing any event tick or other section.
+pub fn with_offset(chart: Chart, offset: f64) -> Result<Chart> {
+    ensure!(offset.is_finite(), "Offset must be finite");
     if offset == chart.timing.offset {
         return Ok(chart);
     }
