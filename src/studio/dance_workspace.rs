@@ -35,6 +35,22 @@ fn timing(s: DanceStudio) -> Timing {
         })
         .unwrap_or_default()
 }
+pub(super) fn overview_window(studio:Studio)->(f64,f64) {
+    let s=consume_context::<DanceStudio>();let map=timing(s);
+    let start=(s.view_row)() as f64/48.;let end=start+(studio.span)();
+    let duration=super::super::session::transport(studio).map_or(0.,|t|t.duration);
+    (map.seconds(start,sm::timing::Boundary::Note).clamp(0.,duration),map.seconds(end,sm::timing::Boundary::Note).clamp(0.,duration))
+}
+pub(super) fn overview_reveal(studio:Studio,seconds:f64) {
+    let mut s=consume_context::<DanceStudio>();
+    let start=(beat(&timing(s),seconds)-(studio.span)()*0.25).max(0.);
+    s.view_row.set((start*48.).min(sm::MAX_ROW as f64) as i64);
+}
+pub(super) fn overview_pan(studio:Studio,amount:f64) {
+    let mut s=consume_context::<DanceStudio>();
+    let next=(s.view_row)() as f64+amount*(studio.span)()*48./600.;
+    s.view_row.set(next.clamp(0.,sm::MAX_ROW as f64) as i64);
+}
 #[component]
 pub fn Audition(studio: Studio) -> Element {
     let s = use_context::<DanceStudio>();
@@ -126,22 +142,6 @@ pub fn Roll(mut studio: Studio) -> Element {
     let span = (studio.span)();
     let snap = (s.snap_rows)();
     let end = (start as f64 + span * 48.).min(sm::MAX_ROW as f64) as i64;
-    let max_row = s
-        .project
-        .read()
-        .as_ref()
-        .map_or(192, |p| {
-            p.content
-                .document
-                .charts
-                .iter()
-                .flat_map(|c| c.notes.iter())
-                .map(|n| n.end_row.unwrap_or(n.row))
-                .max()
-                .unwrap_or(0)
-                + 192
-        })
-        .max(end);
     let cursor = (s.cursor)();
     let play_row = beat(&map, super::super::session::position(studio)) * 48.;
     let readonly = chart.read_only_reason.is_some();
@@ -150,7 +150,7 @@ pub fn Roll(mut studio: Studio) -> Element {
     let drag_notes = notes.clone();
     let x = move |r: f64| (r - start as f64) / (span * 48.) * width();
     rsx! {
-        div{class:"chart-desk-scroll",
+        div{class:"chart-desk-scroll",onwheel:move |event|super::super::song_overview::pan(studio,event),
             div{class:"chart-desk-ruler lane-surface",
                 span{class:"dance-ruler-label","Beat"}
                 svg{class:"midi-ruler-canvas",view_box:"0 0 {width} 32",preserve_aspect_ratio:"none",
@@ -205,7 +205,6 @@ pub fn Roll(mut studio: Studio) -> Element {
                 }
             }
         }
-        label{class:"chart-desk-navigation",aria_label:"Timeline navigation",span{"Beat {start as f64/48.:.2}"}input{r#type:"range",min:"0",max:"{max_row}",step:"{snap}",value:"{start}",aria_label:"Timeline position",onkeydown:move|e|e.stop_propagation(),oninput:move|e|if let Ok(row)=e.value().parse(){s.view_row.set(row);}}span{"Beat {end as f64/48.:.2}"}}
     }
 }
 

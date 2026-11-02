@@ -56,6 +56,8 @@ mod session;
 mod sheet;
 #[path = "../../../src/studio/shortcuts.rs"]
 mod shortcuts;
+#[path = "../../../src/studio/song_overview.rs"]
+mod song_overview;
 #[path = "../../../src/studio/source_choice.rs"]
 mod source_choice;
 #[path = "../../../src/studio/star_power.rs"]

@@ -38,6 +38,7 @@ pub struct DanceStudio {
     clock: Signal<f64>,
     motion_epoch: Signal<u64>,
     playing: Signal<bool>,
+    playback_intent: Signal<u64>,
     length: Signal<f64>,
     rate: Signal<f64>,
     loop_range: Signal<Option<crate::editor::TimeRange>>,
@@ -72,6 +73,7 @@ pub fn provide() {
         clock: Signal::new(0.),
         motion_epoch: Signal::new(0),
         playing: Signal::new(false),
+        playback_intent: Signal::new(0),
         length: Signal::new(0.),
         rate: Signal::new(1.),
         loop_range: Signal::new(None),
@@ -1001,7 +1003,7 @@ mod tests {
                 p.assets_sha256.insert("song.ogg".into(), audio_hash);
             }
             s.open.set(false);
-            let band_before = serde_json::to_value(studio.snapshot().unwrap()).unwrap();
+            let band_before = serde_json::to_value(studio.snapshot().unwrap().as_ref()).unwrap();
             let dance_before = s.project.read().as_ref().unwrap().encode().unwrap();
             for id in [pad, keyboard] {
                 select_track(s, id);
@@ -1017,7 +1019,7 @@ mod tests {
                 deactivate();
             }
             assert_eq!(
-                serde_json::to_value(studio.snapshot().unwrap()).unwrap(),
+                serde_json::to_value(studio.snapshot().unwrap().as_ref()).unwrap(),
                 band_before
             );
             assert_eq!(
@@ -1068,6 +1070,22 @@ pub fn active() -> bool {
 }
 pub fn view_epoch() -> u64 {
     try_consume_context::<DanceStudio>().map_or(0, |s| (s.epoch)())
+}
+pub(super) fn overview_source() -> Option<(PathBuf,u64)> {
+    let s=try_consume_context::<DanceStudio>()?;
+    Some(((s.root)()?,(s.epoch)()))
+}
+pub(super) fn overview_playback_stamp() -> Option<u64> {
+    try_consume_context::<DanceStudio>().map(|s|(s.playback_intent)())
+}
+pub(super) fn overview_window(studio: super::state::Studio) -> (f64,f64) {
+    workspace::overview_window(studio)
+}
+pub(super) fn overview_reveal(studio: super::state::Studio, seconds:f64) {
+    workspace::overview_reveal(studio,seconds)
+}
+pub(super) fn overview_pan(studio: super::state::Studio, amount:f64) {
+    workspace::overview_pan(studio,amount)
 }
 pub fn save_status() -> Option<&'static str> {
     let s = try_consume_context::<DanceStudio>()?;
