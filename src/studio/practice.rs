@@ -123,6 +123,134 @@ fn enable_loop(studio: Studio, mut draft: Signal<LoopDraft>, enabled: bool) {
     commit(studio, draft);
 }
 
+#[derive(Clone, Default)]
+struct RateDraft {
+    project: Option<PathBuf>,
+    saved: f64,
+    text: String,
+    dirty: bool,
+    error: Option<String>,
+}
+fn percentage(text: &str) -> Result<f64, &'static str> {
+    let percent = text
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| "Enter a speed from 25 to 200%.")?;
+    if !percent.is_finite() || !(25. ..=200.).contains(&percent) {
+        return Err("Enter a speed from 25 to 200%.");
+    }
+    Ok(percent / 100.)
+}
+fn percent_text(rate: f64) -> String {
+    let value = format!("{:.6}", rate * 100.);
+    value.trim_end_matches('0').trim_end_matches('.').to_owned()
+}
+
+#[cfg(test)]
+mod rate_tests {
+    use super::*;
+    #[test]
+    fn exact_percentages_retain_custom_saved_rates_and_reject_invalid_edits() {
+        for rate in [0.25, 0.5, 0.83, 1., 1.5, 2., 0.835, 1.234567] {
+            assert!((percentage(&percent_text(rate)).unwrap() - rate).abs() < 1e-8);
+        }
+        for value in ["", "-1", "24.99", "200.01", "NaN", "inf", "speed"] {
+            assert!(percentage(value).is_err(), "Accepted {value}");
+        }
+        assert_eq!(percentage(" 83 ").unwrap(), 0.83);
+    }
+}
+fn stage_rate(studio: Studio, mut draft: Signal<RateDraft>, text: String) {
+    let parsed = percentage(&text);
+    draft.with_mut(|draft| {
+        draft.text = text;
+        draft.dirty = true;
+        draft.error = parsed.as_ref().err().map(|error| (*error).to_owned());
+    });
+    if let Ok(rate) = parsed {
+        session::preview_rate(studio, Some(rate));
+    }
+}
+fn commit_rate(studio: Studio, mut draft: Signal<RateDraft>) {
+    let current = draft.peek().clone();
+    if !current.dirty {
+        return;
+    }
+    if current.project != session::project_identity(studio) {
+        return;
+    }
+    match percentage(&current.text) {
+        Ok(rate) => {
+            session::rate(studio, rate);
+            if session::transport(studio).is_some_and(|doc| (doc.playback_rate - rate).abs() < 1e-9)
+            {
+                draft.with_mut(|draft| {
+                    draft.saved = rate;
+                    draft.text = percent_text(rate);
+                    draft.dirty = false;
+                    draft.error = None;
+                });
+            } else {
+                draft.write().error =
+                    Some("Speed was not saved. Check the project error and retry.".into());
+            }
+        }
+        Err(error) => {
+            session::preview_rate(studio, Some(current.saved));
+            session::preview_rate(studio, None);
+            draft.write().error = Some(error.into());
+        }
+    }
+}
+#[component]
+fn PracticeSpeed(studio: Studio, loaded: bool, rate: f64) -> Element {
+    let mut draft = use_signal(RateDraft::default);
+    use_drop(move || studio.preview_playback_rate(None));
+    use_effect(move || {
+        let project = session::project_identity(studio);
+        let rate = session::transport(studio).map_or(1., |doc| doc.playback_rate);
+        if draft.peek().project != project || (draft.peek().saved - rate).abs() > 1e-9 {
+            // A project switch or another client's saved command supersedes a drag.
+            studio.preview_playback_rate(None);
+            draft.set(RateDraft {
+                project,
+                saved: rate,
+                text: percent_text(rate),
+                ..Default::default()
+            });
+        }
+    });
+    let view = draft.read().clone();
+    let slider = percentage(&view.text).unwrap_or(rate) * 100.;
+    rsx! {
+        div { class:"practice-speed", role:"group", aria_label:"Pitch-preserving practice speed",
+            label { "Speed"
+                input { r#type:"range", min:"25", max:"200", step:"1", value:"{slider}", disabled:!loaded,
+                    aria_label:"Practice speed slider", title:"Pitch-preserving speed: 25–200%",
+                    oninput:move|event|stage_rate(studio,draft,event.value()),
+                    onchange:move|_|commit_rate(studio,draft),
+                    onblur:move|_|commit_rate(studio,draft),
+                    onpointerup:move|_|commit_rate(studio,draft),
+                    onpointercancel:move|_|commit_rate(studio,draft),
+                }
+            }
+            label { class:"practice-speed-exact",
+                input { r#type:"number", min:"25", max:"200", step:"any", value:view.text.clone(), disabled:!loaded,
+                    aria_label:"Practice speed percent", aria_invalid:view.error.is_some().to_string(), title:"Exact pitch-preserving speed: 25–200%",
+                    oninput:move|event|stage_rate(studio,draft,event.value()),
+                    onchange:move|_|commit_rate(studio,draft),
+                    onblur:move|_|commit_rate(studio,draft),
+                    onkeydown:move|event:KeyboardEvent| { if event.key()==Key::Enter { event.prevent_default(); commit_rate(studio,draft); } else if event.key()==Key::Escape { event.prevent_default(); let saved=draft.peek().saved; session::preview_rate(studio,Some(saved)); session::preview_rate(studio,None); draft.with_mut(|draft| {draft.text=percent_text(saved);draft.dirty=false;draft.error=None;}); } },
+                }
+                "%"
+            }
+            button { class:"instrument-toggle", disabled:!loaded, aria_label:"Reset practice speed to 100 percent", title:"Reset speed to 100%",
+                onclick:move|_| { stage_rate(studio,draft,"100".into()); commit_rate(studio,draft); }, "100%" }
+            if let Some(error)=view.error.clone() { span { class:"field-hint practice-speed-error", role:"alert", "{error}" } }
+        }
+    }
+}
+
 #[component]
 pub fn PracticeControls(studio: Studio, children: Element) -> Element {
     let mut draft = use_signal(LoopDraft::default);
@@ -186,10 +314,7 @@ pub fn PracticeControls(studio: Studio, children: Element) -> Element {
             button{class:"instrument-toggle transport-control",aria_pressed:playing.to_string(),disabled:!loaded||!source_ready,aria_label:if playing{"Pause practice recording"}else{"Play practice recording"},title:"Play / pause recording (Space)",onclick:move|_|session::toggle_playback(studio),Icon { name: playback_icon, size: 16 }}
             button{class:"instrument-toggle transport-control",disabled:!loaded,aria_label:"Stop and return to beginning",title:"Stop and return to beginning",onclick:move|_|{session::playback(studio,false);session::seek(studio,0.0);},Icon{name:"square",size:16}}
             span{class:"timeline-time",style:"white-space:nowrap;",title:"{position:.3} / {duration:.3} seconds","{clock(position)} / {clock(duration)}"}
-            label{class:"preview-snap-selector","Speed" select{disabled:!loaded,aria_label:"Pitch-preserving practice speed",value:rate.to_string(),onchange:move|event|{if let Ok(rate)=event.value().parse(){session::rate(studio,rate);}},
-                for (value,label) in [(0.25,"25%"),(0.5,"50%"),(0.75,"75%"),(1.,"100%"),(1.25,"125%"),(1.5,"150%"),(2.,"200%")]{option{value:"{value}",selected:rate==value,"{label}"}}
-                if ![0.25,0.5,0.75,1.,1.25,1.5,2.].contains(&rate){option{value:rate.to_string(),selected:true,"{rate:.2}× (current)"}}
-            }}
+            PracticeSpeed { studio, loaded, rate }
             label{class:"practice-volume",title:"Recording volume",Icon{name:"volume",size:15}
                 input{r#type:"range",min:"0",max:"1",step:"0.01",value:"{(studio.volume)()}",disabled:!loaded,aria_label:"Recording volume",oninput:move|event|{if let Ok(volume)=event.value().parse(){session::volume(studio,volume);}}}
             }

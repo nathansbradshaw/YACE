@@ -90,6 +90,7 @@ pub struct Studio {
     pub chart_hash: Signal<String>,
     pub stem_status: Signal<String>,
     media: Signal<Option<Rc<Media>>>,
+    practice_rate_preview: Signal<Option<(PathBuf, f64)>>,
     epoch: Signal<u64>,
     pub dirty: Signal<bool>,
     pub saved_revision: Signal<Option<u64>>,
@@ -159,6 +160,7 @@ pub fn use_studio() -> Studio {
         chart_hash: use_signal(String::new),
         stem_status: use_signal(String::new),
         media: use_signal(|| None),
+        practice_rate_preview: use_signal(|| None),
         epoch: use_signal(|| 0),
         dirty: use_signal(|| false),
         saved_revision: use_signal(|| None),
@@ -297,19 +299,22 @@ impl Studio {
             Err(error) => self.error.set(Some(format!("{error:#}"))),
         }
     }
-    pub fn dispatch(mut self, action: Action) {
+    pub fn dispatch(self, action: Action) {
+        self.dispatch_with_media(action, true);
+    }
+    fn dispatch_with_media(mut self, action: Action, apply_media: bool) -> bool {
         if self.analysis_preview.peek().is_some() && !crate::reanalysis::preview_transport(&action)
         {
             self.error.set(Some(
                 "Switch to Current before editing; the proposed draft is read-only".into(),
             ));
-            return;
+            return false;
         }
         let Some(store) = self.store.read().clone() else {
-            return;
+            return false;
         };
         let Some(doc) = self.doc.read().clone() else {
-            return;
+            return false;
         };
         let seek = matches!(
             action,
@@ -342,6 +347,9 @@ impl Studio {
                 self.error.set(None);
                 self.dirty.set(true);
                 self.reload(session);
+                if !apply_media {
+                    return true;
+                }
                 if selected {
                     self.group.set(Default::default());
                     self.vocal_note.set(None);
@@ -353,9 +361,9 @@ impl Studio {
                         if (self.audio_ready)() {
                             self.refresh_audio(store, doc);
                         }
-                        return;
+                        return true;
                     }
-                    media.set_rate(doc.transport.playback_rate);
+                    media.set_rate(self.effective_playback_rate(doc.transport.playback_rate));
                     media.mix(
                         &doc.content.stem_mix,
                         (self.volume)(),
@@ -385,8 +393,12 @@ impl Studio {
                     }
                     self.playhead.set(media.position());
                 }
+                true
             }
-            Err(error) => self.error.set(Some(format!("{error:#}"))),
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                false
+            }
         }
     }
     fn refresh_audio(mut self, store: Store, doc: Arc<Project>) {
@@ -474,9 +486,53 @@ impl Studio {
             .as_ref()
             .map_or((self.playhead)(), |media| media.position())
     }
-    pub fn set_playback_rate(self, rate: f64) {
-        self.seek(self.current_audio_position());
-        self.dispatch(Action::SetPlaybackRate { rate });
+    pub fn set_playback_rate(mut self, rate: f64) {
+        if !rate.is_finite() || !(0.25..=2.).contains(&rate) {
+            self.error
+                .set(Some("Practice rate must be between 0.25 and 2.0".into()));
+            return;
+        }
+        self.preview_playback_rate(Some(rate));
+        if self.dispatch_with_media(
+            Action::Seek {
+                seconds: self.current_audio_position(),
+            },
+            false,
+        ) {
+            self.dispatch(Action::SetPlaybackRate { rate });
+        }
+        self.preview_playback_rate(None);
+    }
+    fn effective_playback_rate(self, saved: f64) -> f64 {
+        self.practice_rate_preview
+            .peek()
+            .as_ref()
+            .filter(|(root, _)| {
+                self.store.peek().as_ref().is_some_and(|store| {
+                    self.doc
+                        .peek()
+                        .as_ref()
+                        .is_some_and(|doc| store.root.join(&doc.audio_sha256) == *root)
+                })
+            })
+            .map_or(saved, |(_, rate)| *rate)
+    }
+    pub fn preview_playback_rate(mut self, rate: Option<f64>) {
+        if rate.is_some_and(|rate| !rate.is_finite() || !(0.25..=2.).contains(&rate)) {
+            return;
+        }
+        let root = self.store.peek().as_ref().and_then(|store| {
+            self.doc
+                .peek()
+                .as_ref()
+                .map(|doc| store.root.join(&doc.audio_sha256))
+        });
+        self.practice_rate_preview.set(root.zip(rate));
+        if let Some(doc) = self.doc.peek().as_ref()
+            && let Some(media) = self.media.peek().as_ref()
+        {
+            media.set_rate(self.effective_playback_rate(doc.transport.playback_rate));
+        }
     }
     pub fn update_volume(mut self, value: f32) {
         self.volume.set(value.clamp(0., 1.));

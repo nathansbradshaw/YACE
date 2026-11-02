@@ -17,13 +17,15 @@ use browser_audio::Audio;
 use dioxus::prelude::*;
 #[cfg(not(feature = "browser"))]
 use std::cell::Cell;
+#[cfg(not(feature = "browser"))]
+use std::time::Duration;
 use std::{
     cell::RefCell,
     collections::BTreeMap,
     path::PathBuf,
     rc::Rc,
     sync::{Arc, RwLock},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -42,7 +44,7 @@ fn cancels_kit_autoplay(action: &Action) -> bool {
             | Action::AttachKeyboardStems { .. }
             | Action::Playback { playing: false }
             | Action::Pause { .. }
-    ) || (cfg!(feature = "browser") && matches!(action, Action::SetPlaybackRate { .. }))
+    )
 }
 
 /// Peak amplitudes in original recording seconds, independent of audition gain.
@@ -319,8 +321,7 @@ impl Audio {
         mix.channels
             .retain(|id, _| buffer.loaded.stems.contains_key(id));
         let mut prepared = mix.prepare(buffer.loaded.stems.keys().copied())?;
-        // These buffers are now in original source time. The legacy hosted
-        // client still accounts for its tempo-rendered buffers separately.
+        // Cached buffers and every reanalysis route use original source time.
         prepared.route = route.map(|mut route| {
             route.playback_rate = 1.;
             route
@@ -589,6 +590,7 @@ pub struct Studio {
     pub stem_waveforms: Signal<Option<Arc<StemWaveformCache>>>,
     pub stem_waveform_path: Signal<Option<PathBuf>>,
     audio: Signal<Option<Rc<Audio>>>,
+    practice_rate_preview: Signal<Option<(PathBuf, f64)>>,
     lock: Signal<Option<Arc<WindowLock>>>,
     audio_epoch: Signal<u64>,
     audio_target: Signal<Option<(String, f64, String)>>,
@@ -929,20 +931,9 @@ impl Studio {
                     .is_some_and(|old| old.revision != doc.revision);
                 let replace_audio = reattached
                     || self.audio.read().as_ref().is_none_or(|audio| {
-                        (cfg!(feature = "browser")
-                            && (audio.playback_rate() - doc.transport.playback_rate).abs() > 1e-9)
-                            || audio.assets_key != assets_key
-                            || audio.source_hash != doc.audio_sha256
+                        audio.assets_key != assets_key || audio.source_hash != doc.audio_sha256
                     });
-                let target = (
-                    doc.audio_sha256.clone(),
-                    if cfg!(feature = "browser") {
-                        doc.transport.playback_rate
-                    } else {
-                        1.
-                    },
-                    assets_key,
-                );
+                let target = (doc.audio_sha256.clone(), 1., assets_key);
                 let need_prepare =
                     replace_audio && self.audio_target.read().as_ref() != Some(&target);
                 let cancelled_preparation = !replace_audio && self.audio_target.read().is_some();
@@ -970,23 +961,18 @@ impl Studio {
                 }
                 if !replace_audio {
                     self.audio_ready.set(self.audio.read().is_some());
-                    #[cfg(not(feature = "browser"))]
                     if let Some(audio) = self.audio.read().as_ref()
-                        && let Err(error) =
-                            audio.set_rate(doc.transport.playback_rate).and_then(|_| {
-                                audio.set_loop(doc.transport.loop_range, doc.transport.playing)
-                            })
+                        && let Err(error) = self.apply_audio_transport(audio, &doc)
                     {
                         self.error
                             .set(Some(format!("Audio transport unavailable: {error:#}")));
                     }
                 }
                 if transport || cancelled_preparation {
-                    let keep_source_clock = cfg!(not(feature = "browser"))
-                        && doc
-                            .audit
-                            .last()
-                            .is_some_and(|a| matches!(a.action, Action::SetPlaybackRate { .. }));
+                    let keep_source_clock = doc
+                        .audit
+                        .last()
+                        .is_some_and(|a| matches!(a.action, Action::SetPlaybackRate { .. }));
                     let seconds = if keep_source_clock {
                         self.current_audio_position().min(doc.duration)
                     } else if transport {
@@ -1070,9 +1056,7 @@ impl Studio {
                 .set(Some("Practice rate must be between 0.25 and 2.0".into()));
             return;
         }
-        #[cfg(feature = "browser")]
-        self.seek(self.current_audio_position());
-        #[cfg(not(feature = "browser"))]
+        self.preview_playback_rate(Some(rate));
         if !self.dispatch_with_transport(
             Action::Seek {
                 seconds: self
@@ -1083,11 +1067,54 @@ impl Studio {
             },
             false,
         ) {
+            self.preview_playback_rate(None);
             return;
         }
         if self.dispatch_with_transport(Action::SetPlaybackRate { rate }, true) {
             self.status
                 .set(format!("Playback speed {:.0}%", rate * 100.));
+        }
+        self.preview_playback_rate(None);
+    }
+    fn effective_playback_rate(self, saved: f64) -> f64 {
+        self.practice_rate_preview
+            .peek()
+            .as_ref()
+            .filter(|(root, _)| {
+                self.store.peek().as_ref().is_some_and(|store| {
+                    self.doc
+                        .peek()
+                        .as_ref()
+                        .is_some_and(|doc| store.root.join(&doc.audio_sha256) == *root)
+                })
+            })
+            .map_or(saved, |(_, rate)| *rate)
+    }
+    fn apply_audio_transport(self, audio: &Audio, doc: &Project) -> Result<()> {
+        audio.set_rate(self.effective_playback_rate(doc.transport.playback_rate))?;
+        #[cfg(not(feature = "browser"))]
+        audio.set_loop(doc.transport.loop_range, doc.transport.playing)?;
+        Ok(())
+    }
+    /// Preview a drag without writing project history for every pointer event.
+    pub fn preview_playback_rate(mut self, rate: Option<f64>) {
+        if rate.is_some_and(|rate| !rate.is_finite() || !(0.25..=2.).contains(&rate)) {
+            return;
+        }
+        let root = self.store.peek().as_ref().and_then(|store| {
+            self.doc
+                .peek()
+                .as_ref()
+                .map(|doc| store.root.join(&doc.audio_sha256))
+        });
+        self.practice_rate_preview.set(root.zip(rate));
+        if let Some(doc) = self.doc.peek().as_ref()
+            && let Some(audio) = self.audio.peek().as_ref()
+            && let Err(error) =
+                audio.set_rate(self.effective_playback_rate(doc.transport.playback_rate))
+        {
+            self.error
+                .set(Some(format!("Audio transport unavailable: {error:#}")));
         }
     }
     /// The same saved selection as editor/AI actions, with validation on a
@@ -1229,7 +1256,7 @@ impl Studio {
             return;
         };
         let rate = doc.transport.playback_rate;
-        let preparation_rate = if cfg!(feature = "browser") { rate } else { 1. };
+        let preparation_rate = 1.;
         let key = stem_assets_key(&doc, self.is_vocal_track());
         let expected = doc.audio_sha256.clone();
         let manifest = review_manifest(&doc, self.is_vocal_track()).cloned();
@@ -1274,10 +1301,9 @@ impl Studio {
         let current = self.snapshot();
         if (self.audio_epoch)() != epoch
             || self.source_audio.read().as_ref() != Some(&source)
-            || current.as_ref().is_none_or(|doc| {
-                (cfg!(feature = "browser") && doc.transport.playback_rate != rate)
-                    || stem_assets_key(doc, self.is_vocal_track()) != key
-            })
+            || current
+                .as_ref()
+                .is_none_or(|doc| stem_assets_key(doc, self.is_vocal_track()) != key)
         {
             return;
         }
@@ -1315,16 +1341,7 @@ impl Studio {
                 let current = self.snapshot().unwrap_or(current);
                 match audio {
                     Ok(audio) => {
-                        #[cfg(not(feature = "browser"))]
-                        if let Err(error) = audio
-                            .set_rate(current.transport.playback_rate)
-                            .and_then(|_| {
-                                audio.set_loop(
-                                    current.transport.loop_range,
-                                    current.transport.playing,
-                                )
-                            })
-                        {
+                        if let Err(error) = self.apply_audio_transport(&audio, &current) {
                             self.error
                                 .set(Some(format!("Audio transport unavailable: {error:#}")));
                             return;
@@ -2257,6 +2274,13 @@ impl Studio {
         }
         if let (Some(doc), Some(audio)) = (self.snapshot(), self.audio.peek().as_ref()) {
             let _ = self.apply_audio_mix(audio, &doc);
+            #[cfg(feature = "browser")]
+            {
+                audio.synchronize();
+                if let Some(error) = audio.take_error() {
+                    self.error.set(Some(error));
+                }
+            }
         }
         if !(self.audio_ready)() {
             return;
@@ -2281,7 +2305,7 @@ impl Studio {
                     // A visual interpolation must never cut the recording's
                     // loop short. Only the actual audio counter wraps transport.
                     #[cfg(feature = "browser")]
-                    let raw = audio.player.get_pos().as_secs_f64() * audio.playback_rate();
+                    let raw = audio.raw_position();
                     #[cfg(not(feature = "browser"))]
                     let raw = audio.raw_position();
                     #[cfg(feature = "browser")]
@@ -2372,7 +2396,7 @@ impl Studio {
                 let identity = serde_json::to_vec(&(
                     audio.source_hash.as_str(),
                     audio.assets_key.as_str(),
-                    if cfg!(feature="browser") {audio.playback_rate()} else {1.},
+                    1.,
                 ))
                 .unwrap_or_default();
                 #[cfg(not(feature="browser"))]
@@ -2494,6 +2518,7 @@ pub fn use_studio() -> Studio {
         stem_waveforms: use_signal(|| None),
         stem_waveform_path: use_signal(|| None),
         audio: use_signal(|| None),
+        practice_rate_preview: use_signal(|| None),
         lock: use_signal(|| None),
         audio_epoch: use_signal(|| 0),
         audio_target: use_signal(|| None),
@@ -2973,10 +2998,9 @@ mod tests {
     fn explicit_pause_or_normal_audio_choice_cancels_pending_kit_autoplay() {
         assert!(cancels_kit_autoplay(&Action::Playback { playing: false }));
         assert!(cancels_kit_autoplay(&Action::Pause { seconds: 1.25 }));
-        assert_eq!(
-            cancels_kit_autoplay(&Action::SetPlaybackRate { rate: 0.5 }),
-            cfg!(feature = "browser")
-        );
+        assert!(!cancels_kit_autoplay(&Action::SetPlaybackRate {
+            rate: 0.5
+        }));
         assert!(cancels_kit_autoplay(&Action::SetStemMix {
             mix: Default::default()
         }));

@@ -82,6 +82,7 @@ pub mod larsnet_receipt;
 pub mod lyric_language;
 #[path = "../../src/mapping.rs"]
 pub mod mapping;
+#[path = "../../src/media_clock.rs"]
 mod media_clock;
 #[path = "../../src/midi.rs"]
 pub mod midi;

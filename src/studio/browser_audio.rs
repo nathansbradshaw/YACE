@@ -17,6 +17,15 @@ struct Position {
     ended: bool,
     #[serde(default)]
     context: String,
+    #[serde(default)]
+    channels: Vec<ChannelPosition>,
+    #[serde(default)]
+    error: Option<String>,
+}
+#[derive(Default, serde::Deserialize)]
+struct ChannelPosition {
+    position: f64,
+    ready: bool,
 }
 #[derive(Clone)]
 pub(super) struct Player {
@@ -42,9 +51,6 @@ impl Player {
     pub(super) fn set_volume(&self, volume: f32) {
         self.command("volume", Some(volume as f64));
     }
-    pub(super) fn get_pos(&self) -> Duration {
-        Duration::from_secs_f64(self.state.borrow().position.max(0.0))
-    }
     pub(super) fn empty(&self) -> bool {
         self.state.borrow().ended
     }
@@ -55,7 +61,7 @@ impl Player {
 pub(super) struct Audio {
     pub(super) player: Player,
     pub(super) buffer: BrowserBuffer,
-    pub(super) rate: f64,
+    rate: Cell<f64>,
     pub(super) assets_key: String,
     pub(super) source_hash: String,
     pub(super) kit_audition: Option<crate::part_analysis::KitAudition>,
@@ -68,6 +74,7 @@ pub(super) struct Audio {
     disposed: Rc<Cell<bool>>,
     registry: Arc<RwLock<BTreeMap<String, std::path::PathBuf>>>,
     asset_ids: Vec<String>,
+    followers: RefCell<Vec<crate::media_clock::Follower>>,
 }
 pub(super) struct BrowserBuffer {
     pub(super) loaded: AudioAssets,
@@ -111,7 +118,63 @@ impl Audio {
         self.clock.borrow().is_stale()
     }
     pub(super) fn playback_rate(&self) -> f64 {
-        self.rate
+        self.rate.get()
+    }
+    pub(super) fn set_rate(&self, rate: f64) -> Result<()> {
+        anyhow::ensure!(
+            rate.is_finite() && (0.25..=2.).contains(&rate),
+            "Practice rate must be between 0.25 and 2.0"
+        );
+        if self.rate.replace(rate) != rate {
+            for follower in self.followers.borrow_mut().iter_mut() {
+                follower.reset();
+            }
+            self.player.command("rate", Some(rate));
+            self.clock
+                .borrow_mut()
+                .reset(self.epoch.elapsed().as_secs_f64(), self.raw_position());
+        }
+        Ok(())
+    }
+    pub(super) fn raw_position(&self) -> f64 {
+        self.player.state.borrow().position
+    }
+    pub(super) fn synchronize(&self) {
+        let state = self.player.state.borrow();
+        let now = self.epoch.elapsed().as_secs_f64();
+        let running = !state.paused && state.context == "running";
+        let rate = self.rate.get();
+        let mut followers = self.followers.borrow_mut();
+        let mut commands = Vec::new();
+        for (index, channel) in state.channels.iter().enumerate().skip(1) {
+            if let Some(follower) = followers.get_mut(index) {
+                match follower.update(
+                    now,
+                    state.position,
+                    channel.position,
+                    rate,
+                    running && channel.ready,
+                ) {
+                    crate::media_clock::Correction::None => {}
+                    crate::media_clock::Correction::Rate(value) => {
+                        commands.push(serde_json::json!({"index":index,"rate":value}))
+                    }
+                    crate::media_clock::Correction::Seek(seconds) => {
+                        commands.push(serde_json::json!({"index":index,"rate":rate,"seek":seconds}))
+                    }
+                }
+            }
+        }
+        if !commands.is_empty() {
+            let id = serde_json::to_string(&self.player.id).unwrap();
+            let _ = dioxus_document::eval(&format!(
+                "if(window.__yaceAudio?.id==={id})window.__yaceAudio.synchronize({});",
+                serde_json::to_string(&commands).unwrap()
+            ));
+        }
+    }
+    pub(super) fn take_error(&self) -> Option<String> {
+        self.player.state.borrow_mut().error.take()
     }
     pub(super) fn set_routed_mix(
         &self,
@@ -139,7 +202,10 @@ impl Audio {
                 }
             }
         }
-        prepared.route = route;
+        prepared.route = route.map(|mut route| {
+            route.playback_rate = 1.;
+            route
+        });
         let values = weights(
             &prepared,
             &self.keys,
@@ -211,7 +277,7 @@ impl Audio {
             .iter()
             .filter_map(|url| url.strip_prefix("/asset/").map(str::to_owned))
             .collect();
-        probe.send(serde_json::json!({"id":id,"urls":urls,"weights":weights}))?;
+        probe.send(serde_json::json!({"id":id,"urls":urls,"weights":weights,"rate":rate}))?;
         let mut ready = serde_json::Value::Null;
         while ready.get("ready").is_none() {
             ready = probe.recv::<serde_json::Value>().await?;
@@ -249,7 +315,7 @@ impl Audio {
                 loaded: metadata,
                 mix: Arc::new(RwLock::new(prepared)),
             },
-            rate,
+            rate: Cell::new(rate),
             assets_key,
             source_hash,
             kit_audition,
@@ -257,6 +323,7 @@ impl Audio {
             clock: RefCell::new(PresentationClock::default()),
             epoch: Instant::now(),
             _files,
+            followers: RefCell::new(keys.iter().map(|_| Default::default()).collect()),
             keys,
             last_mix: RefCell::new(weights),
             disposed,
@@ -268,9 +335,11 @@ impl Audio {
         self.set_routed_mix(mix, None)
     }
     pub(super) fn seek(&self, seconds: f64) -> Result<()> {
-        self.player
-            .command("seek", Some(seconds.max(0.0) / self.rate));
-        self.player.state.borrow_mut().position = seconds.max(0.0) / self.rate;
+        self.player.command("seek", Some(seconds.max(0.0)));
+        self.player.state.borrow_mut().position = seconds.max(0.0);
+        for follower in self.followers.borrow_mut().iter_mut() {
+            follower.reset();
+        }
         self.clock
             .borrow_mut()
             .reset(self.epoch.elapsed().as_secs_f64(), seconds.max(0.0));
@@ -278,13 +347,13 @@ impl Audio {
     }
     pub(super) fn position(&self) -> f64 {
         let state = self.player.state.borrow();
-        let raw = state.position * self.rate;
+        let raw = state.position;
         if state.paused || state.context != "running" {
             return raw;
         }
         self.clock
             .borrow_mut()
-            .sample(self.epoch.elapsed().as_secs_f64(), raw, self.rate)
+            .sample(self.epoch.elapsed().as_secs_f64(), raw, self.rate.get())
     }
 }
 fn weights(mix: &PreparedMix, keys: &[Option<StemId>], kit: bool, seconds: f64) -> Vec<f32> {

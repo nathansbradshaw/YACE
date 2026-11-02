@@ -303,6 +303,50 @@ mod pause_ui {
         assert!(!saved.transport.playing);
         assert_eq!(saved.transport.position, saved.duration);
     }
+
+    fn speed_window() -> Element {
+        let mut studio = use_studio();
+        let (store, slot) = use_context::<(Store, Slot)>();
+        use_hook(move || {
+            studio.doc.set(Some(Arc::new(store.load().unwrap())));
+            studio.store.set(Some(store));
+            studio.playhead.set(1.25);
+            *slot.borrow_mut() = Some(studio);
+        });
+        rsx! { div {} }
+    }
+
+    #[tokio::test]
+    async fn speed_drag_is_transient_until_commit_and_invalid_rates_never_save() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = fixture(temp.path());
+        let before = store.load().unwrap();
+        let chart = before.chart_hash(&store).unwrap();
+        let slot = Rc::new(RefCell::new(None::<Studio>));
+        let mut dom = VirtualDom::new(speed_window);
+        dom.provide_root_context((store.clone(), slot.clone()));
+        dom.rebuild_to_vec();
+        let _runtime = dioxus::core::RuntimeGuard::new(dom.runtime());
+        let studio = slot.borrow().unwrap();
+        dom.runtime().in_scope(ScopeId::ROOT, || {
+            for percent in 25..=200 {
+                studio.preview_playback_rate(Some(percent as f64 / 100.));
+            }
+            assert_eq!(store.load().unwrap().revision, before.revision);
+            for rate in [f64::NAN, f64::INFINITY, -1., 0.249, 2.001] {
+                studio.set_playback_rate(rate);
+                assert_eq!(store.load().unwrap().revision, before.revision);
+            }
+            studio.set_playback_rate(0.83);
+        });
+        let saved = store.load().unwrap();
+        assert_eq!(saved.revision, before.revision + 2);
+        assert_eq!(saved.transport.playback_rate, 0.83);
+        assert_eq!(saved.transport.position, 1.25);
+        assert!(!saved.transport.playing);
+        assert_eq!(saved.chart_hash(&store).unwrap(), chart);
+        assert_eq!(saved.audio_sha256, before.audio_sha256);
+    }
 }
 
 #[test]
