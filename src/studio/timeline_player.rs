@@ -74,6 +74,14 @@ impl Player {
             player.set_volume(volume);
         }
     }
+    pub(super) fn set_timeline_rate(&self, rate: f64) -> Result<()> {
+        if let Mode::Timeline { clock, epoch } = &self.0 {
+            clock
+                .borrow_mut()
+                .set_rate(rate, epoch.elapsed().as_secs_f64())?;
+        }
+        Ok(())
+    }
     pub(super) fn append(&self, source: impl rodio::Source<Item = f32> + Send + 'static) {
         if let Mode::Recording(player) = &self.0 {
             player.append(source);

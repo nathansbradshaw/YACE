@@ -104,13 +104,29 @@ fn write_pcm(path: &Path, pcm: &[f32], sample_rate: u32) -> Result<()> {
     Ok(())
 }
 impl Audio {
+    pub(super) fn ready_for_playback(&self) -> bool {
+        true
+    }
+    pub(super) fn is_stalled(&self) -> bool {
+        self.clock.borrow().is_stale()
+    }
+    pub(super) fn playback_rate(&self) -> f64 {
+        self.rate
+    }
     pub(super) fn set_routed_mix(
         &self,
         mix: &StemMix,
         route: Option<crate::reanalysis::AuditionRoute>,
     ) -> Result<()> {
+        let mut mix = if self.buffer.loaded.stems.is_empty() {
+            StemMix::default()
+        } else {
+            mix.clone()
+        };
+        mix.channels
+            .retain(|id, _| self.buffer.loaded.stems.contains_key(id));
         let mut prepared = mix.prepare(self.buffer.loaded.stems.keys().copied())?;
-        if let Some(route) = route {
+        if let Some(route) = &route {
             prepared.original = false;
             for gain in prepared.gains.values_mut() {
                 *gain = 0.;
@@ -122,6 +138,20 @@ impl Audio {
                     prepared.original = true;
                 }
             }
+        }
+        prepared.route = route;
+        let values = weights(
+            &prepared,
+            &self.keys,
+            self.kit_audition.is_some(),
+            self.position(),
+        );
+        if *self.last_mix.borrow() != values {
+            let _ = dioxus_document::eval(&format!(
+                "window.__yaceAudio?.weights({});",
+                serde_json::to_string(&values)?
+            ));
+            *self.last_mix.borrow_mut() = values;
         }
         *self
             .buffer
@@ -155,7 +185,7 @@ impl Audio {
             );
         }
         let keys: Vec<_> = sources.iter().map(|(id, _)| *id).collect();
-        let weights = weights(&prepared, &keys, kit_audio.is_some());
+        let weights = weights(&prepared, &keys, kit_audio.is_some(), 0.);
         let metadata = AudioAssets {
             sample_rate: loaded.sample_rate,
             stems: loaded.stems.keys().map(|id| (*id, ())).collect(),
@@ -235,24 +265,7 @@ impl Audio {
         })
     }
     pub(super) fn set_mix(&self, mix: &StemMix) -> Result<()> {
-        let mut mix = mix.clone();
-        mix.channels
-            .retain(|id, _| self.buffer.loaded.stems.contains_key(id));
-        let prepared = mix.prepare(self.buffer.loaded.stems.keys().copied())?;
-        let values = weights(&prepared, &self.keys, self.kit_audition.is_some());
-        if *self.last_mix.borrow() != values {
-            let _ = dioxus_document::eval(&format!(
-                "window.__yaceAudio?.weights({});",
-                serde_json::to_string(&values)?
-            ));
-            *self.last_mix.borrow_mut() = values;
-        }
-        *self
-            .buffer
-            .mix
-            .write()
-            .map_err(|_| anyhow::anyhow!("Audio mix lock poisoned"))? = prepared;
-        Ok(())
+        self.set_routed_mix(mix, None)
     }
     pub(super) fn seek(&self, seconds: f64) -> Result<()> {
         self.player
@@ -274,7 +287,20 @@ impl Audio {
             .sample(self.epoch.elapsed().as_secs_f64(), raw, self.rate)
     }
 }
-fn weights(mix: &PreparedMix, keys: &[Option<StemId>], kit: bool) -> Vec<f32> {
+fn weights(mix: &PreparedMix, keys: &[Option<StemId>], kit: bool, seconds: f64) -> Vec<f32> {
+    if !kit && let Some(route) = &mix.route {
+        let mut values = vec![0.; keys.len()];
+        for (id, gain) in route.weights(seconds) {
+            if let Some(index) = keys
+                .iter()
+                .position(|key| *key == Some(id))
+                .or_else(|| keys.iter().position(Option::is_none))
+            {
+                values[index] += gain;
+            }
+        }
+        return values;
+    }
     keys.iter()
         .map(|id| match id {
             None => f32::from(mix.original || kit),
@@ -302,6 +328,27 @@ impl Drop for Audio {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn routed_missing_stem_crossfade_weights_the_original_without_doubling_it() {
+        let mut mix = StemMix::default().prepare([StemId::Guitar]).unwrap();
+        mix.route = Some(crate::reanalysis::AuditionRoute {
+            intervals: vec![crate::reanalysis::SourceInterval {
+                range: crate::editor::TimeRange {
+                    start: 0.75,
+                    end: 1.25,
+                },
+                source: crate::mapping::GuitarSource::Other,
+            }],
+            fallback: crate::mapping::GuitarSource::Guitar,
+            playback_rate: 0.25,
+        });
+        let keys = [None, Some(StemId::Guitar)];
+        let crossfade = weights(&mix, &keys, false, 0.755);
+        assert!((crossfade[0] - 0.5).abs() < 1e-5);
+        assert!((crossfade[1] - 0.5).abs() < 1e-5);
+        assert_eq!(weights(&mix, &keys, false, 1.), [1., 0.]);
+        assert_eq!(weights(&mix, &keys, true, 1.), [1., 0.]);
+    }
     #[test]
     fn float_wav_preserves_channels_and_samples() {
         let dir = tempfile::tempdir().unwrap();

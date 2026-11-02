@@ -50,6 +50,7 @@ whatlang = "0.16"
 
 [patch.crates-io]
 candle-core = { path = "../vendor/candle-core" }
+candle-core-legacy = { package = "candle-core", path = "../vendor/candle-core-legacy" }
 symphonia-bundle-mp3 = { path = "../vendor/symphonia-bundle-mp3" }
 symphonia-codec-vorbis = { path = "../vendor/symphonia-codec-vorbis" }
 

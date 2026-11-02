@@ -17,7 +17,7 @@ impl fmt::Display for ClockError {
             Self::Duration => "Timeline duration must be positive and no longer than 24 hours",
             Self::Time => "Timeline clock requires finite monotonic seconds",
             Self::Position => "Position is outside the chart timeline",
-            Self::Rate => "Practice rate must be between 0.5 and 1.5",
+            Self::Rate => "Practice rate must be between 0.25 and 2.0",
         })
     }
 }
@@ -93,7 +93,7 @@ impl TimelineClock {
     }
     pub fn set_rate(&mut self, rate: f64, now: f64) -> Result<(), ClockError> {
         Self::time(now)?;
-        if !rate.is_finite() || !(0.5..=1.5).contains(&rate) {
+        if !rate.is_finite() || !(0.25..=2.0).contains(&rate) {
             return Err(ClockError::Rate);
         }
         self.seek(self.position(now), now)?;

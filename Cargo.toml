@@ -27,7 +27,7 @@ required-features = ["vocal-alignment"]
 default = ["separation", "editor", "vocal-alignment"]
 vocal-alignment = ["dep:practice-acoustic", "dep:whatlang"]
 studio = ["dep:dioxus", "dep:dioxus-document", "dep:tokio"]
-editor = ["studio", "dioxus/desktop", "dep:rodio", "dep:rfd", "dep:arboard", "dep:zip"]
+editor = ["studio", "dioxus/desktop", "dep:rodio", "dep:rfd", "dep:arboard", "dep:zip", "dep:timestretch", "dep:crossbeam-queue"]
 browser = ["studio", "dioxus/liveview", "dep:dioxus-liveview", "dep:axum", "dep:tower-http", "dep:getrandom", "dep:zip"]
 separation = ["dep:demucs-core", "dep:burn", "dep:pollster"]
 
@@ -57,6 +57,8 @@ dioxus-document = { version = "=0.7.10", default-features = false, optional = tr
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "net", "fs", "io-util"], optional = true }
 base64 = "0.22"
 rodio = { version = "0.22.2", default-features = false, features = ["playback"], optional = true }
+timestretch = { version = "=0.16.0", default-features = false, optional = true }
+crossbeam-queue = { version = "=0.3.14", optional = true }
 rfd = { version = "0.17.2", optional = true }
 dioxus-liveview = { version = "=0.7.10", features = ["axum"], optional = true }
 axum = { version = "0.8", features = ["ws", "multipart"], optional = true }

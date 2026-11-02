@@ -187,8 +187,8 @@ pub fn PracticeControls(studio: Studio, children: Element) -> Element {
             button{class:"instrument-toggle transport-control",disabled:!loaded,aria_label:"Stop and return to beginning",title:"Stop and return to beginning",onclick:move|_|{session::playback(studio,false);session::seek(studio,0.0);},Icon{name:"square",size:16}}
             span{class:"timeline-time",style:"white-space:nowrap;",title:"{position:.3} / {duration:.3} seconds","{clock(position)} / {clock(duration)}"}
             label{class:"preview-snap-selector","Speed" select{disabled:!loaded,aria_label:"Pitch-preserving practice speed",value:rate.to_string(),onchange:move|event|{if let Ok(rate)=event.value().parse(){session::rate(studio,rate);}},
-                option{value:"0.5",selected:rate==0.5,"50%"}option{value:"0.75",selected:rate==0.75,"75%"}option{value:"1",selected:rate==1.0,"100%"}
-                if ![0.5,0.75,1.0].contains(&rate){option{value:rate.to_string(),selected:true,"{rate:.2}× (current)"}}
+                for (value,label) in [(0.25,"25%"),(0.5,"50%"),(0.75,"75%"),(1.,"100%"),(1.25,"125%"),(1.5,"150%"),(2.,"200%")]{option{value:"{value}",selected:rate==value,"{label}"}}
+                if ![0.25,0.5,0.75,1.,1.25,1.5,2.].contains(&rate){option{value:rate.to_string(),selected:true,"{rate:.2}× (current)"}}
             }}
             label{class:"practice-volume",title:"Recording volume",Icon{name:"volume",size:15}
                 input{r#type:"range",min:"0",max:"1",step:"0.01",value:"{(studio.volume)()}",disabled:!loaded,aria_label:"Recording volume",oninput:move|event|{if let Ok(volume)=event.value().parse(){session::volume(studio,volume);}}}

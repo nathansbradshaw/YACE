@@ -671,6 +671,32 @@ fn transport_clock_loops_without_persisting_each_frame_and_serialization_is_stri
 }
 
 #[test]
+fn play_restarts_a_completed_recording_without_changing_rate_or_chart() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let before = store.load().unwrap();
+    for rate in [0.25, 0.83, 2.] {
+        command(&store, Action::SetPlaybackRate { rate });
+        command(
+            &store,
+            Action::Pause {
+                seconds: before.duration,
+            },
+        );
+        command(&store, Action::Playback { playing: true });
+        let replay = store.load().unwrap();
+        assert!(replay.transport.playing);
+        assert_eq!(replay.transport.position, 0.);
+        assert_eq!(replay.transport.playback_rate, rate);
+        assert_eq!(
+            serde_json::to_value(&replay.content).unwrap(),
+            serde_json::to_value(&before.content).unwrap()
+        );
+        assert_eq!(replay.audio_sha256, before.audio_sha256);
+    }
+}
+
+#[test]
 fn practice_rate_commands_preserve_play_state_and_reject_invalid_values_atomically() {
     let root = tempfile::tempdir().unwrap();
     let store = fixture(root.path());
@@ -693,19 +719,35 @@ fn practice_rate_commands_preserve_play_state_and_reject_invalid_values_atomical
                 .transport
                 .position_at(doc.transport.anchor_ms, doc.duration)
     );
+    for rate in [0.25, 0.5, 0.83, 1., 1.5, 2.] {
+        command(&store, Action::SetPlaybackRate { rate });
+        let changed = store.load().unwrap();
+        assert!(changed.transport.playing);
+        assert_eq!(changed.transport.playback_rate, rate);
+    }
+    command(&store, Action::Pause { seconds: 2. });
+    for rate in [0.25, 0.83, 2.] {
+        command(&store, Action::SetPlaybackRate { rate });
+        let changed = store.load().unwrap();
+        assert!(!changed.transport.playing);
+        assert_eq!(changed.transport.position, 2.);
+    }
+    let doc = store.load().unwrap();
     let previous = fs::read(store.root.join("project.json")).unwrap();
-    assert!(
-        store
+    for rate in [0., 0.24, 2.01, f64::NAN, f64::INFINITY] {
+        let error = store
             .apply(Request {
                 expected_revision: doc.revision,
                 actor: Actor {
-                    kind: ActorKind::Ai,
-                    name: "Practice test".into()
+                    kind: ActorKind::Human,
+                    name: "Practice test".into(),
                 },
-                action: Action::SetPlaybackRate { rate: 0.0 }
+                action: Action::SetPlaybackRate { rate },
             })
-            .is_err()
-    );
+            .unwrap_err();
+        assert!(error.to_string().contains("Practice rate"), "{error:#}");
+        assert_eq!(fs::read(store.root.join("project.json")).unwrap(), previous);
+    }
     assert_eq!(fs::read(store.root.join("project.json")).unwrap(), previous);
     assert_eq!(doc.chart_text(&store).unwrap(), CHART);
 }

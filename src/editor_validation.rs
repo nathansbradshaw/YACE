@@ -231,7 +231,7 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
 
     let transport = &project.transport;
     ensure!(
-        transport.playback_rate.is_finite() && (0.5..=1.5).contains(&transport.playback_rate),
+        transport.playback_rate.is_finite() && (0.25..=2.0).contains(&transport.playback_rate),
         "Invalid practice playback rate"
     );
     ensure!(
