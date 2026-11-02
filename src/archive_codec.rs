@@ -7,6 +7,30 @@ use std::{
 };
 pub type Files = Vec<(String, Vec<u8>)>;
 pub type SharedFiles = Vec<(String, std::sync::Arc<Vec<u8>>)>;
+/// Convert native path separators, never the bytes of an authored filename.
+/// ZIP entry names must be representable without lossy Unicode conversion or
+/// interpreting a literal backslash as a different directory structure.
+pub fn relative_name(path: &Path) -> Result<String> {
+    let mut names = Vec::new();
+    for component in path.components() {
+        let Component::Normal(name) = component else {
+            anyhow::bail!("Archive paths must stay inside the project");
+        };
+        let name = name.to_str().with_context(|| {
+            format!("Archive filename is not valid UTF-8 at {path:?}; source files retained")
+        })?;
+        ensure!(
+            !name.contains('\\'),
+            "Archive filename contains a literal backslash at {path:?}; source files retained"
+        );
+        names.push(name);
+    }
+    ensure!(!names.is_empty(), "Archive path is empty");
+    Ok(names.join("/"))
+}
+#[cfg(test)]
+#[path = "archive_codec/path_tests.rs"]
+mod path_tests;
 /// Retain repeated immutable media once when a game ZIP also carries its
 /// editable recovery copy. Limits apply to both logical and unique bytes.
 pub fn decode_shared(bytes: &[u8]) -> Result<SharedFiles> {
@@ -24,19 +48,17 @@ pub fn decode_shared(bytes: &[u8]) -> Result<SharedFiles> {
     for index in 0..archive.len() {
         let entry = archive.by_index(index)?;
         ensure!(!entry.is_symlink(), "Archive symlinks are unsupported");
+        ensure!(
+            !entry.name()?.contains('\\'),
+            "ZIP filename contains a backslash; source archive retained"
+        );
         let path = entry
             .enclosed_name()
             .context("Archive path leaves the project")?;
         if entry.is_dir() {
             continue;
         }
-        let name = path.to_string_lossy().replace('\\', "/");
-        ensure!(
-            Path::new(&name)
-                .components()
-                .all(|c| matches!(c, Component::Normal(_))),
-            "Invalid archive path"
-        );
+        let name = relative_name(&path)?;
         ensure!(names.insert(name.clone()), "Duplicate archive path");
         total = total
             .checked_add(entry.size())
