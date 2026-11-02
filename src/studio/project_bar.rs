@@ -59,6 +59,7 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
             button { "popovertarget": "project-tools", aria_label: "More tools", "Tools" Icon { name: "chevron-down", size: 12 } }
         }
         div { id: "project-actions", class: "command-popover project-popover", "popover": "auto", onkeydown: keep_space_local,
+            button{"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|studio.new_blank_chart(),Icon{name:"file-plus",size:15}"New blank chart…"}
             button { "popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|super::dance::new_recording(studio,false),Icon{name:"music",size:15}"New chart from audio…"}
             button { disabled: (studio.library_busy)(), "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(), Icon { name: "folder-open", size: 15 } if cfg!(feature="browser") { "Open saved project…" } else { "Open project or charting folder…" } }
             if cfg!(feature="browser") {button { disabled:(studio.library_busy)(),"popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(), Icon { name: "file-plus", size: 15 } "Open charting folder…" }}
@@ -72,7 +73,7 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
         }
         div { id: "project-tools", class: "command-popover tools-popover", "popover": "auto", onkeydown: keep_space_local,
             button { title: if cfg!(target_arch="wasm32"){ "The current assistant backends require native runtimes".to_owned() }else{ format!("Assistant for {title}") }, aria_label: "Chart assistant", disabled: !loaded || cfg!(target_arch="wasm32"), "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.assistant_open.set(true), "Chart assistant" }
-            button { disabled: !loaded, "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.clean_open.set(true), "Clean audio" }
+            button { disabled: document.as_ref().is_none_or(|doc|!doc.has_recording()),title:"Attach a recording before cleaning audio", "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.clean_open.set(true), "Clean audio" }
             button { disabled: !loaded, "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.collaboration_open.set(true), "Collaborate" }
         }
     }

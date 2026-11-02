@@ -35,6 +35,16 @@ pub fn validate_sources<B: Bytes>(files: &BTreeMap<String, B>, doc: &Project) ->
             .is_some_and(|bytes| digest(bytes.bytes()) == doc.source_chart_sha256),
         "Project source chart checksum differs"
     );
+    if let Some(basis) = &doc.recording {
+        validate_recording(files, basis, &doc.source_chart_sha256)?;
+    }
+    if !doc.has_recording() {
+        ensure!(
+            doc.audio_filename.is_empty() && doc.audio_sha256.is_empty(),
+            "Chart-only project has a recording identity"
+        );
+        return Ok(());
+    }
     ensure!(
         crate::stem_review::conventional::valid_audio_filename(&doc.audio_filename),
         "Invalid project recording filename"
@@ -45,6 +55,22 @@ pub fn validate_sources<B: Bytes>(files: &BTreeMap<String, B>, doc: &Project) ->
             .is_some_and(|bytes| digest(bytes.bytes()) == doc.audio_sha256),
         "Project source recording checksum differs"
     );
+    Ok(())
+}
+fn validate_recording<B: Bytes>(
+    files: &BTreeMap<String, B>,
+    basis: &crate::project_recording::Basis,
+    source: &str,
+) -> Result<()> {
+    basis.validate(source)?;
+    if let Some(recording) = &basis.recording {
+        ensure!(
+            files
+                .get(&format!("source/{}", recording.filename))
+                .is_some_and(|bytes| digest(bytes.bytes()) == recording.sha256),
+            "Recording referenced by project history is missing or changed"
+        );
+    }
     Ok(())
 }
 fn key(audio: &str, manifest: &Option<StemManifest>) -> Result<String> {
@@ -139,9 +165,16 @@ pub fn relocate<B: Bytes>(files: &mut BTreeMap<String, B>, root: &Path) -> Resul
             digest(bytes.bytes()) == id,
             "Project checkpoint checksum differs"
         );
-        let mut content: Content = serde_json::from_slice(bytes.bytes())?;
-        relocate_content(&mut content, root, &doc.audio_sha256, &index, &mut keys)?;
-        let bytes = serde_json::to_vec(&content)?;
+        let mut checkpoint = crate::project_recording::Checkpoint::decode(bytes.bytes())?;
+        if let Some(basis) = &checkpoint.recording {
+            validate_recording(files, basis, &doc.source_chart_sha256)?;
+        }
+        let audio = checkpoint
+            .recording
+            .as_ref()
+            .map_or(doc.audio_sha256.as_str(), |basis| basis.audio_hash());
+        relocate_content(&mut checkpoint.content, root, audio, &index, &mut keys)?;
+        let bytes = checkpoint.encode()?;
         let next = digest(&bytes);
         files
             .entry(format!("checkpoints/{next}.json"))
@@ -201,7 +234,11 @@ pub fn referenced_stems(files: &Files) -> Result<BTreeMap<PathBuf, String>> {
             .get(&format!("checkpoints/{id}.json"))
             .context("Missing checkpoint")?;
         ensure!(digest(bytes) == *id, "Checkpoint checksum differs");
-        contents.push(serde_json::from_slice(bytes)?);
+        let checkpoint = crate::project_recording::Checkpoint::decode(bytes)?;
+        if let Some(basis) = &checkpoint.recording {
+            validate_recording(files, basis, &doc.source_chart_sha256)?;
+        }
+        contents.push(checkpoint.content);
     }
     let mut out = BTreeMap::new();
     for content in contents {

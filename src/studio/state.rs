@@ -154,9 +154,9 @@ impl rodio::Source for ReviewSource {
 }
 #[cfg(not(feature = "browser"))]
 pub struct Audio {
-    _device: rodio::MixerDeviceSink,
-    player: rodio::Player,
-    buffer: ReviewSource,
+    _device: Option<rodio::MixerDeviceSink>,
+    player: super::timeline_player::Player,
+    buffer: Option<ReviewSource>,
     rate: f64,
     assets_key: String,
     source_hash: String,
@@ -176,6 +176,9 @@ struct AudioOutputConfig {
 }
 impl AudioOutputConfig {
     fn status(&self) -> String {
+        if self.sample_rate == 0 {
+            return "Chart timeline · no recording".into();
+        }
         if cfg!(feature = "browser") {
             return "Browser audio · shared source clock".into();
         }
@@ -192,6 +195,27 @@ impl AudioOutputConfig {
 }
 #[cfg(not(feature = "browser"))]
 impl Audio {
+    fn timeline(duration: f64, rate: f64, assets_key: String) -> Result<Self> {
+        Ok(Self {
+            _device: None,
+            player: super::timeline_player::Player::timeline(duration, rate)?,
+            buffer: None,
+            rate,
+            assets_key,
+            source_hash: String::new(),
+            kit_audition: None,
+            output_config: AudioOutputConfig {
+                requested_buffer_frames: 0,
+                configured_buffer_frames: None,
+                sample_rate: 0,
+                nominal_buffer_ms: None,
+                fallback_reason: None,
+                hardware_output_latency_known: false,
+            },
+            clock: RefCell::new(PresentationClock::default()),
+            epoch: Instant::now(),
+        })
+    }
     async fn new(
         loaded: LoadedStems,
         kit_audio: Option<Arc<Vec<f32>>>,
@@ -253,9 +277,9 @@ impl Audio {
         };
         player.append(buffer.clone());
         Ok(Self {
-            _device: device,
-            player,
-            buffer,
+            _device: Some(device),
+            player: super::timeline_player::Player::recorded(player),
+            buffer: Some(buffer),
             rate,
             assets_key,
             source_hash,
@@ -266,8 +290,12 @@ impl Audio {
         })
     }
     fn set_mix(&self, mix: &StemMix) -> Result<()> {
+        let Some(buffer) = &self.buffer else {
+            mix.prepare([])?;
+            return Ok(());
+        };
         let original = StemMix::default();
-        let mix = if self.buffer.loaded.stems.is_empty()
+        let mix = if buffer.loaded.stems.is_empty()
             && mix.mode == crate::stem_review::MixMode::Original
         {
             &original
@@ -276,18 +304,19 @@ impl Audio {
         };
         let mut mix = mix.clone();
         mix.channels
-            .retain(|id, _| self.buffer.loaded.stems.contains_key(id));
-        let prepared = mix.prepare(self.buffer.loaded.stems.keys().copied())?;
-        *self
-            .buffer
+            .retain(|id, _| buffer.loaded.stems.contains_key(id));
+        let prepared = mix.prepare(buffer.loaded.stems.keys().copied())?;
+        *buffer
             .mix
             .write()
             .map_err(|_| anyhow::anyhow!("Audio mix lock poisoned"))? = prepared;
         Ok(())
     }
     fn seek(&self, seconds: f64) -> Result<()> {
-        if self.player.empty() {
-            self.player.append(self.buffer.clone());
+        if self.player.empty()
+            && let Some(buffer) = &self.buffer
+        {
+            self.player.append(buffer.clone());
         }
         self.player
             .try_seek(Duration::from_secs_f64(seconds.max(0.0) / self.rate))?;
@@ -331,6 +360,7 @@ pub struct Studio {
     pub clean_open: Signal<bool>,
     pub generation_open: Signal<bool>,
     pub new_song: Signal<Option<(PathBuf, String)>>,
+    pub blank_chart: Signal<bool>,
     pub clean_ranges: Signal<Vec<(f64, f64)>>,
     pub review_open: Signal<bool>,
     pub assistant_open: Signal<bool>,
@@ -507,7 +537,12 @@ impl Studio {
                     self.selection_dragging.set(false);
                     self.group.set(Default::default());
                 }
-                let transport = transport || timing_changed;
+                let recording_changed = self.doc.read().as_ref().is_some_and(|old| {
+                    old.audio_sha256 != doc.audio_sha256
+                        || old.has_recording() != doc.has_recording()
+                        || old.duration != doc.duration
+                });
+                let transport = transport || timing_changed || recording_changed;
                 if self
                     .doc
                     .read()
@@ -571,6 +606,20 @@ impl Studio {
                     }
                 }
                 let assets_key = stem_assets_key(&doc, doc.selected_track == "Vocals");
+                let source_audio = if doc.has_recording() {
+                    match store.audio_path(&doc) {
+                        Ok(path) => Some(path),
+                        Err(error) => {
+                            self.error.set(Some(error.to_string()));
+                            return;
+                        }
+                    }
+                } else {
+                    None
+                };
+                if *self.source_audio.peek() != source_audio {
+                    self.source_audio.set(source_audio);
+                }
                 let reattached = doc.audit.last().is_some_and(|entry| {
                     matches!(
                         entry.action,
@@ -585,6 +634,7 @@ impl Studio {
                     || self.audio.read().as_ref().is_none_or(|audio| {
                         (audio.rate - doc.transport.playback_rate).abs() > 1e-9
                             || audio.assets_key != assets_key
+                            || audio.source_hash != doc.audio_sha256
                     });
                 let target = (
                     doc.audio_sha256.clone(),
@@ -773,6 +823,47 @@ impl Studio {
         let Some(doc) = self.snapshot() else {
             return;
         };
+        if !doc.has_recording() {
+            self.audio_epoch.set((self.audio_epoch)() + 1);
+            self.audio_target.set(None);
+            self.waveforms.set(None);
+            self.stem_waveforms.set(None);
+            self.stem_waveform_path.set(None);
+            #[cfg(not(feature = "browser"))]
+            match Audio::timeline(
+                doc.duration,
+                doc.transport.playback_rate,
+                stem_assets_key(&doc, self.is_vocal_track()),
+            ) {
+                Ok(audio) => {
+                    if let Err(error) = audio.seek((self.playhead)().min(doc.duration)) {
+                        self.error.set(Some(error.to_string()));
+                        return;
+                    }
+                    if doc.transport.playing {
+                        audio.player.play();
+                    }
+                    self.audio.set(Some(Rc::new(audio)));
+                    self.audio_ready.set(true);
+                    self.audio_stalled.set(false);
+                    self.stem_status.set("Chart timeline · no recording".into());
+                    self.status
+                        .set("Chart-only project · attach a recording when ready".into());
+                }
+                Err(error) => {
+                    self.audio_ready.set(false);
+                    self.error.set(Some(error.to_string()));
+                }
+            }
+            #[cfg(feature = "browser")]
+            {
+                self.audio_ready.set(false);
+                self.error.set(Some(
+                    "Chart-only playback requires the desktop app or static browser client".into(),
+                ));
+            }
+            return;
+        }
         let Some(path) = self.source_audio.read().clone() else {
             return;
         };
@@ -1037,6 +1128,71 @@ impl Studio {
                 self.new_song.set(Some((path, title)));
             }
         });
+    }
+    pub fn new_blank_chart(mut self) {
+        self.blank_chart.set(true);
+    }
+    pub fn attach_recording_dialog(mut self) {
+        let Some(store) = self.store.read().clone() else {
+            return;
+        };
+        let Some(doc) = self.snapshot() else {
+            return;
+        };
+        if doc.has_recording() {
+            return;
+        }
+        dioxus::core::spawn_forever(async move {
+            let Some(file) = rfd::AsyncFileDialog::new()
+                .set_title("Attach a recording to this chart")
+                .add_filter(
+                    "Recording",
+                    &["ogg", "opus", "mp3", "flac", "wav", "m4a", "aiff", "aac"],
+                )
+                .pick_file()
+                .await
+            else {
+                return;
+            };
+            let result=async{
+                self.status.set("Retaining recording…".into());
+                let input=file.path().to_owned();let root=store.root.clone();
+                let prepared=tokio::task::spawn_blocking(move||crate::project_recording::prepare_recording(&input,&root)).await??;
+                anyhow::ensure!(self.store.read().as_ref().is_some_and(|current|current.root==store.root)&&self.snapshot().is_some_and(|current|current.revision==doc.revision),"The chart changed while choosing audio; attach it again to the current revision");
+                self.dispatch(Action::AttachRecording{prepared});Ok::<_,anyhow::Error>(())
+            }.await;
+            if let Err(error) = result {
+                self.error.set(Some(error.to_string()));
+            }
+        });
+    }
+    pub async fn finish_blank_chart(
+        mut self,
+        title: String,
+        artist: String,
+        bpm: f64,
+        duration: f64,
+    ) -> Result<()> {
+        let (ini, chart) = crate::project_recording::blank_song(&title, &artist, bpm, duration)?;
+        let Some(output) = rfd::AsyncFileDialog::new()
+            .set_title("Save blank editing project in a new folder")
+            .set_file_name(format!("{title} Review Project"))
+            .save_file()
+            .await
+        else {
+            anyhow::bail!("Save cancelled; choose a new folder or cancel this setup");
+        };
+        let output = output.path().to_owned();
+        let store = tokio::task::spawn_blocking(move || -> Result<Store> {
+            let source = tempfile::tempdir()?;
+            std::fs::write(source.path().join("song.ini"), ini)?;
+            std::fs::write(source.path().join("notes.chart"), chart)?;
+            Store::create(source.path(), None, &output)
+        })
+        .await??;
+        self.open_project(store.root).await;
+        self.blank_chart.set(false);
+        Ok(())
     }
     pub fn cancel_new_chart(mut self, _source: &std::path::Path) {
         self.new_song.set(None);
@@ -1485,7 +1641,10 @@ impl Studio {
             let sections = store.source_sections(&doc)?;
             let sync = store.source_sync(&doc).ok();
             let star_power = store.source_star_power(&doc)?;
-            let audio = store.audio_path(&doc)?;
+            let audio = doc
+                .has_recording()
+                .then(|| store.audio_path(&doc))
+                .transpose()?;
             let metadata = crate::pipeline::ini_fields(&crate::pipeline::song_ini(
                 &store.root.join("source"),
             )?);
@@ -1585,7 +1744,7 @@ impl Studio {
         self.metadata.set(metadata);
         self.guitar_source.set(guitar_source);
         self.album_art.set(art);
-        self.source_audio.set(Some(audio_path.clone()));
+        self.source_audio.set(audio_path);
         self.waveforms.set(None);
         self.stem_waveforms.set(None);
         self.stem_waveform_path.set(None);
@@ -1694,7 +1853,11 @@ impl Studio {
         let preparing = self.audio_target.read().is_some();
         let ready = (self.audio_ready)();
         let actual = audio.as_ref().and_then(|audio| {
-            audio.buffer.mix.read().ok().map(|mix| {
+            #[cfg(not(feature="browser"))]
+            let Some(buffer)=audio.buffer.as_ref() else {return Some(serde_json::json!({"mode":"timeline","active_gains":{},"source_audio_sha256":null,"playback_rate":audio.rate,"player_paused":audio.player.is_paused(),"stems_ready":false,"sample_rate":null,"shared_cursor":true,"output_config":audio.output_config}));};
+            #[cfg(feature="browser")]
+            let buffer=&audio.buffer;
+            buffer.mix.read().ok().map(|mix| {
                 let identity = serde_json::to_vec(&(
                     audio.source_hash.as_str(),
                     audio.assets_key.as_str(),
@@ -1709,8 +1872,8 @@ impl Studio {
                     "assets_identity_sha256":format!("{:x}",Sha256::digest(identity)),
                     "playback_rate":audio.rate,
                     "player_paused":audio.player.is_paused(),
-                    "stems_ready":ready && !audio.buffer.loaded.stems.is_empty(),
-                    "sample_rate":audio.buffer.loaded.sample_rate,
+                    "stems_ready":ready && !buffer.loaded.stems.is_empty(),
+                    "sample_rate":buffer.loaded.sample_rate,
                     "shared_cursor":true,
                     "output_config":audio.output_config,
                 })
@@ -1770,6 +1933,7 @@ pub fn use_studio() -> Studio {
         clean_open: use_signal(|| false),
         generation_open: use_signal(|| false),
         new_song: use_signal(|| None),
+        blank_chart: use_signal(|| false),
         clean_ranges: use_signal(Vec::new),
         review_open: use_signal(|| false),
         assistant_open: use_signal(|| false),
@@ -1857,6 +2021,9 @@ pub(super) fn review_manifest(doc: &Project, vocals: bool) -> Option<&StemManife
     }
 }
 fn stem_assets_key(doc: &Project, vocals: bool) -> String {
+    if !doc.has_recording() {
+        return serde_json::to_string(&("timeline", doc.duration)).unwrap_or_default();
+    }
     serde_json::to_string(&(review_manifest(doc, vocals), &doc.kit_audition)).unwrap_or_default()
 }
 

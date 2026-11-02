@@ -12,6 +12,7 @@ use std::{
 pub const PREVIEW: &str = ".yace/audio/conventional/complete.wav";
 pub fn valid_audio_filename(name: &str) -> bool {
     name == PREVIEW
+        || crate::project_recording::attached_filename(name)
         || (Path::new(name).components().count() == 1
             && matches!(
                 Path::new(name).components().next(),

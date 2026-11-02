@@ -14,12 +14,28 @@ use std::{
 };
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(thread_local_v2, js_namespace = ["import", "meta"], js_name = url)]
+    static MODULE_URL: String;
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
     StepMania {
         audio: PathBuf,
         project: Box<crate::stepmania::Project>,
         request: crate::stepmania::GenerationRequest,
+    },
+    ExportChartOnly {
+        root: PathBuf,
+        project: Box<crate::editor::Project>,
+        output: PathBuf,
+        actor: crate::editor::Actor,
+    },
+    PrepareRecording {
+        source: PathBuf,
+        root: PathBuf,
     },
     PrepareGameChannels {
         root: PathBuf,
@@ -121,6 +137,8 @@ impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
             Self::StepMania { audio, .. } => vec![audio.clone()],
+            Self::ExportChartOnly { .. } => Vec::new(),
+            Self::PrepareRecording { source, .. } => vec![source.clone()],
             Self::PrepareGameChannels { root } => {
                 crate::stem_review::conventional::decode_inputs(root).unwrap_or_default()
             }
@@ -216,6 +234,22 @@ impl Task {
                 )?;
                 Ok(serde_json::to_value(project)?)
             }
+            Self::ExportChartOnly {
+                root,
+                project,
+                output,
+                actor,
+            } => {
+                ensure!(
+                    !project.has_recording(),
+                    "Use recording-aware export for a recorded project"
+                );
+                crate::editor::Store::new(root).write_export(project, output, actor)?;
+                Ok(serde_json::Value::Null)
+            }
+            Self::PrepareRecording { source, root } => Ok(serde_json::to_value(
+                crate::project_recording::prepare_recording(source, root)?,
+            )?),
             Self::PrepareGameChannels { root } => Ok(serde_json::to_value(
                 crate::stem_review::conventional::prepare(root)?,
             )?),
@@ -433,7 +467,10 @@ async fn process(input: JsValue) -> Result<JsValue> {
             .as_string()
             .context("Missing worker task")?,
     )?;
-    let bounded = matches!(task, Task::PrepareGameChannels { .. });
+    let bounded = matches!(
+        task,
+        Task::PrepareGameChannels { .. } | Task::PrepareRecording { .. }
+    );
     for row in js_sys::Array::from(&field(&input, "files")?).iter() {
         let row = js_sys::Array::from(&row);
         let path = row.get(0).as_string().context("Missing worker path")?;
@@ -622,7 +659,9 @@ async fn process(input: JsValue) -> Result<JsValue> {
     set(&response, "value", &serde_json::to_string(&result)?.into())?;
     let files = js_sys::Array::new();
     let archive = match &task {
-        Task::Clean { output, .. } | Task::Export { output, .. } => {
+        Task::Clean { output, .. }
+        | Task::Export { output, .. }
+        | Task::ExportChartOnly { output, .. } => {
             Some((output.clone(), output.with_extension("zip")))
         }
         Task::Backup { root, output } | Task::Archive { root, output } => {
@@ -652,6 +691,7 @@ async fn process(input: JsValue) -> Result<JsValue> {
     }
     if let Task::GenerationStage { root: output, .. }
     | Task::PrepareGameChannels { root: output }
+    | Task::PrepareRecording { root: output, .. }
     | Task::Vocals { output, .. }
     | Task::BuildDraft { output, .. }
     | Task::InspectRecording { output, .. }
@@ -669,7 +709,9 @@ async fn process(input: JsValue) -> Result<JsValue> {
             .collect();
         let changed = if matches!(
             task,
-            Task::GenerationStage { .. } | Task::PrepareGameChannels { .. }
+            Task::GenerationStage { .. }
+                | Task::PrepareGameChannels { .. }
+                | Task::PrepareRecording { .. }
         ) {
             crate::storage::pending(output)?
         } else {
@@ -759,8 +801,11 @@ impl Drop for Running {
 async fn exchange(input: &JsValue, progress: Rc<dyn Fn(String)>) -> Result<JsValue> {
     let options = web_sys::WorkerOptions::new();
     options.set_type(web_sys::WorkerType::Module);
+    let url = MODULE_URL
+        .with(|base| web_sys::Url::new_with_base("./worker.js", base))
+        .map_err(js_error)?;
     let worker =
-        Running(web_sys::Worker::new_with_options("./worker.js", &options).map_err(js_error)?);
+        Running(web_sys::Worker::new_with_options(&url.href(), &options).map_err(js_error)?);
     let (sender, receiver) = futures_channel::oneshot::channel();
     let sender = Rc::new(RefCell::new(Some(sender)));
     let errors = sender.clone();

@@ -22,6 +22,8 @@ mod inline_review;
 mod media;
 #[path = "../../../src/studio/modal.rs"]
 mod modal;
+#[path = "../../../src/studio/new_blank.rs"]
+mod new_blank;
 #[path = "../../../src/studio/new_song.rs"]
 mod new_song;
 #[path = "../../../src/studio/note_canvas.rs"]
@@ -190,5 +192,6 @@ pub fn App() -> Element {
     source_choice::SourceChoice{studio}
     dance::Controller{studio}
     if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
+    if (studio.blank_chart)(){new_blank::Setup{studio}}
     }}
 }

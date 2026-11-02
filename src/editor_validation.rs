@@ -93,14 +93,29 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
         .prepare(project.content.stem_ids())?;
     ensure!(
         sha256(&project.source_chart_sha256)
-            && project.source_chart_sha256 == format!("{:x}", Sha256::digest(chart.raw.as_bytes()))
-            && sha256(&project.audio_sha256),
+            && project.source_chart_sha256 == format!("{:x}", Sha256::digest(chart.raw.as_bytes())),
         "Invalid project input fingerprint"
     );
-    ensure!(
-        crate::stem_review::conventional::valid_audio_filename(&project.audio_filename),
-        "Invalid audio filename"
-    );
+    if let Some(basis) = &project.recording {
+        basis.validate(&project.source_chart_sha256)?;
+    }
+    if project.has_recording() {
+        ensure!(
+            sha256(&project.audio_sha256)
+                && crate::stem_review::conventional::valid_audio_filename(&project.audio_filename),
+            "Invalid recording identity"
+        );
+    } else {
+        ensure!(
+            project.audio_filename.is_empty()
+                && project.audio_sha256.is_empty()
+                && project.content.stems.is_none()
+                && project.content.keyboard_stems.is_none()
+                && project.content.vocal_review.is_none()
+                && project.kit_audition.is_none(),
+            "A chart-only timeline cannot claim recording-bound assets or analysis"
+        );
+    }
 
     let tracks: BTreeSet<_> = project.content.tracks.keys().map(String::as_str).collect();
     if let Some(review) = &project.content.vocal_review {
@@ -243,7 +258,11 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
     );
     ensure!(
         review.input_sha256.get("chart") == Some(&project.source_chart_sha256)
-            && review.input_sha256.get("original_audio") == Some(&project.audio_sha256),
+            && if project.has_recording() {
+                review.input_sha256.get("original_audio") == Some(&project.audio_sha256)
+            } else {
+                !review.input_sha256.contains_key("original_audio")
+            },
         "Review markers do not match immutable source inputs"
     );
     ensure!(

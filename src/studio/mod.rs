@@ -16,6 +16,7 @@ mod generation;
 mod icons;
 mod inline_review;
 mod modal;
+mod new_blank;
 mod new_song;
 mod note_canvas;
 mod note_gestures;
@@ -35,6 +36,8 @@ mod source_choice;
 mod star_power;
 pub mod state;
 mod stems;
+#[cfg(not(feature = "browser"))]
+mod timeline_player;
 mod timing_editor;
 mod track_picker;
 mod vocal_editor;
@@ -159,6 +162,7 @@ pub(crate) fn App() -> Element {
         }
         generation::GenerationPanel{studio}
         if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
+        if (studio.blank_chart)(){new_blank::Setup{studio}}
         collaboration::Collaboration{studio}
         assistant::Assistant{studio}
         source_choice::SourceChoice{studio}

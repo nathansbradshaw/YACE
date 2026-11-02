@@ -16,6 +16,39 @@ Select a track, then use the playback strip:
 All mixes share the same playback position and loop. Changing practice speed
 preserves pitch and keeps chart positions tied to the original recording.
 
+A solo instrument can be quieter than the complete recording. Open the mixer
+and raise that instrument's gain (up to 2×) for listening. This does not change
+exported audio, and it cannot recover notes suppressed by separation.
+
+Browser playback ignores transient timestamp jitter and adjusts small sustained
+clock drift through pitch-preserving playback rate. Large persistent offsets
+can require a seek; buffering or an unfinished seek must not trigger repeated
+decoder restarts.
+
+## Compare separation checkpoints
+
+The Rust `separation-preview` example creates at most 30 seconds of audio for a
+listening comparison, without editing a chart or replacing a stem cache:
+
+```sh
+cargo run --locked --release --no-default-features --features separation \
+  --example separation-preview -- --audio recording.wav \
+  --model models/htdemucs_ft.safetensors --variant fine-tuned \
+  --start 30 --seconds 7.8 --output comparison
+```
+
+The example accepts only the pinned six-source checkpoint (`--variant six-stem`)
+or the fine-tuned four-source checkpoint. It checks each checkpoint's SHA-256
+before loading it. The four-source checkpoint is available from
+[the pinned model repository](https://huggingface.co/set-soft/audio_separation/blob/939723568b2dca203e61cc7294317ba38549964f/Demucs/htdemucs_ft.safetensors)
+with SHA-256 `255c2650d26537ce4887c9c4cf08c6d4896fad2fecc0b78dc5b875b117bcc575`.
+It is an optional comparison download, outside the default model catalogue.
+
+The comparison keeps the original excerpt and unnormalized float stems with a
+source/range/checkpoint receipt. Four-source `other.wav` includes guitar and keys;
+it is not an isolated guitar stem. These excerpts are listening candidates, not
+game packages, full-song manifests or evidence of improved musical accuracy.
+
 ## Attach existing stems
 
 Choose **Attach stems** and select a YACE stem manifest. It must match the

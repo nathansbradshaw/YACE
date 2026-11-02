@@ -74,6 +74,7 @@ pub struct Studio {
     pub generation_target: Signal<Option<String>>,
     pub generation_after_import: Signal<bool>,
     pub new_song: Signal<Option<(PathBuf, String)>>,
+    pub blank_chart: Signal<bool>,
     pub vocal_note: Signal<Option<usize>>,
     pub group: Signal<crate::note_groups::Selection>,
     pub selection_dragging: Signal<bool>,
@@ -135,6 +136,7 @@ pub fn use_studio() -> Studio {
         generation_target: use_signal(|| None),
         generation_after_import: use_signal(|| false),
         new_song: use_signal(|| None),
+        blank_chart: use_signal(|| false),
         vocal_note: use_signal(|| None),
         group: use_signal(Default::default),
         selection_dragging: use_signal(|| false),
@@ -479,12 +481,11 @@ impl Studio {
             return;
         }
         let mut position = media.position();
-        self.audio_stalled
-            .set(!media.ended() && media.original.element.ready_state() < 3);
+        self.audio_stalled.set(media.stalled());
         if let Some(range) = doc.transport.loop_range {
             if position >= range.end {
-                media.seek(range.start);
-                position = range.start;
+                position = range.start + (position - range.end).rem_euclid(range.end - range.start);
+                media.seek(position);
             }
         } else if media.ended() {
             self.seek(doc.duration);
@@ -553,6 +554,59 @@ impl Studio {
                 self.error.set(Some(format!("{error:#}")));
             }
         });
+    }
+    pub fn new_blank_chart(mut self) {
+        self.blank_chart.set(true);
+    }
+    pub fn attach_recording_dialog(mut self) {
+        let Some(store) = self.store.read().clone() else {
+            return;
+        };
+        let Some(doc) = self.snapshot() else {
+            return;
+        };
+        if doc.has_recording() {
+            return;
+        }
+        dioxus::core::spawn_forever(async move {
+            let result=async{
+                let Some(mut files)=crate::files::pick(false,".ogg,.opus,.mp3,.flac,.wav,.m4a,.aiff,.aac").await? else{return Ok(());};
+                let (name,bytes)=files.pop().context("Choose a recording")?;
+                let input_root=crate::files::unique_root();let _candidate=Candidate{studio:self,root:input_root.clone()};
+                crate::storage::create_dir_all(&input_root)?;let input=input_root.join(&name);crate::storage::write_shared(&input,bytes)?;
+                self.status.set("Retaining recording locally…".into());
+                let prepared:crate::project_recording::PreparedRecording=crate::worker::run(crate::worker::Task::PrepareRecording{source:input,root:store.root.clone()},std::slice::from_ref(&store.root)).await?;
+                ensure!(self.store.read().as_ref().is_some_and(|current|current.root==store.root)&&self.snapshot().is_some_and(|current|current.revision==doc.revision),"The chart changed while choosing audio; attach it again to the current revision");
+                self.dispatch(Action::AttachRecording{prepared});Ok::<_,anyhow::Error>(())
+            }.await;
+            if let Err(error) = result {
+                self.error.set(Some(error.to_string()));
+            }
+        });
+    }
+    pub async fn finish_blank_chart(
+        mut self,
+        title: String,
+        artist: String,
+        bpm: f64,
+        duration: f64,
+    ) -> Result<()> {
+        let (ini, chart) = crate::project_recording::blank_song(&title, &artist, bpm, duration)?;
+        self.persist_current().await?;
+        let root = crate::files::unique_root();
+        let _candidate = Candidate {
+            studio: self,
+            root: root.clone(),
+        };
+        let source = root.join("source");
+        crate::storage::create_dir_all(&source)?;
+        crate::storage::write(source.join("song.ini"), ini)?;
+        crate::storage::write(source.join("notes.chart"), chart)?;
+        Store::new(&root).initialize(&source, None, duration)?;
+        self.open_project(root).await?;
+        self.detach_library();
+        self.blank_chart.set(false);
+        Ok(())
     }
     pub fn cancel_new_chart(mut self, root: &std::path::Path) {
         crate::storage::clear(root);
@@ -766,9 +820,12 @@ impl Studio {
         // Re-selecting a collection finds its editing copies, while replaced
         // source audio/charts receive a separate history.
         let chart = crate::song_files::source_choice::selected_file(&source, choice)?;
-        for path in [crate::pipeline::audio_file(&source)?, chart] {
-            identity.update(crate::models::hash_file(&path)?.as_bytes());
+        if let Some(audio) = crate::song_metadata::recording_file(&source)? {
+            identity.update(crate::models::hash_file(&audio)?.as_bytes());
+        } else {
+            identity.update(b"chart-only-source-v1");
         }
+        identity.update(crate::models::hash_file(&chart)?.as_bytes());
         if let Some(provenance) =
             crate::song_files::source_choice::recovery_identity(&source, choice)?
         {
@@ -833,9 +890,7 @@ impl Studio {
                 &[root.join("source")],
             )
             .await?;
-            let audio = crate::pipeline::audio_file(&root.join("source"))?;
-            let duration =
-                super::media::duration(crate::storage::shared(&audio)?.as_slice()).await?;
+            let duration = super::media::source_duration(&root.join("source")).await?;
             Store::new(&root).initialize(&root.join("source"), None, duration)?;
             let report = crate::song_layout::resolve(
                 &root.join("source"),
@@ -957,9 +1012,7 @@ impl Studio {
                 &[root.join("source")],
             )
             .await?;
-            let audio = crate::pipeline::audio_file(&root.join("source"))?;
-            let duration =
-                super::media::duration(crate::storage::shared(&audio)?.as_slice()).await?;
+            let duration = super::media::source_duration(&root.join("source")).await?;
             Store::new(&root).initialize(&root.join("source"), None, duration)?;
             let report = crate::song_layout::resolve(
                 &root.join("source"),
@@ -1078,17 +1131,28 @@ impl Studio {
                 let output = PathBuf::from(format!("/exports/{}", js_sys::Date::now() as u64));
                 self.status
                     .set("Preparing playable song ZIP locally…".into());
-                let _: () = crate::worker::run_with_progress(
+                let actor = Actor {
+                    kind: ActorKind::Human,
+                    name: (self.reviewer)(),
+                };
+                let task = if doc.has_recording() {
                     crate::worker::Task::Export {
                         root: store.root.clone(),
                         project: Box::new(doc.as_ref().clone()),
                         audio: store.audio_path(&doc)?,
                         output: output.clone(),
-                        actor: Actor {
-                            kind: ActorKind::Human,
-                            name: (self.reviewer)(),
-                        },
-                    },
+                        actor,
+                    }
+                } else {
+                    crate::worker::Task::ExportChartOnly {
+                        root: store.root.clone(),
+                        project: Box::new(doc.as_ref().clone()),
+                        output: output.clone(),
+                        actor,
+                    }
+                };
+                let _: () = crate::worker::run_with_progress(
+                    task,
                     std::slice::from_ref(&store.root),
                     Rc::new(move |label| {
                         let mut studio = self;
