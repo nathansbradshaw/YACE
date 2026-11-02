@@ -1,16 +1,12 @@
+pub mod acoustic_alignment;
 #[path = "../../src/analysis_validation.rs"]
 pub mod analysis_validation;
+mod archive_blob;
 #[path = "../../src/archive_codec.rs"]
 pub mod archive_codec;
 pub mod audio_decode;
-mod recognition;
-mod synth;
-#[path = "../../src/vocal_alignment.rs"]
-pub mod vocal_alignment;
-pub mod acoustic_alignment;
-mod audio_resample;
 mod audio_identity;
-mod archive_blob;
+mod audio_resample;
 #[path = "../../src/bass_analysis.rs"]
 pub mod bass_analysis;
 #[path = "../../src/chart.rs"]
@@ -42,6 +38,11 @@ pub mod game_export;
 pub mod gameplay_view;
 #[path = "../../src/generated_rules.rs"]
 pub mod generated_rules;
+pub mod generation;
+#[path = "../../src/generation_build.rs"]
+pub mod generation_build;
+#[path = "../../src/generation_protocol.rs"]
+pub mod generation_protocol;
 pub mod github_api;
 #[path = "../../src/github_reviews.rs"]
 pub mod github_reviews;
@@ -56,6 +57,11 @@ pub mod key_ranges;
 pub mod keyboard_audio;
 #[path = "../../src/keyboard_detection.rs"]
 pub mod keyboard_detection;
+pub mod keyboard_separation;
+#[path = "../../src/keyboard_separation_asset.rs"]
+pub mod keyboard_separation_asset;
+#[path = "../../src/keyboard_separation_dsp.rs"]
+pub mod keyboard_separation_dsp;
 #[path = "../../src/keyboard_voicing.rs"]
 pub mod keyboard_voicing;
 #[path = "../../src/keys.rs"]
@@ -64,25 +70,14 @@ pub mod keys;
 pub mod kit_audition;
 #[path = "../../src/larsnet_receipt.rs"]
 pub mod larsnet;
+#[path = "../../src/lyric_language.rs"]
+pub mod lyric_language;
 #[path = "../../src/mapping.rs"]
 pub mod mapping;
 #[path = "../../src/midi.rs"]
 pub mod midi;
 pub mod model_assets;
 pub mod models;
-#[path = "../../src/generation_build.rs"]
-pub mod generation_build;
-#[path="../../src/generation_protocol.rs"]
-pub mod generation_protocol;
-pub mod generation;
-#[path="../../src/lyric_language.rs"]
-pub mod lyric_language;
-pub mod keyboard_separation;
-#[path = "../../src/keyboard_separation_asset.rs"]
-pub mod keyboard_separation_asset;
-#[path = "../../src/keyboard_separation_dsp.rs"]
-pub mod keyboard_separation_dsp;
-pub mod onnx;
 #[path = "../../src/muscriptor.rs"]
 pub mod muscriptor;
 #[path = "../../src/note_groups.rs"]
@@ -91,6 +86,7 @@ pub mod note_groups;
 pub mod note_types;
 #[path = "../../src/octave_adapter.rs"]
 pub mod octave_adapter;
+pub mod onnx;
 pub mod part_analysis;
 #[path = "../../src/parts.rs"]
 pub mod parts;
@@ -102,6 +98,7 @@ pub mod pipeline;
 pub mod pro_keys;
 #[path = "../../src/project_portability.rs"]
 pub mod project_portability;
+mod recognition;
 #[path = "../../src/recording_metadata.rs"]
 pub mod recording_metadata;
 pub mod recording_tags;
@@ -132,18 +129,21 @@ pub mod storage;
 pub mod studio;
 #[path = "../../src/sync_track.rs"]
 pub mod sync_track;
+mod synth;
 #[path = "../../src/tempo_analysis.rs"]
 pub mod tempo_analysis;
 #[path = "../../src/timeline.rs"]
 pub mod timeline;
-pub mod transcription;
 #[path = "../../src/timing.rs"]
 pub mod timing;
+pub mod transcription;
+#[path = "../../src/vocal_alignment.rs"]
+pub mod vocal_alignment;
 #[path = "../../src/vocal_generation.rs"]
 pub mod vocal_generation;
+pub mod vocal_inference;
 #[path = "../../src/vocal_pitch.rs"]
 pub mod vocal_pitch;
-pub mod vocal_inference;
 #[path = "../../src/vocal_review.rs"]
 pub mod vocal_review;
 #[path = "../../src/vocals.rs"]

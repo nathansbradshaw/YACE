@@ -159,7 +159,10 @@ pub fn input(root: &Path) -> Result<Input> {
 }
 pub fn validate(root: &Path) -> Result<(Request, Input)> {
     let (request, input) = validate_saved(root)?;
-    ensure!(!hq(&request), "Higher quality piano separation is currently desktop-only: its checkpoint failed local browser runtime verification. Standard piano and Synth run locally in this browser");
+    ensure!(
+        !hq(&request),
+        "Higher quality piano separation is currently desktop-only: its checkpoint failed local browser runtime verification. Standard piano and Synth run locally in this browser"
+    );
     ensure!(
         input.implementation_sha256 == implementation_hash(),
         "This saved job uses an earlier generator. Its completed results remain available; start a new job to generate with the current engine"
@@ -552,7 +555,10 @@ pub fn project_path(root: &Path) -> PathBuf {
 }
 pub fn create_job(mut request: Request, root: &Path) -> Result<PathBuf> {
     request.validate()?;
-    ensure!(!hq(&request), "Higher quality piano separation is currently desktop-only; choose Standard piano or Synth");
+    ensure!(
+        !hq(&request),
+        "Higher quality piano separation is currently desktop-only; choose Standard piano or Synth"
+    );
     ensure!(
         !crate::storage::exists(root),
         "Choose a new generation job; saved results are preserved"
