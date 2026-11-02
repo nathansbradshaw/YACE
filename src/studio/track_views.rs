@@ -53,7 +53,7 @@ impl View {
         tracks
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 struct Preferences {
     version: u32,
@@ -61,6 +61,7 @@ struct Preferences {
     roll: View,
     collapsed: BTreeSet<String>,
     difficulty: String,
+    layout: super::workspace::Layout,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -70,6 +71,7 @@ impl Default for Preferences {
             roll: View::default(),
             collapsed: Default::default(),
             difficulty: "Expert".into(),
+            layout: Default::default(),
         }
     }
 }
@@ -124,10 +126,11 @@ fn key(studio: Studio) -> Option<Key> {
     }
 }
 fn decode(bytes: &[u8]) -> Result<Preferences, String> {
-    let p: Preferences = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    let mut p: Preferences = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     if p.version != 1 {
         return Err("Unsupported workspace preferences version".into());
     }
+    p.layout = p.layout.normalized();
     Ok(p)
 }
 fn load(key: &Key) -> Result<Preferences, String> {
@@ -224,6 +227,9 @@ fn current(studio: Studio) -> Preferences {
     }
 }
 fn update(studio: Studio, edit: impl FnOnce(&mut Preferences)) {
+    update_inner(studio, true, edit);
+}
+fn update_inner(studio: Studio, persist: bool, edit: impl FnOnce(&mut Preferences)) {
     let Some(key) = key(studio) else {
         return;
     };
@@ -237,14 +243,24 @@ fn update(studio: Studio, edit: impl FnOnce(&mut Preferences)) {
         prefs.difficulty = tier.into();
     }
     edit(&mut prefs);
-    let warning = save(&key, &prefs)
-        .err()
-        .map(|e| format!("View changes are temporary: {e}"));
+    let warning = if persist {
+        save(&key, &prefs)
+            .err()
+            .map(|e| format!("View changes are temporary: {e}"))
+    } else {
+        views.value.peek().warning.clone()
+    };
     views.value.set(Loaded {
         key: Some(key),
         prefs,
         warning,
     });
+}
+pub fn layout(studio: Studio) -> super::workspace::Layout {
+    current(studio).layout.normalized()
+}
+pub fn set_layout(studio: Studio, layout: super::workspace::Layout, persist: bool) {
+    update_inner(studio, persist, |p| p.layout = layout.normalized());
 }
 fn tier(track: &str) -> Option<&str> {
     ["Expert", "Hard", "Medium", "Easy"]
@@ -335,6 +351,7 @@ pub fn Controls(studio: Studio, pane: Pane) -> Element {
             })}span{"{caption}"}}}}
         }}}}
         if let Some(warning)=warning {span{role:"status",class:"track-view-warning","{warning}"}}
+        if pane==Pane::Roll {super::workspace::LayoutControls{studio}}
     }}
 }
 #[component]
@@ -405,6 +422,25 @@ mod tests {
         assert!(decode(br#"{"version":2}"#).is_err());
         assert!(decode(b"bad json").is_err());
         assert_eq!(decode(b"{}").unwrap(), Preferences::default());
+    }
+    #[test]
+    fn layout_preferences_upgrade_existing_views_and_preserve_other_choices() {
+        let old = br#"{"version":1,"preview":{"mode":"all"},"collapsed":["ExpertSingle"],"difficulty":"Hard"}"#;
+        let mut prefs = decode(old).unwrap();
+        assert_eq!(prefs.layout, Default::default());
+        prefs.layout = serde_json::from_str(
+            r#"{"right":32.5,"top":65,"preview_hidden":true,"inspector_hidden":true}"#,
+        )
+        .unwrap();
+        let reopened = decode(&serde_json::to_vec(&prefs).unwrap()).unwrap();
+        assert_eq!(reopened, prefs);
+        assert_eq!(reopened.preview.mode, Mode::All);
+        assert!(reopened.collapsed.contains("ExpertSingle"));
+        assert_eq!(reopened.difficulty, "Hard");
+        let clamped = decode(br#"{"layout":{"right":-10,"top":900}}"#).unwrap();
+        let value = serde_json::to_value(clamped).unwrap();
+        assert_eq!(value["layout"]["right"], 23.);
+        assert_eq!(value["layout"]["top"], 78.);
     }
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
