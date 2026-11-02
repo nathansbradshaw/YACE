@@ -102,6 +102,8 @@ pub mod pro_keys;
 pub mod project_portability;
 #[path = "../../src/project_recording.rs"]
 pub mod project_recording;
+#[path = "../../src/recent_projects.rs"]
+pub mod recent_projects;
 mod recognition;
 #[path = "../../src/recording_metadata.rs"]
 pub mod recording_metadata;

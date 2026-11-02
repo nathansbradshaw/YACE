@@ -6,6 +6,12 @@ Rust project, command validation and recovery history.
 ## Open a project
 
 - **Import audio** generates a new draft from a recording.
+- **Open Recent** on the welcome screen lists your ten most recently opened
+  projects, newest first. Desktop entries reopen the saved editing folder;
+  static-browser entries reopen the copy saved in this browser. The list survives
+  restarting the app. Remove an entry with **×** or use **Clear list** to forget
+  the history; both keep the projects and their saved edits. New browser imports
+  appear after their first successful autosave.
 - On desktop, **Open charting folder** accepts a song, a saved project, or an
   entire collection. YACE searches up to three folders below the chosen folder.
   Pick a chart from the welcome list or the **Charts** selector beside the song
