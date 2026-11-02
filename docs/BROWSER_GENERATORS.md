@@ -186,6 +186,24 @@ the matching vocal stem. Its actual downloaded archive passed all CRC checks;
 the receipt retained 132,300 stereo frames at 44.1 kHz in vocal-only mode. This
 exposed and fixed a download-adapter bug for browser-backed Blob archives.
 
+## Optional local drum-kit isolation
+
+The actual browser split a real three-second drum source and the complete
+243.880-second song into kick, snare, toms, hi-hat and cymbals using the five
+checksum-pinned local LarsNet files. The operating system's folder picker
+selected the existing models; no weights or recording were uploaded. The
+browser shares the native Rust FFT, mask validation and reconstruction and
+releases each ONNX session before loading the next.
+
+All five whole-song outputs retain 10,755,108 stereo frames at 44.1 kHz. Against
+native inference on the identical source PCM, the maximum sample difference
+was 0.000000656 and the largest RMS difference was 0.0000000138. These are bounded
+runtime differences, not an assertion that a component identifies every real
+instrument correctly. The actual project backup includes all five float WAVs,
+their receipt and editing history, and passed ZIP CRC checks. The native
+comparison is an explicit ignored test in `tests/larsnet.rs` requiring the real
+browser outputs and local models.
+
 ## Limits and release gates
 
 - The optional 705 MB HQ Piano checkpoint failed actual local inference with

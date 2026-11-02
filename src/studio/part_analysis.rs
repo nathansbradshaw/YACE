@@ -283,6 +283,10 @@ fn split_kit(studio: Studio, mut kit: KitUi) {
             };
             crate::files::mount(&mounted, files)?;
             let model_dir = crate::files::imported_root(&mounted)?;
+            for (part,_) in crate::larsnet::MODELS {
+                anyhow::ensure!(crate::storage::is_file(model_dir.join(format!("{part}.onnx"))),
+                    "Missing optional LarsNet model: {part}.onnx. Choose the folder containing all five ONNX files.");
+            }
             anyhow::ensure!(
                 kit_key(studio).as_ref() == Some(&key),
                 "Drum source changed while selecting models"
