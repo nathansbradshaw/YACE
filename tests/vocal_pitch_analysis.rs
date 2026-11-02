@@ -319,6 +319,106 @@ fn comparison_refinement_preserves_every_voicing_bit_and_raw_detector_alternativ
 }
 
 #[test]
+fn checking_another_phrase_keeps_prior_corrected_notes_flagged() {
+    let temp = tempfile::tempdir().unwrap();
+    let (store, generation) = setup(temp.path());
+    let original = store.load().unwrap();
+    let timing = original.timing(&store).unwrap();
+    let first = analysis::propose(&original, &timing, &generation, None).unwrap();
+    apply(&store, Action::SetVocalPitchAnalysis { analysis: first }).unwrap();
+    apply(&store, Action::ApplyVocalPitchCorrections).unwrap();
+    let corrected = store.load().unwrap();
+    let mut next = analysis::propose(
+        &corrected,
+        &timing,
+        &generation,
+        Some(TimeRange {
+            start: 1.5,
+            end: 2.,
+        }),
+    )
+    .unwrap();
+    next.retained_evidence.push(vg::NoteEvidence {
+        start: 1440,
+        end: 1920,
+        selected_midi: 64,
+        alternatives: vec![65],
+        support: vec![PitchSupport::ContourPath],
+        uncertain: true,
+        reasons: vec!["Untrusted worker witness".into()],
+    });
+    apply(&store, Action::SetVocalPitchAnalysis { analysis: next }).unwrap();
+    let checked = store.load().unwrap();
+    assert_eq!(checked.content.vocals, corrected.content.vocals);
+    let note = &checked.content.vocals.as_ref().unwrap().notes[0];
+    let evidence = analysis::current_evidence(&checked, &timing, note)
+        .expect("A later check must not erase an applied pitch's review evidence");
+    assert!(evidence.uncertain);
+    assert_eq!(evidence.selected_midi, 57);
+    assert_eq!(evidence.alternatives, vec![60]);
+    assert!(
+        analysis::current_evidence(
+            &checked,
+            &timing,
+            &checked.content.vocals.as_ref().unwrap().notes[1]
+        )
+        .is_none()
+    );
+    assert_eq!(
+        checked
+            .content
+            .vocal_pitch_analysis
+            .as_ref()
+            .unwrap()
+            .retained_evidence
+            .len(),
+        1
+    );
+    let next = analysis::propose(
+        &checked,
+        &timing,
+        &generation,
+        Some(TimeRange {
+            start: 1.5,
+            end: 2.,
+        }),
+    )
+    .unwrap();
+    apply(&store, Action::SetVocalPitchAnalysis { analysis: next }).unwrap();
+    let checked = store.load().unwrap();
+    assert_eq!(
+        checked
+            .content
+            .vocal_pitch_analysis
+            .as_ref()
+            .unwrap()
+            .retained_evidence
+            .len(),
+        1
+    );
+    let mut changed = checked.clone();
+    changed.audio_sha256 = "0".repeat(64);
+    assert!(
+        analysis::current_evidence(
+            &changed,
+            &timing,
+            &changed.content.vocals.as_ref().unwrap().notes[0]
+        )
+        .is_none()
+    );
+    changed = checked.clone();
+    changed.content.vocals.as_mut().unwrap().notes[0].tone = VocalTone::Pitched { midi: 59 };
+    assert!(
+        analysis::current_evidence(
+            &changed,
+            &timing,
+            &changed.content.vocals.as_ref().unwrap().notes[0]
+        )
+        .is_none()
+    );
+}
+
+#[test]
 fn model_identity_clock_and_nonfinite_evidence_are_explicit_errors() {
     let temp = tempfile::tempdir().unwrap();
     let (store, generation) = setup(temp.path());
