@@ -213,6 +213,15 @@ retained the existing kit.
 
 ## Limits and release gates
 
+The later v8 acoustic update was exercised in the actual browser on the real
+three-second singing excerpt using **High accuracy (experimental)**. Its frozen
+policy retained that mode, two vocal notes, two source-bound note-evidence
+records and seven review issues. The status remains `review_required`; the
+mode's name is not a measured quality claim. The draft opened on the vocal
+timeline, all seven audio sources reached the exact end, and its downloaded
+song archive passed CRC checks. Browser job fingerprints include the extracted
+acoustic implementation so a later change cannot silently resume an older job.
+
 - The optional 705 MB HQ Piano checkpoint failed actual local inference with
   optimized/unoptimized CPU graphs, reduced arena allocation and the WebGPU
   provider. It is disabled in the browser under the user's inference exception;
