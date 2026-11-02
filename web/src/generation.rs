@@ -417,6 +417,7 @@ pub async fn run_stage(
                 &isolation(root)?,
                 &request.timing()?,
                 request.vocal_language,
+                request.vocal_analysis_mode,
                 Some(&root.join("vocals/recognition.json")),
                 input.lyrics.as_ref(),
                 progress,
@@ -499,8 +500,9 @@ pub async fn run_stage(
                     serde_json::from_slice(&crate::storage::read(&vocal_path)?)?;
                 ensure!(
                     report.audio_sha256 == input.audio_sha256
-                        && report.timing.as_ref() == Some(&timing),
-                    "Saved vocal draft does not match the frozen source or timing"
+                        && report.timing.as_ref() == Some(&timing)
+                        && report.policy.analysis_mode == request.vocal_analysis_mode,
+                    "Saved vocal draft does not match the frozen source, timing or analysis mode"
                 );
                 write_json(
                     &crate::song_layout::path(&song, "chart-engine-vocal-generation.json"),

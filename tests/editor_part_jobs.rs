@@ -33,6 +33,7 @@ fn request(store: &Store, instrument: &str) -> Request {
         keyboard_sound: Default::default(),
         piano_quality: Default::default(),
         vocal_language: Default::default(),
+        vocal_analysis_mode: Default::default(),
         fetch_models: false,
         full_mix_drums: instrument == "drums",
         standard_drums: false,

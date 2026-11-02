@@ -13,6 +13,15 @@ Pitch estimates and recognized lyrics are separate. A note can keep its pitch
 while its word remains unknown. Review those gaps rather than assuming the
 draft contains every sung word.
 
+Choose **Standard** or **High accuracy (experimental)** for vocal analysis.
+The experimental mode fixes acoustic note boundaries before attaching words and
+retains supported uncertain pitches as amber draft notes. The note inspector
+shows their evidence and alternative detector pitches. Failed optional lyric
+recognition leaves the pitch draft available with a warning.
+
+See [vocal accuracy and research](VOCAL_ACCURACY.md) for model comparisons,
+English/Spanish research commands and the benchmark required before promotion.
+
 Supplied-lyrics acoustic alignment is English-only. Unsupported or unclear words
 can remain untimed. Model downloads run locally and have separate licenses;
 see [THIRD_PARTY.md](../THIRD_PARTY.md).

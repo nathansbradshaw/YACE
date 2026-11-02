@@ -1177,6 +1177,10 @@ fn run_inner(root: &Path) -> Result<()> {
             );
             let result: crate::vocal_generation::Generation =
                 serde_json::from_slice(&fs::read(vocal_dir.join("generation.json"))?)?;
+            ensure!(
+                result.policy.analysis_mode == request.vocal_analysis_mode,
+                "Saved vocals use a different analysis mode; retain them and start a new generation job"
+            );
             let events = read_events(root, &fs::read(&events_path)?)?;
             let isolation = events
                 .isolation
@@ -1231,6 +1235,7 @@ fn run_inner(root: &Path) -> Result<()> {
             });
             crate::vocal_workflow::generate(
                 crate::vocal_workflow::Request {
+                    analysis_mode: request.vocal_analysis_mode,
                     audio: &audio,
                     manifest: &root.join("isolation.json"),
                     timing: &timing,
@@ -1613,6 +1618,7 @@ mod vocal_cache_tests {
             .find(|asset| asset.id == "pitch")
             .unwrap();
         Generation {
+            note_evidence: vec![],
             version: 1,
             audio_sha256: "a".repeat(64),
             vocal_stem_sha256: "b".repeat(64),

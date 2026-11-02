@@ -181,6 +181,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut requested =
         use_signal(|| vec!["guitar".to_owned(), "bass".to_owned(), "drums".to_owned()]);
     let mut language = use_signal(|| crate::lyric_language::Language::English);
+    let mut vocal_mode = use_signal(crate::vocal_generation::AnalysisMode::default);
     let mut keyboard_sound = use_signal(|| crate::keyboard_detection::KeyboardSound::Piano);
     let mut piano_quality = use_signal(|| crate::keyboard_detection::PianoQuality::Standard);
     let mut standard_drums = use_signal(|| false);
@@ -255,6 +256,10 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         match result{Ok(Some(lyrics))=>supplied_lyrics.set(Some(lyrics)),Ok(None)=>{},Err(failure)=>error.set(Some(format!("{failure:#}")))}
                     });},"Use supplied lyrics…"}
                     if let Some(lyrics)=supplied_lyrics(){p{"Supplied lyrics: {lyrics.source}"}button{disabled:busy(),onclick:move |_|supplied_lyrics.set(None),"Clear supplied lyrics"}}
+                    label{"Vocal analysis"
+                        select{aria_label:"Vocal analysis",disabled:busy(),value:if vocal_mode()==crate::vocal_generation::AnalysisMode::Standard{"standard"}else{"high"},onchange:move|e|vocal_mode.set(if e.value()=="high"{crate::vocal_generation::AnalysisMode::HighAccuracy}else{crate::vocal_generation::AnalysisMode::Standard}),option{value:"standard","Standard"}option{value:"high","High accuracy (experimental)"}}
+                        if vocal_mode()==crate::vocal_generation::AnalysisMode::HighAccuracy{p{class:"field-hint","Experimental: extra pitches can be wrong. Review amber notes before export."}}
+                    }
                     label{"Lyric language"
                         select{aria_label:"Lyric language",disabled:busy(),value:match language(){crate::lyric_language::Language::English=>"en",crate::lyric_language::Language::Spanish=>"es",crate::lyric_language::Language::Auto=>"auto"},onchange:move|event|language.set(match event.value().as_str(){"es"=>crate::lyric_language::Language::Spanish,"auto"=>crate::lyric_language::Language::Auto,_=>crate::lyric_language::Language::English}),
                             option{value:"en","English"}option{value:"es","Spanish"}option{value:"auto","Detect language"}
@@ -294,7 +299,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                             let store=(studio.store)().context("Open a source chart first")?;let doc=studio.snapshot().context("Open a source chart first")?;let timing=doc.timing(&store)?;
                             let metadata=crate::pipeline::Metadata{name:studio.metadata_value("name"),artist:studio.metadata_value("artist"),album:studio.metadata_value("album"),year:studio.metadata_value("year"),genre:studio.metadata_value("genre"),duration:doc.duration};
                             let full_mix=full_mix_drums()&&instruments.iter().all(|part|part=="drums");
-                            let request=generation::Request{source:generation::Source::Audio{path:store.audio_path(&doc)?},bpm:timing.tempos[0].bpm,tempo_map:Some(timing),title:metadata.name.clone(),artist:metadata.artist.clone(),instruments,guitar_source:store.guitar_source(&doc)?,keyboard_sound:keyboard_sound(),piano_quality:piano_quality(),vocal_language:language(),model_dir:"/models".into(),fetch_models:true,full_mix_drums:full_mix,standard_drums:standard_drums(),lyrics:false,song_info:None};
+                            let request=generation::Request{source:generation::Source::Audio{path:store.audio_path(&doc)?},bpm:timing.tempos[0].bpm,tempo_map:Some(timing),title:metadata.name.clone(),artist:metadata.artist.clone(),instruments,guitar_source:store.guitar_source(&doc)?,keyboard_sound:keyboard_sound(),piano_quality:piano_quality(),vocal_language:language(),vocal_analysis_mode:vocal_mode(),model_dir:"/models".into(),fetch_models:true,full_mix_drums:full_mix,standard_drums:standard_drums(),lyrics:false,song_info:None};
                             let root=PathBuf::from(format!("/generation-jobs/{}",crate::storage::unique_id()));
                             let created=async{
                             if let Some(track)=(studio.generation_target)(){let target=crate::parts::Target::capture(&store,&doc,&track)?;crate::parts::create_job(request,&root,&target)?;}else{generation::create_job(request,&root)?;}

@@ -401,6 +401,7 @@ fn vocal_fixture(root: &Path) -> Store {
 fn vocal_report(store: &Store) -> chart_engine::vocal_generation::Generation {
     use chart_engine::{vocal_generation as vg, vocals::*};
     vg::Generation {
+        note_evidence: vec![],
         version: 1,
         audio_sha256: store.load().unwrap().audio_sha256,
         vocal_stem_sha256: "b".repeat(64),
@@ -488,6 +489,46 @@ fn vocal_report(store: &Store) -> chart_engine::vocal_generation::Generation {
         warnings: vec![],
     }
 }
+#[test]
+fn per_note_vocal_evidence_requires_current_source_tempo_and_pitch() {
+    use chart_engine::{
+        vocal_generation::{NoteEvidence, PitchSupport},
+        vocal_review::VocalReviewMap,
+        vocals::VocalTone,
+    };
+    let temp = tempfile::tempdir().unwrap();
+    let store = vocal_fixture(temp.path());
+    let mut report = vocal_report(&store);
+    let note = report.chart.as_ref().unwrap().notes[0].clone();
+    let VocalTone::Pitched { midi } = note.tone else {
+        panic!("Expected pitched fixture")
+    };
+    report.note_evidence.push(NoteEvidence {
+        start: note.start,
+        end: note.end,
+        selected_midi: midi,
+        alternatives: vec![midi + 12],
+        support: vec![PitchSupport::AnchoredYin],
+        uncertain: true,
+        reasons: vec!["Synthetic detector disagreement".into()],
+    });
+    let review = VocalReviewMap::from_generation(&report).unwrap();
+    let mut doc = store.load().unwrap();
+    let timing = doc.timing(&store).unwrap();
+    assert!(review.evidence_for(&doc, &timing, &note).unwrap().uncertain);
+    let mut moved = note.clone();
+    moved.start += 1;
+    assert!(review.evidence_for(&doc, &timing, &moved).is_none());
+    let mut retuned = note.clone();
+    retuned.tone = VocalTone::Pitched { midi: midi + 1 };
+    assert!(review.evidence_for(&doc, &timing, &retuned).is_none());
+    let mut shifted = timing.clone();
+    shifted.offset += 0.25;
+    assert!(review.evidence_for(&doc, &shifted, &note).is_none());
+    doc.audio_sha256 = "f".repeat(64);
+    assert!(review.evidence_for(&doc, &timing, &note).is_none());
+}
+
 fn install_vocal_report(store: &Store, report: &chart_engine::vocal_generation::Generation) {
     command(
         store,

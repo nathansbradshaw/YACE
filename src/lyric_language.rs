@@ -2,6 +2,17 @@
 use crate::models::ModelAsset;
 use serde::{Deserialize, Serialize};
 
+/// Research profiles remain independent of the production analysis mode.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(not(target_arch = "wasm32"), derive(clap::ValueEnum))]
+#[serde(rename_all = "snake_case")]
+pub enum RecognitionProfile {
+    #[default]
+    Small,
+    LargeV3,
+    LargeV3Turbo,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(not(target_arch = "wasm32"), derive(clap::ValueEnum))]
 #[serde(rename_all = "snake_case")]
@@ -13,6 +24,32 @@ pub enum Language {
 }
 
 impl Language {
+    pub fn research_asset(self, profile: RecognitionProfile) -> ModelAsset {
+        let (id, filename, sha256) = match profile {
+            RecognitionProfile::Small => return self.asset(),
+            RecognitionProfile::LargeV3 => (
+                "lyrics-large-v3",
+                "ggml-large-v3-q5_0.bin",
+                "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
+            ),
+            RecognitionProfile::LargeV3Turbo => (
+                "lyrics-large-v3-turbo",
+                "ggml-large-v3-turbo-q5_0.bin",
+                "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+            ),
+        };
+        ModelAsset {
+            id: id.into(),
+            filename: filename.into(),
+            sha256: sha256.into(),
+            url: format!(
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/{filename}"
+            ),
+            license:
+                "MIT; OpenAI Whisper weights converted/quantized by whisper.cpp; research only"
+                    .into(),
+        }
+    }
     pub fn code(self) -> Option<&'static str> {
         match self {
             Self::Auto => None,

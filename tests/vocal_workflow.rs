@@ -55,6 +55,7 @@ fn source_bound_model_free_workflow_is_atomic_and_can_export_game_vocals_without
     let run = || {
         vocal_workflow::generate(
             vocal_workflow::Request {
+                analysis_mode: Default::default(),
                 audio: &audio,
                 manifest: &path,
                 timing: &map,
@@ -71,6 +72,31 @@ fn source_bound_model_free_workflow_is_atomic_and_can_export_game_vocals_without
         )
     };
     let generated = run().unwrap();
+    let without_recognition = vocal_workflow::generate(
+        vocal_workflow::Request {
+            analysis_mode: chart_engine::vocal_generation::AnalysisMode::HighAccuracy,
+            audio: &audio,
+            manifest: &path,
+            timing: &map,
+            words: None,
+            lyrics: None,
+            recognize: true,
+            language: chart_engine::lyric_language::Language::Spanish,
+            neural_pitch: false,
+            model_dir: &missing_models,
+            download_model: false,
+        },
+        &temp.path().join("recognition-unavailable"),
+        Arc::default(),
+    )
+    .unwrap();
+    assert!(without_recognition.chart.is_some());
+    assert!(
+        without_recognition
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Optional lyric recognition unavailable"))
+    );
     assert_eq!(generated.status, Status::ReviewRequired);
     assert!(generated.chart.is_some());
     assert!(output.join("vocals.mid").exists());
@@ -85,6 +111,7 @@ fn source_bound_model_free_workflow_is_atomic_and_can_export_game_vocals_without
     assert!(
         vocal_workflow::generate(
             vocal_workflow::Request {
+                analysis_mode: Default::default(),
                 audio: &audio,
                 manifest: &path,
                 timing: &map,
@@ -122,6 +149,7 @@ fn source_bound_model_free_workflow_is_atomic_and_can_export_game_vocals_without
     let revision = store.load().unwrap().revision;
     let result = vocal_workflow::generate_project(
         vocal_workflow::ProjectRequest {
+            analysis_mode: Default::default(),
             project: &store.root,
             model_dir: &missing_models,
             recognize: false,

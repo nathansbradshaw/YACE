@@ -475,6 +475,8 @@ enum VocalCommand {
     /// Generate a retained vocal proposal for an existing editor project.
     GenerateProject {
         project: PathBuf,
+        #[arg(long, value_enum, default_value = "standard")]
+        analysis_mode: chart_engine::vocal_generation::AnalysisMode,
         #[arg(long)]
         recognize: bool,
         #[arg(long, value_enum, default_value = "auto")]
@@ -516,6 +518,8 @@ enum VocalCommand {
         /// Optional independent local pitch-model evidence; also works with supplied words.
         #[arg(long)]
         neural_pitch: bool,
+        #[arg(long, value_enum, default_value = "standard")]
+        analysis_mode: chart_engine::vocal_generation::AnalysisMode,
         #[arg(long)]
         model_dir: Option<PathBuf>,
         #[arg(long)]
@@ -1106,6 +1110,7 @@ fn main() -> Result<()> {
                 )?;
             }
             VocalCommand::GenerateProject {
+                analysis_mode,
                 project,
                 recognize,
                 language,
@@ -1118,6 +1123,7 @@ fn main() -> Result<()> {
                     model_dir.unwrap_or_else(chart_engine::generation::default_model_dir);
                 print(&chart_engine::vocal_workflow::generate_project(
                     chart_engine::vocal_workflow::ProjectRequest {
+                        analysis_mode,
                         project: &project,
                         model_dir: &model_dir,
                         recognize,
@@ -1134,6 +1140,7 @@ fn main() -> Result<()> {
                 )?)?;
             }
             VocalCommand::Generate {
+                analysis_mode,
                 audio,
                 stem_manifest,
                 chart,
@@ -1179,6 +1186,7 @@ fn main() -> Result<()> {
                 let models = model_dir.unwrap_or_else(chart_engine::generation::default_model_dir);
                 let result = chart_engine::vocal_workflow::generate(
                     chart_engine::vocal_workflow::Request {
+                        analysis_mode,
                         audio: &audio,
                         manifest: &stem_manifest,
                         timing: &timing,
