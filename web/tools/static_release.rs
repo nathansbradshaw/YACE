@@ -38,6 +38,20 @@ impl Drop for Staging {
 }
 
 pub fn stage(source: &Path, target: &Path, revision: &str) -> Result<PathBuf> {
+    stage_bundle(source, target, revision, false)
+}
+
+/// Reuse only a byte-identical retained runtime; existing release URLs stay intact.
+pub fn stage_reusing_runtime(source: &Path, target: &Path, revision: &str) -> Result<PathBuf> {
+    stage_bundle(source, target, revision, true)
+}
+
+fn stage_bundle(
+    source: &Path,
+    target: &Path,
+    revision: &str,
+    reuse_runtime: bool,
+) -> Result<PathBuf> {
     if revision.len() != 40
         || !revision
             .bytes()
@@ -64,6 +78,29 @@ pub fn stage(source: &Path, target: &Path, revision: &str) -> Result<PathBuf> {
             return Err(format!("Static asset exceeds 25 MiB: {}", path.display()).into());
         }
     }
+    let mut expected = original.clone();
+    let rewritten = if reuse_runtime {
+        let runtime = snapshot(&source.join("runtime"))?;
+        if !runtime.contains_key(Path::new("ort.wasm.min.mjs"))
+            || runtime != snapshot(&target.join("runtime"))?
+        {
+            return Err("The retained root runtime differs; use a complete release instead".into());
+        }
+        let module = fs::read_to_string(source.join("yace_web.js"))?;
+        let import = "from './runtime/ort.wasm.min.mjs';";
+        if module.matches(import).count() != 1 {
+            return Err("Expected exactly one generated inference runtime import".into());
+        }
+        let module = module.replace(import, "from '../../runtime/ort.wasm.min.mjs';");
+        expected.retain(|path, _| !path.starts_with("runtime"));
+        expected.insert(
+            PathBuf::from("yace_web.js"),
+            Sha256::digest(module.as_bytes()).to_vec(),
+        );
+        Some(module)
+    } else {
+        None
+    };
     fs::create_dir_all(target)?;
     let source_path = source.canonicalize()?;
     let target_path = target.canonicalize()?;
@@ -74,7 +111,7 @@ pub fn stage(source: &Path, target: &Path, revision: &str) -> Result<PathBuf> {
     fs::create_dir_all(&releases)?;
     let release = releases.join(revision);
     if release.exists() {
-        if snapshot(&release)? != original {
+        if snapshot(&release)? != expected {
             return Err("A different artifact already uses this source revision; immutable releases cannot be overwritten".into());
         }
     } else {
@@ -93,6 +130,15 @@ pub fn stage(source: &Path, target: &Path, revision: &str) -> Result<PathBuf> {
         copy_source(source, &staging.0)?;
         if snapshot(&staging.0)? != original {
             return Err("Static files changed during release staging".into());
+        }
+        if let Some(module) = &rewritten {
+            fs::write(staging.0.join("yace_web.js"), module)?;
+            fs::remove_dir_all(staging.0.join("runtime"))?;
+            if snapshot(&staging.0)? != expected
+                || snapshot(&source.join("runtime"))? != snapshot(&target.join("runtime"))?
+            {
+                return Err("Static files changed while reusing the retained runtime".into());
+            }
         }
         fs::rename(&staging.0, &release)?;
     }
@@ -181,6 +227,44 @@ mod tests {
         assert!(stage(&source, &host, "../bad").is_err());
         fs::remove_file(source.join("worker.js")).unwrap();
         assert!(stage(&source, &host, &"d".repeat(40)).is_err());
+        assert_eq!(snapshot(&host).unwrap(), before);
+    }
+
+    #[test]
+    fn compact_release_reuses_only_identical_runtime_without_changing_old_engines() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let host = temp.path().join("host");
+        bundle(&source, "new engine");
+        bundle(&host, "legacy engine");
+        fs::write(
+            source.join("yace_web.js"),
+            "import { env } from './runtime/ort.wasm.min.mjs';",
+        )
+        .unwrap();
+        fs::write(host.join("runtime/engine.wasm"), "new engine").unwrap();
+        fs::write(source.join("runtime/ort.wasm.min.mjs"), "shared runtime").unwrap();
+        fs::write(host.join("runtime/ort.wasm.min.mjs"), "shared runtime").unwrap();
+        let retained = snapshot(&host.join("runtime")).unwrap();
+        let revision = "e".repeat(40);
+        let release = stage_reusing_runtime(&source, &host, &revision).unwrap();
+        assert!(!release.join("runtime").exists());
+        assert!(
+            fs::read_to_string(release.join("yace_web.js"))
+                .unwrap()
+                .contains("../../runtime/ort.wasm.min.mjs")
+        );
+        assert_eq!(snapshot(&host.join("runtime")).unwrap(), retained);
+        assert_eq!(fs::read(host.join("worker.js")).unwrap(), b"legacy engine");
+        assert_eq!(
+            fs::read(release.join("yace_web_bg.wasm")).unwrap(),
+            b"new engine"
+        );
+        let before = snapshot(&host).unwrap();
+        stage_reusing_runtime(&source, &host, &revision).unwrap();
+        assert_eq!(snapshot(&host).unwrap(), before);
+        fs::write(source.join("runtime/engine.wasm"), "changed runtime").unwrap();
+        assert!(stage_reusing_runtime(&source, &host, &"f".repeat(40)).is_err());
         assert_eq!(snapshot(&host).unwrap(), before);
     }
 }

@@ -28,6 +28,11 @@ the custom-domain application and the feature's actual browser workflow.
    `dist/releases/SOURCE_SHA/` and updates the root entry point and build info.
    Preserve earlier release directories and the original root assets; do not
    replace the hosting directory with a flat `rsync --delete` copy.
+   If the retained root `runtime/` is byte-identical to the new bundle, add
+   `--reuse-root-runtime` to avoid another copy of those inference binaries.
+   Staging verifies every runtime file before changing the new generated
+   module's relative import; earlier modules and runtime bytes stay untouched.
+   A changed runtime is rejected in this mode and needs a complete release.
 4. Use the Sites source workflow to commit/push that exact state and package it.
    Save the returned commit/archive as a Site version, then deploy that version
    with the public deployment operation. Keep credentials in memory and pass
