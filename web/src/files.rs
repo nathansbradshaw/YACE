@@ -214,9 +214,7 @@ pub fn archive(root: &Path) -> Result<Vec<u8>> {
         .into_iter()
         .map(|(path, bytes)| {
             Ok((
-                path.strip_prefix(root)?
-                    .to_string_lossy()
-                    .replace('\\', "/"),
+                crate::archive_codec::relative_name(path.strip_prefix(root)?)?,
                 bytes,
             ))
         })
@@ -231,12 +229,7 @@ pub fn archive_blob(root: &Path) -> Result<web_sys::Blob> {
     let files = crate::storage::list(root)?;
     let names = files
         .iter()
-        .map(|(path, _)| {
-            Ok(path
-                .strip_prefix(root)?
-                .to_string_lossy()
-                .replace('\\', "/"))
-        })
+        .map(|(path, _)| crate::archive_codec::relative_name(path.strip_prefix(root)?))
         .collect::<Result<Vec<_>>>()?;
     crate::archive_codec::encode_into(
         names
