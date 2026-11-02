@@ -671,7 +671,7 @@ fn transport_clock_loops_without_persisting_each_frame_and_serialization_is_stri
 }
 
 #[test]
-fn practice_rate_commands_pause_reanchor_and_reject_invalid_values_atomically() {
+fn practice_rate_commands_preserve_play_state_and_reject_invalid_values_atomically() {
     let root = tempfile::tempdir().unwrap();
     let store = fixture(root.path());
     command(&store, Action::Seek { seconds: 1.5 });
@@ -680,6 +680,19 @@ fn practice_rate_commands_pause_reanchor_and_reject_invalid_values_atomically() 
     assert_eq!(doc.transport.playback_rate, 0.75);
     assert!(!doc.transport.playing);
     assert_eq!(doc.transport.position, 1.5);
+    command(&store, Action::Playback { playing: true });
+    let playing = store.load().unwrap();
+    command(&store, Action::SetPlaybackRate { rate: 1.25 });
+    let doc = store.load().unwrap();
+    assert_eq!(doc.transport.playback_rate, 1.25);
+    assert!(doc.transport.playing);
+    assert!(doc.transport.position >= playing.transport.position);
+    assert!(
+        doc.transport.position
+            <= playing
+                .transport
+                .position_at(doc.transport.anchor_ms, doc.duration)
+    );
     let previous = fs::read(store.root.join("project.json")).unwrap();
     assert!(
         store
