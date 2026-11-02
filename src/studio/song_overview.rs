@@ -330,7 +330,7 @@ mod tests {
             let slot = use_context::<Slot>();
             let root = use_context::<PathBuf>();
             use_hook(move || {
-                let store = Store::new(root);
+                let store = Store::new(&root);
                 let project = store.load().unwrap();
                 studio.timing.set(Some(project.timing(&store).unwrap()));
                 studio.doc.set(Some(Arc::new(project)));
