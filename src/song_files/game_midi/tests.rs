@@ -465,6 +465,46 @@ fn meter_edit_retains_exact_microsecond_tempos_and_source_meter_counters() {
 }
 
 #[test]
+fn offset_only_edit_keeps_every_midi_byte_and_reopens_with_one_ini_delay() {
+    let original = fixture();
+    for offset in [0.25, -0.125] {
+        let root = tempfile::tempdir().unwrap();
+        let store = store(root.path(), &original, 75);
+        let before = store.load().unwrap();
+        apply(
+            &store,
+            Action::EditSync {
+                edit: sync_track::Edit::SetOffset {
+                    previous: 0.075,
+                    seconds: offset,
+                },
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&store.load().unwrap().content.tracks).unwrap(),
+            serde_json::to_value(&before.content.tracks).unwrap()
+        );
+        let output = root.path().join("export");
+        assert_eq!(export(&store, &output), original);
+        assert_eq!(
+            crate::song_metadata::ini_fields(&fs::read_to_string(output.join("song.ini")).unwrap())
+                ["delay"],
+            ((offset * 1000.) as i32).to_string()
+        );
+        let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+        assert_eq!(
+            reopened.load().unwrap().timing(&reopened).unwrap(),
+            store.load().unwrap().timing(&store).unwrap()
+        );
+        apply(&store, Action::Undo).unwrap();
+        assert_eq!(store.load().unwrap().timing(&store).unwrap().offset, 0.075);
+        apply(&store, Action::Redo).unwrap();
+        assert_eq!(store.load().unwrap().timing(&store).unwrap().offset, offset);
+    }
+}
+
+#[test]
 fn shared_star_power_edits_apply_to_all_difficulties_in_one_undo_step() {
     let original = fixture();
     let root = tempfile::tempdir().unwrap();

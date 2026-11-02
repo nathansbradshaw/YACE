@@ -1,4 +1,4 @@
-//! Editable tempo and meter events; the source resolution and offset stay fixed.
+//! Editable tempo, meter and recording offset; chart ticks stay fixed.
 use crate::{
     chart::Chart,
     editor::Project,
@@ -9,6 +9,9 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 #[path = "sync_track/anchors.rs"]
 pub mod anchors;
+#[cfg(test)]
+#[path = "sync_track/offset_tests.rs"]
+mod offset_tests;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -22,6 +25,9 @@ pub struct Meter {
 pub struct SyncTrack {
     pub tempos: Vec<Tempo>,
     pub meters: Vec<Meter>,
+    /// None retains the immutable source's offset, including legacy projects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_vocal_review: Option<VocalReviewMap>,
 }
@@ -68,6 +74,7 @@ pub fn imported(chart: &Chart) -> Result<SyncTrack> {
     let result = SyncTrack {
         tempos: chart.timing.tempos.clone(),
         meters,
+        offset: None,
         archived_vocal_review: None,
     };
     result.validate(&chart.timing)?;
@@ -82,7 +89,14 @@ impl SyncTrack {
                 && self.tempos.windows(2).all(|p| p[0].tick < p[1].tick),
             "Keep one tempo at tick 0 and unique tempos in time order"
         );
-        let timing = TempoMap::new(source.resolution, source.offset, self.tempos.clone())?;
+        if let Some(offset) = self.offset {
+            validate_offset(offset)?;
+        }
+        let timing = TempoMap::new(
+            source.resolution,
+            self.offset.unwrap_or(source.offset),
+            self.tempos.clone(),
+        )?;
         ensure!(
             self.tempos
                 .iter()
@@ -109,6 +123,18 @@ impl SyncTrack {
         Ok(timing)
     }
 }
+/// Edits use exact game-compatible milliseconds. Imported source offsets may
+/// retain finer precision until the user explicitly replaces them.
+pub fn validate_offset(seconds: f64) -> Result<()> {
+    let millis = seconds * 1000.;
+    ensure!(
+        millis.is_finite()
+            && millis.abs() <= i32::MAX as f64
+            && (millis - millis.round()).abs() < 0.000001,
+        "Use a whole number of milliseconds from -2147483647 to 2147483647"
+    );
+    Ok(())
+}
 pub fn effective(project: &Project, source: &TempoMap) -> Result<TempoMap> {
     project
         .content
@@ -119,6 +145,10 @@ pub fn effective(project: &Project, source: &TempoMap) -> Result<TempoMap> {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Edit {
+    SetOffset {
+        previous: f64,
+        seconds: f64,
+    },
     PutTempo {
         previous: Option<Tempo>,
         tempo: Tempo,
@@ -142,6 +172,15 @@ pub fn apply(project: &mut Project, source: &Chart, edit: &Edit) -> Result<()> {
         .clone()
         .map_or_else(|| imported(source), Ok)?;
     let tick = match edit {
+        Edit::SetOffset { previous, seconds } => {
+            ensure!(
+                *previous == before.offset,
+                "The offset changed. Open timing again."
+            );
+            validate_offset(*seconds)?;
+            sync.offset = (*seconds != source.timing.offset).then_some(*seconds);
+            0
+        }
         Edit::PutTempo { previous, tempo } => {
             if let Some(previous) = previous {
                 ensure!(
@@ -203,7 +242,8 @@ pub fn apply(project: &mut Project, source: &Chart, edit: &Edit) -> Result<()> {
     anchors::constrain(&mut sync.tempos, source, edit)?;
     let timing = sync.validate(&source.timing)?;
     ensure!(
-        timing.seconds(tick).is_finite() && timing.seconds(tick) <= project.duration,
+        timing.seconds(tick).is_finite()
+            && (!project.has_recording() || timing.seconds(tick) <= project.duration),
         "Timing marker starts beyond the recording"
     );
     if before != timing
@@ -219,6 +259,11 @@ pub fn render(text: String, sync: &Option<SyncTrack>) -> Result<String> {
     let chart = Chart::parse(text)?;
     let clock = sync.validate(&chart.timing)?;
     anchors::validate(&anchors::from_chart(&chart)?, &clock)?;
+    // An offset-only edit must not canonicalize fine-precision BPM, unpaired
+    // anchors, comments or other timing rows in an imported chart.
+    if sync.tempos == chart.timing.tempos && sync.meters == imported(&chart)?.meters {
+        return Ok(crate::song_files::timing::with_offset(chart, clock.offset)?.raw);
+    }
     let newline = if chart.raw.contains("\r\n") {
         "\r\n"
     } else {
@@ -277,7 +322,7 @@ pub fn render(text: String, sync: &Option<SyncTrack>) -> Result<String> {
             "{newline}[SyncTrack]{newline}{{{newline}{lines}}}{newline}"
         ));
     }
-    Ok(output)
+    Ok(crate::song_files::timing::with_offset(Chart::parse(output)?, clock.offset)?.raw)
 }
 
 #[derive(Clone, Debug)]

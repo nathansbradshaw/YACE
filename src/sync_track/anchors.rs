@@ -95,7 +95,7 @@ pub fn constrain(tempos: &mut Vec<Tempo>, source: &Chart, edit: &Edit) -> Result
             !anchors.iter().any(|a| a.tick == tempo.tick),
             "An anchored tempo cannot be removed"
         ),
-        Edit::PutMeter { .. } | Edit::RemoveMeter { .. } => return Ok(()),
+        Edit::PutMeter { .. } | Edit::RemoveMeter { .. } | Edit::SetOffset { .. } => return Ok(()),
         _ => {}
     }
     TempoMap::new(
