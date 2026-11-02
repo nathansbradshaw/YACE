@@ -28,6 +28,7 @@ pub struct ReviewWaveforms {
 }
 #[derive(Clone, Copy, PartialEq)]
 pub struct Studio {
+    pub recent_projects: Signal<crate::recent_projects::History>,
     pub library: Signal<Option<crate::chart_library::Library>>,
     pub library_busy: Signal<bool>,
     pub library_selected: Signal<Option<usize>>,
@@ -90,6 +91,7 @@ pub struct Studio {
 }
 pub fn use_studio() -> Studio {
     Studio {
+        recent_projects: use_signal(|| crate::recent_projects::History::load().unwrap_or_default()),
         library: use_signal(|| None),
         library_busy: use_signal(|| false),
         library_selected: use_signal(|| None),
@@ -171,6 +173,39 @@ impl Drop for Candidate {
     }
 }
 impl Studio {
+    pub fn remember_recent(mut self, path: PathBuf) {
+        let mut history = crate::recent_projects::History::load().unwrap_or_default();
+        history.remember(
+            path.clone(),
+            crate::recent_projects::title(&self.metadata.read(), &path),
+        );
+        if let Err(error) = history.save() {
+            self.error.set(Some(format!(
+                "Project saved, but recent history could not be saved: {error:#}"
+            )));
+        }
+        self.recent_projects.set(history);
+    }
+
+    pub fn forget_recent(mut self, path: Option<PathBuf>) {
+        let mut history = (self.recent_projects)();
+        if let Some(path) = path {
+            history.forget(&path);
+        } else {
+            history.entries.clear();
+        }
+        match history.save() {
+            Ok(()) => self.recent_projects.set(history),
+            Err(error) => self
+                .error
+                .set(Some(format!("Could not update recent projects: {error:#}"))),
+        }
+    }
+
+    pub async fn open_recent(self, path: PathBuf) {
+        self.open_saved_project(path).await;
+    }
+
     pub fn snapshot(self) -> Option<Arc<Project>> {
         self.doc.read().clone()
     }
@@ -953,11 +988,14 @@ impl Studio {
             return Ok(());
         }
         self.persistence_busy.set(true);
-        let result =
-            crate::persistence::save(&store.root, doc.revision, (self.saved_revision)()).await;
+        let expected = (self.saved_revision)();
+        let result = crate::persistence::save(&store.root, doc.revision, expected).await;
         self.persistence_busy.set(false);
         result?;
         self.saved_revision.set(Some(doc.revision));
+        if expected.is_none() {
+            self.remember_recent(store.root.clone());
+        }
         ensure!(
             self.snapshot()
                 .is_some_and(|current| current.revision == doc.revision),
@@ -1124,6 +1162,9 @@ impl Studio {
         self.audio_ready.set(true);
         self.stem_status.set(kit_notice.unwrap_or(notice));
         self.status.set("Ready · files stay in this browser".into());
+        if saved_revision.is_some() {
+            self.remember_recent(root.clone());
+        }
         if let Some(previous) = previous_root.filter(|previous| previous != &root) {
             crate::storage::clear(&previous);
         }

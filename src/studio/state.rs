@@ -344,6 +344,7 @@ impl Drop for WindowLock {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Studio {
+    pub recent_projects: Signal<crate::recent_projects::History>,
     pub doc: Signal<Option<Arc<Project>>>,
     pub store: Signal<Option<Store>>,
     pub library: Signal<Option<crate::chart_library::Library>>,
@@ -406,6 +407,34 @@ pub struct Studio {
     file_stamp: Signal<Option<(std::time::SystemTime, u64)>>,
 }
 impl Studio {
+    pub fn forget_recent(mut self, path: Option<PathBuf>) {
+        let mut history = (self.recent_projects)();
+        if let Some(path) = path {
+            history.forget(&path);
+        } else {
+            history.entries.clear();
+        }
+        match history.save() {
+            Ok(()) => self.recent_projects.set(history),
+            Err(error) => self
+                .error
+                .set(Some(format!("Could not update recent projects: {error:#}"))),
+        }
+    }
+
+    pub async fn open_recent(mut self, path: PathBuf) {
+        if (self.library_busy)() {
+            return;
+        }
+        if !path.join("project.json").is_file() {
+            self.error.set(Some(format!("This recent project is no longer at {}. Locate it with Open saved project, or remove it from Open Recent.", path.display())));
+            return;
+        }
+        self.library_busy.set(true);
+        self.open_project(path).await;
+        self.library_busy.set(false);
+    }
+
     pub fn metadata_value(self, key: &str) -> String {
         self.metadata.read().get(key).cloned().unwrap_or_default()
     }
@@ -1675,6 +1704,13 @@ impl Studio {
         self.audio_epoch.set((self.audio_epoch)() + 1);
         self.audio.set(None);
         self.lock.set(Some(lock));
+        let mut history = crate::recent_projects::History::load().unwrap_or_default();
+        history.remember(
+            store.root.clone(),
+            crate::recent_projects::title(&metadata, &store.root),
+        );
+        let history_error = history.save().err();
+        self.recent_projects.set(history);
         self.store.set(Some(store));
         self.library_selected.set(None);
         self.timing.set(Some(timing));
@@ -1709,6 +1745,11 @@ impl Studio {
         self.error.set(None);
         self.status.set("Loading recording…".into());
         self.prepare_practice_audio().await;
+        if let Some(error) = history_error {
+            self.error.set(Some(format!(
+                "Project opened, but recent history could not be saved: {error:#}"
+            )));
+        }
     }
     pub fn tick(mut self, publish: bool) {
         if !(self.audio_ready)() {
@@ -1874,6 +1915,7 @@ impl Studio {
 }
 pub fn use_studio() -> Studio {
     Studio {
+        recent_projects: use_signal(|| crate::recent_projects::History::load().unwrap_or_default()),
         doc: use_signal(|| None),
         store: use_signal(|| None),
         library: use_signal(|| None),
