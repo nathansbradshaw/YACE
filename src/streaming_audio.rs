@@ -688,10 +688,23 @@ mod tests {
         .unwrap()
     }
     fn until(control: &Controller, mut action: impl FnMut() -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut progress = (control.position().to_bits(), control.output_sequence());
+        let mut progressed_at = Instant::now();
         while !action() {
             assert!(control.error().is_none(), "{:?}", control.error());
-            assert!(Instant::now() < deadline, "Audio protocol stalled");
+            let next = (control.position().to_bits(), control.output_sequence());
+            if next != progress {
+                progress = next;
+                progressed_at = Instant::now();
+            }
+            // Offline debug DSP can take longer than ten seconds while another
+            // release links. Detect a lack of progress, not total render time.
+            assert!(
+                Instant::now() < deadline && progressed_at.elapsed() < Duration::from_secs(10),
+                "Audio protocol stalled: {:?}",
+                control.diagnostics()
+            );
             thread::sleep(Duration::from_micros(250));
         }
     }
