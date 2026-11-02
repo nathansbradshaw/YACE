@@ -29,7 +29,7 @@ pub fn read(root: &Path) -> Result<Files> {
                 *total <= 1024 * 1024 * 1024 && files.len() < 4096,
                 "Source folder exceeds limits"
             );
-            let name = portable_name(root, &path)?;
+            let name = portable_name(root, path)?;
             files.insert(name, fs::read(path)?);
         }
         Ok(())
