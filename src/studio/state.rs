@@ -364,6 +364,8 @@ pub struct Studio {
     pub blank_chart: Signal<bool>,
     pub clean_ranges: Signal<Vec<(f64, f64)>>,
     pub review_open: Signal<bool>,
+    pub export_open: Signal<bool>,
+    pub export_busy: Signal<bool>,
     pub assistant_open: Signal<bool>,
     pub view_start: Signal<f64>,
     pub span: Signal<f64>,
@@ -1554,25 +1556,69 @@ impl Studio {
             }
         });
     }
-    pub fn export_dialog(self) {
+    pub fn export_dialog(mut self) {
+        self.export_open.set(true);
+    }
+    pub fn export_selected(
+        mut self,
+        options: crate::export_options::Options,
+        root: PathBuf,
+        revision: u64,
+    ) {
+        if (self.export_busy)() {
+            return;
+        }
+        self.export_busy.set(true);
         spawn(async move {
-            let Some(doc) = self.snapshot() else { return };
-            let name = self.metadata_value("name");
-            let name = if name.trim().is_empty() {
-                &doc.title
-            } else {
-                &name
-            };
-            if let Some(path) = rfd::AsyncFileDialog::new()
-                .set_title("Export song into a new folder")
-                .set_file_name(format!("{name} reviewed"))
-                .save_file()
-                .await
-            {
-                self.dispatch(Action::Export {
-                    output: path.path().to_owned(),
-                });
+            let result = async {
+                let doc = self.snapshot().context("Open a project")?;
+                let store = self.store.read().clone().context("Open a project")?;
+                anyhow::ensure!(
+                    store.root == root && doc.revision == revision,
+                    "The project changed; reopen Export"
+                );
+                options.selected(&store, &doc)?;
+                let name = self.metadata_value("name");
+                let name = if name.trim().is_empty() {
+                    &doc.title
+                } else {
+                    &name
+                };
+                if let Some(path) = rfd::AsyncFileDialog::new()
+                    .set_title("Export song into a new folder")
+                    .set_file_name(format!("{name} reviewed"))
+                    .save_file()
+                    .await
+                {
+                    let output = path.path().to_owned();
+                    let current = self.snapshot().context("Open a project")?;
+                    anyhow::ensure!(
+                        self.store.read().as_ref().is_some_and(|s| s.root == root)
+                            && current.revision == revision,
+                        "The project changed; reopen Export"
+                    );
+                    let actor = Actor {
+                        kind: ActorKind::Human,
+                        name: (self.reviewer)(),
+                    };
+                    let download = output.clone();
+                    self.status.set("Preparing song export…".into());
+                    tokio::task::spawn_blocking(move || {
+                        store.export_with_options(&doc, &output, &actor, &options)
+                    })
+                    .await??;
+                    self.status
+                        .set(format!("Song exported to {}", download.display()));
+                    rfd::download(&download).await;
+                    self.export_open.set(false);
+                }
+                Ok::<_, anyhow::Error>(())
             }
+            .await;
+            if let Err(error) = result {
+                self.error.set(Some(format!("{error:#}")));
+            }
+            self.export_busy.set(false);
         });
     }
     pub async fn open_project(mut self, path: PathBuf) {
@@ -1951,6 +1997,8 @@ pub fn use_studio() -> Studio {
         blank_chart: use_signal(|| false),
         clean_ranges: use_signal(Vec::new),
         review_open: use_signal(|| false),
+        export_open: use_signal(|| false),
+        export_busy: use_signal(|| false),
         assistant_open: use_signal(|| false),
         view_start: use_signal(|| 0.0),
         span: use_signal(|| 12.0),

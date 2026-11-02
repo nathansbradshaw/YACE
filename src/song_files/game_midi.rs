@@ -85,6 +85,8 @@ struct Imported {
     attributes_chart_sha256: String,
     attributes: Vec<AttributeRecord>,
     warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retained_extra_parts: Option<std::collections::BTreeSet<String>>,
 }
 
 fn archive(song: &Path, index: u32) -> PathBuf {
@@ -97,6 +99,171 @@ fn archive(song: &Path, index: u32) -> PathBuf {
 
 pub fn exists(song: &Path) -> bool {
     fs::is_file(song_layout::resolve(song, DESCRIPTOR))
+}
+
+fn extra_key(track: &[midly::TrackEvent<'_>], index: usize) -> Option<String> {
+    let name = decode::label(track);
+    track
+        .iter()
+        .any(|event| {
+            matches!(
+                event.kind,
+                midly::TrackEventKind::Midi {
+                    message: midly::MidiMessage::NoteOn { .. } | midly::MidiMessage::NoteOff { .. },
+                    ..
+                }
+            )
+        })
+        .then(|| {
+            format!(
+                "MIDI: {}",
+                name.unwrap_or_else(|| format!("Unnamed source track {}", index + 1))
+            )
+        })
+}
+
+/// Offer original parts that have no editable chart view, without transcribing them.
+pub fn extra_parts(song: &Path) -> Result<std::collections::BTreeSet<String>> {
+    original_extra_parts(song, true)
+}
+fn original_extra_parts(
+    song: &Path,
+    honor_scope: bool,
+) -> Result<std::collections::BTreeSet<String>> {
+    let Some((imported, directory)) = source(song)? else {
+        return Ok(Default::default());
+    };
+    let baseline = Chart::parse(fs::read_to_string(directory.join("notes.chart"))?)?;
+    let bytes = fs::read(directory.join("notes.mid"))?;
+    let midi = midly::Smf::parse(&bytes)?;
+    Ok(midi
+        .tracks
+        .iter()
+        .enumerate()
+        .filter_map(|(i, track)| {
+            let name = decode::label(track);
+            let managed = if name.as_deref() == Some("PART VOCALS") {
+                imported.baseline_vocals_sha256.is_some()
+            } else {
+                name.as_deref()
+                    .and_then(decode::part)
+                    .is_some_and(|(suffix, difficulty)| {
+                        ["Easy", "Medium", "Hard", "Expert"]
+                            .iter()
+                            .enumerate()
+                            .any(|(d, tier)| {
+                                difficulty.is_none_or(|target| target == d)
+                                    && baseline
+                                        .sections
+                                        .iter()
+                                        .any(|s| s.name == format!("{tier}{suffix}"))
+                            })
+                    })
+            };
+            if managed { None } else { extra_key(track, i) }
+        })
+        .filter(|key| {
+            !honor_scope
+                || imported
+                    .retained_extra_parts
+                    .as_ref()
+                    .is_none_or(|parts| parts.contains(key))
+        })
+        .collect())
+}
+
+/// Keep untouched MIDI chunks byte-identical. Managed difficulty notes have
+/// already been rewritten from the selected chart by the normal MIDI merger.
+pub fn select_export(
+    song: &Path,
+    stage: &Path,
+    bytes: Vec<u8>,
+    selected: &std::collections::BTreeSet<String>,
+) -> Result<Vec<u8>> {
+    let original_extras = original_extra_parts(song, false)?;
+    let parsed = midly::Smf::parse(&bytes)?;
+    let (header, chunks) = merge::chunks(&bytes, parsed.tracks.len())?;
+    let mut kept = Vec::new();
+    for (index, (track, chunk)) in parsed.tracks.iter().zip(chunks).enumerate() {
+        let name = decode::label(track);
+        let raw_key = extra_key(track, index);
+        let keep = if let Some(key) = raw_key
+            .as_ref()
+            .filter(|key| original_extras.contains(*key))
+        {
+            selected.contains(key)
+        } else if let Some((suffix, difficulty)) = name.as_deref().and_then(decode::part) {
+            ["Easy", "Medium", "Hard", "Expert"]
+                .iter()
+                .enumerate()
+                .any(|(i, tier)| {
+                    difficulty.is_none_or(|d| d == i)
+                        && selected.contains(&format!("{tier}{suffix}"))
+                })
+        } else if name.as_deref() == Some("PART VOCALS") {
+            selected.contains("Vocals")
+        } else if let Some(key) = extra_key(track, index) {
+            let generated_suffix = match name.as_deref() {
+                Some("PART RHYTHM") => Some("DoubleRhythm"),
+                Some("PART GUITAR COOP") => Some("DoubleGuitar"),
+                Some("PART GUITAR GHL") => Some("GHLGuitar"),
+                Some("PART BASS GHL") => Some("GHLBass"),
+                Some("PART RHYTHM GHL") => Some("GHLRhythm"),
+                Some("PART GUITAR COOP GHL") => Some("GHLCoop"),
+                Some("PART KEYS GHL") => Some("GHLKeys"),
+                _ => None,
+            };
+            selected.contains(&key)
+                || generated_suffix.is_some_and(|suffix| {
+                    ["Easy", "Medium", "Hard", "Expert"]
+                        .iter()
+                        .any(|tier| selected.contains(&format!("{tier}{suffix}")))
+                })
+        } else {
+            true
+        };
+        let metadata_only = !track.iter().any(|event| {
+            matches!(
+                event.kind,
+                midly::TrackEventKind::Midi {
+                    message: midly::MidiMessage::NoteOn { .. } | midly::MidiMessage::NoteOff { .. },
+                    ..
+                }
+            )
+        });
+        if keep || metadata_only {
+            kept.push(chunk);
+        } else {
+            ensure!(
+                !track.iter().any(|event| matches!(
+                    event.kind,
+                    midly::TrackEventKind::Meta(
+                        midly::MetaMessage::Tempo(_) | midly::MetaMessage::TimeSignature(..)
+                    )
+                )),
+                "This MIDI stores timing inside an omitted part; retain that part to preserve the song clock"
+            );
+        }
+    }
+    let mut output = bytes[..header].to_vec();
+    output[10..12].copy_from_slice(&u16::try_from(kept.len())?.to_be_bytes());
+    for chunk in kept {
+        output.extend_from_slice(chunk);
+    }
+    midly::Smf::parse(&output)?;
+    if exists(song) {
+        let path = song_layout::resolve(stage, DESCRIPTOR);
+        let mut imported: Imported = serde_json::from_slice(&fs::read(&path)?)?;
+        imported.retained_extra_parts = Some(
+            selected
+                .iter()
+                .filter(|t| t.starts_with("MIDI: "))
+                .cloned()
+                .collect(),
+        );
+        fs::write(path, serde_json::to_vec_pretty(&imported)?)?;
+    }
+    Ok(output)
 }
 
 fn source(song: &Path) -> Result<Option<(Imported, PathBuf)>> {
@@ -257,6 +424,7 @@ pub fn prepare(song: &Path) -> Result<()> {
         attributes_chart_sha256: hash(decoded.chart.raw.as_bytes()),
         attributes: decoded.attributes,
         warnings: decoded.warnings,
+        retained_extra_parts: None,
     };
     fs::write(
         song_layout::path(song, DESCRIPTOR),

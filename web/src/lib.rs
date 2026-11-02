@@ -31,6 +31,8 @@ pub mod drum_parts;
 pub mod editor;
 #[path = "../../src/editor_validation.rs"]
 pub mod editor_validation;
+#[path = "../../src/export_options.rs"]
+pub mod export_options;
 pub mod files;
 #[path = "../../src/game_export.rs"]
 pub mod game_export;

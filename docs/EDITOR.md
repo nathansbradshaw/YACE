@@ -170,8 +170,23 @@ Shift makes larger steps; Home and End select the size limits.
 
 ## Export
 
-Use **Export** and choose a new song-folder path. Export is separate from
-project autosave. Keep your review project for further editing and recovery.
+Use **Export playable song…** to choose instruments and difficulties, a target
+preset, chart format and whether to include recordings and stems. All available
+parts and audio are selected by default. Automatic format preserves imported MIDI
+and uses MIDI for vocals and Pro Keys. A `.chart` choice refuses incompatible
+parts or imported MIDI rather than losing their events. Clone Hero requires
+you to deselect vocals, Pro Keys and other original MIDI parts explicitly.
+Original MIDI parts without editable views appear as `MIDI: …` entries.
+
+Review the package contents and approximate source size, then choose a new
+song-folder path. Source size is measured before compression; generated files
+and audio conversion can change the final size. An export without audio needs
+matching audio before game playback. Export choices affect the separate copy;
+the project and its undo history remain complete.
+
+**YACE menu → Save project backup…** saves the complete editable project ZIP,
+including available source assets and recovery history. Backups always retain
+the full project regardless of playable-song export selections.
 
 Open the exported folder in Clone Hero, YARG or another editor and check the
 parts you intend to use. See [Review a draft](CHARTING_STANDARD.md).

@@ -2171,6 +2171,16 @@ impl Store {
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn export(&self, doc: &Project, output: &Path, actor: &Actor) -> Result<()> {
+        self.export_with_options(doc, output, actor, &Default::default())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn export_with_options(
+        &self,
+        doc: &Project,
+        output: &Path,
+        actor: &Actor,
+        options: &crate::export_options::Options,
+    ) -> Result<()> {
         let source = self.root.join("source");
         pipeline::destination(output, Some(&source))?;
         if doc.original_folder.exists() {
@@ -2181,18 +2191,47 @@ impl Store {
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
         let stage = tempfile::tempdir_in(parent)?;
-        self.write_export(doc, stage.path(), actor)?;
+        self.write_export_with_options(doc, stage.path(), actor, options)?;
         pipeline::publish(stage.path(), output)
     }
     /// Write the same validated game export into a native or browser staging area.
     pub fn write_export(&self, doc: &Project, stage: &Path, actor: &Actor) -> Result<()> {
+        self.write_export_with_options(doc, stage, actor, &Default::default())
+    }
+    pub fn write_export_with_options(
+        &self,
+        doc: &Project,
+        stage: &Path,
+        actor: &Actor,
+        options: &crate::export_options::Options,
+    ) -> Result<()> {
+        let selected = options.selected(self, doc)?;
+        let all_parts = crate::export_options::available(self, doc)?;
+        let midi_export = options.midi(self, doc)?;
+        let text = options.chart(doc.chart_text(self)?)?;
+        let mut scoped = doc.clone();
+        scoped
+            .content
+            .tracks
+            .retain(|track, _| selected.contains(track));
+        scoped
+            .content
+            .track_origins
+            .retain(|track, _| selected.contains(track));
+        if !selected.contains("Vocals") {
+            scoped.content.vocals = None;
+            scoped.content.vocal_review = None;
+        }
+        let doc = &scoped;
         let source = self.root.join("source");
         crate::song_files::source_choice::validate_retained(&source)?;
-        crate::stem_review::conventional::validate(&source)?;
-        pipeline::copy_song_source(&source, stage)?;
+        if options.include_audio {
+            crate::stem_review::conventional::validate(&source)?;
+        }
+        crate::song_files::copy_song_source_with_audio(&source, stage, options.include_audio)?;
         pipeline::organize_song_stage(stage)?;
         song_layout::prepare(stage)?;
-        if doc.has_recording() {
+        if doc.has_recording() && options.include_audio {
             ensure!(
                 models::hash_file(&self.audio_path(doc)?)? == doc.audio_sha256,
                 "Source audio snapshot changed"
@@ -2209,13 +2248,12 @@ impl Store {
                 let name = format!("song.{}", extension.to_string_lossy());
                 fs::copy(&recording, stage.join(name))?;
             }
-        } else {
+        } else if !doc.has_recording() {
             ensure!(
                 crate::song_metadata::recording_file(&source)?.is_none(),
                 "Audio appeared in this chart-only source snapshot; attach it explicitly before exporting"
             );
         }
-        let text = doc.chart_text(self)?;
         if doc.recording.is_some() {
             let ini = pipeline::song_ini(stage)?;
             fs::write(
@@ -2231,6 +2269,29 @@ impl Store {
         }
         Chart::parse(text.clone())?;
         fs::write(stage.join("notes.chart"), &text)?;
+        let mut ranks = BTreeMap::new();
+        for (suffix, rank) in [
+            ("Single", "diff_guitar"),
+            ("DoubleBass", "diff_bass"),
+            ("DoubleRhythm", "diff_rhythm"),
+            ("DoubleGuitar", "diff_guitar_coop"),
+            ("Drums", "diff_drums"),
+            ("Keyboard", "diff_keys"),
+            ("ProKeys", "diff_keys_real"),
+        ] {
+            if all_parts.iter().any(|t| t.ends_with(suffix))
+                && !selected.iter().any(|t| t.ends_with(suffix))
+            {
+                ranks.insert(rank.into(), "-1".into());
+            }
+        }
+        if !selected.contains("Vocals") && all_parts.contains("Vocals") {
+            ranks.insert("diff_vocals".into(), "-1".into());
+        }
+        if !ranks.is_empty() {
+            let ini = pipeline::song_ini(stage)?;
+            fs::write(stage.join("song.ini"), pipeline::update_ini(&ini, &ranks))?;
+        }
         if !doc.content.track_origins.is_empty() {
             let raw = pipeline::song_ini(stage)?;
             let fields = pipeline::ini_fields(&raw);
@@ -2288,10 +2349,21 @@ impl Store {
             archive_index += 1;
         }
         fs::create_dir(&archive)?;
+        let mut archived = vec!["chart-engine-vocals.json"];
+        if !options.include_audio {
+            archived.extend([
+                "chart-engine-conventional-audio.json",
+                "yace-audio.json",
+                "chart-engine-melody-source.json",
+            ]);
+        }
+        for name in archived {
+            let path = song_layout::resolve(stage, name);
+            if fs::exists(&path) {
+                fs::rename(path, archive.join(name))?;
+            }
+        }
         let mut exported_chart_sha256 = hash(text.as_bytes());
-        let midi_export = doc.content.vocals.is_some()
-            || doc.content.tracks.keys().any(|t| crate::keys::is_pro(t))
-            || crate::song_files::game_midi::exists(&source);
         if midi_export {
             let raw = pipeline::song_ini(stage)?;
             let chart = Chart::parse(text.clone())?;
@@ -2307,6 +2379,8 @@ impl Store {
                 &generated,
             )?
             .unwrap_or(generated);
+            let midi =
+                crate::song_files::game_midi::select_export(&source, stage, midi, &selected)?;
             exported_chart_sha256 = hash(&midi);
             fs::write(stage.join("notes.mid"), midi)?;
             fs::rename(stage.join("notes.chart"), archive.join("notes.chart"))?;
@@ -2345,7 +2419,7 @@ impl Store {
                 fs::rename(path, archive.join(name))?;
             }
         }
-        if doc.has_recording() {
+        if doc.has_recording() && options.include_audio {
             fs::write(
                 song_layout::path(stage, "chart-engine-melody-source.json"),
                 serde_json::to_vec_pretty(
@@ -2353,14 +2427,18 @@ impl Store {
                 )?,
             )?;
         }
-        if let Some(manifest) = &doc.content.stems {
+        if let Some(manifest) = &doc.content.stems
+            && options.include_audio
+        {
             let manifest = crate::stem_review::game_audio::for_export(stage, &source, manifest)?;
             fs::write(
                 song_layout::path(stage, "chart-engine-isolation.json"),
                 serde_json::to_vec_pretty(&manifest)?,
             )?;
         }
-        if let Some(manifest) = &doc.content.keyboard_stems {
+        if let Some(manifest) = &doc.content.keyboard_stems
+            && options.include_audio
+        {
             let manifest = crate::stem_review::game_audio::for_export(stage, &source, manifest)?;
             fs::write(
                 song_layout::path(stage, "chart-engine-keyboard-isolation.json"),
@@ -2383,13 +2461,14 @@ impl Store {
             song_layout::path(stage, "game-export.json"),
             serde_json::to_vec_pretty(&serde_json::json!({
                 "version":1,"source_chart_sha256":fingerprint,"exported_chart_sha256":exported_chart_sha256,
+                "export_options": options, "selected_parts": selected,
                 "format":if midi_export{"midi"}else{"chart"},"vocals":doc.content.vocals.is_some(),
                 "pro_keys":doc.content.tracks.keys().any(|t|crate::keys::is_pro(t)),
                 "pro_keys_ranges":doc.content.tracks.iter().filter(|(t,_)|crate::keys::is_pro(t)).map(|(t,notes)| Ok((t.clone(),crate::key_ranges::plan(&notes.iter().map(|n|n.note.clone()).collect::<Vec<_>>())?))).collect::<Result<BTreeMap<_,_>>>()?,
                 "musical_acceptance":"unverified"
             }))?,
         )?;
-        if doc.has_recording() {
+        if doc.has_recording() && options.include_audio {
             crate::stem_review::game_audio::write(
                 &self.audio_path(doc)?,
                 doc.content.stems.as_ref(),

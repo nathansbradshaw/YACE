@@ -34,6 +34,13 @@ For production updates, use the immutable-release staging command documented
 in [DEPLOYMENT.md](DEPLOYMENT.md). To preview a staged hosting directory on the
 existing local port, use `yace-static-web serve 3032 /path/to/hosting/dist`.
 
+Preview ports are limited to **3030 (primary)** and **3032 (secondary)**. Both
+launchers reject other ports. Check listener ownership before starting; reuse,
+coordinate a handoff, or wait when an allowed port is occupied. Never select a
+third port. `yace-static-web serve 3030 --check` reports the selected source and
+served directory without opening a listener. Stop task-owned previews after
+verification and confirm their listeners have closed. Preserve active owners.
+
 The Rust build tool optimizes the generated module with the pinned Binaryen
 release and rejects an artifact above the static host's 25 MiB per-file limit.
 No additional JavaScript loader or application service is required.
@@ -78,10 +85,14 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
   waveforms. Formats such as Opus use the browser's local decoder as a fallback,
   with a bounded wait and a visible error if neither decoder accepts the file.
   The original encoded recording is preserved in exports.
-- **Save project ZIP** downloads a portable backup with source files, stable note
-  identities, checkpoints and review history. **Export** downloads a playable
-  song ZIP using the same Rust export validation as the desktop app. Download
-  the prepared ZIP using its explicit download button. A game
+- **Download project backup…** in the YACE menu prepares a complete portable ZIP
+  with source files, stable note identities, checkpoints and review history.
+  **Export playable song…** opens the same choices as desktop: target preset,
+  automatic / `.chart` / MIDI format, instruments and difficulties, and recording
+  and stems included or omitted. All parts are initially selected. Incompatible
+  choices are explained before export. The preview estimates source size before
+  compression; the ready dialog shows the actual ZIP size. Download the prepared
+  ZIP using its explicit download button. A game
   export does not replace a project backup.
   Backup and game-export preparation run on Rust workers so playback can continue.
 
@@ -95,13 +106,14 @@ instead of growing one large WASM archive buffer.
 Folder import reads a snapshot; it does not establish ongoing disk access.
 
 IndexedDB stores the current project, source files and checkpoints in a single
-transaction. The status says **Saved locally** only after that transaction
+transaction. The status says **Saved in this browser** only after that transaction
 commits. Reopening the site restores the last saved project; **Saved in this
 browser** reopens other saved projects without loading their audio first. A
 chart switch commits the current working copy before releasing its memory.
-Export project ZIPs
-for independent backups: browser storage belongs to the current site/profile and
-may be removed by clearing site data. A revision check rejects stale writes from
+Download project backups for independent copies: browser storage belongs to the
+current site/profile on this device, does not sync between browsers and may be
+removed by clearing site data. Backups include the complete project regardless
+of playable-song export selections. A revision check rejects stale writes from
 another tab instead of silently overwriting that tab's edits.
 
 Portable project ZIPs include retained stems and saved kit results. Older

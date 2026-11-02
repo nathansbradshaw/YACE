@@ -656,6 +656,7 @@ mod tests {
                 details: "control".into(),
             },
             generation: None,
+            conventional: None,
             stems: [StemId::Guitar, StemId::Drums]
                 .into_iter()
                 .enumerate()

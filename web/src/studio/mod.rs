@@ -9,6 +9,8 @@ mod collaboration;
 mod dialogs;
 #[path = "../../../src/studio/difficulty.rs"]
 mod difficulty;
+#[path = "../../../src/studio/export.rs"]
+mod export;
 #[path = "../../../src/studio/game_preview.rs"]
 mod game_preview;
 mod generation_jobs;
@@ -171,22 +173,27 @@ pub fn App() -> Element {
     rsx! {style{"{CSS}"}div{class:"studio-app",tabindex:"-1",onkeydown:move|event|shortcuts::handle(studio,event),
     project_bar::ProjectBar{studio}
     if studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
-    div{class:"studio-status",span{"{studio.status}"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{if (studio.dirty)()||(studio.persistence_busy)(){"Saving locally…"}else if studio.snapshot().is_some_and(|doc|(studio.saved_revision)()!=Some(doc.revision)){"Not saved locally · export project ZIP"}else{"Saved locally · Rust/WASM"}}}
+    div{class:"studio-status",span{"{studio.status}"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{role:"status",title:"Browser saves stay in this browser profile. Download a project backup to keep an independent copy.",if studio.snapshot().is_none(){"Projects save automatically in this browser"}else if (studio.dirty)()||(studio.persistence_busy)(){"Saving in this browser…"}else if studio.snapshot().is_some_and(|doc|(studio.saved_revision)()!=Some(doc.revision)){"Not saved in this browser · download project backup"}else{"Saved in this browser"}}}
     if let Some(error)=(studio.error)(){div{class:"studio-error",role:"alert",span{"{error}"}button{onclick:move |_|{let mut studio=studio;studio.error.set(None);},"Dismiss"}}}
     if (studio.review_open)(){review::ReviewPanel{studio}}
+    if (studio.export_open)(){export::ExportDialog{studio}}
     if (studio.parts_open)(){parts::PartsPanel{studio}}
     if (studio.collaboration_open)(){collaboration::Collaboration{studio}}
     generation_jobs::GenerationPanel{studio}
-    if let Some((path,name,kind))=(studio.export_ready)(){modal::Modal{id:"song-export",label:"File download",onclose:move |_|studio.close_export(),h2{match kind{state::DownloadKind::Project=>"Project backup ready",state::DownloadKind::Song=>"Song export ready",state::DownloadKind::File=>"File ready to download"}}
-        p{"Download the prepared copy. Your editing project stays saved in this browser."}
+    if let Some((path,name,kind))=(studio.export_ready)(){sheet::ToolSheet{id:"song-export",title:match kind{state::DownloadKind::Project=>"Project backup ready",state::DownloadKind::Song=>"Song export ready",state::DownloadKind::File=>"File ready to download"},description:"This download is separate from browser autosave.",close_label:"Close download",class:"export-sheet",onclose:move |_|studio.close_export(),
+        actions:rsx!{
+            button{onclick:move |_|studio.close_export(),"Close"}
+            button{onclick:{let name=name.clone();let path=path.clone();move |_|{let result=crate::files::download_path(&name,&path);if let Err(error)=result{let mut s=studio;s.error.set(Some(format!("{error:#}")));}}},match kind{state::DownloadKind::Project=>"Download project backup",state::DownloadKind::Song=>"Download song ZIP",state::DownloadKind::File=>"Download file"}}
+        },
         p{style:"overflow-wrap:anywhere","{name}"}
-        button{onclick:move |_|{let result=crate::files::download_path(&name,&path);if let Err(error)=result{let mut s=studio;s.error.set(Some(format!("{error:#}")));}},match kind{state::DownloadKind::Project=>"Download project ZIP",state::DownloadKind::Song=>"Download song ZIP",state::DownloadKind::File=>"Download file"}}
-        button{onclick:move |_|studio.close_export(),"Close"}
+        if let Some(blob)=crate::files::retained_download(&path){p{class:"field-hint",{format!("ZIP size: {:.1} MiB",blob.size()/1_048_576.)}}}
     }}
-    if let Some(entries)=(studio.saved_projects)(){modal::Modal{id:"saved-projects",label:"Saved in this browser",onclose:move |_|{let mut s=studio;s.saved_projects.set(None);},h2{"Saved in this browser"}
+    if let Some(entries)=(studio.saved_projects)(){sheet::ToolSheet{id:"saved-projects",title:"Saved in this browser",description:"Reopen an automatically saved editing project.",close_label:"Close saved projects",class:"export-sheet",onclose:move |_|{let mut s=studio;s.saved_projects.set(None);},
+        actions:rsx!{button{onclick:move |_|{let mut s=studio;s.saved_projects.set(None);},"Close"}},
+        p{"Projects save automatically on this browser profile and device. Browser saves do not sync to other browsers. Clearing site data removes them."}
+        p{"Use Download project backup in the YACE menu to keep a complete editable copy, including undo history, or move a project to another device."}
         if entries.is_empty(){p{"No saved projects yet. Open a chart or import a project ZIP."}}
         for entry in entries {button{class:"welcome-action",disabled:(studio.library_busy)(),onclick:move |_|{let root=entry.path.clone();dioxus::core::spawn_forever(async move{studio.open_saved_project(root).await;});},"{entry.title}"}}
-        button{onclick:move |_|{let mut s=studio;s.saved_projects.set(None);},"Close"}
     }}
     clean::CleanPanel{studio}
     source_choice::SourceChoice{studio}

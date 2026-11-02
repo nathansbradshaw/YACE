@@ -65,4 +65,4 @@ recreated, use the fresh records returned by Sites rather than reusing this list
 
 Browser recovery data belongs to an origin. Projects saved on loopback or the
 generated Sites origin do not automatically appear on the custom hostname;
-transfer them with Save project ZIP / Open saved project.
+transfer them with Download project backup / Open saved project.
