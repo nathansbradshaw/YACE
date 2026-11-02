@@ -671,6 +671,27 @@ fn transport_clock_loops_without_persisting_each_frame_and_serialization_is_stri
 }
 
 #[test]
+fn play_restarts_a_completed_recording_without_changing_rate_or_chart() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let before = store.load().unwrap();
+    for rate in [0.25, 0.83, 2.] {
+        command(&store, Action::SetPlaybackRate { rate });
+        command(&store, Action::Pause { seconds: before.duration });
+        command(&store, Action::Playback { playing: true });
+        let replay = store.load().unwrap();
+        assert!(replay.transport.playing);
+        assert_eq!(replay.transport.position, 0.);
+        assert_eq!(replay.transport.playback_rate, rate);
+        assert_eq!(
+            serde_json::to_value(&replay.content).unwrap(),
+            serde_json::to_value(&before.content).unwrap()
+        );
+        assert_eq!(replay.audio_sha256, before.audio_sha256);
+    }
+}
+
+#[test]
 fn practice_rate_commands_preserve_play_state_and_reject_invalid_values_atomically() {
     let root = tempfile::tempdir().unwrap();
     let store = fixture(root.path());
