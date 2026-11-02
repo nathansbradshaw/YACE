@@ -175,7 +175,7 @@ pub fn App() -> Element {
     });
     rsx! {style{"{CSS}"}div{class:"studio-app",tabindex:"-1",onkeydown:move|event|{if dance::active(){dance::handle(event);}else{shortcuts::handle(studio,event);}},
     project_bar::ProjectBar{studio}
-    if dance::active(){dance::Workbench{}}else if studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
+    if dance::active(){dance::Workbench{key:"{dance::view_epoch()}"}}else if studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
     div{class:"studio-status",span{"{studio.status}"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{role:"status",title:"Browser saves stay in this browser profile. Download a project backup to keep an independent copy.",if let Some(status)=dance::save_status(){"{status}"}else if studio.snapshot().is_none(){"Projects save automatically in this browser"}else if (studio.dirty)()||(studio.persistence_busy)(){"Saving in this browser…"}else if studio.snapshot().is_some_and(|doc|(studio.saved_revision)()!=Some(doc.revision)){"Not saved in this browser · download project backup"}else{"Saved in this browser"}}}
     if let Some(error)=(studio.error)(){div{class:"studio-error",role:"alert",span{"{error}"}button{onclick:move |_|{let mut studio=studio;studio.error.set(None);},"Dismiss"}}}
     if (studio.review_open)(){review::ReviewPanel{studio}}

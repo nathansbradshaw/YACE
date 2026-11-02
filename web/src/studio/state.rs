@@ -755,6 +755,7 @@ impl Studio {
                         return Ok(());
                     };
                     let files = crate::files::unpack(files)?;
+                    super::dance::flush().await?;
                     if super::dance::try_open_files(
                         files
                             .iter()
@@ -848,6 +849,7 @@ impl Studio {
         library: &crate::chart_library::Library,
         index: usize,
     ) -> Result<bool> {
+        super::dance::flush().await?;
         use sha2::{Digest, Sha256};
         let item = library
             .entries
@@ -1053,6 +1055,7 @@ impl Studio {
         source: PathBuf,
         saved_revision: Option<u64>,
     ) -> Result<()> {
+        super::dance::flush().await?;
         if super::dance::try_open_path(&source)? {
             super::dance::remember_recent(self);
             return Ok(());

@@ -5,6 +5,13 @@ use crate::stepmania::{
 };
 use anyhow::{Context, Result, ensure};
 use std::{fs, path::Path};
+fn portable_name(root: &Path, path: &Path) -> Result<String> {
+    Ok(path
+        .strip_prefix(root)?
+        .to_str()
+        .context("Source filenames must be valid UTF-8; originals are unchanged")?
+        .replace('\\', "/"))
+}
 pub fn read(root: &Path) -> Result<Files> {
     fn walk(root: &Path, path: &Path, files: &mut Files, total: &mut u64) -> Result<()> {
         let metadata = fs::symlink_metadata(path)?;
@@ -22,11 +29,7 @@ pub fn read(root: &Path) -> Result<Files> {
                 *total <= 1024 * 1024 * 1024 && files.len() < 4096,
                 "Source folder exceeds limits"
             );
-            let name = path
-                .strip_prefix(root)?
-                .to_str()
-                .context("Source filenames must be valid UTF-8; originals are unchanged")?
-                .replace('\\', "/");
+            let name = portable_name(root, &path)?;
             files.insert(name, fs::read(path)?);
         }
         Ok(())
@@ -121,12 +124,15 @@ mod tests {
     #[test]
     fn source_names_cannot_be_lossily_renamed() {
         use std::os::unix::ffi::OsStringExt;
-        let temp = tempfile::tempdir().unwrap();
-        let file = temp
-            .path()
-            .join(std::ffi::OsString::from_vec(b"art\xff.png".to_vec()));
-        fs::write(&file, b"original").unwrap();
-        assert!(read(temp.path()).unwrap_err().to_string().contains("UTF-8"));
-        assert_eq!(fs::read(file).unwrap(), b"original");
+        // APFS rejects such names itself. Exercise the conversion boundary
+        // directly so the Linux filename case remains covered on macOS too.
+        let root = Path::new("source");
+        let file = root.join(std::ffi::OsString::from_vec(b"art\xff.png".to_vec()));
+        assert!(
+            portable_name(root, &file)
+                .unwrap_err()
+                .to_string()
+                .contains("UTF-8")
+        );
     }
 }

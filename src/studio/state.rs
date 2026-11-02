@@ -1262,12 +1262,14 @@ impl Studio {
             else {
                 return;
             };
-            let dance = (|| -> Result<bool> {
+            let dance = async {
+                super::dance::flush().await?;
                 let files = crate::archive_codec::decode(&std::fs::read(input.path())?)?
                     .into_iter()
                     .collect();
                 super::dance::try_open_files(files)
-            })();
+            }
+            .await;
             match dance {
                 Ok(true) => return,
                 Ok(false) => {}
@@ -1460,6 +1462,10 @@ impl Studio {
     }
     #[cfg(not(feature = "browser"))]
     pub async fn open_library_chart(mut self, index: usize) {
+        if let Err(error) = super::dance::flush().await {
+            self.error.set(Some(format!("{error:#}")));
+            return;
+        }
         if (self.library_busy)() {
             return;
         }
@@ -1653,6 +1659,10 @@ impl Studio {
         });
     }
     pub async fn open_project(mut self, path: PathBuf) {
+        if let Err(error) = super::dance::flush().await {
+            self.error.set(Some(format!("{error:#}")));
+            return;
+        }
         match super::dance::try_open_path(&path) {
             Ok(true) => {
                 super::dance::remember_recent(self);

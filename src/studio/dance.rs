@@ -42,6 +42,7 @@ pub struct DanceStudio {
     cursor: Signal<i64>,
     snap_rows: Signal<i64>,
     note_kind: Signal<NoteKind>,
+    epoch: Signal<u64>,
 }
 pub fn provide() {
     let studio = use_context_provider(|| DanceStudio {
@@ -71,6 +72,7 @@ pub fn provide() {
         cursor: Signal::new(0),
         snap_rows: Signal::new(12),
         note_kind: Signal::new(NoteKind::Tap),
+        epoch: Signal::new(0),
     });
     // Imports, recovery and backups outlive the component that opened them.
     use_hook(move || dioxus::core::provide_root_context(studio));
@@ -116,6 +118,13 @@ impl DanceStudio {
         root: Option<PathBuf>,
         saved: Option<u64>,
     ) -> Result<()> {
+        ensure!(
+            self.project
+                .read()
+                .as_ref()
+                .is_none_or(|p| (self.saved)() == Some(p.revision)),
+            "The current chart is still saving. Wait for it to save, or save a project backup before switching."
+        );
         project.encode()?;
         if project.assets_sha256.is_empty() {
             bundle::bind(&mut project, &assets)?;
@@ -125,6 +134,19 @@ impl DanceStudio {
             .map(|(name, bytes)| audio_url(name, bytes))
             .transpose()?
             .unwrap_or_default();
+        if let Some(studio) = try_consume_context::<super::state::Studio>()
+            && studio.snapshot().is_some_and(|p| p.transport.playing)
+        {
+            studio.dispatch(crate::editor::Action::Playback { playing: false });
+        }
+        pause_preview();
+        #[cfg(target_arch = "wasm32")]
+        let previous = if self.parent.read().is_none() {
+            (self.root)()
+        } else {
+            None
+        };
+        let destination = root.unwrap_or_else(unique_root);
         self.selected.set(
             project
                 .content
@@ -136,14 +158,29 @@ impl DanceStudio {
         self.project.set(Some(project));
         self.open.set(true);
         self.assets.set(assets);
+        #[cfg(target_arch = "wasm32")]
+        {
+            let previous = self.audio.replace(audio);
+            if previous.starts_with("blob:") {
+                let _ = web_sys::Url::revoke_object_url(&previous);
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
         self.audio.set(audio);
         self.clock.set(0.);
         self.selection.set(Default::default());
         self.view_row.set(0);
         self.cursor.set(0);
-        self.root.set(Some(root.unwrap_or_else(unique_root)));
+        #[cfg(target_arch = "wasm32")]
+        if let Some(previous) = previous.filter(|p| p != &destination) {
+            crate::storage::clear(&previous);
+        }
+        self.root.set(Some(destination));
         self.saved.set(saved);
         self.blocked.set(false);
+        self.epoch.set((self.epoch)().wrapping_add(1));
+        #[cfg(target_arch = "wasm32")]
+        self.download_ready(None);
         self.error.set(None);
         self.status
             .set("Draft ready. Review synchronization and playability before sharing.".into());
@@ -308,11 +345,13 @@ impl DanceStudio {
                 ));
                 if format.is_none() {
                     let mut studio = consume_context::<super::state::Studio>();
-                    studio.export_ready.set(Some((
+                    if let Some((previous, _, _)) = studio.export_ready.replace(Some((
                         path,
                         "YACE-project.zip".into(),
                         super::state::DownloadKind::Project,
-                    )));
+                    ))) {
+                        crate::storage::clear(&previous);
+                    }
                 } else {
                     self.download_ready(Some(path));
                 }
@@ -340,19 +379,33 @@ impl DanceStudio {
     #[cfg(target_arch = "wasm32")]
     fn download_ready(self, path: Option<PathBuf>) {
         let mut s = self;
-        s.prepared.set(path);
+        if let Some(previous) = s
+            .prepared
+            .replace(path.clone())
+            .filter(|p| Some(p) != path.as_ref())
+        {
+            crate::storage::clear(&previous);
+        }
     }
     async fn generate(mut self, request: GenerationRequest) {
         let result=async{ensure!(!(self.busy)(),"Generation is running");let project=self.project.read().clone().context("No project")?;let name={let assets=self.assets.read();bundle::check_music(&project,&assets)?.context("Attach a recording first")?.0.to_owned()};let root=(self.root)().context("No project storage")?;
             self.save().await;ensure!(!(self.blocked)(),"Save the current project before generation");let audio=root.join("source").join(name);let revision=project.revision;let source_hash=project.source_sha256.clone();self.busy.set(true);self.cancel.set(false);self.status.set("Analyzing attacks and arranging draft charts…".into());
             #[cfg(not(target_arch="wasm32"))]
-            let result={let cancelled=Arc::new(AtomicBool::new(false));let flag=cancelled.clone();let mut task=tokio::task::spawn_blocking(move ||{let samples=crate::models::decode(&audio,11025,1)?;let mut project=project;project.generate(revision,"human".into(),&request,&samples,11025,||flag.load(Ordering::Relaxed))?;Ok::<_,anyhow::Error>(project)});loop{tokio::select!{value=&mut task=>break value.context("Generation worker stopped")?,_=tokio::time::sleep(std::time::Duration::from_millis(40))=>{if (self.cancel)(){cancelled.store(true,Ordering::Relaxed);}}}}};
+            let result={let cancelled=Arc::new(AtomicBool::new(false));let _cancel_on_drop=CancelOnDrop(cancelled.clone());let flag=cancelled.clone();let mut task=tokio::task::spawn_blocking(move ||{let samples=crate::models::decode(&audio,11025,1)?;let mut project=project;project.generate(revision,"human".into(),&request,&samples,11025,||flag.load(Ordering::Relaxed))?;Ok::<_,anyhow::Error>(project)});loop{tokio::select!{value=&mut task=>break value.context("Generation worker stopped")?,_=tokio::time::sleep(std::time::Duration::from_millis(40))=>{if (self.cancel)(){cancelled.store(true,Ordering::Relaxed);}}}}};
             #[cfg(target_arch="wasm32")]
             let result={let task=crate::worker::run::<Project>(crate::worker::Task::StepMania{audio,project:Box::new(project),request},std::slice::from_ref(&root));let cancellation=async{loop{gloo_timers::future::TimeoutFuture::new(40).await;if (self.cancel)(){break;}}};futures_util::pin_mut!(task,cancellation);match futures_util::future::select(task,cancellation).await{futures_util::future::Either::Left((result,_))=>result,futures_util::future::Either::Right(_)=>Err(anyhow::anyhow!("Generation cancelled"))}};
             self.busy.set(false);ensure!(!(self.cancel)(),"Generation cancelled; existing charts kept");let candidate=result?;ensure!((self.root)().as_ref()==Some(&root)&&self.project.read().as_ref().is_some_and(|p|p.revision==revision&&p.source_sha256==source_hash),"Chart changed during generation; existing edits kept");self.selected.set(candidate.content.document.charts.last().map_or(String::new(),|c|c.id.clone()));self.project.set(Some(candidate));self.status.set("Generated drafts added. Review timing, patterns and estimated ratings.".into());Ok::<_,anyhow::Error>(())
         }.await;
         self.busy.set(false);
         self.report(result);
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+struct CancelOnDrop(Arc<AtomicBool>);
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
     }
 }
 #[cfg(not(target_arch = "wasm32"))]
@@ -429,6 +482,14 @@ pub fn Controller(studio: super::state::Studio) -> Element {
 #[component]
 pub fn Workbench() -> Element {
     let mut s = use_context::<DanceStudio>();
+    use_drop(move || {
+        if let Ok(mut cancel) = s.cancel.try_write() {
+            *cancel = true;
+        }
+        if let Ok(mut busy) = s.busy.try_write() {
+            *busy = false;
+        }
+    });
     let download = s.prepared;
     let mut start = s.view_row;
     let mut snap = s.snap_rows;
@@ -759,6 +820,23 @@ mod tests {
         );
         assert!(!mutations.edits.is_empty());
         assert_eq!((s.selected)(), "added-1");
+        let before = s.project.read().as_ref().unwrap().encode().unwrap();
+        let replacement = Project::blank(
+            "Other recording".into(),
+            "YACE".into(),
+            String::new(),
+            120.,
+            0.,
+            Profile::Pad,
+        )
+        .unwrap();
+        assert!(
+            s.load(replacement, Files::new(), None, None)
+                .unwrap_err()
+                .to_string()
+                .contains("current chart")
+        );
+        assert_eq!(s.project.read().as_ref().unwrap().encode().unwrap(), before);
     }
     type RecentSlot = Rc<RefCell<Option<super::super::state::Studio>>>;
     fn recent_app() -> Element {
@@ -829,6 +907,9 @@ mod tests {
 
 pub fn active() -> bool {
     try_consume_context::<DanceStudio>().is_some_and(|s| (s.open)() && s.project.read().is_some())
+}
+pub fn view_epoch() -> u64 {
+    try_consume_context::<DanceStudio>().map_or(0, |s| (s.epoch)())
 }
 pub fn save_status() -> Option<&'static str> {
     let s = try_consume_context::<DanceStudio>()?;
@@ -922,8 +1003,57 @@ pub fn save(studio: super::state::Studio) {
 }
 pub fn deactivate() {
     if let Some(mut s) = try_consume_context::<DanceStudio>() {
+        if (s.open)() {
+            pause_preview();
+        }
         s.open.set(false);
     }
+}
+fn pause_preview() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::JsCast;
+        if let Some(audio) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id("dance-audio"))
+            .and_then(|e| e.dyn_into::<web_sys::HtmlAudioElement>().ok())
+        {
+            let _ = audio.pause();
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if try_consume_context::<DanceStudio>().is_some_and(|s| (s.open)()) {
+            let evaluation =
+                dioxus_document::eval("document.getElementById('dance-audio')?.pause();");
+            dioxus::core::spawn_forever(async move {
+                let _ = evaluation.await;
+            });
+        }
+    }
+}
+pub async fn flush() -> Result<()> {
+    let Some(mut s) = try_consume_context::<DanceStudio>() else {
+        return Ok(());
+    };
+    if (s.busy)() {
+        s.cancel.set(true);
+    }
+    while (s.saving)() || (s.busy)() {
+        #[cfg(target_arch = "wasm32")]
+        gloo_timers::future::TimeoutFuture::new(20).await;
+        #[cfg(not(target_arch = "wasm32"))]
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    s.save().await;
+    ensure!(
+        s.project
+            .read()
+            .as_ref()
+            .is_none_or(|p| (s.saved)() == Some(p.revision)),
+        "Save a project backup before switching: the current chart could not be saved"
+    );
+    Ok(())
 }
 pub fn remember_recent(mut studio: super::state::Studio) {
     let Some(s) = try_consume_context::<DanceStudio>() else {
@@ -990,6 +1120,7 @@ pub async fn finish_new(
     info: crate::song_import::SongInfo,
     profile: Profile,
 ) -> Result<()> {
+    flush().await?;
     #[cfg(target_arch = "wasm32")]
     let audio = crate::pipeline::audio_file(&source)?;
     #[cfg(not(target_arch = "wasm32"))]
