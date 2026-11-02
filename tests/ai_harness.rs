@@ -75,6 +75,7 @@ fn fixture(root: &Path) -> Store {
         )
         .unwrap(),
         content: Content {
+            analysis_sources: Default::default(),
             star_power: Default::default(),
             sync: None,
             sections: None,

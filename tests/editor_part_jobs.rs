@@ -21,6 +21,7 @@ fn fixture(root: &Path) -> Store {
 }
 fn request(store: &Store, instrument: &str) -> Request {
     Request {
+        detection: Default::default(),
         source: Source::Audio {
             path: store.audio_path(&store.load().unwrap()).unwrap(),
         },
@@ -47,6 +48,136 @@ fn human() -> Actor {
         kind: ActorKind::Human,
         name: "Part job test".into(),
     }
+}
+
+#[test]
+fn section_reanalysis_previews_without_writing_and_undo_redo_restore_the_complete_edit() {
+    use chart_engine::{editor::TimeRange, reanalysis};
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let mut project = store.load().unwrap();
+    for tick in [0, 2400] {
+        store
+            .apply(Edit {
+                expected_revision: project.revision,
+                actor: human(),
+                action: Action::AddNote {
+                    track: "ExpertDrums".into(),
+                    tick,
+                    lane: 2,
+                    sustain: 0,
+                    cymbal: false,
+                },
+            })
+            .unwrap();
+        project = store.load().unwrap();
+    }
+    let timing = project.timing(&store).unwrap();
+    let center = timing.seconds(480);
+    let range = TimeRange {
+        start: center - 0.04,
+        end: center + 0.04,
+    };
+    let target = parts::Target::capture(&store, &project, "ExpertDrums")
+        .unwrap()
+        .with_range(&project, Some(range))
+        .unwrap();
+    let job = parts::create_job(
+        request(&store, "drums"),
+        &root.path().join("section"),
+        &target,
+    )
+    .unwrap();
+    generation::write_json(
+        &job.join("events.json"),
+        &Transcription {
+            drums: vec![
+                DrumHit {
+                    time: center + 0.01,
+                    voice: Voice::Kick,
+                    confidence: 0.9,
+                },
+                DrumHit {
+                    time: 2.5,
+                    voice: Voice::Snare,
+                    confidence: 0.9,
+                },
+            ],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    generation::run(&job).unwrap();
+    let prepared = parts::Prepared::load(&store, &project, &job).unwrap();
+    let preview = prepared.preview(&project).unwrap();
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().content).unwrap(),
+        serde_json::to_value(&project.content).unwrap()
+    );
+    for old in &project.content.tracks["ExpertDrums"] {
+        if !reanalysis::contains(range, timing.seconds(old.note.tick)) {
+            assert!(preview.content.tracks["ExpertDrums"].contains(old));
+        }
+    }
+    let summary = reanalysis::changes(&project, &preview, &["ExpertDrums".into()]);
+    assert!(summary[0].added > 0 && summary[0].removed > 0);
+    store
+        .apply(Edit {
+            expected_revision: project.revision,
+            actor: human(),
+            action: Action::ApplyGeneratedPart { job },
+        })
+        .unwrap();
+    let applied = store.load().unwrap();
+    assert_eq!(
+        serde_json::to_value(&applied.content).unwrap(),
+        serde_json::to_value(&preview.content).unwrap()
+    );
+    store
+        .apply(Edit {
+            expected_revision: applied.revision,
+            actor: human(),
+            action: Action::Undo,
+        })
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().content).unwrap(),
+        serde_json::to_value(&project.content).unwrap()
+    );
+    store
+        .apply(Edit {
+            expected_revision: store.load().unwrap().revision,
+            actor: human(),
+            action: Action::Redo,
+        })
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().content).unwrap(),
+        serde_json::to_value(&preview.content).unwrap()
+    );
+}
+
+#[test]
+fn affected_difficulty_and_source_changes_invalidate_a_part_target() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let project = store.load().unwrap();
+    let target = parts::Target::capture(&store, &project, "ExpertSingle").unwrap();
+    let mut changed = project.clone();
+    chart_engine::reanalysis::replace_source(
+        &mut changed.content,
+        "ExpertSingle",
+        chart_engine::editor::TimeRange {
+            start: 0.,
+            end: changed.duration,
+        },
+        chart_engine::mapping::GuitarSource::Other,
+    );
+    assert!(target.validate(&store, &changed).is_err());
+    let mut legacy = target.clone();
+    legacy.version = 1;
+    legacy.affected_fingerprints.clear();
+    legacy.validate(&store, &project).unwrap();
 }
 
 #[test]

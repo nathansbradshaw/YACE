@@ -11,6 +11,8 @@ pub enum Source {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Request {
+    #[serde(default)]
+    pub detection: crate::detection_settings::Settings,
     pub source: Source,
     pub bpm: f64,
     /// Frozen audio-analysis proposal. Omitted legacy jobs use constant BPM.
@@ -65,6 +67,7 @@ impl Request {
     }
 
     pub fn validate(&self) -> Result<()> {
+        self.detection.validate()?;
         self.timing()?;
         ensure!(
             !self.title.trim().is_empty() && !self.artist.trim().is_empty(),

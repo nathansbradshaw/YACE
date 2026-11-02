@@ -8,6 +8,46 @@ in place. When it finishes, select **Add** or **Replace** to apply the draft;
 Undo restores the previous notes. If that part changed during generation,
 YACE keeps both versions and refuses to overwrite your edits.
 
+### Reanalyze a part
+
+Select **Reanalyze…** beside the track picker, then choose **Whole track** or
+**Current loop**. Loop repairs expand to include crossing sustains and complete
+vocal phrases. Changes to linked easier difficulties are included in the review;
+their manual overrides remain in place. Notes outside the displayed repair range
+stay intact.
+
+Move **Sensitivity** from 0 (fewer detections) to 100 (more detections), then press
+**Analyze**. **50 · Default** preserves the existing detector settings. Changing
+the slider or another analysis option makes the previous proposal outdated;
+Apply becomes available after a successful analysis with those settings.
+Sensitivity changes detector admission thresholds, not the chart difficulty.
+Experimental Synth uses duration and phrase continuity because it supplies no
+per-note confidence scores. Higher sensitivity can add incorrect detections.
+
+For a Guitar chart, **Guitar chart follows** can select Guitar, Other melody /
+synth, or Piano. This selects a separated sound to arrange for five frets; it
+does not prove that separation correctly distinguished the instruments.
+
+Use **Current / Proposed** and **Play / Pause** to compare notes at the same
+playhead position, loop and speed. The proposal is read-only. Review the note
+changes, affected difficulties, final repair range and detection warnings, then
+choose **Apply reanalysis** or **Discard draft**. Apply is one undoable edit.
+Cancelled, failed and empty proposals keep your chart and earlier saved drafts.
+**Review previous successful draft** returns to the preceding result after a retry.
+
+Applied Guitar sections retain their followed sound, including mixed-source
+tracks. Audition crossfades between the matching stems; clear **Follow section
+sound sources** to hear the original recording. Missing stems fall back to the
+original recording. Source choices travel with project saves, archives and undo
+history. Game exports retain the existing audio-routing policy.
+
+Analysis retains the full recording context even for a short loop. Matching
+separation caches are reused, but a new sensitivity may require fresh detector
+inference. Saved requests include `detection: { sensitivity, policy_version }`;
+omitted settings mean sensitivity 50 with policy version 1. A completed part job
+also saves `reanalysis-review.json` with its effective range and change summary.
+Neither successful generation nor automated checks establish musical accuracy.
+
 Part jobs are saved under the song's `.yace/jobs/parts` folder. Keep `.yace` with
 the song to retain generation evidence and recovery files. Older jobs in a
 review project's `generation-jobs` folder remain readable.

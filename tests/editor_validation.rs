@@ -66,6 +66,7 @@ fn fixture() -> (Project, Chart) {
         duration: 4.0,
         review,
         content: Content {
+            analysis_sources: Default::default(),
             star_power: Default::default(),
             sync: None,
             sections: None,

@@ -27,6 +27,7 @@ mod parts;
 mod practice;
 mod presentation_clock;
 mod project_bar;
+mod reanalysis_review;
 mod review;
 mod sections;
 mod selection;

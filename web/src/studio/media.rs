@@ -189,6 +189,17 @@ impl Media {
             media.synchronize();
         }
     }
+    pub fn analysis_route(
+        &self,
+        project: &crate::editor::Project,
+        fallback: crate::mapping::GuitarSource,
+        enabled: bool,
+        volume: f32,
+    ) {
+        if let Playback::Recording(media) = &self.0 {
+            media.analysis_route(project, fallback, enabled, volume);
+        }
+    }
 }
 /// Content identity survives portable asset relocation. Track selection and
 /// mix settings reuse the same graph; undoing an attachment must rebuild it.
@@ -345,6 +356,61 @@ fn channel(
     })
 }
 impl RecordingMedia {
+    fn analysis_route(
+        &self,
+        project: &crate::editor::Project,
+        fallback: crate::mapping::GuitarSource,
+        enabled: bool,
+        volume: f32,
+    ) {
+        let route = crate::reanalysis::audition_route(project, fallback, enabled);
+        if route.is_none() {
+            let original = StemMix::default();
+            self.mix(
+                if enabled {
+                    &project.content.stem_mix
+                } else {
+                    &original
+                },
+                volume,
+                project.kit_audition.is_some(),
+                keyboard_stems(project),
+            );
+            return;
+        }
+        let route = route.unwrap();
+        let weights = route.weights(self.position());
+        let now = self.context.current_time();
+        let mut original = 0.;
+        for (id, gain) in weights {
+            if !self.stems.contains_key(&(false, id)) {
+                original += gain;
+            }
+        }
+        let smooth = |node: &GainNode, value: f32| {
+            let param = node.gain();
+            let _ = param.cancel_scheduled_values(now);
+            let _ = param.set_value_at_time(param.value(), now);
+            let _ = param.linear_ramp_to_value_at_time(value, now + 0.010);
+        };
+        self.master.gain().set_value(volume);
+        smooth(&self.original.gain, original);
+        for ((keyboard, id), channel) in &self.stems {
+            let gain = if *keyboard {
+                0.
+            } else {
+                weights
+                    .iter()
+                    .filter(|(selected, _)| selected == id)
+                    .map(|(_, gain)| *gain)
+                    .sum()
+            };
+            smooth(&channel.gain, gain);
+        }
+        if let Some(channel) = self.kit.borrow().as_ref() {
+            smooth(&channel.gain, 0.);
+        }
+    }
     pub async fn load(
         store: &crate::editor::Store,
         doc: &crate::editor::Project,

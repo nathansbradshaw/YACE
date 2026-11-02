@@ -3,7 +3,7 @@ use crate::{
     clean, clean_recognition, models, pipeline,
     stem_review::{StemId, StemManifest},
     timing::TempoMap,
-    vocal_generation::{self, Generation, LyricSource, Policy},
+    vocal_generation::{self, Generation, LyricSource},
 };
 use anyhow::{Context, Result, ensure};
 use std::{
@@ -195,6 +195,15 @@ pub fn generate(
     output: &Path,
     control: Arc<clean_recognition::Control>,
 ) -> Result<Generation> {
+    generate_configured(request, output, control, Default::default())
+}
+pub fn generate_configured(
+    request: Request<'_>,
+    output: &Path,
+    control: Arc<clean_recognition::Control>,
+    settings: crate::detection_settings::Settings,
+) -> Result<Generation> {
+    settings.validate()?;
     pipeline::destination(output, None)?;
     ensure!(
         !(request.recognize && request.words.is_some()),
@@ -373,10 +382,7 @@ pub fn generate(
             timing: request.timing,
             words,
             lyrics: request.lyrics,
-            policy: &Policy {
-                analysis_mode: request.analysis_mode,
-                ..Policy::default()
-            },
+            policy: &settings.vocals(request.analysis_mode),
             neural_pitch: neural_pitch.as_ref(),
             vocal_pitch: vocal_pitch.as_ref(),
             rmvpe_pitch: rmvpe_pitch.as_ref(),

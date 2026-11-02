@@ -6,7 +6,7 @@ pub use postprocessing::{
     BassPitchInference, GuitarPitchInference, ShortPitchInference, decode_pitch,
     decode_pitch_with_evidence, drum_peaks, pitch_frame_seconds, supported_drum_peaks,
 };
-use postprocessing::{PitchActivations, clip_pitch_candidates, recover_short_bass};
+use postprocessing::{PitchActivations, clip_pitch_candidates};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -396,6 +396,13 @@ pub fn drums(audio: &Path, model: &Path) -> Result<Vec<DrumHit>> {
 }
 
 pub fn drums_with_recovery(audio: &Path, model: &Path) -> Result<(Vec<DrumHit>, Vec<DrumHit>)> {
+    drums_configured(audio, model, Default::default())
+}
+pub fn drums_configured(
+    audio: &Path,
+    model: &Path,
+    settings: crate::detection_settings::Settings,
+) -> Result<(Vec<DrumHit>, Vec<DrumHit>)> {
     let samples = decode(audio, 44100, 1)?;
     let mut model = session(model)?;
     let count = samples.len().div_ceil(441);
@@ -438,9 +445,10 @@ pub fn drums_with_recovery(audio: &Path, model: &Path) -> Result<(Vec<DrumHit>, 
             samples.len(),
         );
     }
-    Ok(supported_drum_peaks(
+    Ok(postprocessing::supported_drum_peaks_configured(
         &activations,
         &decode(audio, 22050, 1)?,
+        settings,
     ))
 }
 
@@ -472,11 +480,20 @@ pub(crate) fn guitar_pitch_with_evidence_for_source(
     model: &Path,
     source: crate::mapping::GuitarSource,
 ) -> Result<GuitarPitchInference> {
+    guitar_configured(audio, model, source, Default::default())
+}
+pub(crate) fn guitar_configured(
+    audio: &Path,
+    model: &Path,
+    source: crate::mapping::GuitarSource,
+    settings: crate::detection_settings::Settings,
+) -> Result<GuitarPitchInference> {
     let activations = pitch_activations(audio, model)?;
-    Ok(postprocessing::guitar_from_activations(
+    Ok(postprocessing::guitar_from_activations_configured(
         activations,
         &decode(audio, 11025, 1)?,
         source,
+        settings,
     ))
 }
 
@@ -484,9 +501,20 @@ pub(crate) fn guitar_pitch_with_evidence_for_source(
 /// candidates come from the unchanged pass; shorter network hypotheses need
 /// both source-attack and owned acoustic pitch evidence before joining them.
 pub fn bass_pitch_with_evidence(audio: &Path, model: &Path) -> Result<BassPitchInference> {
+    bass_configured(audio, model, Default::default())
+}
+pub fn bass_configured(
+    audio: &Path,
+    model: &Path,
+    settings: crate::detection_settings::Settings,
+) -> Result<BassPitchInference> {
     let activations = pitch_activations(audio, model)?;
     let pitch_audio = decode(audio, 11025, 1)?;
-    Ok(recover_short_bass(&activations, &pitch_audio))
+    Ok(postprocessing::recover_short_bass_configured(
+        &activations,
+        &pitch_audio,
+        settings,
+    ))
 }
 
 pub(crate) fn pitch_activations(audio: &Path, model: &Path) -> Result<PitchActivations> {
