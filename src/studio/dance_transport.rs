@@ -165,7 +165,7 @@ pub fn AudioEngine() -> Element {
             audio { key:"{s.epoch}", id:"dance-audio", hidden:true, src:"{s.audio}",
                 onloadedmetadata:move |_| { set_volume((studio.volume)()); sample() },
                 ontimeupdate:move |_| sample(), onplay:move |_|s.playing.set(true),
-                onpause:move |_|s.playing.set(false), onended:move |_|s.playing.set(false),
+                onpause:move |_|s.playing.set(false), onended:move |_|{if let Some(range)=(s.loop_range)(){seek(range.start);playback(true);}else{s.playing.set(false);}},
                 onerror:move |_|{s.length.set(0.);s.playing.set(false);s.error.set(Some("Could not play the recording.".into()));}
             }
         }

@@ -128,6 +128,7 @@ impl DanceStudio {
                         .document
                         .charts
                         .iter()
+                        .filter(|c| c.id == (self.selected)())
                         .flat_map(|c| c.notes.iter().map(|n| n.id.clone()))
                         .collect()
                 })
@@ -493,7 +494,7 @@ pub fn Controller(studio: super::state::Studio) -> Element {
     rsx! {transport_backend::AudioEngine {} workspace::Dialogs {} if (s.export_open)(){super::sheet::ToolSheet{id:"chart-export",title:"Export chart",description:"Choose the game format for this recording.",close_label:"Close export",class:"parts-sheet",onclose:move |_|s.export_open.set(false),actions:rsx!{button{onclick:move |_|s.export_open.set(false),"Close"}},
         button{onclick:move |_|async move{s.prepare(Some(Format::Ssc)).await;},"Dance simfiles (.ssc)"}
         button{onclick:move |_|async move{s.prepare(Some(Format::Sm)).await;},"Legacy dance simfiles (.sm)"}
-        if band_visible(studio)&&studio.snapshot().is_some(){button{onclick:move |_|{s.export_open.set(false);studio.export_dialog();},"Band charts"}}
+        if band_visible(studio)&&studio.snapshot().is_some(){button{onclick:move |_|{s.export_open.set(false);studio.export_dialog();},"MIDI / .chart formats…"}}
         if let Some(error)=(s.error)(){p{role:"alert","{error}"}}
     }}}
 }
@@ -1276,6 +1277,7 @@ pub fn from_recording(mut studio: super::state::Studio, profile: Profile, genera
         }
         s.open.set(true);
         s.generation_open.set(generate);
+        s.selection.set(Default::default());
         studio.parts_open.set(false);
         studio.dispatch(crate::editor::Action::Playback {
             playing: was_playing,

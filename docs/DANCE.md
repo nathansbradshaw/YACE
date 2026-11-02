@@ -25,7 +25,7 @@ Use Select to click notes or drag a selection box; Shift-click toggles notes.
 Use Place (or double-click with Select) to add the selected note type. Use Erase
 to remove a note. Drag notes to move them; drag a sustain's end grip to resize it.
 Note properties in the Selection pane change beat, lane, length, type and foot.
-The four columns are left, down, up, right. Holds and rolls have editable lengths.
+The four lanes are left, down, up, right. Holds and rolls have editable lengths.
 Mines, lifts and fake notes remain distinct types. The beat grid stays independent
 of scrolling effects; the preview follows the recording's clock.
 
