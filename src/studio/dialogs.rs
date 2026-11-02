@@ -26,7 +26,44 @@ mod web {
     #[derive(Clone, Copy)]
     pub struct Dialogs(Signal<Option<String>>);
     pub fn provide_browser_dialogs() {
-        use_context_provider(|| Dialogs(Signal::new(None)));
+        let dialogs = use_context_provider(|| Dialogs(Signal::new(None)));
+        // File operations intentionally outlive the welcome/menu component.
+        // Their root-scoped tasks still need the same error channel.
+        use_hook(move || dioxus::core::provide_root_context(dialogs));
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::{cell::Cell, rc::Rc};
+        fn app() -> Element {
+            provide_browser_dialogs();
+            let complete = use_context::<Rc<Cell<bool>>>();
+            use_hook(move || {
+                dioxus::core::spawn_forever(async move {
+                    let _ = consume_context::<Dialogs>();
+                    complete.set(true);
+                });
+            });
+            rsx! { div {} }
+        }
+        #[tokio::test]
+        async fn retained_file_operations_can_resolve_the_dialog_error_context() {
+            let complete = Rc::new(Cell::new(false));
+            let mut dom = VirtualDom::new(app);
+            dom.provide_root_context(complete.clone());
+            dom.rebuild_to_vec();
+            tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                while !complete.get() {
+                    dom.render_immediate_to_vec();
+                    tokio::select! {
+                        _ = dom.wait_for_work() => {},
+                        _ = tokio::time::sleep(std::time::Duration::from_millis(5)) => {},
+                    }
+                }
+            })
+            .await
+            .expect("The retained picker task must find the app's dialog context");
+        }
     }
     #[derive(Default)]
     pub struct AsyncFileDialog {
