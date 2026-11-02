@@ -602,7 +602,7 @@
 .track-view-choices{position:relative}.track-view-choices summary{cursor:pointer;padding:4px}.track-view-choices fieldset{position:absolute;z-index:30;min-width:220px;max-height:240px;overflow:auto;background:#222933;border:1px solid #68819b;padding:10px;box-shadow:0 7px 20px #0009}
 .track-view-choices fieldset label{display:flex;align-items:center;gap:7px;padding:5px}.track-view-choices fieldset p{font-size:11px;color:#afbbc8}.track-view-warning{color:#ffd190}
 .track-view-heading{display:flex;align-items:center;padding:2px 8px;background:#262e38;border-bottom:1px solid #424a55;gap:8px}.track-view-heading>button:last-child{margin-left:auto}.track-view-count{font-size:11px;color:#aebdcd}.chart-desk-track>.lane-track-header{display:none}
-.track-view-heading button{font-size:11px;padding:4px 7px}.track-view-heading button[aria-pressed=true],.preview-track-target[aria-pressed=true]{color:#87c7ff;border-color:#71aff0}
+.chart-desk-scroll{scroll-padding-top:128px;scroll-padding-bottom:16px}.track-view-heading button{font-size:11px;padding:4px 7px;scroll-margin-top:128px}.track-view-heading button[aria-pressed=true],.preview-track-target[aria-pressed=true]{color:#87c7ff;border-color:#71aff0}
 .track-preview-surface{display:flex;flex-direction:column;min-height:0;overflow:auto}.preview-highways{display:flex;flex:1 0 160px;min-height:160px;overflow-x:auto;overflow-y:hidden;align-items:stretch}
 .preview-highway-tile{flex:1 0 230px;min-width:230px;min-height:0;position:relative;display:flex;flex-direction:column;align-items:stretch;border-right:1px solid #354352}
 .preview-highway-tile>.studio-highway{flex:1;width:100%;min-height:0;position:static}.preview-track-target{align-self:center;font-size:11px;margin:3px 4px;padding:3px 8px;flex-shrink:0}
