@@ -14,6 +14,25 @@ fn label(id: StemId) -> &'static str {
         StemId::Guitar => "Guitar",
         StemId::Piano => "Piano",
         StemId::Other => "Other",
+        StemId::Backing => "Backing track",
+        StemId::Rhythm => "Rhythm",
+        StemId::Crowd => "Crowd",
+    }
+}
+fn selected_stem(studio: Studio, doc: &crate::editor::Project, vocals: bool) -> StemId {
+    if doc
+        .content
+        .stems
+        .as_ref()
+        .is_some_and(|m| m.conventional.is_some())
+        && doc.selected_track.ends_with("DoubleRhythm")
+    {
+        StemId::Rhythm
+    } else {
+        studio
+            .guitar_source
+            .read()
+            .audition_stem(&doc.selected_track, vocals)
     }
 }
 fn preset(studio: Studio, quiet_backing: bool) {
@@ -25,10 +44,7 @@ fn preset(studio: Studio, quiet_backing: bool) {
     let Some(manifest) = super::state::review_manifest(doc, vocals) else {
         return;
     };
-    let selected = studio
-        .guitar_source
-        .read()
-        .audition_stem(&doc.selected_track, vocals);
+    let selected = selected_stem(studio, doc, vocals);
     if !manifest.stems.iter().any(|stem| stem.id == selected) {
         return;
     }
@@ -79,13 +95,12 @@ pub fn StemControls(studio: Studio) -> Element {
         return rsx! {};
     };
     let available = super::state::review_manifest(doc, studio.is_vocal_track());
-    let selected = studio
-        .guitar_source
-        .read()
-        .audition_stem(&doc.selected_track, studio.is_vocal_track());
+    let selected = selected_stem(studio, doc, studio.is_vocal_track());
     let selected_available = available.is_some_and(|m| m.stems.iter().any(|s| s.id == selected));
     let kit = doc.kit_audition.as_ref();
     let original = kit.is_none() && doc.content.stem_mix.mode == MixMode::Original;
+    let complete = doc.audio_filename == crate::stem_review::conventional::PREVIEW;
+    let conventional = available.is_some_and(|m| m.conventional.is_some());
     let matches_preset = |backing: f32| {
         kit.is_none()
             && !original
@@ -118,12 +133,12 @@ pub fn StemControls(studio: Studio) -> Element {
                 span{class:"stem-controls-label",title:"Instrument audition",Icon{name:"volume",size:14}}
                 button{class:if original{"studio-tool active"}else{"studio-tool"},onclick:move |_|{
                     let project=studio.doc.read();if let Some(doc)=project.as_ref(){let mut mix=doc.content.stem_mix.clone();mix.mode=MixMode::Original;drop(project);studio.dispatch(Action::SetStemMix{mix});}
-                },"Original"}
+                },if complete {"Complete mix"} else {"Original"}}
                 button{class:if solo_active{"studio-tool active"}else{"studio-tool"},disabled:!selected_available,title:"Listen only to {label(selected)}",onclick:move |_|preset(studio,false),"{label(selected)} only"}
                 button{class:if backing_active{"studio-tool active"}else{"studio-tool"},disabled:!selected_available,title:"{label(selected)} at full gain, other stems at 18%",onclick:move |_|preset(studio,true),"With backing"}
                 if available.is_some(){button{class:if expanded(){"studio-tool active stem-mixer-toggle"}else{"studio-tool stem-mixer-toggle"},aria_label:"Open stem mixer",aria_expanded:expanded().to_string(),title:"Stem mixer and alignment details",onclick:move |_|expanded.set(!expanded()),Icon{name:"sliders",size:13}}}
                 else{button{class:"studio-tool stem-mixer-toggle",title:"Attach aligned local stems to isolate instruments","data-browser-pick":"file",onclick:move |_|studio.attach_stems_dialog(),Icon{name:"folder-open",size:13}"Attach stems"}}
-                span{class:"stem-runtime-status",aria_label:"Audition source",title:"{studio.stem_status}",if let Some(kit)=kit{"Kit · {kit.label}"}else if available.is_none(){"No stems"}else if !original{"Isolated estimate"}}
+                span{class:"stem-runtime-status",aria_label:"Audition source",title:"{studio.stem_status}",if let Some(kit)=kit{"Kit · {kit.label}"}else if available.is_none(){"No stems"}else if conventional {"Game channels"}else if !original{"Isolated estimate"}}
                 super::part_analysis::PartAnalysisButton{studio}
             }
             if expanded(){

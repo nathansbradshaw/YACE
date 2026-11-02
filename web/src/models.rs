@@ -37,6 +37,15 @@ pub(crate) fn remember_verified_hash(bytes: &std::sync::Arc<Vec<u8>>, hash: &str
 }
 thread_local! { static PCM: std::cell::RefCell<std::collections::BTreeMap<PathBuf,(String,crate::audio_decode::Pcm)>> = std::cell::RefCell::default(); }
 thread_local! { static STEMS: std::cell::RefCell<std::collections::BTreeSet<String>> = std::cell::RefCell::default(); }
+pub(crate) fn decoded_bytes() -> usize {
+    PCM.with(|cache| {
+        cache
+            .borrow()
+            .values()
+            .map(|(_, pcm)| pcm.stereo.len() * 4)
+            .sum()
+    })
+}
 fn stem_key(manifest: &crate::stem_review::StemManifest) -> Result<String> {
     Ok(format!(
         "{:x}",

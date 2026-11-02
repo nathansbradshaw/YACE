@@ -23,6 +23,7 @@ pub fn relative(name: &str) -> PathBuf {
             "review"
         }
         "chart-engine-isolation.json"
+        | "chart-engine-conventional-audio.json"
         | "chart-engine-keyboard-isolation.json"
         | "chart-engine-melody-source.json" => "audio",
         "game-export.json" | "yace-audio.json" => "export",

@@ -36,7 +36,7 @@ fn fixture(directory: &std::path::Path) -> Transcription {
     let bass = candidate(0.5, 1.5, 40, 0.8, 0.9);
     let manifest=StemManifest{version:1,source_audio_sha256:"a".repeat(64),sample_rate:44100,channels:2,frames:4*44100,
         alignment:AlignmentEvidence{method:"controlled saved-receipt schema fixture".into(),details:"Synthetic identity/clock metadata only; no acoustic inference or musical correctness is claimed".into()},
-        stems:vec![StemAsset{id:StemId::Drums,path:directory.join("synthetic-drums.wav"),sha256:"b".repeat(64)}],generation:None};
+        stems:vec![StemAsset{id:StemId::Drums,path:directory.join("synthetic-drums.wav"),sha256:"b".repeat(64)}],generation:None,conventional:None};
     let hits = vec![
         DrumHit {
             time: 0.5,

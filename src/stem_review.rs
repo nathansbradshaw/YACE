@@ -21,6 +21,8 @@ pub const SAMPLE_RATE: u32 = 44_100;
 #[path = "stem_review/validation.rs"]
 mod validation;
 
+#[path = "stem_review/conventional.rs"]
+pub mod conventional;
 #[path = "stem_review/game_audio.rs"]
 pub mod game_audio;
 
@@ -33,6 +35,9 @@ pub enum StemId {
     Guitar,
     Piano,
     Other,
+    Backing,
+    Rhythm,
+    Crowd,
 }
 impl StemId {
     pub const ALL: [Self; 6] = [
@@ -51,6 +56,9 @@ impl StemId {
             Self::Guitar => "guitar",
             Self::Piano => "piano",
             Self::Other => "other",
+            Self::Backing => "backing",
+            Self::Rhythm => "rhythm",
+            Self::Crowd => "crowd",
         }
     }
 }
@@ -132,6 +140,8 @@ pub struct StemManifest {
     pub stems: Vec<StemAsset>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<SeparationIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conventional: Option<conventional::Clock>,
 }
 fn valid_hash(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
@@ -169,6 +179,7 @@ impl StemManifest {
             alignment,
             stems,
             generation: None,
+            conventional: None,
         };
         manifest.validate_source(
             source,
@@ -220,6 +231,13 @@ impl StemManifest {
     /// Lightweight shape/provenance check, safe for every project load.
     pub fn validate_binding(&self, source_hash: &str, duration: f64) -> Result<()> {
         ensure!(self.version == 1, "Unsupported stem manifest version");
+        if let Some(clock) = &self.conventional {
+            clock.validate()?;
+            ensure!(
+                self.generation.is_none(),
+                "Game channels cannot claim a separation model"
+            );
+        }
         if let Some(identity) = &self.generation {
             identity.validate(source_hash)?;
         }
@@ -245,8 +263,13 @@ impl StemManifest {
             "Stem alignment provenance is required; matching duration alone does not prove alignment"
         );
         ensure!(
-            (1..=6).contains(&self.stems.len()) && self.ids().len() == self.stems.len(),
-            "Provide one to six unique instrument stems"
+            (1..=if self.conventional.is_some() { 9 } else { 6 }).contains(&self.stems.len())
+                && self.ids().len() == self.stems.len(),
+            "Provide unique audio channels within the declared stem profile"
+        );
+        ensure!(
+            self.conventional.is_some() || self.stems.iter().all(|a| StemId::ALL.contains(&a.id)),
+            "Additional game channels require a conventional source clock"
         );
         let mut paths = BTreeSet::new();
         for stem in &self.stems {
@@ -270,6 +293,10 @@ impl StemManifest {
         duration: f64,
     ) -> Result<Self> {
         self.validate_binding(expected_hash, duration)?;
+        if self.conventional.is_some() {
+            self.load(source)?;
+            return Ok(self.clone());
+        }
         #[cfg(not(target_arch = "wasm32"))]
         validation::validate(self, source)?;
         #[cfg(target_arch = "wasm32")]
@@ -308,8 +335,11 @@ impl StemManifest {
                 "Attached {} stem changed",
                 asset.id.as_str()
             );
-            validate_stereo_format(&path)?;
+            if self.conventional.is_none() {
+                validate_stereo_format(&path)?;
+            }
             let pcm = models::decode(&path, SAMPLE_RATE, 2)?;
+            let pcm = self.prepare_channel(pcm)?;
             ensure!(
                 pcm.len() == original.len(),
                 "{} stem must have exactly the source's decoded frame count",
@@ -326,6 +356,29 @@ impl StemManifest {
             "Source changed while loading stems"
         );
         LoadedStems::from_pcm(SAMPLE_RATE, original, stems)
+    }
+    /// Conventional files may have shorter tails or another on-disk rate. They
+    /// share a declared song origin and the complete preview's stereo clock.
+    pub fn prepare_channel(&self, mut pcm: Vec<f32>) -> Result<Vec<f32>> {
+        if let Some(clock) = &self.conventional {
+            clock.validate()?;
+            let samples = usize::try_from(
+                self.frames
+                    .checked_mul(2)
+                    .context("Channel length overflow")?,
+            )?;
+            ensure!(
+                pcm.len().is_multiple_of(2) && pcm.len() <= samples.saturating_add(2),
+                "Game channel outlasts its complete mix; rebuild its source preview"
+            );
+            pcm.truncate(samples); // at most one resampler-rounding frame
+            pcm.resize(samples, 0.);
+            let gain = clock.headroom.value();
+            for sample in &mut pcm {
+                *sample *= gain;
+            }
+        }
+        Ok(pcm)
     }
 }
 

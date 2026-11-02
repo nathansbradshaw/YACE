@@ -858,7 +858,7 @@ impl Store {
     }
     pub fn audio_path(&self, project: &Project) -> Result<PathBuf> {
         ensure!(
-            Path::new(&project.audio_filename).components().count() == 1,
+            crate::stem_review::conventional::valid_audio_filename(&project.audio_filename),
             "Invalid audio filename"
         );
         Ok(self.root.join("source").join(&project.audio_filename))
@@ -963,9 +963,14 @@ impl Store {
             .extend(crate::song_files::game_midi::warnings(
                 &self.root.join("source"),
             )?);
+        review
+            .coverage_limits
+            .extend(crate::stem_review::conventional::warnings(
+                &self.root.join("source"),
+            )?);
         // Let the original recording open even if attached stems are missing.
         // The audio worker checks stem files before offering playback.
-        let stems = match (|| -> Result<Option<crate::stem_review::StemManifest>> {
+        let mut stems = match (|| -> Result<Option<crate::stem_review::StemManifest>> {
             let isolation = song_layout::resolve(song, "chart-engine-isolation.json");
             let transcription = song_layout::resolve(song, "chart-engine-transcription.json");
             let (mut manifest, base) = if fs::is_file(&isolation) {
@@ -996,6 +1001,14 @@ impl Store {
                 };
                 asset.path = fs::canonicalize(&path).unwrap_or(path);
             }
+            if manifest.conventional.is_some() {
+                let original = fs::canonicalize(song)?;
+                for asset in &mut manifest.stems {
+                    if let Ok(relative) = asset.path.strip_prefix(&original) {
+                        asset.path = fs::canonicalize(self.root.join("source").join(relative))?;
+                    }
+                }
+            }
             manifest.validate_binding(&audio_hash, duration)?;
             Ok(Some(manifest))
         })() {
@@ -1005,6 +1018,9 @@ impl Store {
                 None
             }
         };
+        if stems.is_none() {
+            stems = crate::stem_review::conventional::manifest(&self.root.join("source"))?;
+        }
         let keyboard_stems = match (|| -> Result<Option<crate::stem_review::StemManifest>> {
             let sidecar = song_layout::resolve(song, "chart-engine-keyboard-isolation.json");
             let transcription = song_layout::resolve(song, "chart-engine-transcription.json");
@@ -1089,7 +1105,10 @@ impl Store {
                 .into(),
             original_folder: fs::canonicalize(song)?,
             source_chart_sha256: source_hash,
-            audio_filename: audio.file_name().unwrap().to_string_lossy().into(),
+            audio_filename: audio
+                .strip_prefix(self.root.join("source"))?
+                .to_string_lossy()
+                .replace('\\', "/"),
             audio_sha256: audio_hash,
             duration,
             review,
@@ -1914,6 +1933,7 @@ impl Store {
     pub fn write_export(&self, doc: &Project, stage: &Path, actor: &Actor) -> Result<()> {
         let source = self.root.join("source");
         crate::song_files::source_choice::validate_retained(&source)?;
+        crate::stem_review::conventional::validate(&source)?;
         pipeline::copy_song_source(&source, stage)?;
         pipeline::organize_song_stage(stage)?;
         song_layout::prepare(stage)?;
@@ -2045,36 +2065,14 @@ impl Store {
             )?,
         )?;
         if let Some(manifest) = &doc.content.stems {
-            let manifest = {
-                let mut retained = crate::stem_review::game_audio::retain_in(stage, manifest)?;
-                let base = fs::canonicalize(
-                    song_layout::path(stage, "chart-engine-isolation.json")
-                        .parent()
-                        .context("Isolation needs a parent")?,
-                )?;
-                for asset in &mut retained.stems {
-                    asset.path = asset.path.strip_prefix(&base)?.to_owned();
-                }
-                retained
-            };
+            let manifest = crate::stem_review::game_audio::for_export(stage, &source, manifest)?;
             fs::write(
                 song_layout::path(stage, "chart-engine-isolation.json"),
                 serde_json::to_vec_pretty(&manifest)?,
             )?;
         }
         if let Some(manifest) = &doc.content.keyboard_stems {
-            let manifest = {
-                let mut retained = crate::stem_review::game_audio::retain_in(stage, manifest)?;
-                let base = fs::canonicalize(
-                    song_layout::path(stage, "chart-engine-keyboard-isolation.json")
-                        .parent()
-                        .context("Isolation needs a parent")?,
-                )?;
-                for asset in &mut retained.stems {
-                    asset.path = asset.path.strip_prefix(&base)?.to_owned();
-                }
-                retained
-            };
+            let manifest = crate::stem_review::game_audio::for_export(stage, &source, manifest)?;
             fs::write(
                 song_layout::path(stage, "chart-engine-keyboard-isolation.json"),
                 serde_json::to_vec_pretty(&manifest)?,

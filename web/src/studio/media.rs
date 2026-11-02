@@ -53,6 +53,7 @@ struct MediaIdentity {
 }
 #[derive(PartialEq, Eq)]
 struct ManifestIdentity {
+    conventional: Option<crate::stem_review::conventional::Clock>,
     rate: u32,
     channels: u16,
     frames: u64,
@@ -68,6 +69,7 @@ impl MediaIdentity {
             ]
             .map(|manifest| {
                 manifest.map(|manifest| ManifestIdentity {
+                    conventional: manifest.conventional.clone(),
                     rate: manifest.sample_rate,
                     channels: manifest.channels,
                     frames: manifest.frames,
@@ -227,7 +229,16 @@ impl Media {
                     "Stem checksum differs: {}",
                     asset.id.as_str()
                 );
-                let pcm = decode(&context, crate::storage::shared(&asset.path)?.as_slice()).await?;
+                let mut pcm =
+                    decode(&context, crate::storage::shared(&asset.path)?.as_slice()).await?;
+                if manifest.conventional.is_some() {
+                    pcm = crate::audio_decode::Pcm {
+                        stereo: manifest
+                            .prepare_channel(pcm.samples(crate::stem_review::SAMPLE_RATE, 2)?)?,
+                        rate: crate::stem_review::SAMPLE_RATE,
+                        channels: 2,
+                    };
+                }
                 ensure!(
                     (pcm.duration() - doc.duration).abs() < 0.2,
                     "Stem duration differs: {}",
