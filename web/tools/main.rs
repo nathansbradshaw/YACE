@@ -251,7 +251,10 @@ fn main() -> Result<()> {
         Some("stage") => {
             let target=args.get(1).ok_or("Use stage HOST_DIST SOURCE_REVISION")?;
             let revision=args.get(2).ok_or("Use stage HOST_DIST SOURCE_REVISION")?;
-            let release=static_release::stage(&root.join("web/dist"),Path::new(target),revision)?;
+            if args.len()>4 || args.get(3).is_some_and(|v|v!="--reuse-root-runtime") { return Err("Use stage HOST_DIST SOURCE_REVISION [--reuse-root-runtime]".into()); }
+            let release=if args.get(3).is_some() {
+                static_release::stage_reusing_runtime(&root.join("web/dist"),Path::new(target),revision)?
+            } else { static_release::stage(&root.join("web/dist"),Path::new(target),revision)? };
             println!("Immutable static release: {}",release.display());Ok(())
         }
         Some("serve") => {

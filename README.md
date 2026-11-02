@@ -8,8 +8,10 @@ they are not finished charts.
 
 The [static browser app](docs/BROWSER.md) runs the shared Rust chart editor through
 Dioxus Web/WASM, with local file selection, playback, recovery and ZIP exports.
-It needs only static hosting. AI generation is disabled in the browser because
-the current model runners require native dependencies.
+It needs only static hosting. Supported generators and vocal/instrument
+separation run locally in browser workers, with model downloads cached locally.
+Native-only model runners remain unavailable on web; see the documented
+[browser capabilities and limits](docs/BROWSER.md).
 The product target is faster, easier charting and reliable team work;
 complete OCTAVE/Moonscraper parity and hosted collaboration remain unfinished.
 
