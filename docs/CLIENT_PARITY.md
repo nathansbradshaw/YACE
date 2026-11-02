@@ -38,7 +38,7 @@ Keep private recordings, transcripts and generated receipts outside Git.
 
 The ledger above is acceptance evidence for the exercised workflows, not a
 claim that later desktop changes are automatically verified on the web. The
-current browser integration includes desktop work through `7244372`.
+current browser integration includes desktop work through `d7875e3`.
 
 - Local RMVPE pitch comparison ran on the real three-second vocal excerpt.
   Deliberately moving MIDI 52 to 64 produced one supported 64-to-52 correction;
@@ -63,12 +63,20 @@ current browser integration includes desktop work through `7244372`.
   grid navigation continued during compression; picker restore retained all
   11 Dance/4-key charts, the band tracks, and the saved Redo/Undo operation.
 
-The continuation task remains active. Before closing parity, integrate the
-shared Dance workspace revision being developed in the other workflow, exercise
-its actual browser controls and recovery, inspect any further desktop changes,
-and complete publication/live checks for each finished increment. Retain the
-documented HQ Piano/native-assistant AI exception and the user's restriction
-against throwaway GitHub write tests; neither is an implemented browser feature.
+The shared Dance workspace now uses the ordinary preview, transport, inspector,
+editing tools and history controls. A real mixed band/Dance project was opened
+in two browser tabs: the first saved its note at beat 1, while the stale tab's
+beat-2 edit was rejected. A guarded reload retained the rejected working copy;
+the accepted tab still reopened at beat 1. The stale tab's independent backup
+passed CRC checks and restored beat 2 with its original Undo/Redo history.
+The test browser did not expose an explicit leave/stay dialog, so this records
+observed retention rather than browser-specific confirmation presentation.
+
+A second local vocal pitch comparison retained the earlier correction's amber
+uncertainty, previous MIDI 64 alternative, corrected MIDI 52, lyrics and timing.
+The HQ Piano/native-assistant AI exception remains explicit; those capabilities
+are not implemented browser features. Browser process termination, storage
+eviction and musical/game acceptance remain separate acceptance boundaries.
 
 During generator integration, inspect each fetched desktop change before
 rebasing and rerun the affected browser workflow. The integration through

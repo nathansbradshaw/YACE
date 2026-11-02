@@ -1700,7 +1700,6 @@ impl Store {
                     "Practice rate must be between 0.5 and 1.5"
                 );
                 doc.transport.playback_rate = *rate;
-                doc.transport.playing = false;
             }
             Action::SetLoop { range } => {
                 if let Some(r) = range {
