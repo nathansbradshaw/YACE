@@ -87,7 +87,7 @@ impl Drop for BusyGuard {
 pub fn BusyLabel(busy: bool, label: String, active: String) -> Element {
     rsx! {
         if busy {span {class: "activity-spinner", aria_hidden: "true"}}
-        span {if busy {"{active}"} else {"{label}"}}
+        if busy {"{active}"} else {"{label}"}
     }
 }
 
