@@ -883,3 +883,22 @@ fn downsampling_filters_frequencies_above_the_analysis_nyquist_limit() {
         "analysis must not alias out-of-band audio into attacks"
     );
 }
+#[test]
+fn optimizer_version_accepts_official_release_and_packaged_132_only() {
+    for version in [
+        "wasm-opt version 132\n",
+        "wasm-opt version 132 (version_132)\n",
+    ] {
+        assert!(super::compatible_optimizer_version(version), "{version}");
+    }
+    for version in [
+        "wasm-opt version 131",
+        "wasm-opt version 133",
+        "wasm-opt version 1320",
+        "wasm-opt version 132.1",
+        "other version 132",
+        "",
+    ] {
+        assert!(!super::compatible_optimizer_version(version), "{version}");
+    }
+}

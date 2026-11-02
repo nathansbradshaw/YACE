@@ -56,6 +56,12 @@ fn copy_source(from: &Path, to: &Path) -> Result<()> {
     }
     Ok(())
 }
+fn compatible_optimizer_version(version: &str) -> bool {
+    let mut fields = version.split_whitespace();
+    fields.next() == Some("wasm-opt")
+        && fields.next() == Some("version")
+        && fields.next() == Some("132")
+}
 fn build(root: &Path) -> Result<()> {
     let target = env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
@@ -79,10 +85,12 @@ fn build(root: &Path) -> Result<()> {
         .args(["--target", "web", "--no-typescript", "--out-dir"])
         .arg(&dist))?;
     let optimizer = Command::new("wasm-opt").arg("--version").output()?;
-    if !optimizer.status.success()
-        || String::from_utf8_lossy(&optimizer.stdout).trim() != "wasm-opt version 132"
-    {
-        return Err("Static builds require Binaryen wasm-opt 132".into());
+    let optimizer_version = String::from_utf8_lossy(&optimizer.stdout);
+    if !optimizer.status.success() || !compatible_optimizer_version(&optimizer_version) {
+        return Err(format!(
+            "Static builds require Binaryen wasm-opt 132; received {optimizer_version:?}"
+        )
+        .into());
     }
     let wasm = dist.join("yace_web_bg.wasm");
     let optimized = dist.join("yace_web_bg.optimized.wasm");
