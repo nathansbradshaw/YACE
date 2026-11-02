@@ -250,15 +250,18 @@ fn serve_inner(workspace: &Path, port: u16, start_project: Option<PathBuf>) -> R
             .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
             .layer(middleware::from_fn_with_state(host.clone(), guard))
             .with_state(host);
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async move {
-                if fixture {
-                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                } else {
-                    std::future::pending::<()>().await;
-                }
-            })
-            .await?;
+        let server = axum::serve(listener, app);
+        if fixture {
+            // Bound fixtures even if a client leaves an HTTP request open.
+            if let Ok(result) =
+                tokio::time::timeout(std::time::Duration::from_secs(30), async { server.await })
+                    .await
+            {
+                result?;
+            }
+        } else {
+            server.await?;
+        }
         Ok(())
     })
 }
