@@ -176,7 +176,7 @@ fn BandPreview(studio: Studio) -> Element {
         header {class:"desk-heading audition-heading",h2{"Audition"}super::track_views::Controls{studio,pane:super::track_views::Pane::Preview}span{class:"audition-mode","Autoplay"}}
         div{class:if multi{"audition-surface track-preview-surface multi-track-preview"}else{"audition-surface track-preview-surface"},
             if has_vocals {div{class:"preview-vocals",
-                button{aria_label:"Select Vocals for editing",onkeydown:move|e:KeyboardEvent|e.stop_propagation(),aria_pressed:(super::track_views::active(studio)=="Vocals").to_string(),onclick:move|_|super::track_views::select(studio,"Vocals".into()),"Vocals"}
+                button{tabindex:"0",aria_label:"Select Vocals for editing",onkeydown:move|e:KeyboardEvent|e.stop_propagation(),aria_pressed:(super::track_views::active(studio)=="Vocals").to_string(),onclick:move|_|super::track_views::select(studio,"Vocals".into()),"Vocals"}
                 super::vocal_preview::VocalPreview{studio,lookahead:lookahead()}
             }}
             if !bands.is_empty(){div{class:"preview-highways",role:"region",aria_label:"Visible instrument previews",tabindex:"0",onkeydown:move|e:KeyboardEvent|e.stop_propagation(),
@@ -273,7 +273,7 @@ fn Highway(
         doc.as_ref().is_some_and(|doc| doc.transport.playing) && (studio.audio_ready)();
     let target = track.clone();
     rsx! {section{class:"preview-highway-tile",aria_label:"{super::track_picker::title(&track)} preview","data-preview-track":"{track}","data-preview-position":"{position}","data-preview-playing":"{telemetry_playing}","data-preview-revision":"{telemetry_revision}","data-preview-audio":"{telemetry_audio}",
-        button{class:"preview-track-target",aria_label:"Select {super::track_picker::title(&track)} for editing",aria_pressed:(super::track_views::active(studio)==track).to_string(),onclick:move|_|super::track_views::select(studio,target.clone()),"{super::track_picker::title(&track)}"}
+        button{class:"preview-track-target",tabindex:"0",aria_label:"Select {super::track_picker::title(&track)} for editing",aria_pressed:(super::track_views::active(studio)==track).to_string(),onclick:move|_|super::track_views::select(studio,target.clone()),"{super::track_picker::title(&track)}"}
         svg{class:"studio-highway",view_box:"0 0 1000 620",preserve_aspect_ratio:"xMidYMid meet",role:"img","aria-label":"Autoplay editing preview with instrument notes; no scoring or controller judgment",dangerous_inner_html:"{geometry}"}
         if (studio.audio_stalled)()&&telemetry_playing{div{class:"game-preview-policy-warning","Audio position stalled · preview held"}}
         if unknown_policy&&!drums&&!crate::keys::is_keys(&track){div{class:"game-preview-policy-warning","HOPO policy unknown · neutral note caps"}}

@@ -329,7 +329,7 @@ pub fn Controls(studio: Studio, pane: Pane) -> Element {
         }),option{value:"focused","Focused"}option{value:"selected","Selected tracks"}option{value:"all","All tracks"}}}
         if view.mode==Mode::Selected {details{class:"track-view-choices",summary{"Choose tracks"}fieldset{legend{"{name} tracks at the active difficulty"}
             p{"Keep at least one track visible."}
-            for track in tracks {{let caption=label(studio,&track);let id=track.clone();rsx!{label{key:"{track}",input{r#type:"checkbox",checked:chosen.contains(&track),disabled:chosen.len()==1&&chosen.contains(&track),aria_label:"{name}: {caption}",onchange:move|e|update(studio,|p|{
+            for track in tracks {{let caption=label(studio,&track);let id=track.clone();rsx!{label{key:"{track}",input{r#type:"checkbox",tabindex:"0",checked:chosen.contains(&track),disabled:chosen.len()==1&&chosen.contains(&track),aria_label:"{name}: {caption}",onchange:move|e|update(studio,|p|{
                 let view=match pane{Pane::Preview=>&mut p.preview,Pane::Roll=>&mut p.roll};
                 if e.checked(){view.chosen.insert(id.clone());}else{view.chosen.remove(&id);}
             })}span{"{caption}"}}}}
@@ -355,10 +355,10 @@ pub fn RollHeading(studio: Studio, track: String) -> Element {
             })
         }
     });
-    rsx! {header{class:"track-view-heading",onkeydown:move|event:KeyboardEvent|event.stop_propagation(),button{aria_label:"Select {title} for editing",aria_pressed:(active(studio)==track).to_string(),onclick:move|_|select(studio,target.clone()),"{title}"}
+    rsx! {header{class:"track-view-heading",onkeydown:move|event:KeyboardEvent|event.stop_propagation(),button{tabindex:"0",aria_label:"Select {title} for editing",aria_pressed:(active(studio)==track).to_string(),onclick:move|_|select(studio,target.clone()),"{title}"}
         if !track.starts_with("dance:")&&track!="Vocals"{super::difficulty::TrackLinkBadge{track:track.clone()}}
         if let Some(count)=count {span{class:"track-view-count","{count} notes"}}
-        button{aria_label:if hidden{format!("Expand {title} piano roll")}else{format!("Collapse {title} piano roll")},aria_expanded:(!hidden).to_string(),onclick:move|_|update(studio,|p|{if !p.collapsed.remove(&toggle){p.collapsed.insert(toggle.clone());}}),if hidden{"Expand"}else{"Collapse"}}
+        button{tabindex:"0",aria_label:if hidden{format!("Expand {title} piano roll")}else{format!("Collapse {title} piano roll")},aria_expanded:(!hidden).to_string(),onclick:move|_|update(studio,|p|{if !p.collapsed.remove(&toggle){p.collapsed.insert(toggle.clone());}}),if hidden{"Expand"}else{"Collapse"}}
     }}
 }
 #[cfg(test)]
