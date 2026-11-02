@@ -10,48 +10,33 @@ use dioxus::prelude::*;
 #[component]
 pub fn ChartDesk(mut studio: Studio) -> Element {
     let hidden_flags = use_signal(|| false);
-    let mut layout_track = use_signal(String::new);
-    use_effect(move || {
-        if !(studio.selection_dragging)()
-            && let Some(doc) = studio.snapshot()
-        {
-            layout_track.set(doc.selected_track.clone());
-        }
-    });
     if super::dance::active() {
         let source = format!(
             "{}:{}",
             super::dance::view_epoch(),
             super::dance::selected_track().unwrap_or_default()
         );
-        return rsx! {section{class:"chart-desk",aria_label:"Note editor",tabindex:"-1",onmounted:move |event|studio.editor_focus.set(Some(event.data())),EditingToolbar{studio,hidden_flags}for key in [source]{super::dance::Roll{key:"{key}",studio}}super::song_overview::SongOverview{studio}}};
+        let track = super::track_views::active(studio);
+        return rsx! {section{class:"chart-desk",aria_label:"Note editor",tabindex:"-1",onmounted:move |event|studio.editor_focus.set(Some(event.data())),EditingToolbar{studio,hidden_flags}super::track_views::Controls{studio,pane:super::track_views::Pane::Roll}super::track_views::RollHeading{studio,track:track.clone()}if !super::track_views::collapsed(studio,&track){for key in [source]{super::dance::Roll{key:"{key}",studio}}}super::song_overview::SongOverview{studio}}};
     }
-    let Some(document) = studio.snapshot() else {
+    let Some(_) = studio.snapshot() else {
         return rsx! {};
     };
-    let tier = ["Easy", "Medium", "Hard", "Expert"]
-        .into_iter()
-        .find(|tier| document.selected_track.starts_with(tier))
-        .unwrap_or("Expert");
-    let mut tracks: Vec<_> = document
-        .content
-        .tracks
-        .keys()
-        .filter(|track| track.starts_with(tier))
-        .cloned()
-        .collect();
-    tracks.push("Vocals".into());
-    tracks.sort_by_key(|track| (track != &layout_track(), track.clone()));
+    let tracks = super::track_views::visible(studio, super::track_views::Pane::Roll);
     rsx! {
         section { class: "chart-desk", aria_label: "Note editor", tabindex: "-1", onmounted: move |event| studio.editor_focus.set(Some(event.data())),
             EditingToolbar { studio,hidden_flags }
+            super::track_views::Controls{studio,pane:super::track_views::Pane::Roll}
             div { class: "chart-desk-scroll", onwheel: move |event| super::song_overview::pan(studio,event),
                 div { class: "chart-desk-ruler", super::sections::SectionStrip { studio } super::timing_editor::TimingStrip { studio } Ruler { studio }
                     div { class: "midi-waveform-strip", div { class: "midi-waveform-label", style: "width:140px;flex-shrink:0", "Recording" } Waveform { studio } }
                 }
                 for track in tracks {
                     section { key: "{track}", class: "chart-desk-track",
-                        if track == "Vocals" { VocalRoll { studio } } else { TrackRoll { studio, track, show_hidden: hidden_flags() } }
+                        super::track_views::RollHeading{studio,track:track.clone()}
+                        if !super::track_views::collapsed(studio,&track) {
+                            if track == "Vocals" { VocalRoll { studio } } else { TrackRoll { studio, track, show_hidden: hidden_flags() } }
+                        }
                     }
                 }
             }

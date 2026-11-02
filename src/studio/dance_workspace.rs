@@ -73,7 +73,7 @@ pub fn Audition(studio: Studio) -> Element {
         .find(|(id, _)| id == &format!("dance:{}", (s.selected)()))
         .map_or(String::new(), |(_, title)| title);
     rsx! {section{class:"audition-view", "data-preview-position":"{position}", "data-preview-playing":"{playing}",
-        header{class:"desk-heading audition-heading",h2{"Audition"}span{class:"audition-track","{title}"}span{class:"audition-mode","Autoplay"}}
+        header{class:"desk-heading audition-heading",h2{"Audition"}span{class:"audition-track","{title}"}super::super::track_views::Controls{studio,pane:super::super::track_views::Pane::Preview}span{class:"audition-mode","Autoplay"}}
         div{class:"audition-surface dance-audition",
             if chart.read().as_ref().is_some_and(|c|c.stepstype=="dance-single"&&c.read_only_reason.is_none()) {
                 super::preview::Preview{chart,timing,beat,seconds:position,playing,cmod:cmod(),identity,zoom:zoom()}

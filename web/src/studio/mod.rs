@@ -69,6 +69,8 @@ mod stems;
 mod timing_editor;
 #[path = "../../../src/studio/track_picker.rs"]
 mod track_picker;
+#[path = "../../../src/studio/track_views.rs"]
+mod track_views;
 #[path = "../../../src/studio/vocal_editor.rs"]
 mod vocal_editor;
 #[path = "../../../src/studio/vocal_pitch_analysis.rs"]
