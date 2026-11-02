@@ -209,6 +209,7 @@ fn evidence_rejects_invalid_family_measurements_duplicate_or_stale_source() {
         assert!(drum_articulation::validate(&bad, &hits).is_err());
     }
     let manifest = chart_engine::stem_review::StemManifest {
+        conventional: None,
         version: 1,
         source_audio_sha256: "a".repeat(64),
         sample_rate: 44100,

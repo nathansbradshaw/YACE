@@ -422,6 +422,7 @@ mod tests {
             chart_sha256: "22".repeat(32),
             transcription_sha256: None,
             manifest: StemManifest {
+                conventional: None,
                 version: 1,
                 source_audio_sha256: "11".repeat(32),
                 sample_rate: 44100,

@@ -25,7 +25,10 @@ pub fn prepare_editable_source_with_choice(
         source_choice::retain_alternate(dest, choice.context("Choose the source to edit")?)?;
     }
     crate::stem_review::game_audio::restore_recording(dest)?;
-    prepare_copied_source(dest)
+    prepare_copied_source(dest)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    crate::stem_review::conventional::prepare(dest)?;
+    Ok(())
 }
 fn prepare_copied_source(song: &Path) -> Result<()> {
     validate_existing(song)?;

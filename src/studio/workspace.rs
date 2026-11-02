@@ -95,6 +95,7 @@ fn Divider(
 
 #[component]
 pub fn Workbench(studio: Studio) -> Element {
+    super::part_analysis::provide_panel();
     let mut right = use_signal(|| 28.0_f64);
     let mut top = use_signal(|| 45.0_f64);
     let mut size = use_signal(|| (1400.0_f64, 800.0_f64));
@@ -132,6 +133,9 @@ pub fn Workbench(studio: Studio) -> Element {
             Divider { pane: Pane::Preview, label: "Resize note editor", value: top, available: (height - 4.0).max(1.0), drag }
             ChartDesk { studio }
         }
+        // Keep the fixed drawer outside the preview's overflow clip and the
+        // collapsible playback settings, on both desktop and the static web app.
+        super::part_analysis::PartAnalysisPanel { studio }
     }
 }
 

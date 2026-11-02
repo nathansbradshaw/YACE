@@ -150,7 +150,7 @@ pub async fn separate(
             method:"Native Rust six-stem model on browser WebGPU".into(),
             details:"Same checkpoint and chunk/overlap implementation as desktop; all six finite outputs retain exactly the decoded source frame count".into(),
         },
-        stems:assets, generation:Some(identity),
+        stems:assets, generation:Some(identity), conventional:None,
     };
     manifest.validate_binding(&manifest.source_audio_sha256, frames as f64 / 44100.)?;
     crate::models::remember_stems(&manifest)?;

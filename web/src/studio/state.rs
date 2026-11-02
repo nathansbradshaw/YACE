@@ -773,6 +773,15 @@ impl Studio {
                 identity.update(crate::models::hash_file(&path)?.as_bytes());
             }
         }
+        let legacy = PathBuf::from(format!(
+            "/projects/library-{:x}",
+            identity.clone().finalize()
+        ));
+        if project_source.is_none()
+            && let Some(channels) = crate::stem_review::conventional::audio_identity(&source)?
+        {
+            identity.update(channels.as_bytes());
+        }
         let root = PathBuf::from(format!("/projects/library-{:x}", identity.finalize()));
         let _candidate = Candidate {
             studio: self,
@@ -784,6 +793,18 @@ impl Studio {
                 .await?;
             return Ok(true);
         }
+        // Keep earlier editing copies discoverable. Their audio snapshot and
+        // undo history remain authoritative; importing a ZIP creates a fresh
+        // project when the user wants the newly discovered channel mix.
+        if root != legacy
+            && let Some((root, revision)) = crate::persistence::load(&legacy).await?
+        {
+            self.open_project_with_revision(root, Some(revision))
+                .await?;
+            let mut studio = self;
+            studio.status.set("Opened your saved editing copy. Import the song ZIP to start a new project with its supplied audio channels.".into());
+            return Ok(true);
+        }
         if let Some(project) = project_source {
             crate::pipeline::copy_folder(&project, &root)?;
             self.open_project(root).await?;
@@ -793,6 +814,13 @@ impl Studio {
                 &root.join("source"),
                 choice,
             )?;
+            let _: bool = crate::worker::run(
+                crate::worker::Task::PrepareGameChannels {
+                    root: root.join("source"),
+                },
+                &[root.join("source")],
+            )
+            .await?;
             let audio = crate::pipeline::audio_file(&root.join("source"))?;
             let duration =
                 super::media::duration(crate::storage::shared(&audio)?.as_slice()).await?;
@@ -902,14 +930,21 @@ impl Studio {
             let Some(choice) = self.choose_chart_source(&source).await? else {
                 return Ok(());
             };
-            let audio = crate::pipeline::audio_file(&source)?;
-            let duration =
-                super::media::duration(crate::storage::shared(&audio)?.as_slice()).await?;
             crate::song_files::prepare_editable_source_with_choice(
                 &source,
                 &root.join("source"),
                 Some(choice),
             )?;
+            let _: bool = crate::worker::run(
+                crate::worker::Task::PrepareGameChannels {
+                    root: root.join("source"),
+                },
+                &[root.join("source")],
+            )
+            .await?;
+            let audio = crate::pipeline::audio_file(&root.join("source"))?;
+            let duration =
+                super::media::duration(crate::storage::shared(&audio)?.as_slice()).await?;
             Store::new(&root).initialize(&root.join("source"), None, duration)?;
             let report = crate::song_layout::resolve(
                 &root.join("source"),

@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, path::Component};
+use std::collections::BTreeSet;
 
 fn supported_track(name: &str) -> bool {
     ["Easy", "Medium", "Hard", "Expert"].iter().any(|tier| {
@@ -97,9 +97,8 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
             && sha256(&project.audio_sha256),
         "Invalid project input fingerprint"
     );
-    let mut components = std::path::Path::new(&project.audio_filename).components();
     ensure!(
-        matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none(),
+        crate::stem_review::conventional::valid_audio_filename(&project.audio_filename),
         "Invalid audio filename"
     );
 

@@ -35,7 +35,19 @@ pub fn retain(project_root: &Path, manifest: &StemManifest) -> Result<StemManife
 
 pub fn retain_in(source_folder: &Path, manifest: &StemManifest) -> Result<StemManifest> {
     let mut retained = manifest.clone();
+    let owned = fs::canonicalize(source_folder)?;
     for asset in &mut retained.stems {
+        if manifest.conventional.is_some() {
+            let path = fs::canonicalize(&asset.path)?;
+            if path.starts_with(&owned) {
+                ensure!(
+                    crate::models::hash_file(&path)? == asset.sha256,
+                    "Owned game channel changed"
+                );
+                asset.path = path;
+                continue;
+            }
+        }
         let extension = asset
             .path
             .extension()
@@ -83,6 +95,46 @@ pub fn retain_in(source_folder: &Path, manifest: &StemManifest) -> Result<StemMa
     Ok(retained)
 }
 
+/// Reuse already copied game channels and write portable paths relative to the
+/// audio sidecar. Conventional root files need not be duplicated in stem caches.
+pub fn for_export(stage: &Path, source: &Path, manifest: &StemManifest) -> Result<StemManifest> {
+    let source = fs::canonicalize(source)?;
+    let mut supplied = manifest.clone();
+    if supplied.conventional.is_some() {
+        for asset in &mut supplied.stems {
+            let resolved = fs::canonicalize(&asset.path)?;
+            if let Ok(relative) = resolved.strip_prefix(&source) {
+                let copied = stage.join(relative);
+                ensure!(
+                    crate::models::hash_file(&copied)? == asset.sha256,
+                    "Copied game channel changed"
+                );
+                asset.path = copied;
+            }
+        }
+    }
+    let mut retained = retain_in(stage, &supplied)?;
+    let base = fs::canonicalize(
+        song_layout::path(stage, "chart-engine-isolation.json")
+            .parent()
+            .context("Isolation needs a parent")?,
+    )?;
+    let stage = fs::canonicalize(stage)?;
+    for asset in &mut retained.stems {
+        asset.path = if retained.conventional.is_some() {
+            let relative = asset.path.strip_prefix(&stage)?;
+            let mut path = PathBuf::new();
+            for _ in base.strip_prefix(&stage)?.components() {
+                path.push("..");
+            }
+            path.join(relative)
+        } else {
+            asset.path.strip_prefix(&base)?.to_owned()
+        };
+    }
+    Ok(retained)
+}
+
 pub fn filename(id: StemId) -> &'static str {
     match id {
         StemId::Drums => "drums.wav",
@@ -91,6 +143,9 @@ pub fn filename(id: StemId) -> &'static str {
         StemId::Guitar => "guitar.wav",
         StemId::Piano => "keys.wav",
         StemId::Other => "song.wav",
+        StemId::Backing => "song.wav",
+        StemId::Rhythm => "rhythm.wav",
+        StemId::Crowd => "crowd.wav",
     }
 }
 
@@ -106,6 +161,16 @@ pub fn write(source: &Path, manifest: Option<&StemManifest>, stage: &Path) -> Re
         original_audio: None,
         original_sha256,
     };
+    if let Some(files) = super::conventional::routing(stage)? {
+        receipt.mode = "conventional_channels".into();
+        receipt.detail = "Supplied game channels retained verbatim. Audition gain, mute and solo do not change game routing.".into();
+        receipt.files = files;
+        fs::write(
+            song_layout::path(stage, RECEIPT),
+            serde_json::to_vec_pretty(&receipt)?,
+        )?;
+        return Ok(receipt);
+    }
     let Some(manifest) =
         manifest.filter(|manifest| manifest.ids() == StemId::ALL.into_iter().collect())
     else {

@@ -110,63 +110,6 @@ fn optional_directory_for(
         .join(nested))
 }
 
-#[cfg(test)]
-mod optional_directory_tests {
-    use super::*;
-    #[test]
-    fn missing_optional_assets_use_cache_and_existing_bundle_assets_stay_put() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("YACE.app/Contents/Resources/models");
-        let cache = temp.path().join("cache");
-        let nested = Path::new("vocal-alignment/en");
-        fs::create_dir_all(root.join(nested)).unwrap();
-        let select = || {
-            optional_directory_for(
-                &root,
-                nested,
-                &["config.json", "model.safetensors"],
-                Some(&cache),
-            )
-            .unwrap()
-        };
-        fs::write(root.join(nested).join("config.json"), b"retained").unwrap();
-        assert_eq!(select(), cache.join(nested));
-        assert!(!cache.exists());
-        fs::write(
-            root.join(nested).join("model.safetensors"),
-            b"location fixture",
-        )
-        .unwrap();
-        assert_eq!(select(), root.join(nested));
-        assert_eq!(
-            fs::read(root.join(nested).join("config.json")).unwrap(),
-            b"retained"
-        );
-    }
-    #[test]
-    fn custom_paths_stay_exact_and_bundle_symlinks_cannot_redirect_downloads() {
-        let temp = tempfile::tempdir().unwrap();
-        let custom = temp.path().join("custom");
-        let cache = temp.path().join("cache");
-        assert_eq!(
-            optional_directory_for(&custom, Path::new(""), &["model"], Some(&cache)).unwrap(),
-            custom
-        );
-        #[cfg(unix)]
-        {
-            let bundled = temp.path().join("YACE.app/Contents/Resources/models");
-            fs::create_dir_all(&bundled).unwrap();
-            let alias = temp.path().join("alias");
-            std::os::unix::fs::symlink(&bundled, &alias).unwrap();
-            assert_eq!(
-                optional_directory_for(&alias, Path::new(""), &["model"], Some(&cache)).unwrap(),
-                cache
-            );
-            assert!(optional_directory_for(&alias, Path::new(""), &["model"], None).is_err());
-        }
-    }
-}
-
 pub fn hash_file(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hash = Sha256::new();
@@ -658,4 +601,61 @@ pub fn separate(audio: &Path, model: &Path, dir: &Path) -> Result<()> {
 #[cfg(not(feature = "separation"))]
 pub fn separate(_: &Path, _: &Path, _: &Path) -> Result<()> {
     anyhow::bail!("Built without separation; supply existing stems or build with default features")
+}
+
+#[cfg(test)]
+mod optional_directory_tests {
+    use super::*;
+    #[test]
+    fn missing_optional_assets_use_cache_and_existing_bundle_assets_stay_put() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("YACE.app/Contents/Resources/models");
+        let cache = temp.path().join("cache");
+        let nested = Path::new("vocal-alignment/en");
+        fs::create_dir_all(root.join(nested)).unwrap();
+        let select = || {
+            optional_directory_for(
+                &root,
+                nested,
+                &["config.json", "model.safetensors"],
+                Some(&cache),
+            )
+            .unwrap()
+        };
+        fs::write(root.join(nested).join("config.json"), b"retained").unwrap();
+        assert_eq!(select(), cache.join(nested));
+        assert!(!cache.exists());
+        fs::write(
+            root.join(nested).join("model.safetensors"),
+            b"location fixture",
+        )
+        .unwrap();
+        assert_eq!(select(), root.join(nested));
+        assert_eq!(
+            fs::read(root.join(nested).join("config.json")).unwrap(),
+            b"retained"
+        );
+    }
+    #[test]
+    fn custom_paths_stay_exact_and_bundle_symlinks_cannot_redirect_downloads() {
+        let temp = tempfile::tempdir().unwrap();
+        let custom = temp.path().join("custom");
+        let cache = temp.path().join("cache");
+        assert_eq!(
+            optional_directory_for(&custom, Path::new(""), &["model"], Some(&cache)).unwrap(),
+            custom
+        );
+        #[cfg(unix)]
+        {
+            let bundled = temp.path().join("YACE.app/Contents/Resources/models");
+            fs::create_dir_all(&bundled).unwrap();
+            let alias = temp.path().join("alias");
+            std::os::unix::fs::symlink(&bundled, &alias).unwrap();
+            assert_eq!(
+                optional_directory_for(&alias, Path::new(""), &["model"], Some(&cache)).unwrap(),
+                cache
+            );
+            assert!(optional_directory_for(&alias, Path::new(""), &["model"], None).is_err());
+        }
+    }
 }
