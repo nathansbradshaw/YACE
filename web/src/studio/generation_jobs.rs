@@ -686,7 +686,9 @@ async fn async_apply(mut studio: Studio, root: PathBuf) -> Result<()> {
             .is_some_and(|current| current.revision > previous),
         "The generated part was not applied; your current chart and draft were kept"
     );
-    studio.status.set("Repair applied · Undo is available".into());
+    studio
+        .status
+        .set("Repair applied · Undo is available".into());
     Ok(())
 }
 fn download_path(name: &str) -> PathBuf {
