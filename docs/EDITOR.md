@@ -6,6 +6,12 @@ Rust project, command validation and recovery history.
 ## Open a project
 
 - **Import audio** generates a new draft from a recording.
+- **Open Recent** on the welcome screen lists your ten most recently opened
+  projects, newest first. Desktop entries reopen the saved editing folder;
+  static-browser entries reopen the copy saved in this browser. The list survives
+  restarting the app. Remove an entry with **×** or use **Clear list** to forget
+  the history; both keep the projects and their saved edits. New browser imports
+  appear after their first successful autosave.
 - On desktop, **Open charting folder** accepts a song, a saved project, or an
   entire collection. YACE searches up to three folders below the chosen folder.
   Pick a chart from the welcome list or the **Charts** selector beside the song
@@ -116,10 +122,15 @@ keep those separate; MIDI shares Star Power within an instrument and combines
 overlapping difficulty ranges. Note proposals cannot carry phrase changes;
 share the saved project to include them.
 
-## Tempo and time signatures
+## Tempo, time signatures and song offset
 
 Open **Timing** above the ruler. Select a marker to edit it, or choose a type
 and **Add**. **At playhead** uses the current snap setting.
+
+**Song offset (ms)** shifts chart events against the recording: positive moves
+them later, negative moves them earlier. Choose **Apply offset** to replace the
+current value. Notes keep their beat positions. Undo restores it, and export
+stores it once. See [Song offset](SONG_OFFSET.md) for bounds and format details.
 
 Tempo changes keep notes on their beats and change when they play. Playback
 pauses so you can check the alignment. Time signatures change bar lines and

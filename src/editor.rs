@@ -1589,6 +1589,13 @@ impl Store {
             Action::EditSync { edit } => {
                 let source = self.source_chart(&doc)?;
                 crate::sync_track::apply(&mut doc, &source, edit)?;
+                if matches!(edit, crate::sync_track::Edit::SetOffset { .. }) && doc.has_recording()
+                {
+                    ensure!(
+                        crate::project_recording::project_end(&doc, self)? <= doc.duration + 0.1,
+                        "Offset would move chart events beyond the recording"
+                    );
+                }
             }
             Action::EditSection { edit } => {
                 let source = self.source_chart(&doc)?;
@@ -1990,7 +1997,10 @@ impl Store {
         }
         if before_timing != timing {
             doc.transport.playing = false;
-            if matches!(request.action, Action::EditSync { .. }) {
+            if matches!(request.action, Action::EditSync { .. })
+                && (before_timing.resolution != timing.resolution
+                    || before_timing.tempos != timing.tempos)
+            {
                 crate::difficulty_links::after_timing_edit(
                     &mut doc.content,
                     &timing,

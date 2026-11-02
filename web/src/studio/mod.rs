@@ -146,6 +146,9 @@ pub fn App() -> Element {
             match result {
                 Ok(()) => {
                     studio.saved_revision.set(Some(revision));
+                    if expected.is_none() {
+                        studio.remember_recent(store.root.clone());
+                    }
                     if studio
                         .snapshot()
                         .is_some_and(|doc| doc.revision == revision)

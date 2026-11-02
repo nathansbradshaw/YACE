@@ -26,6 +26,38 @@ pub fn Welcome(mut studio: Studio) -> Element {
                     }
                 }
                 if !cfg!(feature = "browser") || cfg!(target_arch = "wasm32") {
+                section { class: "welcome-recent", aria_label: "Open Recent",
+                    div { class: "welcome-recent-heading",
+                        h2 { "Open Recent" }
+                        if !(studio.recent_projects)().entries.is_empty() {
+                            button { disabled: (studio.library_busy)(), onclick: move |_| studio.forget_recent(None), "Clear list" }
+                        }
+                    }
+                    if (studio.recent_projects)().entries.is_empty() {
+                        p { class: "welcome-recent-empty", "Charts you open will appear here." }
+                    }
+                    div { class: "welcome-chart-list", onkeydown: move |event| event.stop_propagation(),
+                        for entry in (studio.recent_projects)().entries {
+                            div { class: "welcome-recent-row", key: "{entry.path.display()}",
+                                button { class: "welcome-action", title: "Open recent {entry.title}", disabled: (studio.library_busy)(),
+                                    onclick: { let path = entry.path.clone(); move |_| {
+                                        let path = path.clone();
+                                        dioxus::core::spawn_forever(async move { studio.open_recent(path).await; });
+                                    } },
+                                    Icon { name: "folder-open", size: 20 }
+                                    div { strong { "{entry.title}" } span { title: "{entry.path.display()}",
+                                        if cfg!(target_arch = "wasm32") { "Saved in this browser" } else { "{entry.path.display()}" }
+                                    } }
+                                }
+                                button { class: "welcome-recent-remove", title: "Remove {entry.title} from recent projects", aria_label: "Remove {entry.title} from recent projects", disabled: (studio.library_busy)(),
+                                    onclick: move |_| studio.forget_recent(Some(entry.path.clone())), "×"
+                                }
+                            }
+                        }
+                    }
+                }
+                }
+                if !cfg!(feature = "browser") || cfg!(target_arch = "wasm32") {
                     if let Some(library) = (studio.library)() {
                         div { class: "welcome-library", aria_label: "Charts in selected folder",
                             p { "{library.entries.len()} charts in {library.root.display()}" }
@@ -73,6 +105,10 @@ mod tests {
         let mut studio = super::super::state::use_studio();
         let (store, slot) = use_context::<(Store, Slot)>();
         use_hook(move || {
+            studio
+                .recent_projects
+                .write()
+                .remember(store.root.clone(), "Lifecycle fixture".into());
             studio.library.set(Some(Library {
                 root: store.root.clone(),
                 entries: vec![Entry {
@@ -92,6 +128,15 @@ mod tests {
 
     #[tokio::test]
     async fn chart_open_finishes_after_the_welcome_component_unmounts() {
+        open_from_welcome("Open chart Lifecycle fixture", Some(0)).await;
+    }
+
+    #[tokio::test]
+    async fn recent_open_finishes_after_the_welcome_component_unmounts() {
+        open_from_welcome("Open recent Lifecycle fixture", None).await;
+    }
+
+    async fn open_from_welcome(title: &str, selected: Option<usize>) {
         dioxus::html::set_event_converter(Box::new(dioxus::html::SerializedHtmlEventConverter));
         let root = tempfile::tempdir().unwrap();
         let store = fixture::fixture(&root.path().canonicalize().unwrap());
@@ -108,7 +153,7 @@ mod tests {
                     value: AttributeValue::Text(value),
                     id,
                     ..
-                } if value == "Open chart Lifecycle fixture" => Some(*id),
+                } if value == title => Some(*id),
                 _ => None,
             })
             .unwrap();
@@ -138,7 +183,8 @@ mod tests {
         })
         .await
         .expect("Opening must finish after the welcome screen disappears");
-        assert_eq!(*studio.library_selected.peek(), Some(0));
+        assert_eq!(*studio.library_selected.peek(), selected);
+        assert_eq!(studio.recent_projects.peek().entries.len(), 1);
         // The opaque fixture deliberately fails decoding. Its error must arrive
         // after unmount rather than leaving a permanently busy library.
         assert!(studio.error.peek().is_some());

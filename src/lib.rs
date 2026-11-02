@@ -19,6 +19,7 @@ pub mod kit_audition;
 pub mod note_groups;
 pub mod note_types;
 pub mod parts;
+pub mod recent_projects;
 pub mod recording_metadata;
 pub mod review_git;
 pub mod review_repository;
