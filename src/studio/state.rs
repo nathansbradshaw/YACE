@@ -426,7 +426,9 @@ impl Studio {
         if (self.library_busy)() {
             return;
         }
-        if !path.join("project.json").is_file() {
+        if !path.join("project.json").is_file()
+            && !path.join(crate::stepmania::bundle::MANIFEST).is_file()
+        {
             self.error.set(Some(format!("This recent project is no longer at {}. Locate it with Open saved project, or remove it from Open Recent.", path.display())));
             return;
         }
@@ -1455,6 +1457,7 @@ impl Studio {
         };
         match super::dance::try_open_path(&item.path) {
             Ok(true) => {
+                super::dance::remember_recent(self);
                 if self.snapshot().is_some() {
                     self.dispatch(Action::Playback { playing: false });
                 }
@@ -1594,6 +1597,7 @@ impl Studio {
     pub async fn open_project(mut self, path: PathBuf) {
         match super::dance::try_open_path(&path) {
             Ok(true) => {
+                super::dance::remember_recent(self);
                 if self.snapshot().is_some() {
                     self.dispatch(Action::Playback { playing: false });
                 }

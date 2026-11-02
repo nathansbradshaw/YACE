@@ -839,6 +839,7 @@ impl Studio {
             .get(index)
             .context("Chart is not in this folder")?;
         if super::dance::try_open_path(&item.path)? {
+            super::dance::remember_recent(self);
             return Ok(true);
         }
         let project_source = if item.kind == crate::chart_library::Kind::Project {
@@ -1038,6 +1039,7 @@ impl Studio {
         saved_revision: Option<u64>,
     ) -> Result<()> {
         if super::dance::try_open_path(&source)? {
+            super::dance::remember_recent(self);
             return Ok(());
         }
         let project = crate::storage::is_file(source.join("project.json"));

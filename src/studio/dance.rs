@@ -202,7 +202,12 @@ impl DanceStudio {
         self.saving.set(false);
         if (self.root)().as_ref() == Some(&root) {
             match result {
-                Ok(()) => self.saved.set(Some(project.revision)),
+                Ok(()) => {
+                    self.saved.set(Some(project.revision));
+                    if let Some(studio) = try_consume_context::<super::state::Studio>() {
+                        remember_recent(studio);
+                    }
+                }
                 Err(error) => {
                     self.blocked.set(true);
                     self.error.set(Some(format!("Autosave failed: {error:#}. Save a project ZIP to preserve this working copy.")));
@@ -755,6 +760,71 @@ mod tests {
         assert!(!mutations.edits.is_empty());
         assert_eq!((s.selected)(), "added-1");
     }
+    type RecentSlot = Rc<RefCell<Option<super::super::state::Studio>>>;
+    fn recent_app() -> Element {
+        provide();
+        let studio = super::super::state::use_studio();
+        use_hook(move || dioxus::core::provide_root_context(studio));
+        let (path, slot) = use_context::<(PathBuf, RecentSlot)>();
+        use_hook(move || {
+            *slot.borrow_mut() = Some(studio);
+            dioxus::core::spawn_forever(async move {
+                studio.open_recent(path).await;
+            });
+        });
+        rsx! {Workbench{}}
+    }
+    #[tokio::test]
+    async fn recent_opens_a_dance_project_without_creating_guitar_tracks() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("Recent dance");
+        let mut project = Project::blank(
+            "Recent dance".into(),
+            "YACE".into(),
+            String::new(),
+            120.,
+            0.,
+            Profile::Pad,
+        )
+        .unwrap();
+        project
+            .apply(Request {
+                expected_revision: 0,
+                actor: "fixture".into(),
+                action: Action::AddChart {
+                    difficulty: Difficulty::Edit,
+                    meter: 4,
+                    description: "Manual".into(),
+                },
+            })
+            .unwrap();
+        crate::stepmania_files::write_new(&path, &bundle::backup(&project, &Files::new()).unwrap())
+            .unwrap();
+        let slot = RecentSlot::default();
+        let mut dom = VirtualDom::new(recent_app);
+        dom.provide_root_context((path.clone(), slot.clone()));
+        dom.rebuild_in_place();
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while slot
+                .borrow()
+                .as_ref()
+                .is_none_or(|studio| studio.recent_projects.read().entries.is_empty())
+            {
+                dom.wait_for_work().await;
+                dom.render_immediate_to_vec();
+            }
+        })
+        .await
+        .expect("Recent dance project opens through the shared workflow");
+        let studio = slot.borrow().unwrap();
+        assert!(studio.snapshot().is_none());
+        assert!((studio.error)().is_none());
+        assert_eq!(studio.recent_projects.read().entries[0].path, path);
+        assert_eq!(
+            studio.recent_projects.read().entries[0].title,
+            "YACE — Recent dance"
+        );
+    }
 }
 
 pub fn active() -> bool {
@@ -829,6 +899,43 @@ pub fn save(studio: super::state::Studio) {
 pub fn deactivate() {
     if let Some(mut s) = try_consume_context::<DanceStudio>() {
         s.open.set(false);
+    }
+}
+pub fn remember_recent(mut studio: super::state::Studio) {
+    let Some(s) = try_consume_context::<DanceStudio>() else {
+        return;
+    };
+    if s.parent.read().is_some() {
+        return;
+    }
+    let Some(root) = (s.root)() else {
+        return;
+    };
+    if !crate::storage::is_file(root.join(MANIFEST)) {
+        return;
+    }
+    let project = s.project.read();
+    let Some(project) = project.as_ref() else {
+        return;
+    };
+    let metadata = &project.content.document.metadata;
+    let fields = std::collections::BTreeMap::from([
+        (
+            "name".into(),
+            metadata.get("TITLE").cloned().unwrap_or_default(),
+        ),
+        (
+            "artist".into(),
+            metadata.get("ARTIST").cloned().unwrap_or_default(),
+        ),
+    ]);
+    let mut history = crate::recent_projects::History::load().unwrap_or_default();
+    history.remember(root.clone(), crate::recent_projects::title(&fields, &root));
+    match history.save() {
+        Ok(()) => studio.recent_projects.set(history),
+        Err(error) => studio
+            .error
+            .set(Some(format!("Could not update recent projects: {error:#}"))),
     }
 }
 pub fn after_new() -> bool {
