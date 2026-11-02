@@ -22,8 +22,12 @@ the custom-domain application and the feature's actual browser workflow.
 3. Open the existing Site's deployment repository in a separate, empty checkout
    using its native Sites source credential and source workflow. This repository
    contains the compiled assets, not the native application's source history.
-   Copy the new `web/dist` contents into that checkout's `dist` directory and
-   preserve its `.openai/hosting.json` and project ID.
+   Preserve its `.openai/hosting.json` and project ID. Stage the new bundle with
+   the Rust static tool: `yace-static-web stage /path/to/hosting/dist SOURCE_SHA`.
+   Use the complete verified Git source revision. This creates an immutable
+   `dist/releases/SOURCE_SHA/` and updates the root entry point and build info.
+   Preserve earlier release directories and the original root assets; do not
+   replace the hosting directory with a flat `rsync --delete` copy.
 4. Use the Sites source workflow to commit/push that exact state and package it.
    Save the returned commit/archive as a Site version, then deploy that version
    with the public deployment operation. Keep credentials in memory and pass
@@ -31,6 +35,13 @@ the custom-domain application and the feature's actual browser workflow.
 5. Verify the deployment result and the app on the custom domain. Opening files,
    editing, audio, recovery and exports run locally in the browser; no charting
    API or model service is configured.
+
+Workers resolve their URL from the generated module's `import.meta.url` through
+a Rust wasm-bindgen binding. A tab loaded from one release therefore keeps using
+that release's worker, WASM and inference runtime after a later publish. No extra
+handwritten JavaScript or inference service is needed. The original root assets
+also remain available to tabs opened before release directories were introduced.
+Do not prune retained assets as part of an ordinary deployment.
 
 The first published artifact was built from Rust source commit
 `8b31a8dac1a8de26335027034affce477be518ef`. Its deployment-repository commit is

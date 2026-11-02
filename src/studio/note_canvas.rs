@@ -334,8 +334,15 @@ fn InstrumentWaveform(studio: Studio, track: String) -> Element {
     if !has_stem_waveform(studio, stem) {
         return rsx! {};
     }
+    let supplied = studio
+        .doc
+        .read()
+        .as_ref()
+        .and_then(|project| project.content.audition_stems(&track))
+        .is_some_and(|manifest| manifest.conventional.is_some());
+    let provenance = if supplied { "Supplied" } else { "Estimated" };
     rsx! {div{class:"midi-waveform-strip",
-        div{class:"midi-waveform-label",style:"width:140px;flex-shrink:0;flex-direction:column;align-items:flex-start;justify-content:center;font-size:9px;gap:1px",span{"{instrument(&track)}"}span{style:"font-size:8px;color:var(--text-muted)","Estimated {stem.as_str()} audio"}}
+        div{class:"midi-waveform-label",style:"width:140px;flex-shrink:0;flex-direction:column;align-items:flex-start;justify-content:center;font-size:9px;gap:1px",span{"{instrument(&track)}"}span{style:"font-size:8px;color:var(--text-muted)","{provenance} {stem.as_str()} audio"}}
         Waveform{studio,stem:Some(stem)}
     }}
 }

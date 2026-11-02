@@ -29,6 +29,7 @@ mod recording_metadata;
 #[cfg(test)]
 #[path = "../src/recording_tags.rs"]
 mod recording_tags;
+mod static_release;
 #[cfg(test)]
 mod tests;
 fn run(command: &mut Command) -> Result<()> {
@@ -245,13 +246,19 @@ fn main() -> Result<()> {
     match args.first().map(String::as_str) {
         Some("build") => build(&root),
         Some("recognition-build") => recognition_build::build(&root, &args[1..]),
+        Some("stage") => {
+            let target=args.get(1).ok_or("Use stage HOST_DIST SOURCE_REVISION")?;
+            let revision=args.get(2).ok_or("Use stage HOST_DIST SOURCE_REVISION")?;
+            let release=static_release::stage(&root.join("web/dist"),Path::new(target),revision)?;
+            println!("Immutable static release: {}",release.display());Ok(())
+        }
         Some("serve") => {
             let port = args
                 .get(1)
                 .map(|s| s.parse())
                 .transpose()?
                 .unwrap_or(3032u16);
-            let dist = root.join("web/dist").canonicalize()?;
+            let dist = args.get(2).map(PathBuf::from).unwrap_or_else(||root.join("web/dist")).canonicalize()?;
             let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))?;
             println!("Static YACE: http://127.0.0.1:{port}/");
             for stream in listener.incoming() {
@@ -266,7 +273,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         _ => Err(
-            "Use: yace-static-web build | serve [port] | recognition-build SDK CRATE WORK".into(),
+            "Use: yace-static-web build | serve [port] [dist] | stage HOST_DIST SOURCE_REVISION | recognition-build SDK CRATE WORK".into(),
         ),
     }
 }
