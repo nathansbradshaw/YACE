@@ -185,6 +185,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut piano_quality = use_signal(|| crate::keyboard_detection::PianoQuality::Standard);
     let mut standard_drums = use_signal(|| false);
     let mut full_mix_drums = use_signal(|| false);
+    let mut supplied_lyrics=use_signal(||None::<crate::vocal_generation::LyricSource>);
     let saved = use_resource(move || {
         let open = (studio.generation_open)();
         let _ = refresh();
@@ -247,6 +248,13 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     for(label,_,id)in crate::parts::PARTS{label{input{r#type:"checkbox",checked:requested.read().iter().any(|part|part==id),disabled:(studio.generation_target)().is_some(),onchange:move|event|{let mut values=requested.write();values.retain(|part|part!=id);if event.checked(){values.push(id.into());}}},"{label}"}}
                 }
                 if requested.read().iter().any(|part|part=="vocals") {
+                    button{disabled:busy(),onclick:move |_|{error.set(None);spawn(async move{
+                        let result=async{let Some(files)=crate::files::pick(false,".txt,.json").await?else{return Ok(None)};ensure!(files.len()==1,"Choose one lyric file");let(name,bytes)=&files[0];ensure!(bytes.len()<=1024*1024,"Lyric text exceeds 1 MiB");
+                            let lyrics=if name.ends_with(".json"){serde_json::from_slice(bytes)?}else{crate::vocal_generation::LyricSource{text:String::from_utf8(bytes.as_ref().clone())?,source:format!("User supplied local file {name}; text requires review"),synced_lyrics:None}};
+                            ensure!(!lyrics.text.trim().is_empty()&&!lyrics.source.trim().is_empty(),"Lyrics require text and provenance");Ok::<_,anyhow::Error>(Some(lyrics))}.await;
+                        match result{Ok(Some(lyrics))=>supplied_lyrics.set(Some(lyrics)),Ok(None)=>{},Err(failure)=>error.set(Some(format!("{failure:#}")))}
+                    });},"Use supplied lyrics…"}
+                    if let Some(lyrics)=supplied_lyrics(){p{"Supplied lyrics: {lyrics.source}"}button{disabled:busy(),onclick:move |_|supplied_lyrics.set(None),"Clear supplied lyrics"}}
                     label{"Lyric language"
                         select{aria_label:"Lyric language",disabled:busy(),value:match language(){crate::lyric_language::Language::English=>"en",crate::lyric_language::Language::Spanish=>"es",crate::lyric_language::Language::Auto=>"auto"},onchange:move|event|language.set(match event.value().as_str(){"es"=>crate::lyric_language::Language::Spanish,"auto"=>crate::lyric_language::Language::Auto,_=>crate::lyric_language::Language::English}),
                             option{value:"en","English"}option{value:"es","Spanish"}option{value:"auto","Detect language"}
@@ -272,10 +280,10 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     if keyboard_sound()==crate::keyboard_detection::KeyboardSound::Piano {
                         label{"Piano separation"
                             select{aria_label:"Piano separation",disabled:busy(),value:if piano_quality()==crate::keyboard_detection::PianoQuality::Standard{"standard"}else{"higher"},onchange:move|event|piano_quality.set(if event.value()=="higher"{crate::keyboard_detection::PianoQuality::HighQuality}else{crate::keyboard_detection::PianoQuality::Standard}),
-                                option{value:"standard","Standard"}option{value:"higher","Higher quality (optional model)"}
+                                option{value:"standard","Standard"}option{value:"higher",disabled:true,"Higher quality (desktop only)"}
                             }
                         }
-                        if piano_quality()!=crate::keyboard_detection::PianoQuality::Standard {p{"Uses the optional 705 MB local checkpoint. Its weight terms remain unresolved; see model notices."}}
+                        p{"Standard piano runs locally. Higher quality piano separation is currently available in the desktop app."}
                     }
                 }
                 if let Some(target)=(studio.generation_target)(){p{"Build {target} for this chart. Apply the finished draft when ready; other parts stay in place."}}
@@ -290,6 +298,12 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                             let root=PathBuf::from(format!("/generation-jobs/{}",crate::storage::unique_id()));
                             let created=async{
                             if let Some(track)=(studio.generation_target)(){let target=crate::parts::Target::capture(&store,&doc,&track)?;crate::parts::create_job(request,&root,&target)?;}else{generation::create_job(request,&root)?;}
+                            let reference=crate::song_layout::resolve(&store.root.join("source"),"chart-engine-lyrics.json");
+                            let lyrics=if let Some(lyrics)=supplied_lyrics(){Some(lyrics)}else if crate::storage::is_file(&reference){
+                                let value:serde_json::Value=serde_json::from_slice(&crate::storage::read(reference)?)?;
+                                value["plainLyrics"].as_str().filter(|text|!text.trim().is_empty()).map(|text|crate::vocal_generation::LyricSource{text:text.into(),source:value["source"].as_str().filter(|source|!source.trim().is_empty()).map(str::to_owned).unwrap_or_else(||value["id"].as_u64().map_or_else(||"LRCLIB matched recording".into(),|id|format!("https://lrclib.net/api/get/{id}"))),synced_lyrics:value["syncedLyrics"].as_str().filter(|text|!text.trim().is_empty()).map(str::to_owned)})
+                            }else{None};
+                            if let Some(lyrics)=lyrics{generation::write_json(&root.join("supplied-lyrics.json"),&lyrics)?;}
                             generation::freeze(&root,metadata)?;
                             if let Some(manifest)=&doc.content.stems{generation::reuse_stems(&root,manifest)?;}
                             let revision=generation::checkpoint(&root,None).await?;
@@ -328,7 +342,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 }
                 button{disabled:busy()||!crate::storage::is_file(handle.root.join("stems/stem-manifest.json")),onclick:{let root=handle.root.clone();move |_|{let root=root.clone();spawn(async move{let folder=root.join("stems");let path=download_path("separated-parts.zip");let result=crate::worker::run::<serde_json::Value>(crate::worker::Task::Archive{root:folder.clone(),output:path.clone()},&[folder]).await;match result{Ok(_)=>offer_download(studio,path,"separated-parts.zip",DownloadKind::File),Err(failure)=>error.set(Some(format!("{failure:#}")))}});}},"Save separated parts…"}
                 if result.status.state==State::Complete{button{disabled:busy(),onclick:{let root=handle.root.clone();move |_|{let root=generation::project_path(&root);spawn(async move{let path=download_path("generated-project.zip");let result=crate::worker::run::<serde_json::Value>(crate::worker::Task::Backup{root:root.clone(),output:path.clone()},&[root]).await;match result{Ok(_)=>offer_download(studio,path,"generated-project.zip",DownloadKind::Project),Err(failure)=>error.set(Some(format!("{failure:#}")))}});}},"Save generated project ZIP…"}}
-                for(relative,name)in[("transcription.json","transcription.json"),("vocals/generation.json","vocal-generation.json"),("vocals/recognition.json","recognition.json")]{
+                for(relative,name)in[("transcription.json","transcription.json"),("vocals/generation.json","vocal-generation.json"),("vocals/recognition.json","recognition.json"),("vocals/alignment.json","alignment.json")]{
                     if crate::storage::is_file(handle.root.join(relative)){button{onclick:{let source=handle.root.join(relative);move |_|{let path=download_path(name);match crate::storage::copy(&source,&path){Ok(_)=>offer_download(studio,path,name,DownloadKind::File),Err(failure)=>error.set(Some(format!("{failure:#}")))}}},"Save {name}…"}}
                 }
             }

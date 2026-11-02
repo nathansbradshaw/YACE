@@ -11,7 +11,16 @@ pub async fn generate(
     timing: &crate::timing::TempoMap,
     progress: &mut impl FnMut(String),
 ) -> Result<crate::vocal_generation::Generation> {
-    generate_language(audio, manifest, timing, Default::default(), None, progress).await
+    generate_language(
+        audio,
+        manifest,
+        timing,
+        Default::default(),
+        None,
+        None,
+        progress,
+    )
+    .await
 }
 pub async fn generate_language(
     audio: &Path,
@@ -19,6 +28,7 @@ pub async fn generate_language(
     timing: &crate::timing::TempoMap,
     language: crate::lyric_language::Language,
     evidence_output: Option<&Path>,
+    lyrics: Option<&crate::vocal_generation::LyricSource>,
     progress: &mut impl FnMut(String),
 ) -> Result<crate::vocal_generation::Generation> {
     let stem = manifest
@@ -31,43 +41,67 @@ pub async fn generate_language(
         models::hash_file(&stem.path)? == stem.sha256,
         "Vocal stem changed"
     );
-    let pcm = models::decode(&stem.path, 16000, 1)?;
-    let asset = language.asset();
-    let model = crate::model_assets::load(&asset.id, progress).await?;
-    progress("Preparing local lyric recognition…".into());
-    let recognized =
-        crate::recognition::recognize(&pcm, &model, language.code().unwrap_or("auto")).await?;
-    drop(model);
-    let words = crate::clean::WordTimings {
-        version: 1,
+    let binding = crate::clean::StemAlignment {
         audio_sha256: manifest.source_audio_sha256.clone(),
-        duration_seconds: manifest.frames as f64 / manifest.sample_rate as f64,
-        source: format!(
-            "Automatic local recognition; language={}; whisper.cpp-1.8.3 WASI CPU; token_timestamps; split_on_word; max_len=1; beam=5; temperature=0; model_sha256={}; recognition_audio_sha256={}; model-estimated word boundaries; listening review required",
-            recognized.language, asset.sha256, stem.sha256
-        ),
-        words: crate::clean_transcript::aligned_words(
-            &recognized.segments,
-            manifest.frames as f64 / manifest.sample_rate as f64,
-        ),
+        stem_sha256: stem.sha256.clone(),
+        evidence: manifest.alignment.details.clone(),
     };
-    words.validate()?;
-    if let Some(output) = evidence_output {
-        crate::storage::write(
-            output,
-            serde_json::to_vec_pretty(&crate::clean_transcript::Recognition {
-                version: 1,
-                backend:
-                    "whisper.cpp-1.8.3/WASI; beam=5; token_timestamps; max_len=1; temperature=0"
-                        .into(),
-                model_sha256: asset.sha256,
-                recognition_audio_sha256: stem.sha256.clone(),
-                language: recognized.language,
-                words: words.clone(),
-                segments: recognized.segments,
-                warnings: vec![crate::clean_transcript::RECOGNITION_WARNING.into()],
-            })?,
-        )?;
+    let mut alignment_warning = None;
+    let acoustic = if let Some(lyrics) =
+        lyrics.filter(|lyrics| language.use_english_alignment(&lyrics.text))
+    {
+        match crate::acoustic_alignment::align(audio, &stem.path, &binding, lyrics, progress).await
+        {
+            Ok(result) => {
+                if let Some(output) = evidence_output {
+                    crate::storage::write(
+                        output.with_file_name("alignment.json"),
+                        serde_json::to_vec_pretty(&result)?,
+                    )?;
+                }
+                if result
+                    .words
+                    .words
+                    .iter()
+                    .any(|word| word.start.is_some() && word.end.is_some())
+                {
+                    Some(result)
+                } else {
+                    alignment_warning=Some("Acoustic alignment found no supported word boundaries; local recognition was used instead.".to_owned());
+                    progress(
+                        "Acoustic alignment found no supported words; using local recognition"
+                            .into(),
+                    );
+                    None
+                }
+            }
+            Err(error) => {
+                alignment_warning = Some(format!(
+                    "Acoustic lyric alignment was unavailable; recognition fallback: {error:#}"
+                ));
+                progress(format!(
+                    "Acoustic alignment unavailable; local recognition fallback: {error:#}"
+                ));
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let recognized = if acoustic.is_none() {
+        Some(
+            crate::recognition::analyze(audio, Some((&stem.path, &binding)), language, progress)
+                .await?,
+        )
+    } else {
+        None
+    };
+    let words = acoustic
+        .as_ref()
+        .map(|result| &result.words)
+        .or_else(|| recognized.as_ref().map(|result| &result.words));
+    if let (Some(output), Some(recognized)) = (evidence_output, &recognized) {
+        crate::storage::write(output, serde_json::to_vec_pretty(recognized)?)?;
     }
     let candidates = crate::transcription::pitch(&stem.path, progress).await?;
     let neural = crate::vocal_generation::NeuralPitchEvidence {
@@ -82,14 +116,14 @@ pub async fn generate_language(
         implementation_sha256: crate::vocal_generation::neural_pitch_implementation_hash(),
         notes: candidates.into_iter().map(|e| e.candidate).collect(),
     };
-    let mut evidence = swift(&pcm, progress).await?;
+    let mut evidence = swift(&models::decode(&stem.path, 16000, 1)?, progress).await?;
     evidence.audio_sha256 = manifest.source_audio_sha256.clone();
     evidence.vocal_stem_sha256 = stem.sha256.clone();
     evidence.duration_seconds = manifest.frames as f64 / 44100.;
     progress("Assembling source-bound vocal pitches and review phrases".into());
     let last = std::cell::Cell::new(js_sys::Date::now());
     let progress = std::cell::RefCell::new(progress);
-    crate::vocal_generation::generate_cancellable(
+    let mut result = crate::vocal_generation::generate_cancellable(
         crate::vocal_generation::Request {
             audio,
             vocal_stem: &stem.path,
@@ -99,8 +133,8 @@ pub async fn generate_language(
                 evidence: manifest.alignment.details.clone(),
             },
             timing,
-            words: Some(&words),
-            lyrics: None,
+            words,
+            lyrics,
             policy: &Default::default(),
             neural_pitch: Some(&neural),
             vocal_pitch: Some(&evidence),
@@ -113,7 +147,17 @@ pub async fn generate_language(
             }
             false
         },
-    )
+    )?;
+    if language != crate::lyric_language::Language::English {
+        result.warnings.push("Multilingual recognition supplies word estimates without the English-only acoustic aligner. Spanish singing, rapid syllables, rap and language changes still need word/pitch review; uncertain pitch is never automatically converted to unpitched rap.".into());
+    }
+    if let Some(warning) = alignment_warning {
+        result.warnings.push(warning);
+    }
+    if let Some(alignment) = acoustic {
+        result.warnings.extend(alignment.warnings);
+    }
+    Ok(result)
 }
 
 async fn swift(

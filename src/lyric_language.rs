@@ -33,7 +33,6 @@ impl Language {
     }
 
     /// The English CTC alphabet must never align non-English lyrics by stripping accents.
-    #[cfg(not(target_arch="wasm32"))]
     pub fn use_english_alignment(self, text: &str) -> bool {
         if self == Self::Spanish {
             return false;

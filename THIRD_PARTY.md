@@ -35,6 +35,12 @@ Research-only source checkouts and private recordings are not included.
 
 ## Intentional port changes
 
+The static client also uses the same MPL-2.0 `practice-acoustic` Rust model and
+patched Candle CPU implementation for optional English supplied-lyric alignment.
+The filesystem-free model constructor preserves the desktop decoder. Complete
+covered source and notices ship under `sources/practice-acoustic` and
+`sources/candle-core` in the static distribution.
+
 The browser's native-compatible float resampler adapts FFmpeg n8.1.2
 `libswresample/resample.c` and `resample_template.c` (Michael Niedermayer,
 LGPL-2.1-or-later). Its Rust source is `web/src/audio_resample.rs`; the original

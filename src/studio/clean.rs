@@ -491,8 +491,42 @@ fn detect_automatic(mut studio: Studio, mut data: Signal<View>, source: PathBuf,
     });
 }
 #[cfg(target_arch = "wasm32")]
-fn detect_automatic(mut studio: Studio, _data: Signal<View>, _source: PathBuf, _epoch: u64) {
-    studio.error.set(Some("Automatic recognition requires a native model backend. Load supplied word timings or a clean plan.".into()));
+fn detect_automatic(mut studio: Studio, mut data: Signal<View>, source: PathBuf, epoch: u64) {
+    if !current(data,&source,epoch)||data.read().busy.is_some(){return;}
+    let view=data.read().clone();let policy=view.policy();if policy.validate().is_err(){return;}
+    let Some(store)=(studio.store)() else{return;};
+    let selected=view.stem.zip(view.stem_hashes).filter(|_|!view.evidence.trim().is_empty()).map(|(path,(audio_sha256,stem_sha256))|(path,StemAlignment{audio_sha256,stem_sha256,evidence:view.evidence}));
+    let attached=studio.snapshot().and_then(|doc|doc.content.stems.as_ref().and_then(|manifest|manifest.stems.iter().find(|s|s.id==crate::stem_review::StemId::Vocals).map(|stem|(stem.path.clone(),StemAlignment{audio_sha256:manifest.source_audio_sha256.clone(),stem_sha256:stem.sha256.clone(),evidence:format!("{}: {}",manifest.alignment.method,manifest.alignment.details)}))));
+    let stem=selected.or(attached);let mode=view.mode;let control=Arc::new(Control::default());
+    data.with_mut(|view|{view.busy=Some("Starting local lyric analysis…".into());view.error=None;view.recognition_control=Some(control.clone());});
+    spawn(async move {
+        let result=async {
+            let progress_source=source.clone();
+            let progress=std::rc::Rc::new(move|message:String|{let mut data=data;if current(data,&progress_source,epoch){data.write().busy=Some(message);}});
+            let task=Box::pin(crate::worker::run_with_progress::<Recognition>(crate::worker::Task::RecognizeWords{audio:source.clone(),stem:stem.clone(),language:crate::lyric_language::Language::English},std::slice::from_ref(&store.root),progress));
+            let cancelled=Box::pin(async {loop {if control.is_cancelled()||!current(data,&source,epoch){return;}gloo_timers::future::TimeoutFuture::new(50).await;}});
+            let recognition=match futures_util::future::select(task,cancelled).await {
+                futures_util::future::Either::Left((result,_))=>result?,
+                futures_util::future::Either::Right(_)=>anyhow::bail!("Automatic analysis cancelled; existing words and ranges were kept"),
+            };
+            check_source(&source,&recognition.words.audio_sha256)?;
+            let plan=clean::plan(&recognition.words,&policy,mode)?;
+            Ok::<_,anyhow::Error>((recognition,plan))
+        }.await;
+        if !current(data,&source,epoch){return;}
+        data.with_mut(|view|{
+            view.busy=None;view.recognition_control=None;
+            if control.is_cancelled(){view.status="Automatic analysis cancelled. Existing words and ranges were kept.".into();return;}
+            match result {
+                Ok((recognition,plan))=>{
+                    view.status=format!("Recognized {} words and found {} explicit matches ({} timed ranges). Listen, review and save the clean plan.",recognition.words.words.len(),plan.matches.len(),plan.ranges.len());
+                    view.words=Some(recognition.words.clone());view.recognition=Some(recognition);view.plan=Some(plan);view.word_path=None;view.receipt=None;
+                    if let Some((path,binding))=stem{view.stem=Some(path);view.stem_hashes=Some((binding.audio_sha256,binding.stem_sha256));view.evidence=binding.evidence;}
+                },Err(error)=>view.error=Some(format!("{error:#}")),
+            }
+        });
+        if let Some(error)=data.read().error.clone(){studio.error.set(Some(error));}else{studio.status.set(data.read().status.clone());}
+    });
 }
 fn render(studio: Studio, data: Signal<View>, source: PathBuf, epoch: u64) {
     let view = data.read().clone();
@@ -725,11 +759,10 @@ pub fn CleanPanel(studio: Studio) -> Element {
                         div{class:"form-section",
                             h3{class:"clean-step","1. Find words"}
                             div{class:"clean-actions",
-                                button{class:"action-primary",disabled:cfg!(target_arch="wasm32") || policy.validate().is_err(),title:if cfg!(target_arch="wasm32"){ "Automatic recognition requires native model backends" }else{ "Recognize lyrics locally" },onclick:move|_|{if let Some(audio)=(studio.source_audio)(){detect_automatic(studio,data,audio,epoch);}},"Find explicit words"}
+                                button{class:"action-primary",disabled:policy.validate().is_err(),title:"Recognize lyrics locally",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){detect_automatic(studio,data,audio,epoch);}},"Find explicit words"}
                                 if plan_valid { button{class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){save_plan(studio,data,audio,epoch);}},"Save plan…"} }
                             }
-                            if cfg!(target_arch="wasm32"){p{class:"field-hint","Load word timings or a clean plan to edit and render locally. Automatic recognition is unavailable in this browser build."}}
-                            else{p{class:"field-hint","English only · runs locally · 190 MB model download on first use. Finding again replaces your ranges."}}
+                            p{class:"field-hint","English only · runs locally · 190 MB model download on first use. Finding again replaces your ranges."}
                             details { summary { "Use saved files" }
                             div { class: "clean-actions",
                                 button{"data-browser-pick":"file","data-browser-accept":".json",class:"action-secondary",onclick:move|_|{if let Some(audio)=(studio.source_audio)(){load_words(studio,data,audio,epoch);}},"Load word timings…"}

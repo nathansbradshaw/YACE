@@ -75,7 +75,7 @@ fn build(root: &Path) -> Result<()> {
     fs::copy(root.join("web/index.html"), dist.join("index.html"))?;
     fs::copy(root.join("web/worker.js"), dist.join("worker.js"))?;
     copy_source(&root.join("web/runtime"), &dist.join("runtime"))?;
-    for package in ["symphonia-codec-vorbis", "symphonia-bundle-mp3"] {
+    for package in ["symphonia-codec-vorbis", "symphonia-bundle-mp3", "practice-acoustic", "candle-core"] {
         copy_source(
             &root.join("vendor").join(package),
             &dist.join("sources").join(package),

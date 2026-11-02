@@ -6,8 +6,9 @@ publish = false
 license = "MIT AND LGPL-2.1-or-later"
 
 [features]
-default = ["browser"]
+default = ["browser", "vocal-alignment"]
 browser = []
+vocal-alignment = []
 studio = []
 separation = []
 
@@ -42,8 +43,12 @@ symphonia = { version = "0.5.5", features = ["all"] }
 burn = { version = "=0.20.1", default-features = false, features = ["std", "wgpu"] }
 demucs-core = { path = "../vendor/demucs-core", default-features = false, features = ["wgpu"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
+practice-acoustic = { path = "../vendor/practice-acoustic" }
+rayon = "1"
+whatlang = "0.16"
 
 [patch.crates-io]
+candle-core = { path = "../vendor/candle-core" }
 symphonia-bundle-mp3 = { path = "../vendor/symphonia-bundle-mp3" }
 symphonia-codec-vorbis = { path = "../vendor/symphonia-codec-vorbis" }
 

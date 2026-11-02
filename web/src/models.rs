@@ -21,6 +21,7 @@ pub fn assets() -> Vec<ModelAsset> {
         serde_json::from_str(include_str!("../../models/manifest.json")).expect("pinned manifest");
     assets.push(crate::lyric_language::multilingual_asset());
     assets.push(crate::keyboard_separation::asset());
+    assets.push(crate::acoustic_alignment::asset());
     assets
 }
 pub fn hash_file(path: &Path) -> Result<String> {

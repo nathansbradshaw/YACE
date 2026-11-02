@@ -757,6 +757,9 @@ impl Studio {
         for path in [crate::pipeline::audio_file(&source)?, chart] {
             identity.update(crate::models::hash_file(&path)?.as_bytes());
         }
+        if let Some(provenance)=crate::song_files::source_choice::recovery_identity(&source,choice)? {
+            identity.update(provenance.as_bytes());
+        }
         for path in [
             source.join("song.ini"),
             project_source

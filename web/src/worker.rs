@@ -29,6 +29,11 @@ pub enum Task {
     CacheModel {
         path: PathBuf,
     },
+    RecognizeWords {
+        audio:PathBuf,
+        stem:Option<(PathBuf,StemAlignment)>,
+        language:crate::lyric_language::Language,
+    },
     BuildDraft {
         audio: PathBuf,
         events: Box<crate::mapping::Transcription>,
@@ -107,6 +112,7 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::RecognizeWords{audio,stem,..}=>std::iter::once(audio.clone()).chain(stem.iter().map(|(path,_)|path.clone())).collect(),
             Self::GenerationStage { root, stage } => {
                 crate::generation::audio_paths(root, *stage).unwrap_or_default()
             }
@@ -242,6 +248,7 @@ impl Task {
             | Self::Vocals { .. } => {
                 anyhow::bail!("Separation requires the asynchronous GPU worker")
             }
+            Self::RecognizeWords{..}=>anyhow::bail!("Recognition requires the asynchronous local worker"),
             Self::Archive { .. } => Ok(serde_json::Value::Null),
             Self::InspectRecording { audio, output } => Ok(serde_json::to_value(
                 crate::song_import::local(audio, output)?,
@@ -531,6 +538,8 @@ async fn process(input: JsValue) -> Result<JsValue> {
             serde_json::to_vec_pretty(&result)?,
         )?;
         serde_json::to_value(result)?
+    } else if let Task::RecognizeWords{audio,stem,language}=&task {
+        serde_json::to_value(crate::recognition::analyze(audio,stem.as_ref().map(|(path,binding)|(path.as_path(),binding)),*language,&mut progress).await?)?
     } else if let Task::CacheModel { path } = &task {
         progress("Verifying the selected model checkpoint…".into());
         serde_json::to_value(crate::model_assets::import(crate::storage::read(path)?).await?)?
@@ -762,7 +771,7 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
     let mut selected = BTreeMap::new();
     for root in roots {
         for (path, bytes) in crate::storage::list(root)? {
-            if matches!(task, Task::GenerationStage { .. })
+            if matches!(task, Task::GenerationStage { .. } | Task::RecognizeWords { .. })
                 && path
                     .extension()
                     .and_then(|value| value.to_str())
@@ -773,8 +782,7 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
                 && !bound_audio.contains(&path)
                 // All six encoded assets are needed to validate the source
                 // manifest, even when this stage decodes only one part.
-                && !path.starts_with(root.join("stems"))
-                && !path.starts_with(root.join("keyboard-stems"))
+                && !(matches!(task,Task::GenerationStage{..}) && (path.starts_with(root.join("stems"))||path.starts_with(root.join("keyboard-stems"))))
             {
                 continue;
             }

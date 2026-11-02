@@ -60,6 +60,29 @@ pub fn selected_file(song: &Path, source: Option<Source>) -> Result<PathBuf> {
     anyhow::bail!("No notes.chart or notes.mid in {}", song.display())
 }
 
+/// Include alternate-source provenance in browser recovery identity. A song
+/// gaining a second chart must not silently reopen a pre-choice editing copy.
+pub fn recovery_identity(song: &Path, source: Option<Source>) -> Result<Option<String>> {
+    if ambiguous(song) {
+        let selected = source.context("Choose the source to edit")?;
+        return Ok(Some(format!(
+            "chart-source-choice-v1:{}:{}:{}",
+            selected.filename(),
+            models::hash_file(&song.join("notes.chart"))?,
+            models::hash_file(&song.join("notes.mid"))?
+        )));
+    }
+    let receipt = song_layout::resolve(song, RECEIPT);
+    if fs::exists(&receipt) {
+        validate_retained(song)?;
+        return Ok(Some(format!(
+            "retained-chart-source-choice-v1:{}",
+            models::hash_file(&receipt)?
+        )));
+    }
+    Ok(None)
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Receipt {

@@ -34,7 +34,7 @@ Keep private recordings, transcripts and generated receipts outside Git.
 
 During generator integration, inspect each fetched desktop change before
 rebasing and rerun the affected browser workflow. The integration through
-`802143c` includes shared solo, drum-detail, rhythm/co-op, six-fret, five-lane
+`4c24191` includes shared solo, drum-detail, rhythm/co-op, six-fret, five-lane
 Keys MIDI and legacy-delay fixes. The delay enhancement changes were carried
 into `generation_build.rs` when resolving the extraction conflict. Actual
 browser import/export/reimport retained the expected 0.620-second note position
@@ -42,8 +42,15 @@ with conflicting legacy fields, cleared exported INI delay and preserved the
 original chart/INI witnesses. Native library migration is an OS filesystem maintenance tool;
 browser imports must still recover its resulting project layout, exact saved
 audio and editing history. A successful rebase alone does not verify that path.
-Incoming timing-anchor support is shared by browser import, tempo editing and
-game export; its actual-browser acceptance is still pending.
+Timing-anchor support passed actual browser import, tempo editing, Undo,
+export and reimport. Changing 120 to 150 BPM compensated the following segment
+to 100 BPM while preserving anchored attacks at 1.250 and 2.250 seconds; both
+original microsecond anchors remained in the exported chart. Ordinary game
+MIDI also passed actual browser import, edit, Undo and export: unchanged export
+preserved the complete original MIDI bytes, and edited export retained injected
+opaque program/controller/SysEx/text events. Explicit chart/MIDI source choice
+is integrated; its browser recovery identity also includes alternate-source
+provenance so a pre-choice editing copy cannot discard a newly supplied source.
 
 See [the dated acceptance evidence](BROWSER_ACCEPTANCE.md) for revisions, private
 artifacts, test coverage and limits. This gate concerns the supported YACE

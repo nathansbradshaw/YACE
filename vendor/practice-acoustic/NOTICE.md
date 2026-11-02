@@ -10,5 +10,6 @@ Wav2Vec2EncoderStableLayerNorm implementations.
 Only the native Rust model is included. Alignment, model installation, and
 application integration were implemented by EntreNota. YACE reuses this
 native engine and adds cancellation/progress callbacks between bounded
-inference windows in src/lib.rs. These modifications remain MPL-2.0; the
+inference windows in src/lib.rs. The browser also loads verified caller-owned
+model bytes without filesystem access. These modifications remain MPL-2.0; the
 corresponding source is included in this directory. No Python is used.

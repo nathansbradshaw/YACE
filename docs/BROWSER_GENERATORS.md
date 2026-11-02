@@ -137,12 +137,52 @@ static-tool audio tests and strict WASM/native Clippy. Explicit ignored tests in
 `web/tools/tests.rs` compare actual browser downloads with real native outputs;
 they require named private input paths and never fabricate inference results.
 
+## Corrected full-song and optional-engine comparisons
+
+The complete 243.880-second recording was regenerated after the native-compatible
+resampler and local recognition were added. All six stem clocks remained exact.
+The resulting Expert parts contained 1,429 drum, 1,779 guitar and 807 bass notes;
+the vocal chart retained 471 notes, 41 phrases and 1,328 review issues, including
+94 explicit missing lyrics. Actual playback reached the end on all seven audio
+elements. A vocal attack changed from tick 1,242 to 1,243 during playback; Undo
+restored it. Both the downloaded full song and project backup passed CRC checks
+and reopened through their actual browser pickers with all 471 vocal notes.
+Native inspection read the combined exported MIDI without error.
+
+Against native on the same stems, all full-song drum and bass events match.
+One guitar attack differs by 58.049887 ms: a browser onset score of 0.50000226
+crosses the shared 0.5 gate, changing the selected attack while retaining the
+same pitch and release. Every other guitar identity and boundary matches.
+The strict comparison still rejects this difference; an explicit diagnostic
+mode reports this single threshold-boundary case rather than changing detector
+policy to force agreement. Full-song Whisper text also varies between WASM,
+native CPU and Metal execution. These outputs remain review proposals. Given
+the same actual browser word evidence, native and browser vocal notes, phrases,
+issues, timing and status match exactly.
+
+The optional Synth engine was exercised on a real five-second Creo excerpt.
+Browser and native produced the same 21 Keys and 21 Pro Keys detections; raw
+MuScriptor notes, token output and diagnostics matched exactly. The generated
+eight-track project played to the end on all seven sources. Its downloaded
+song archive passed CRC checks and native MIDI inspection.
+
+The desktop Rust English acoustic aligner now runs in the browser worker using
+the same pinned wav2vec2 weights, Candle model, supplied text and shared CTC
+decoder. The native file picker loaded the existing local weights and a
+provenance-labelled, explicitly unverified full-song recognition candidate.
+Both clients retained 263 words, 232 with supported timing; every word boundary,
+uncertainty flag, path choice and source hash matched. The maximum diagnostic
+log-probability delta was 0.0001823. Both final vocal charts contain the same
+498 notes, 48 phrases and 1,305 review issues, and the actual browser timeline
+opened all 498 notes with its review context. Unsupported words remain untimed.
+The raw alignment and vocal reports were downloaded through the app. This
+checks engine/workflow agreement, not lyric or singing accuracy.
+
 ## Open gates
 
-- The corrected full-song pass with local lyric recognition is running. Optional
-  Synth/HQ Piano adapters and controls are implemented and compile checked, but
-  their actual-app/model comparisons remain open. Supplied-lyric acoustic
-  alignment and automatic clean-panel recognition also remain open.
+- HQ Piano runtime verification and automatic clean-panel recognition remain
+  open. Standard piano, Synth, recognition and supplied-lyric alignment have
+  actual browser/native model comparisons.
 - Complete full-song cancellation/resume and edited-target conflict checks for
   recoverable browser generation jobs; the excerpt apply/Undo/reload path passed.
 - The full-song generation/playback/editing/reload/song ZIP/project backup gates

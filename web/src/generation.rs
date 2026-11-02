@@ -33,6 +33,8 @@ pub struct Input {
     pub audio_sha256: String,
     pub metadata: crate::pipeline::Metadata,
     pub implementation_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lyrics: Option<crate::vocal_generation::LyricSource>,
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Summary {
@@ -58,6 +60,9 @@ pub fn implementation_hash() -> String {
         include_bytes!("transcription.rs"),
         include_bytes!("vocal_inference.rs"),
         include_bytes!("recognition.rs"),
+        include_bytes!("acoustic_alignment.rs"),
+        include_bytes!("../../src/vocal_alignment.rs"),
+        include_bytes!("../../vendor/practice-acoustic/src/lib.rs"),
         include_bytes!("../runtime/yace-recognition.wasm"),
         include_bytes!("../../src/clean_transcript.rs"),
         include_bytes!("onnx.rs"),
@@ -107,6 +112,13 @@ pub fn freeze(root: &Path, metadata: crate::pipeline::Metadata) -> Result<()> {
             audio_sha256: crate::models::hash_file(path)?,
             metadata,
             implementation_sha256: implementation_hash(),
+            lyrics: crate::storage::is_file(root.join("supplied-lyrics.json"))
+                .then(|| -> Result<_> {
+                    Ok(serde_json::from_slice(&crate::storage::read(
+                        root.join("supplied-lyrics.json"),
+                    )?)?)
+                })
+                .transpose()?,
         },
     )
 }
@@ -147,6 +159,7 @@ pub fn input(root: &Path) -> Result<Input> {
 }
 pub fn validate(root: &Path) -> Result<(Request, Input)> {
     let (request, input) = validate_saved(root)?;
+    ensure!(!hq(&request), "Higher quality piano separation is currently desktop-only: its checkpoint failed local browser runtime verification. Standard piano and Synth run locally in this browser");
     ensure!(
         input.implementation_sha256 == implementation_hash(),
         "This saved job uses an earlier generator. Its completed results remain available; start a new job to generate with the current engine"
@@ -178,6 +191,12 @@ pub fn validate_saved(root: &Path) -> Result<(Request, Input)> {
         request.title == input.metadata.name && request.artist == input.metadata.artist,
         "Saved source metadata changed"
     );
+    if let Some(lyrics) = &input.lyrics {
+        ensure!(
+            !lyrics.source.trim().is_empty() && !lyrics.text.trim().is_empty(),
+            "Frozen lyrics need text and provenance"
+        );
+    }
     Ok((request, input))
 }
 pub fn isolation(root: &Path) -> Result<crate::stem_review::StemManifest> {
@@ -396,6 +415,7 @@ pub async fn run_stage(
                 &request.timing()?,
                 request.vocal_language,
                 Some(&root.join("vocals/recognition.json")),
+                input.lyrics.as_ref(),
                 progress,
             )
             .await?;
@@ -465,6 +485,12 @@ pub async fn run_stage(
                 write_json(&crate::song_layout::path(&song, name), &manifest)?;
             }
             let vocal_path = root.join("vocals/generation.json");
+            if let Some(lyrics) = &input.lyrics {
+                write_json(
+                    &crate::song_layout::path(&song, "chart-engine-lyrics.json"),
+                    &serde_json::json!({"plainLyrics":lyrics.text,"syncedLyrics":lyrics.synced_lyrics,"source":lyrics.source}),
+                )?;
+            }
             if crate::storage::is_file(&vocal_path) {
                 let report: crate::vocal_generation::Generation =
                     serde_json::from_slice(&crate::storage::read(&vocal_path)?)?;
@@ -526,6 +552,7 @@ pub fn project_path(root: &Path) -> PathBuf {
 }
 pub fn create_job(mut request: Request, root: &Path) -> Result<PathBuf> {
     request.validate()?;
+    ensure!(!hq(&request), "Higher quality piano separation is currently desktop-only; choose Standard piano or Synth");
     ensure!(
         !crate::storage::exists(root),
         "Choose a new generation job; saved results are preserved"

@@ -16,6 +16,64 @@ pub struct Output {
     pub language: String,
     pub segments: Vec<crate::clean_transcript::RecognizedSegment>,
 }
+pub async fn analyze(
+    audio: &std::path::Path,
+    input: Option<(&std::path::Path, &crate::clean::StemAlignment)>,
+    language: crate::lyric_language::Language,
+    progress: &mut impl FnMut(String),
+) -> Result<crate::clean_transcript::Recognition> {
+    let source_hash = crate::models::hash_file(audio)?;
+    let duration = crate::models::duration(audio)?;
+    let input = if let Some((path, binding)) = input {
+        ensure!(
+            binding.audio_sha256 == source_hash
+                && !binding.evidence.trim().is_empty()
+                && crate::models::hash_file(path)? == binding.stem_sha256,
+            "Vocal recognition source changed"
+        );
+        ensure!(
+            crate::models::format(path)? == (44100, 2)
+                && (crate::models::duration(path)? - duration).abs() <= 1. / 44100.,
+            "Vocal recognition stem clock differs"
+        );
+        path
+    } else {
+        audio
+    };
+    let input_hash = crate::models::hash_file(input)?;
+    let samples = crate::models::decode(input, 16000, 1)?;
+    let asset = language.asset();
+    let model = crate::model_assets::load(&asset.id, progress).await?;
+    progress("Preparing local lyric recognition…".into());
+    let output = recognize(&samples, &model, language.code().unwrap_or("auto")).await?;
+    ensure!(
+        crate::models::hash_file(audio)? == source_hash
+            && crate::models::hash_file(input)? == input_hash,
+        "Recognition source changed during inference"
+    );
+    let words = crate::clean::WordTimings {
+        version: 1,
+        audio_sha256: source_hash,
+        duration_seconds: duration,
+        source: format!(
+            "Automatic local recognition; language={}; whisper.cpp-1.8.3 WASI CPU; token_timestamps; split_on_word; max_len=1; beam=5; temperature=0; model_sha256={}; recognition_audio_sha256={}; model-estimated word boundaries; listening review required",
+            output.language, asset.sha256, input_hash
+        ),
+        words: crate::clean_transcript::aligned_words(&output.segments, duration),
+    };
+    words.validate()?;
+    Ok(crate::clean_transcript::Recognition {
+        version: 1,
+        backend: "whisper.cpp-1.8.3/WASI; beam=5; token_timestamps; max_len=1; temperature=0"
+            .into(),
+        model_sha256: asset.sha256,
+        recognition_audio_sha256: input_hash,
+        language: output.language,
+        words,
+        segments: output.segments,
+        warnings: vec![crate::clean_transcript::RECOGNITION_WARNING.into()],
+    })
+}
 fn error(value: JsValue) -> anyhow::Error {
     anyhow::anyhow!("Local recognition runtime: {value:?}")
 }

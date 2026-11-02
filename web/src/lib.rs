@@ -5,6 +5,9 @@ pub mod archive_codec;
 pub mod audio_decode;
 mod recognition;
 mod synth;
+#[path = "../../src/vocal_alignment.rs"]
+pub mod vocal_alignment;
+pub mod acoustic_alignment;
 mod audio_resample;
 mod audio_identity;
 mod archive_blob;

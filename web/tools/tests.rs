@@ -170,6 +170,9 @@ fn actual_browser_transcription_matches_native_notes_and_source_clocks() {
     );
     let instruments =
         std::env::var("YACE_TRANSCRIPTION_PARTS").unwrap_or_else(|_| "drums,guitar,bass".into());
+    // Explicit diagnostic mode preserves a recorded CPU/WASM threshold case;
+    // strict comparisons remain the default and no inference threshold changes.
+    let review_boundaries = std::env::var("YACE_ALLOW_ONSET_BOUNDARY_REVIEW").as_deref() == Ok("1");
     for instrument in instruments.split(',') {
         assert!(["drums", "guitar", "bass", "piano", "pro_piano"].contains(&instrument));
         let ours = browser[instrument].as_array().unwrap();
@@ -177,7 +180,25 @@ fn actual_browser_transcription_matches_native_notes_and_source_clocks() {
         assert_eq!(ours.len(), theirs.len(), "{instrument} detection count");
         let mut max_time = 0f64;
         let mut max_score = 0f64;
-        for (a, b) in ours.iter().zip(theirs) {
+        let mut boundary_count = 0usize;
+        for (index, (a, b)) in ours.iter().zip(theirs).enumerate() {
+            let near_gate = |value: &Value| {
+                value
+                    .as_f64()
+                    .is_some_and(|score| (score - 0.5).abs() <= 64. * f64::from(f32::EPSILON))
+            };
+            let boundary = review_boundaries
+                && instrument == "guitar"
+                && a["start"] != b["start"]
+                && a["end"] == b["end"]
+                && (near_gate(&browser["guitar_candidates"][index]["onset_score"])
+                    || near_gate(&native["guitar_candidates"][index]["onset_score"]));
+            if boundary {
+                boundary_count += 1;
+                eprintln!(
+                    "Review required: {instrument} onset threshold boundary; browser {a}, native {b}"
+                );
+            }
             for field in if instrument == "drums" {
                 vec!["time"]
             } else {
@@ -192,7 +213,10 @@ fn actual_browser_transcription_matches_native_notes_and_source_clocks() {
                 } else {
                     1e-9
                 };
-                assert!(delta < tolerance, "{instrument} {field} differs: {a} / {b}");
+                assert!(
+                    delta < tolerance || (boundary && field == "start"),
+                    "{instrument} {field} differs: {a} / {b}"
+                );
             }
             let identity = if instrument == "drums" {
                 "voice"
@@ -203,10 +227,10 @@ fn actual_browser_transcription_matches_native_notes_and_source_clocks() {
             let delta =
                 (a["confidence"].as_f64().unwrap() - b["confidence"].as_f64().unwrap()).abs();
             max_score = max_score.max(delta);
-            assert!(delta < 0.002, "{instrument} score differs");
+            assert!(delta < 0.002 || boundary, "{instrument} score differs");
         }
         eprintln!(
-            "{instrument}: {} notes, maximum time delta {max_time}, maximum score delta {max_score}",
+            "{instrument}: {} notes, maximum time delta {max_time}, maximum score delta {max_score}, explicitly reviewed onset boundaries {boundary_count}",
             ours.len()
         );
     }
@@ -342,6 +366,51 @@ fn actual_browser_vocal_chart_matches_native_supplied_word_evidence() {
         browser["chart"]["notes"].as_array().unwrap().len(),
         browser["chart"]["phrases"].as_array().unwrap().len(),
         browser["issues"].as_array().unwrap().len()
+    );
+}
+
+#[test]
+#[ignore = "Requires actual downloaded YACE_BROWSER_ALIGNMENT and real YACE_NATIVE_ALIGNMENT from identical supplied lyrics and stems"]
+fn actual_browser_acoustic_alignment_preserves_native_word_boundaries() {
+    use serde_json::Value;
+    let read = |key| -> Value {
+        serde_json::from_slice(
+            &std::fs::read(std::env::var_os(key).expect("Explicit real alignment output required"))
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let mut browser = read("YACE_BROWSER_ALIGNMENT");
+    let mut native = read("YACE_NATIVE_ALIGNMENT");
+    let left = browser["diagnostics"].as_array_mut().unwrap();
+    let right = native["diagnostics"].as_array_mut().unwrap();
+    assert_eq!(left.len(), right.len());
+    let mut maximum = 0_f64;
+    for (a, b) in left.iter_mut().zip(right.iter_mut()) {
+        match (
+            a["mean_log_probability"].as_f64(),
+            b["mean_log_probability"].as_f64(),
+        ) {
+            (Some(a), Some(b)) => {
+                maximum = maximum.max((a - b).abs());
+                assert!(
+                    (a - b).abs() < 0.001,
+                    "Acoustic probability diverged: {a}/{b}"
+                );
+            }
+            (None, None) => {}
+            _ => panic!("Acoustic diagnostics lost probability"),
+        }
+        a.as_object_mut().unwrap().remove("mean_log_probability");
+        b.as_object_mut().unwrap().remove("mean_log_probability");
+    }
+    assert_eq!(
+        browser, native,
+        "Word boundaries, uncertainty, source binding and selection must match"
+    );
+    eprintln!(
+        "{} aligned words; maximum acoustic log probability delta {maximum}",
+        browser["words"]["words"].as_array().unwrap().len()
     );
 }
 
