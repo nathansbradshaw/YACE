@@ -550,7 +550,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             rsx! {super::reanalysis_review::ReviewDraft{key:"{root:?}",studio,job:root.clone(),stale:stale||busy(),onapply:move |_|{
                 let root=root.clone();error.set(None);busy.set(true);let mut runner=runner;
                 spawn(async move{match async_apply(studio,root).await{Ok(())=>{job.set(None);current.set(None);previous_draft.set(None);studio.generation_open.set(false);studio.generation_target.set(None);},Err(problem)=>runner.error.set(Some(format!("{problem:#}")))}runner.busy.set(false);});
-            },ondiscard:move |_|{studio.show_analysis_preview(None);job.set(None);current.set(None);error.set(None);status.set(String::new());}}}
+            },ondiscard:move |_|{studio.show_analysis_preview(None);job.set(None);current.set(None);error.set(None);status.set(String::new());studio.status.set("Draft discarded · chart unchanged".into());}}}
         } else {
             rsx! {}
         };
@@ -640,7 +640,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                             error.set(None);
                             let result=async_apply(studio,root.clone());let mut runner=runner;busy.set(true);
                             spawn(async move{match result.await{Ok(())=>{job.set(None);current.set(None);previous_draft.set(None);studio.generation_open.set(false);studio.generation_target.set(None);},Err(failure)=>runner.error.set(Some(format!("{failure:#}")))}runner.busy.set(false);});
-                        }}, ondiscard: move |_| { studio.analysis_preview.set(None); job.set(None); current.set(None); } }
+                        }}, ondiscard: move |_| { studio.analysis_preview.set(None); job.set(None); current.set(None); studio.status.set("Draft discarded · chart unchanged".into()); } }
                     }
                     button{disabled:busy(),onclick:{let root=handle.root.clone();move |_|{let root=root.clone();busy.set(true);spawn(async move{
                         let result=async{studio.persist_current().await?;let copy=crate::files::unique_root();crate::pipeline::copy_folder(&generation::project_path(&root),&copy)?;studio.open_project(copy).await}.await;
@@ -659,7 +659,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     }}
 }
 
-async fn async_apply(studio: Studio, root: PathBuf) -> Result<()> {
+async fn async_apply(mut studio: Studio, root: PathBuf) -> Result<()> {
     let store = (studio.store)().context("Open the target chart before applying this part")?;
     let doc = studio.snapshot().context("Open the target chart first")?;
     ensure!(
@@ -686,6 +686,7 @@ async fn async_apply(studio: Studio, root: PathBuf) -> Result<()> {
             .is_some_and(|current| current.revision > previous),
         "The generated part was not applied; your current chart and draft were kept"
     );
+    studio.status.set("Repair applied · Undo is available".into());
     Ok(())
 }
 fn download_path(name: &str) -> PathBuf {

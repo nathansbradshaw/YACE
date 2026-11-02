@@ -1158,7 +1158,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             details{summary{"Model licenses"}for asset in crate::models::assets(){p{class:"ra-hint","{asset.id}: {asset.license}"}}}
         }} };
         let review = if let Some(root) = view.root.clone() {
-            rsx! {super::reanalysis_review::ReviewDraft{key:"{root:?}",studio,job:root,stale:stale||busy||view.applied,onapply:move |_|apply_part(studio,data),ondiscard:move |_|{studio.show_analysis_preview(None);data.with_mut(|v|{v.root=None;v.status=None;v.error=None;v.job_settings=None;v.applied=false;});}}}
+            rsx! {super::reanalysis_review::ReviewDraft{key:"{root:?}",studio,job:root,stale:stale||busy||view.applied,onapply:move |_|apply_part(studio,data),ondiscard:move |_|{studio.show_analysis_preview(None);studio.status.set("Draft discarded · chart unchanged".into());data.with_mut(|v|{v.root=None;v.status=None;v.error=None;v.job_settings=None;v.applied=false;});}}}
         } else {
             rsx! {}
         };
