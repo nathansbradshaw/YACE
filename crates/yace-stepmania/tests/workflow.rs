@@ -325,6 +325,16 @@ fn both_profiles_are_deterministic_and_cancel_without_edits() {
 #[test]
 fn peer_profiles_generate_without_reclassifying_imported_charts() {
     let mut p = Project::import(sm(), Format::Sm, Profile::Pad).unwrap();
+    // The click fixture is aligned to the constant 120 BPM grid. The imported
+    // file intentionally has a different offset and a later tempo change.
+    edit(
+        &mut p,
+        Action::SetTiming {
+            chart_id: None,
+            timing: Some(Timing::default()),
+        },
+    )
+    .unwrap();
     let imported = p.content.document.charts.clone();
     edit(
         &mut p,
