@@ -43,6 +43,8 @@ the inspector. Unsupported notes remain unresolved. This check preserves lyrics,
 timing, phrases and talkies. Changing the recording, stem, tempo, notes or lyrics
 invalidates pending proposals. Analysis can be cancelled without changing notes.
 Both desktop and browser use the same model, preprocessing and correction rules.
+Checking another section retains review flags and previous-pitch alternatives
+for earlier corrections while their source, timing and note bounds still match.
 In the browser, **Generate vocals… → Use a downloaded model…** can import an
 existing pinned `rmvpe.onnx` instead of downloading another copy. Model imports
 are checksum verified before local caching.
