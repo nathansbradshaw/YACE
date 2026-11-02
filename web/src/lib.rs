@@ -21,6 +21,7 @@ pub mod clean_transcript;
 pub mod collaboration;
 #[path = "../../src/collaboration_exchange.rs"]
 pub mod collaboration_exchange;
+pub mod dance_archive;
 #[path = "../../src/difficulty_links.rs"]
 pub mod difficulty_links;
 #[path = "../../src/drum_articulation.rs"]

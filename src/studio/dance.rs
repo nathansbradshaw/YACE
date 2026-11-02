@@ -296,15 +296,17 @@ impl DanceStudio {
     async fn prepare(mut self, format: Option<Format>) {
         let result = async {
             let project = self.project.read().clone().context("No project")?;
-            let mut files = if let Some(format) = format {
+            let files = if let Some(format) = format {
                 bundle::export(&project, &self.assets.read(), format)?
             } else {
                 bundle::backup(&project, &self.assets.read())?
             };
+            #[cfg(not(target_arch = "wasm32"))]
+            let mut files = files;
+            #[cfg(not(target_arch = "wasm32"))]
             if format.is_none()
                 && let Some(parent) = self.parent.read().clone()
             {
-                #[cfg(not(target_arch = "wasm32"))]
                 let mut combined = {
                     let temporary = tempfile::tempdir()?;
                     let path = temporary.path().join("backup.zip");
@@ -313,21 +315,12 @@ impl DanceStudio {
                         .into_iter()
                         .collect::<Files>()
                 };
-                #[cfg(target_arch = "wasm32")]
-                let mut combined = crate::storage::list(&parent)?
-                    .into_iter()
-                    .map(|(path, bytes)| {
-                        Ok((
-                            path.strip_prefix(&parent)?.to_string_lossy().into_owned(),
-                            bytes.as_ref().clone(),
-                        ))
-                    })
-                    .collect::<Result<Files>>()?;
                 for (name, bytes) in files {
                     combined.insert(format!("dance/{name}"), bytes);
                 }
                 files = combined;
             }
+            #[cfg(not(target_arch = "wasm32"))]
             let bytes = crate::archive_codec::encode(
                 files.iter().map(|(n, b)| (n.as_str(), b.as_slice())),
             )?;
@@ -338,7 +331,12 @@ impl DanceStudio {
                 } else {
                     "YACE-project.zip"
                 });
-                crate::storage::write(&path, &bytes)?;
+                let parent = format
+                    .is_none()
+                    .then(|| self.parent.read().clone())
+                    .flatten();
+                self.status.set("Preparing ZIP on a local worker…".into());
+                crate::dance_archive::prepare(files, parent.as_deref(), &path).await?;
                 self.status.set(format!(
                     "Download ready: {}",
                     path.file_name().unwrap_or_default().to_string_lossy()

@@ -94,6 +94,7 @@ pub fn implementation_hash() -> String {
         hash.update(bytes);
     }
     hash.update(crate::separation::implementation_hash());
+    hash.update(crate::vocal_rmvpe::implementation_hash());
     format!("{:x}", hash.finalize())
 }
 pub fn freeze(root: &Path, metadata: crate::pipeline::Metadata) -> Result<()> {
