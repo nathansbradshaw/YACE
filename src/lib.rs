@@ -72,6 +72,7 @@ pub mod pro_keys;
 #[cfg(any(feature = "editor", feature = "browser"))]
 pub mod project_files;
 pub mod project_portability;
+pub mod project_recording;
 pub mod refine;
 pub mod review;
 pub mod review_regions;
@@ -81,6 +82,7 @@ pub mod stem_coverage_review;
 pub mod stem_review;
 pub mod tempo_analysis;
 pub mod timeline;
+pub mod timeline_clock;
 pub mod timing;
 pub mod transkun;
 #[cfg(feature = "vocal-alignment")]

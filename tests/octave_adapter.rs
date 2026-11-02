@@ -49,6 +49,7 @@ fn fixture() -> (Project, Chart) {
     )
     .unwrap();
     let project = Project {
+        recording: None,
         version: 1,
         revision: 2,
         title: "Adapter fixture".into(),

@@ -22,6 +22,16 @@ extern "C" {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    ExportChartOnly {
+        root: PathBuf,
+        project: Box<crate::editor::Project>,
+        output: PathBuf,
+        actor: crate::editor::Actor,
+    },
+    PrepareRecording {
+        source: PathBuf,
+        root: PathBuf,
+    },
     PrepareGameChannels {
         root: PathBuf,
     },
@@ -121,6 +131,8 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::ExportChartOnly { .. } => Vec::new(),
+            Self::PrepareRecording { source, .. } => vec![source.clone()],
             Self::PrepareGameChannels { root } => {
                 crate::stem_review::conventional::decode_inputs(root).unwrap_or_default()
             }
@@ -199,6 +211,22 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
+            Self::ExportChartOnly {
+                root,
+                project,
+                output,
+                actor,
+            } => {
+                ensure!(
+                    !project.has_recording(),
+                    "Use recording-aware export for a recorded project"
+                );
+                crate::editor::Store::new(root).write_export(project, output, actor)?;
+                Ok(serde_json::Value::Null)
+            }
+            Self::PrepareRecording { source, root } => Ok(serde_json::to_value(
+                crate::project_recording::prepare_recording(source, root)?,
+            )?),
             Self::PrepareGameChannels { root } => Ok(serde_json::to_value(
                 crate::stem_review::conventional::prepare(root)?,
             )?),
@@ -416,7 +444,10 @@ async fn process(input: JsValue) -> Result<JsValue> {
             .as_string()
             .context("Missing worker task")?,
     )?;
-    let bounded = matches!(task, Task::PrepareGameChannels { .. });
+    let bounded = matches!(
+        task,
+        Task::PrepareGameChannels { .. } | Task::PrepareRecording { .. }
+    );
     for row in js_sys::Array::from(&field(&input, "files")?).iter() {
         let row = js_sys::Array::from(&row);
         let path = row.get(0).as_string().context("Missing worker path")?;
@@ -605,7 +636,9 @@ async fn process(input: JsValue) -> Result<JsValue> {
     set(&response, "value", &serde_json::to_string(&result)?.into())?;
     let files = js_sys::Array::new();
     let archive = match &task {
-        Task::Clean { output, .. } | Task::Export { output, .. } => {
+        Task::Clean { output, .. }
+        | Task::Export { output, .. }
+        | Task::ExportChartOnly { output, .. } => {
             Some((output.clone(), output.with_extension("zip")))
         }
         Task::Backup { root, output } | Task::Archive { root, output } => {
@@ -635,6 +668,7 @@ async fn process(input: JsValue) -> Result<JsValue> {
     }
     if let Task::GenerationStage { root: output, .. }
     | Task::PrepareGameChannels { root: output }
+    | Task::PrepareRecording { root: output, .. }
     | Task::Vocals { output, .. }
     | Task::BuildDraft { output, .. }
     | Task::InspectRecording { output, .. }
@@ -652,7 +686,9 @@ async fn process(input: JsValue) -> Result<JsValue> {
             .collect();
         let changed = if matches!(
             task,
-            Task::GenerationStage { .. } | Task::PrepareGameChannels { .. }
+            Task::GenerationStage { .. }
+                | Task::PrepareGameChannels { .. }
+                | Task::PrepareRecording { .. }
         ) {
             crate::storage::pending(output)?
         } else {

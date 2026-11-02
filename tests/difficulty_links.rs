@@ -129,6 +129,7 @@ fn fixture(root: &Path, generated: bool) -> Store {
     )
     .unwrap();
     let project = Project {
+        recording: None,
         version: 1,
         revision: 0,
         title: "Linked fixture".into(),

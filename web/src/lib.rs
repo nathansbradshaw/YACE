@@ -99,6 +99,8 @@ pub mod pipeline;
 pub mod pro_keys;
 #[path = "../../src/project_portability.rs"]
 pub mod project_portability;
+#[path = "../../src/project_recording.rs"]
+pub mod project_recording;
 mod recognition;
 #[path = "../../src/recording_metadata.rs"]
 pub mod recording_metadata;
@@ -135,6 +137,8 @@ mod synth;
 pub mod tempo_analysis;
 #[path = "../../src/timeline.rs"]
 pub mod timeline;
+#[path = "../../src/timeline_clock.rs"]
+pub mod timeline_clock;
 #[path = "../../src/timing.rs"]
 pub mod timing;
 pub mod transcription;

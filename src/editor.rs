@@ -29,11 +29,28 @@ fn hash(bytes: &[u8]) -> String {
 #[cfg(target_arch = "wasm32")]
 impl Store {
     fn save(&self, project: &Project) -> Result<()> {
-        crate::storage::save_project(&self.root, project);
+        if project.recording.is_some() {
+            let mut current = project.clone();
+            if let Some(basis) = &mut current.recording {
+                basis.review = current.review.clone();
+                basis.duration = current.duration;
+            }
+            crate::storage::save_project(&self.root, &current);
+        } else {
+            crate::storage::save_project(&self.root, project);
+        }
         Ok(())
     }
-    fn checkpoint(&self, content: &Content) -> Result<String> {
-        let bytes = serde_json::to_vec(content)?;
+    fn checkpoint(
+        &self,
+        content: &Content,
+        recording: Option<&crate::project_recording::Basis>,
+    ) -> Result<String> {
+        let bytes = crate::project_recording::Checkpoint {
+            content: content.clone(),
+            recording: recording.cloned(),
+        }
+        .encode()?;
         let id = hash(&bytes);
         let path = self.root.join("checkpoints").join(format!("{id}.json"));
         if !fs::exists(&path) {
@@ -228,6 +245,12 @@ impl Transport {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
+    SetTimelineDuration {
+        duration: f64,
+    },
+    AttachRecording {
+        prepared: crate::project_recording::PreparedRecording,
+    },
     SetNoteType {
         selection: crate::note_groups::Snapshot,
         kind: crate::note_types::Kind,
@@ -373,6 +396,8 @@ pub struct Project {
     pub source_chart_sha256: String,
     pub audio_filename: String,
     pub audio_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording: Option<crate::project_recording::Basis>,
     pub duration: f64,
     pub review: ReviewMap,
     pub content: Content,
@@ -404,6 +429,17 @@ fn editable_track(name: &str) -> bool {
 }
 
 impl Project {
+    pub fn has_recording(&self) -> bool {
+        self.recording
+            .as_ref()
+            .is_none_or(|basis| basis.recording.is_some())
+    }
+    pub(crate) fn apply_recording_context(&mut self) -> Result<()> {
+        if let Some(basis) = self.recording.clone() {
+            basis.apply(self)?;
+        }
+        Ok(())
+    }
     pub fn timing(&self, store: &Store) -> Result<crate::timing::TempoMap> {
         crate::sync_track::effective(self, &store.source_chart(self)?.timing)
     }
@@ -760,6 +796,12 @@ impl Project {
         } else {
             self.selected_note = None;
         }
+        if !self.has_recording() {
+            let end = crate::project_recording::project_end(self, store)?;
+            if end > self.duration {
+                crate::project_recording::resize(self, end + 8.)?;
+            }
+        }
         self.validate_notes(store)
     }
 }
@@ -858,6 +900,10 @@ impl Store {
     }
     pub fn audio_path(&self, project: &Project) -> Result<PathBuf> {
         ensure!(
+            project.has_recording(),
+            "Attach a recording before using audio tools"
+        );
+        ensure!(
             crate::stem_review::conventional::valid_audio_filename(&project.audio_filename),
             "Invalid audio filename"
         );
@@ -897,8 +943,10 @@ impl Store {
             &stage.path().join("source"),
             source,
         )?;
-        let source_audio = pipeline::audio_file(&stage.path().join("source"))?;
-        let duration = pipeline::metadata(&source_audio)?.duration;
+        let duration = crate::song_metadata::recording_file(&stage.path().join("source"))?
+            .map(|audio| pipeline::metadata(&audio).map(|metadata| metadata.duration))
+            .transpose()?
+            .unwrap_or(0.);
         Self::new(stage.path()).initialize(song, markers, duration)?;
         let staged = Self::new(stage.path());
         let mut project = staged.load()?;
@@ -921,16 +969,37 @@ impl Store {
     }
     /// Initialize a copied source snapshot using the decoder's measured duration.
     pub fn initialize(&self, song: &Path, markers: Option<&Path>, duration: f64) -> Result<()> {
-        ensure!(
-            duration.is_finite() && duration > 0.,
-            "Invalid recording duration"
-        );
         let chart = Chart::parse(fs::read_to_string(
             self.root.as_path().join("source/notes.chart"),
         )?)?;
         let source_hash = hash(chart.raw.as_bytes());
-        let audio = pipeline::audio_file(&self.root.as_path().join("source"))?;
-        let audio_hash = models::hash_file(&audio)?;
+        let audio = crate::song_metadata::recording_file(&self.root.join("source"))?;
+        if audio.is_none() {
+            for name in [
+                "chart-engine-isolation.json",
+                "chart-engine-keyboard-isolation.json",
+                "chart-engine-transcription.json",
+            ] {
+                ensure!(
+                    !fs::is_file(song_layout::resolve(song, name)),
+                    "The recording is missing from this source-bound project; restore it before importing"
+                );
+            }
+        }
+        let duration = if audio.is_none() {
+            crate::project_recording::inferred_duration(&chart, &pipeline::song_ini(song)?)?
+        } else {
+            duration
+        };
+        ensure!(
+            duration.is_finite() && duration > 0.,
+            "Invalid recording or timeline duration"
+        );
+        let audio_hash = audio
+            .as_ref()
+            .map(|audio| models::hash_file(audio))
+            .transpose()?
+            .unwrap_or_default();
         let embedded_markers = song_layout::resolve(song, "chart-engine-review.json");
         let markers = markers
             .or_else(|| fs::is_file(&embedded_markers).then_some(embedded_markers.as_path()));
@@ -946,6 +1015,8 @@ impl Store {
                 "Review markers do not match this recording"
             );
             review
+        } else if audio.is_none() {
+            crate::project_recording::Basis::manual(&source_hash, duration, None)?.review
         } else {
             crate::review::generation_map(
                 &chart,
@@ -1096,6 +1167,12 @@ impl Store {
         .unwrap_or(tracks.keys().next().unwrap())
         .into();
         let mut project = Project {
+            recording: audio.is_none().then(|| crate::project_recording::Basis {
+                version: 1,
+                recording: None,
+                duration,
+                review: review.clone(),
+            }),
             version: 1,
             revision: 0,
             title: song
@@ -1106,9 +1183,14 @@ impl Store {
             original_folder: fs::canonicalize(song)?,
             source_chart_sha256: source_hash,
             audio_filename: audio
-                .strip_prefix(self.root.join("source"))?
-                .to_string_lossy()
-                .replace('\\', "/"),
+                .as_ref()
+                .map(|audio| {
+                    audio
+                        .strip_prefix(self.root.join("source"))
+                        .map(|path| path.to_string_lossy().replace('\\', "/"))
+                })
+                .transpose()?
+                .unwrap_or_default(),
             audio_sha256: audio_hash,
             duration,
             review,
@@ -1168,6 +1250,7 @@ impl Store {
             return Ok(project.as_ref().clone());
         }
         let mut doc: Project = serde_json::from_slice(&fs::read(self.root.join("project.json"))?)?;
+        doc.apply_recording_context()?;
         self.resolve_stem_paths(&mut doc.content);
         ensure!(doc.version == 1, "Unsupported editor project version");
         for manifest in doc
@@ -1231,6 +1314,10 @@ impl Store {
     #[cfg(not(target_arch = "wasm32"))]
     fn save(&self, project: &Project) -> Result<()> {
         let mut portable = project.clone();
+        if let Some(basis) = &mut portable.recording {
+            basis.review = portable.review.clone();
+            basis.duration = portable.duration;
+        }
         self.portable_stem_paths(&mut portable.content);
         let mut tmp = tempfile::NamedTempFile::new_in(&self.root)?;
         tmp.write_all(&serde_json::to_vec_pretty(&portable)?)?;
@@ -1239,10 +1326,18 @@ impl Store {
         Ok(())
     }
     #[cfg(not(target_arch = "wasm32"))]
-    fn checkpoint(&self, content: &Content) -> Result<String> {
+    fn checkpoint(
+        &self,
+        content: &Content,
+        recording: Option<&crate::project_recording::Basis>,
+    ) -> Result<String> {
         let mut portable = content.clone();
         self.portable_stem_paths(&mut portable);
-        let bytes = serde_json::to_vec(&portable)?;
+        let bytes = crate::project_recording::Checkpoint {
+            content: portable,
+            recording: recording.cloned(),
+        }
+        .encode()?;
         let id = hash(&bytes);
         let path = self.root.join("checkpoints").join(format!("{id}.json"));
         if !path.exists() {
@@ -1257,16 +1352,16 @@ impl Store {
         ensure!(models::hash_file(&path)? == id, "Checkpoint changed");
         Ok(id)
     }
-    fn restore(&self, id: &str) -> Result<Content> {
+    fn restore(&self, id: &str) -> Result<crate::project_recording::Checkpoint> {
         ensure!(
             id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()),
             "Invalid checkpoint ID"
         );
         let bytes = fs::read(self.root.join("checkpoints").join(format!("{id}.json")))?;
         ensure!(hash(&bytes) == id, "Checkpoint checksum mismatch");
-        let mut content = serde_json::from_slice(&bytes)?;
-        self.resolve_stem_paths(&mut content);
-        Ok(content)
+        let mut checkpoint = crate::project_recording::Checkpoint::decode(&bytes)?;
+        self.resolve_stem_paths(&mut checkpoint.content);
+        Ok(checkpoint)
     }
     fn resolve_stem_paths(&self, content: &mut Content) {
         #[cfg(not(target_arch = "wasm32"))]
@@ -1386,9 +1481,12 @@ impl Store {
         }
         let content_action = matches!(
             request.action,
-            Action::Collaborate {
-                operation: crate::collaboration::Operation::Merge { .. }
-            } | Action::CreateTrack { .. }
+            Action::SetTimelineDuration { .. }
+                | Action::AttachRecording { .. }
+                | Action::Collaborate {
+                    operation: crate::collaboration::Operation::Merge { .. }
+                }
+                | Action::CreateTrack { .. }
                 | Action::EditSection { .. }
                 | Action::EditSync { .. }
                 | Action::EditStarPower { .. }
@@ -1427,10 +1525,56 @@ impl Store {
         // Selecting a note, seeking or playing cannot change note content.
         // Avoid cloning every instrument and its review history for those actions.
         let before = content_action.then(|| doc.content.clone());
+        let before_recording = doc.recording.clone();
+        let before_audio = (
+            doc.audio_filename.clone(),
+            doc.audio_sha256.clone(),
+            doc.duration,
+        );
         doc.transport.position = doc.transport.current_position(doc.duration);
         doc.transport.anchor_ms = now_ms();
         let before_timing = doc.timing(self)?;
         match &request.action {
+            Action::SetTimelineDuration { duration } => {
+                ensure!(
+                    !doc.has_recording(),
+                    "Timeline length follows the recording"
+                );
+                ensure!(
+                    *duration >= crate::project_recording::project_end(&doc, self)?,
+                    "Timeline length would hide authored events"
+                );
+                crate::project_recording::resize(&mut doc, *duration)?;
+                doc.transport.playing = false;
+            }
+            Action::AttachRecording { prepared } => {
+                ensure!(!doc.has_recording(), "This project already has a recording");
+                ensure!(
+                    crate::song_metadata::recording_file(&self.root.join("source"))?.is_none(),
+                    "The chart-only source changed; restore its snapshot before attaching audio"
+                );
+                crate::project_recording::verify_recording(&self.root, prepared)?;
+                ensure!(
+                    crate::project_recording::project_end(&doc, self)?
+                        <= prepared.duration + 0.0001,
+                    "Recording ends before authored events; choose a longer recording or shorten the chart first"
+                );
+                doc.recording = Some(crate::project_recording::Basis::manual(
+                    &doc.source_chart_sha256,
+                    prepared.duration,
+                    Some(prepared.recording.clone()),
+                )?);
+                doc.apply_recording_context()?;
+                doc.transport.position = doc.transport.position.min(doc.duration);
+                doc.transport.playing = false;
+                if doc
+                    .transport
+                    .loop_range
+                    .is_some_and(|range| range.end > doc.duration)
+                {
+                    doc.transport.loop_range = None;
+                }
+            }
             Action::SetNoteType { selection, kind } => {
                 crate::note_types::apply(&mut doc, selection, *kind)?
             }
@@ -1788,14 +1932,30 @@ impl Store {
             }
             Action::Undo => {
                 let prior = doc.undo.pop().context("Nothing to undo")?;
-                doc.redo.push(self.checkpoint(&doc.content)?);
-                doc.content = self.restore(&prior)?;
+                doc.redo
+                    .push(self.checkpoint(&doc.content, doc.recording.as_ref())?);
+                let prior = self.restore(&prior)?;
+                ensure!(
+                    doc.recording.is_some() == prior.recording.is_some(),
+                    "Checkpoint recording context is missing or incompatible"
+                );
+                doc.content = prior.content;
+                doc.recording = prior.recording;
+                doc.apply_recording_context()?;
                 doc.selected_note = None;
             }
             Action::Redo => {
                 let next = doc.redo.pop().context("Nothing to redo")?;
-                doc.undo.push(self.checkpoint(&doc.content)?);
-                doc.content = self.restore(&next)?;
+                doc.undo
+                    .push(self.checkpoint(&doc.content, doc.recording.as_ref())?);
+                let next = self.restore(&next)?;
+                ensure!(
+                    doc.recording.is_some() == next.recording.is_some(),
+                    "Checkpoint recording context is missing or incompatible"
+                );
+                doc.content = next.content;
+                doc.recording = next.recording;
+                doc.apply_recording_context()?;
                 doc.selected_note = None;
             }
             Action::Export { .. } => unreachable!(),
@@ -1805,6 +1965,29 @@ impl Store {
         } else {
             doc.timing(self)?
         };
+        if content_action
+            && !doc.has_recording()
+            && !matches!(request.action, Action::SetTimelineDuration { .. })
+        {
+            let end = crate::project_recording::project_end(&doc, self)?;
+            if end > doc.duration {
+                crate::project_recording::resize(&mut doc, end + 8.)?;
+            }
+        }
+        if before_audio.0 != doc.audio_filename
+            || before_audio.1 != doc.audio_sha256
+            || before_audio.2 != doc.duration
+        {
+            doc.transport.playing = false;
+            doc.transport.position = doc.transport.position.min(doc.duration);
+            if doc
+                .transport
+                .loop_range
+                .is_some_and(|range| range.end > doc.duration)
+            {
+                doc.transport.loop_range = None;
+            }
+        }
         if before_timing != timing {
             doc.transport.playing = false;
             if matches!(request.action, Action::EditSync { .. }) {
@@ -1894,8 +2077,10 @@ impl Store {
             crate::difficulty_links::validate(&doc.content, &timing, doc.duration)?;
         }
         if content_action {
-            doc.undo
-                .push(self.checkpoint(before.as_ref().context("Missing edit checkpoint")?)?);
+            doc.undo.push(self.checkpoint(
+                before.as_ref().context("Missing edit checkpoint")?,
+                before_recording.as_ref(),
+            )?);
             doc.redo.clear();
         }
         doc.revision = doc.revision.checked_add(1).context("Revision overflow")?;
@@ -1937,11 +2122,43 @@ impl Store {
         pipeline::copy_song_source(&source, stage)?;
         pipeline::organize_song_stage(stage)?;
         song_layout::prepare(stage)?;
-        ensure!(
-            models::hash_file(&self.audio_path(doc)?)? == doc.audio_sha256,
-            "Source audio snapshot changed"
-        );
+        if doc.has_recording() {
+            ensure!(
+                models::hash_file(&self.audio_path(doc)?)? == doc.audio_sha256,
+                "Source audio snapshot changed"
+            );
+            if doc.recording.is_some() {
+                ensure!(
+                    crate::song_metadata::recording_file(&source)?.is_none(),
+                    "The chart-only source gained unbound audio; restore its source snapshot before exporting"
+                );
+                let recording = self.audio_path(doc)?;
+                let extension = recording
+                    .extension()
+                    .context("Recording needs an extension")?;
+                let name = format!("song.{}", extension.to_string_lossy());
+                fs::copy(&recording, stage.join(name))?;
+            }
+        } else {
+            ensure!(
+                crate::song_metadata::recording_file(&source)?.is_none(),
+                "Audio appeared in this chart-only source snapshot; attach it explicitly before exporting"
+            );
+        }
         let text = doc.chart_text(self)?;
+        if doc.recording.is_some() {
+            let ini = pipeline::song_ini(stage)?;
+            fs::write(
+                stage.join("song.ini"),
+                crate::song_metadata::update_ini(
+                    &ini,
+                    &BTreeMap::from([(
+                        "song_length".into(),
+                        ((doc.duration * 1000.).round() as u64).to_string(),
+                    )]),
+                ),
+            )?;
+        }
         Chart::parse(text.clone())?;
         fs::write(stage.join("notes.chart"), &text)?;
         if !doc.content.track_origins.is_empty() {
@@ -2058,12 +2275,14 @@ impl Store {
                 fs::rename(path, archive.join(name))?;
             }
         }
-        fs::write(
-            song_layout::path(stage, "chart-engine-melody-source.json"),
-            serde_json::to_vec_pretty(
-                &serde_json::json!({"version":1,"audio_sha256":models::hash_file(&pipeline::audio_file(stage)?)?,"guitar_source":self.guitar_source(doc)?}),
-            )?,
-        )?;
+        if doc.has_recording() {
+            fs::write(
+                song_layout::path(stage, "chart-engine-melody-source.json"),
+                serde_json::to_vec_pretty(
+                    &serde_json::json!({"version":1,"audio_sha256":models::hash_file(&pipeline::audio_file(stage)?)?,"guitar_source":self.guitar_source(doc)?}),
+                )?,
+            )?;
+        }
         if let Some(manifest) = &doc.content.stems {
             let manifest = crate::stem_review::game_audio::for_export(stage, &source, manifest)?;
             fs::write(
@@ -2100,11 +2319,13 @@ impl Store {
                 "musical_acceptance":"unverified"
             }))?,
         )?;
-        crate::stem_review::game_audio::write(
-            &self.audio_path(doc)?,
-            doc.content.stems.as_ref(),
-            stage,
-        )?;
+        if doc.has_recording() {
+            crate::stem_review::game_audio::write(
+                &self.audio_path(doc)?,
+                doc.content.stems.as_ref(),
+                stage,
+            )?;
+        }
         Ok(())
     }
     #[cfg(not(target_arch = "wasm32"))]

@@ -9,6 +9,7 @@ pub fn Welcome(mut studio: Studio) -> Element {
                 h1 { "Start a chart project" }
                 p { class: "welcome-intro", "Start with audio, a chart, or a saved project." }
                 div { class: "welcome-actions", onkeydown: move |event| event.stop_propagation(),
+                    button{class:"welcome-action",onclick:move |_|studio.new_blank_chart(),Icon{name:"file",size:20}div{strong{"New blank chart"}span{"Start without a recording and attach audio later."}}}
                     button {class:"welcome-action",onclick:move |_|studio.new_chart(),Icon{name:"music",size:20}div{strong{"New chart from audio"}span{"Start a blank chart from a recording."}}}
                     button { class: "welcome-action", title:"Generate a draft from local audio",onclick: move |_| studio.generation_open.set(true),
                         Icon { name: "music", size: 20 }
@@ -18,7 +19,7 @@ pub fn Welcome(mut studio: Studio) -> Element {
                         Icon { name: "folder-open", size: 20 }
                         div { strong { "Open charting folder" } span { "Find charts up to 3 folders deep and switch between them." } }
                     }
-                    button {class:"welcome-action",onclick:move |_|studio.import_song(),Icon{name:"folder-open",size:20}div{strong{"Import song ZIP"}span{"Open an existing chart and its recording."}}}
+                    button {class:"welcome-action",onclick:move |_|studio.import_song(),Icon{name:"folder-open",size:20}div{strong{"Import song ZIP"}span{"Open an existing chart with or without a recording."}}}
                     button { class: "welcome-action", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(),
                         Icon { name: "folder-open", size: 20 }
                         div { strong { "Open saved project" } span { if cfg!(feature="browser") {"Open a saved project ZIP."} else {"Continue editing a YACE project."} } }

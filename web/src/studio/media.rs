@@ -34,7 +34,7 @@ impl Drop for PendingContext {
         }
     }
 }
-pub struct Media {
+struct RecordingMedia {
     identity: MediaIdentity,
     context: AudioContext,
     pub original: Channel,
@@ -45,6 +45,150 @@ pub struct Media {
     kit: RefCell<Option<Channel>>,
     master: GainNode,
     rate: Cell<f64>,
+}
+pub struct Media(Playback);
+enum Playback {
+    Recording(Box<RecordingMedia>),
+    Timeline(RefCell<crate::timeline_clock::TimelineClock>),
+}
+fn monotonic_time() -> f64 {
+    web_sys::window()
+        .and_then(|window| window.performance())
+        .map_or(0., |performance| performance.now() / 1000.)
+}
+fn empty_waveforms() -> super::state::ReviewWaveforms {
+    super::state::ReviewWaveforms {
+        original: Arc::new(Waveform::from_stereo(&[], 44100)),
+        stems: BTreeMap::new(),
+    }
+}
+impl Media {
+    pub async fn load(
+        store: &crate::editor::Store,
+        doc: &crate::editor::Project,
+    ) -> Result<(Self, super::state::ReviewWaveforms, String)> {
+        if doc.has_recording() {
+            let (media, waves, notice) = RecordingMedia::load(store, doc).await?;
+            Ok((Self(Playback::Recording(Box::new(media))), waves, notice))
+        } else {
+            ensure!(
+                web_sys::window()
+                    .and_then(|window| window.performance())
+                    .is_some(),
+                "Browser monotonic clock is unavailable"
+            );
+            let now = monotonic_time();
+            let mut clock = crate::timeline_clock::TimelineClock::new(doc.duration, now)?;
+            clock.set_rate(doc.transport.playback_rate, now)?;
+            clock.seek(doc.transport.position, now)?;
+            Ok((
+                Self(Playback::Timeline(RefCell::new(clock))),
+                empty_waveforms(),
+                "Chart timeline · no recording".into(),
+            ))
+        }
+    }
+    pub fn position(&self) -> f64 {
+        match &self.0 {
+            Playback::Recording(media) => media.position(),
+            Playback::Timeline(clock) => clock.borrow().raw_position(monotonic_time()),
+        }
+    }
+    pub fn matches(&self, doc: &crate::editor::Project) -> bool {
+        match &self.0 {
+            Playback::Recording(media) => doc.has_recording() && media.matches(doc),
+            Playback::Timeline(clock) => {
+                !doc.has_recording() && clock.borrow().duration() == doc.duration
+            }
+        }
+    }
+    pub fn replace_kit(
+        &self,
+        store: &crate::editor::Store,
+        doc: &crate::editor::Project,
+    ) -> Result<()> {
+        match &self.0 {
+            Playback::Recording(media) => media.replace_kit(store, doc),
+            Playback::Timeline(_) => anyhow::bail!("Attach a recording before using kit audition"),
+        }
+    }
+    pub fn paused(&self) -> bool {
+        match &self.0 {
+            Playback::Recording(media) => media.paused(),
+            Playback::Timeline(clock) => clock.borrow().paused(),
+        }
+    }
+    pub fn ended(&self) -> bool {
+        match &self.0 {
+            Playback::Recording(media) => media.ended(),
+            Playback::Timeline(clock) => clock.borrow().ended(monotonic_time()),
+        }
+    }
+    pub fn stalled(&self) -> bool {
+        match &self.0 {
+            Playback::Recording(media) => {
+                !media.ended() && media.original.element.ready_state() < 3
+            }
+            Playback::Timeline(_) => false,
+        }
+    }
+    pub fn play(&self) -> Result<()> {
+        match &self.0 {
+            Playback::Recording(media) => media.play(),
+            Playback::Timeline(clock) => {
+                clock.borrow_mut().set_playing(true, monotonic_time())?;
+                Ok(())
+            }
+        }
+    }
+    pub fn pause(&self) {
+        match &self.0 {
+            Playback::Recording(media) => media.pause(),
+            Playback::Timeline(clock) => {
+                let _ = clock.borrow_mut().set_playing(false, monotonic_time());
+            }
+        }
+    }
+    pub fn seek(&self, position: f64) {
+        match &self.0 {
+            Playback::Recording(media) => media.seek(position),
+            Playback::Timeline(clock) => {
+                let mut clock = clock.borrow_mut();
+                let duration = clock.duration();
+                let _ = clock.seek(position.clamp(0., duration), monotonic_time());
+            }
+        }
+    }
+    pub fn set_rate(&self, rate: f64) {
+        match &self.0 {
+            Playback::Recording(media) => media.set_rate(rate),
+            Playback::Timeline(clock) => {
+                let _ = clock.borrow_mut().set_rate(rate, monotonic_time());
+            }
+        }
+    }
+    pub fn waveforms(&self, keyboard: bool) -> super::state::ReviewWaveforms {
+        match &self.0 {
+            Playback::Recording(media) => media.waveforms(keyboard),
+            Playback::Timeline(_) => empty_waveforms(),
+        }
+    }
+    pub fn take_error(&self) -> Option<String> {
+        match &self.0 {
+            Playback::Recording(media) => media.take_error(),
+            Playback::Timeline(_) => None,
+        }
+    }
+    pub fn mix(&self, mix: &StemMix, volume: f32, kit: bool, keyboard: bool) {
+        if let Playback::Recording(media) = &self.0 {
+            media.mix(mix, volume, kit, keyboard);
+        }
+    }
+    pub fn synchronize(&self) {
+        if let Playback::Recording(media) = &self.0 {
+            media.synchronize();
+        }
+    }
 }
 /// Content identity survives portable asset relocation. Track selection and
 /// mix settings reuse the same graph; undoing an attachment must rebuild it.
@@ -101,6 +245,18 @@ pub async fn duration(bytes: &[u8]) -> Result<f64> {
     let result = decode(&context, bytes).await.map(|pcm| pcm.duration());
     let _ = context.close();
     result
+}
+pub async fn source_duration(source: &Path) -> Result<f64> {
+    if let Some(audio) = crate::song_metadata::recording_file(source)? {
+        duration(crate::storage::shared(&audio)?.as_slice()).await
+    } else {
+        crate::project_recording::inferred_duration(
+            &crate::chart::Chart::parse(crate::storage::read_to_string(
+                source.join("notes.chart"),
+            )?)?,
+            &crate::pipeline::song_ini(source)?,
+        )
+    }
 }
 /// Use Rust codecs first. Browser-only codecs such as Opus stay local too.
 pub async fn decode(context: &AudioContext, bytes: &[u8]) -> Result<crate::audio_decode::Pcm> {
@@ -188,7 +344,7 @@ fn channel(
         clock: RefCell::new(Default::default()),
     })
 }
-impl Media {
+impl RecordingMedia {
     pub async fn load(
         store: &crate::editor::Store,
         doc: &crate::editor::Project,
@@ -486,7 +642,7 @@ impl Drop for Channel {
         self.element.remove();
     }
 }
-impl Drop for Media {
+impl Drop for RecordingMedia {
     fn drop(&mut self) {
         self.pause();
         let _ = self.context.close();

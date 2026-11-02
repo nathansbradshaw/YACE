@@ -133,12 +133,16 @@ pub fn StemControls(studio: Studio) -> Element {
                 span{class:"stem-controls-label",title:"Instrument audition",Icon{name:"volume",size:14}}
                 button{class:if original{"studio-tool active"}else{"studio-tool"},onclick:move |_|{
                     let project=studio.doc.read();if let Some(doc)=project.as_ref(){let mut mix=doc.content.stem_mix.clone();mix.mode=MixMode::Original;drop(project);studio.dispatch(Action::SetStemMix{mix});}
-                },if complete {"Complete mix"} else {"Original"}}
+                },if !doc.has_recording(){"Timeline"}else if complete {"Complete mix"} else {"Original"}}
                 button{class:if solo_active{"studio-tool active"}else{"studio-tool"},disabled:!selected_available,title:"Listen only to {label(selected)}",onclick:move |_|preset(studio,false),"{label(selected)} only"}
                 button{class:if backing_active{"studio-tool active"}else{"studio-tool"},disabled:!selected_available,title:"{label(selected)} at full gain, other stems at 18%",onclick:move |_|preset(studio,true),"With backing"}
                 if available.is_some(){button{class:if expanded(){"studio-tool active stem-mixer-toggle"}else{"studio-tool stem-mixer-toggle"},aria_label:"Open stem mixer",aria_expanded:expanded().to_string(),title:"Stem mixer and alignment details",onclick:move |_|expanded.set(!expanded()),Icon{name:"sliders",size:13}}}
-                else{button{class:"studio-tool stem-mixer-toggle",title:"Attach aligned local stems to isolate instruments","data-browser-pick":"file",onclick:move |_|studio.attach_stems_dialog(),Icon{name:"folder-open",size:13}"Attach stems"}}
-                span{class:"stem-runtime-status",aria_label:"Audition source",title:"{studio.stem_status}",if let Some(kit)=kit{"Kit · {kit.label}"}else if available.is_none(){"No stems"}else if conventional {"Game channels"}else if !original{"Isolated estimate"}}
+                else if doc.has_recording(){button{class:"studio-tool stem-mixer-toggle",title:"Attach aligned local stems to isolate instruments","data-browser-pick":"file",onclick:move |_|studio.attach_stems_dialog(),Icon{name:"folder-open",size:13}"Attach stems"}}
+                else{
+                    button{class:"studio-tool",onclick:move |_|studio.attach_recording_dialog(),Icon{name:"folder-open",size:13}"Attach recording"}
+                    label{class:"stem-controls-label","Timeline (s)",input{r#type:"number",min:"1",max:"86400",step:"1",value:doc.duration,aria_label:"Chart timeline length in seconds",style:"width:72px",onchange:move|event|{if let Ok(duration)=event.value().parse(){studio.dispatch(Action::SetTimelineDuration{duration});}}}}
+                }
+                span{class:"stem-runtime-status",aria_label:"Audition source",title:"{studio.stem_status}",if !doc.has_recording(){"No recording"}else if let Some(kit)=kit{"Kit · {kit.label}"}else if available.is_none(){"No stems"}else if conventional {"Game channels"}else if !original{"Isolated estimate"}}
                 super::part_analysis::PartAnalysisButton{studio}
             }
             if expanded(){
