@@ -32,6 +32,7 @@ browser = ["studio", "dioxus/liveview", "dep:dioxus-liveview", "dep:axum", "dep:
 separation = ["dep:demucs-core", "dep:burn", "dep:pollster"]
 
 [dependencies]
+yace-stepmania = { path = "crates/yace-stepmania" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

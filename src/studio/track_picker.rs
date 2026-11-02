@@ -70,17 +70,40 @@ pub(super) fn tracks(document: &Project) -> Vec<String> {
 
 #[component]
 pub fn TrackPicker(mut studio: Studio) -> Element {
-    let Some(document) = studio.snapshot() else {
+    let document = studio
+        .snapshot()
+        .filter(|_| super::dance::band_visible(studio));
+    let mut options: Vec<(String, String)> = document
+        .as_ref()
+        .map(|doc| {
+            tracks(doc)
+                .into_iter()
+                .map(|track| {
+                    let label = title(&track);
+                    (track, label)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let dance = try_consume_context::<super::dance::DanceStudio>();
+    options.extend(super::dance::tracks(studio));
+    let value = super::dance::selected_track()
+        .or_else(|| document.as_ref().map(|d| d.selected_track.clone()))
+        .unwrap_or_default();
+    if options.is_empty() {
         return rsx! {};
-    };
+    }
     rsx! {
         label { class: "edit-track-picker",
             span { "Track" }
-            select { aria_label: "Edit track", value: "{document.selected_track}",
+            select { aria_label: "Edit track", value: "{value}",
                 onkeydown: move |event| event.stop_propagation(),
-                onchange: move |event| studio.dispatch(Action::SelectTrack { track: event.value() }),
-                for track in tracks(&document) {
-                    option { value: "{track}", selected: document.selected_track == track, "{title(&track)}" }
+                onchange: move |event| {
+                    if let Some(id)=event.value().strip_prefix("dance:") { if let Some(dance)=dance{super::dance::select_track(dance,id.to_owned());} }
+                    else {super::dance::deactivate();studio.dispatch(Action::SelectTrack {track:event.value()});}
+                },
+                for (track,label) in options {
+                    option { value: "{track}", selected: value == track, "{label}" }
                 }
             }
         }

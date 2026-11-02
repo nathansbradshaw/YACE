@@ -26,6 +26,12 @@ pub fn PartsPanel(mut studio: Studio) -> Element {
                 }
             }
             ul { class: "parts-list",
+                for (label,profile) in [("Dance",crate::stepmania::Profile::Pad),("4-key",crate::stepmania::Profile::Keyboard)] {
+                    li { div { strong { "{label}" } }
+                        button { aria_label:"Add blank {label}",onclick:move |_|super::dance::from_recording(studio,profile,false),"Blank" }
+                        button { aria_label:"Generate {label} from recording",onclick:move |_|super::dance::from_recording(studio,profile,true),"Generate…" }
+                    }
+                }
                 for (label, suffix, _) in crate::parts::PARTS {
                     { let track = if suffix == "Vocals" { "Vocals".to_owned() } else { format!("{}{suffix}", tier()) };
                       let exists = if suffix == "Vocals" { project.content.vocals.is_some() || project.content.track_origins.contains_key("Vocals") } else { project.content.tracks.contains_key(&track) };

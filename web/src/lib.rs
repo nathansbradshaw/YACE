@@ -171,3 +171,4 @@ pub fn start() {
         dioxus::launch(studio::App);
     }
 }
+pub use yace_stepmania as stepmania;

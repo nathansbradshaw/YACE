@@ -777,7 +777,17 @@ impl Studio {
                     let Some(files) = crate::files::pick(false, ".zip").await? else {
                         return Ok(());
                     };
-                    (None, crate::files::unpack(files)?)
+                    let files = crate::files::unpack(files)?;
+                    super::dance::flush().await?;
+                    if super::dance::try_open_files(
+                        files
+                            .iter()
+                            .map(|(name, bytes)| (name.clone(), bytes.as_ref().clone()))
+                            .collect(),
+                    )? {
+                        return Ok(());
+                    }
+                    (None, files)
                 };
                 self.status.set("Reading local song…".into());
                 let staging = crate::files::unique_root();
@@ -862,11 +872,16 @@ impl Studio {
         library: &crate::chart_library::Library,
         index: usize,
     ) -> Result<bool> {
+        super::dance::flush().await?;
         use sha2::{Digest, Sha256};
         let item = library
             .entries
             .get(index)
             .context("Chart is not in this folder")?;
+        if super::dance::try_open_path(&item.path)? {
+            super::dance::remember_recent(self);
+            return Ok(true);
+        }
         let project_source = if item.kind == crate::chart_library::Kind::Project {
             Some(item.path.clone())
         } else if crate::storage::is_file(item.path.join(".yace/project/project.json")) {
@@ -1063,6 +1078,11 @@ impl Studio {
         source: PathBuf,
         saved_revision: Option<u64>,
     ) -> Result<()> {
+        super::dance::flush().await?;
+        if super::dance::try_open_path(&source)? {
+            super::dance::remember_recent(self);
+            return Ok(());
+        }
         let project = crate::storage::is_file(source.join("project.json"));
         let root = if project {
             source.clone()
@@ -1199,6 +1219,8 @@ impl Studio {
         self.view_start
             .set((doc.transport.position - 0.5).clamp(0., (doc.duration - (self.span)()).max(0.)));
         self.doc.set(Some(Arc::new(doc.clone())));
+        super::dance::deactivate();
+        super::dance::attach_existing(self);
         self.dirty.set(true);
         self.waveforms.set(Some(Arc::new(waves)));
         self.media.set(Some(Rc::new(media)));

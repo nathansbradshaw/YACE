@@ -22,6 +22,11 @@ extern "C" {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    StepMania {
+        audio: PathBuf,
+        project: Box<crate::stepmania::Project>,
+        request: crate::stepmania::GenerationRequest,
+    },
     ExportChartOnly {
         root: PathBuf,
         project: Box<crate::editor::Project>,
@@ -139,6 +144,7 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::StepMania { audio, .. } => vec![audio.clone()],
             Self::ExportChartOnly { .. } => Vec::new(),
             Self::PrepareRecording { source, .. } => vec![source.clone()],
             Self::PrepareGameChannels { root } => {
@@ -230,6 +236,23 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
+            Self::StepMania {
+                audio,
+                project,
+                request,
+            } => {
+                let samples = crate::models::decode(audio, 11025, 1)?;
+                let mut project = project.as_ref().clone();
+                project.generate(
+                    project.revision,
+                    "human".into(),
+                    request,
+                    &samples,
+                    11025,
+                    || false,
+                )?;
+                Ok(serde_json::to_value(project)?)
+            }
             Self::ExportChartOnly {
                 root,
                 project,

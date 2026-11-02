@@ -41,6 +41,17 @@ pub struct Library {
     pub entries: Vec<Entry>,
 }
 
+pub fn dance_source(path: &Path) -> bool {
+    is_file(path.join("stepmania-project.json"))
+        || fs::read_dir(path).ok().is_some_and(|entries| {
+            entries.filter_map(|e| e.ok()).any(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e.eq_ignore_ascii_case("sm") || e.eq_ignore_ascii_case("ssc"))
+            })
+        })
+}
 fn entry(path: &Path) -> Option<Entry> {
     if is_file(path.join("job.json")) {
         let project = crate::song_layout::project_for_job(path);
@@ -48,11 +59,13 @@ fn entry(path: &Path) -> Option<Entry> {
             return entry(&project);
         }
     }
-    let kind = if is_file(path.join("project.json")) {
+    let kind = if is_file(path.join("project.json")) || is_file(path.join("stepmania-project.json"))
+    {
         Kind::Project
     } else if is_file(path.join("notes.chart"))
         || is_file(path.join("notes.mid"))
         || is_file(path.join(".yace/project/project.json"))
+        || dance_source(path)
     {
         Kind::Song
     } else {
@@ -108,7 +121,7 @@ pub fn discover(selected: &Path) -> Result<Library> {
     } else {
         selected
     };
-    if is_file(root.join("project.json"))
+    if (is_file(root.join("project.json")) || is_file(root.join("stepmania-project.json")))
         && let Some(found) = entry(&root)
     {
         return Ok(Library {

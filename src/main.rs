@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, ensure};
+mod stepmania_cli;
 use chart_engine::{
     mapping::Transcription,
     models,
@@ -20,6 +21,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Import, author, generate and export StepMania SM/SSC charts.
+    Stepmania {
+        #[command(subcommand)]
+        action: stepmania_cli::Command,
+    },
     /// Open the shared Rust chart editor through a browser on this computer.
     #[cfg(feature = "browser")]
     Serve {
@@ -725,6 +731,7 @@ fn main() -> Result<()> {
         );
     };
     match command {
+        Commands::Stepmania { action } => stepmania_cli::run(action)?,
         #[cfg(feature = "browser")]
         Commands::Serve { workspace, port } => chart_engine::browser::serve(&workspace, port)?,
         Commands::Ai { action } => match action {

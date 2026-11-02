@@ -430,7 +430,9 @@ impl Studio {
         if (self.library_busy)() {
             return;
         }
-        if !path.join("project.json").is_file() {
+        if !path.join("project.json").is_file()
+            && !path.join(crate::stepmania::bundle::MANIFEST).is_file()
+        {
             self.error.set(Some(format!("This recent project is no longer at {}. Locate it with Open saved project, or remove it from Open Recent.", path.display())));
             return;
         }
@@ -1278,6 +1280,22 @@ impl Studio {
             else {
                 return;
             };
+            let dance = async {
+                super::dance::flush().await?;
+                let files = crate::archive_codec::decode(&std::fs::read(input.path())?)?
+                    .into_iter()
+                    .collect();
+                super::dance::try_open_files(files)
+            }
+            .await;
+            match dance {
+                Ok(true) => return,
+                Ok(false) => {}
+                Err(error) => {
+                    self.error.set(Some(format!("{error:#}")));
+                    return;
+                }
+            }
             let Some(output) = rfd::AsyncFileDialog::new()
                 .set_title("Save the imported editing project in a new folder")
                 .set_file_name("Imported Review Project")
@@ -1462,6 +1480,10 @@ impl Studio {
     }
     #[cfg(not(feature = "browser"))]
     pub async fn open_library_chart(mut self, index: usize) {
+        if let Err(error) = super::dance::flush().await {
+            self.error.set(Some(format!("{error:#}")));
+            return;
+        }
         if (self.library_busy)() {
             return;
         }
@@ -1471,6 +1493,21 @@ impl Studio {
         let Some(item) = library.entries.get(index).cloned() else {
             return;
         };
+        match super::dance::try_open_path(&item.path) {
+            Ok(true) => {
+                super::dance::remember_recent(self);
+                if self.snapshot().is_some() {
+                    self.dispatch(Action::Playback { playing: false });
+                }
+                self.library_selected.set(Some(index));
+                return;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                return;
+            }
+        }
         if self
             .snapshot()
             .is_some_and(|project| project.transport.playing)
@@ -1650,6 +1687,24 @@ impl Studio {
         });
     }
     pub async fn open_project(mut self, path: PathBuf) {
+        if let Err(error) = super::dance::flush().await {
+            self.error.set(Some(format!("{error:#}")));
+            return;
+        }
+        match super::dance::try_open_path(&path) {
+            Ok(true) => {
+                super::dance::remember_recent(self);
+                if self.snapshot().is_some() {
+                    self.dispatch(Action::Playback { playing: false });
+                }
+                return;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                return;
+            }
+        }
         self.library_selected.set(None);
         // Command-line opens and generation recovery may point to a containing
         // folder rather than the saved project itself.
@@ -1816,6 +1871,8 @@ impl Studio {
         self.star_power_target.set(None);
         self.timing_open.set(false);
         self.doc.set(Some(Arc::new(doc.clone())));
+        super::dance::deactivate();
+        super::dance::attach_existing(self);
         if let Some(store) = self.store.read().as_ref() {
             self.file_stamp.set(project_stamp(store));
         }

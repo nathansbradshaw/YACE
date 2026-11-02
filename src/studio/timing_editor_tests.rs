@@ -38,6 +38,18 @@ async fn offset_form_applies_signed_values_and_refreshes_after_undo() {
     dioxus::html::set_event_converter(Box::new(dioxus::html::SerializedHtmlEventConverter));
     let root = tempfile::tempdir().unwrap();
     let store = fixture::fixture(root.path());
+    // This control test uses no decoder. The shared visibility fixture's
+    // opaque audio bytes must not race the offset assertions in a worker.
+    let mut document = store.load().unwrap();
+    let basis = crate::project_recording::Basis::manual(
+        &document.source_chart_sha256,
+        document.duration,
+        None,
+    )
+    .unwrap();
+    basis.apply(&mut document).unwrap();
+    document.recording = Some(basis);
+    fixture::save(&store, &document);
     let slot = Slot::default();
     let mut dom = VirtualDom::new(loaded);
     dom.provide_root_context((store.clone(), slot.clone()));
@@ -73,5 +85,5 @@ async fn offset_form_applies_signed_values_and_refreshes_after_undo() {
     form_event(&dom, "submit", submit, "");
     dom.render_immediate_to_vec();
     assert_eq!(store.load().unwrap().timing(&store).unwrap().offset, -0.125);
-    assert!(studio.error.peek().is_none());
+    assert!(studio.error.peek().is_none(), "{:?}", studio.error.peek());
 }

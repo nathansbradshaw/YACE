@@ -14,6 +14,7 @@ pub fn Setup(mut studio: Studio, root: PathBuf, suggested_title: String) -> Elem
     let mut busy = use_signal(|| false);
     let mut lookup_busy = use_signal(|| false);
     let mut lyrics = use_signal(|| false);
+    let mut chart_type = use_signal(|| "band".to_owned());
     let analysis_root = root.clone();
     let analysis = use_resource(move || {
         let root = analysis_root.clone();
@@ -89,7 +90,12 @@ pub fn Setup(mut studio: Studio, root: PathBuf, suggested_title: String) -> Elem
     rsx! {Modal{id:"new-song-dialog",label:"New chart",onclose:close,
         section{class:"sections-dialog",
             h2{"New chart"}
-            p{"Start with an empty Guitar chart. Add other parts in the editor."}
+            p{"Choose a chart type for this recording. Add and generate parts in the editor."}
+            label{class:"field-stack","Chart type",select{class:"field-control",aria_label:"Chart type",value:"{chart_type}",onchange:move|e|chart_type.set(e.value()),
+                option{value:"band",selected:chart_type()=="band","Band instruments"}
+                option{value:"pad",selected:chart_type()=="pad","Dance"}
+                option{value:"keyboard",selected:chart_type()=="keyboard","4-key"}
+            }}
             label{class:"field-stack","Title",input{class:"field-control",aria_label:"Song title",value:title,disabled:busy()||lookup_busy(),oninput:move|e|title.set(e.value())}}
             label{class:"field-stack","Artist",input{class:"field-control",aria_label:"Song artist",value:artist,disabled:busy()||lookup_busy(),oninput:move|e|artist.set(e.value())}}
             if analyzing {p{class:"field-hint","Reading recording tags and analyzing tempo throughout the recording…"}}
@@ -130,7 +136,8 @@ pub fn Setup(mut studio: Studio, root: PathBuf, suggested_title: String) -> Elem
                 let root=root.clone();let title=title();let artist=artist();let tempo=tempo().parse().unwrap_or(120.);let info=info();
                 let timing=if use_detected(){analysis.read().as_ref().and_then(|r|r.as_ref().ok()).filter(|e|!e.segments.is_empty()).map(|e|e.tempo_map()).unwrap_or_else(||crate::timing::TempoMap::constant(tempo))}else{crate::timing::TempoMap::constant(tempo)};
                 let timing=match timing{Ok(timing)=>timing,Err(error)=>{studio.error.set(Some(error.to_string()));return;}};busy.set(true);
-                spawn(async move{if let Err(error)=studio.finish_new_chart(root,title,artist,timing,info).await{studio.error.set(Some(format!("{error:#}")));busy.set(false);}});
+                let kind=chart_type();
+                spawn(async move{let result=if kind=="band"{let result=studio.finish_new_chart(root,title,artist,timing,info).await;if result.is_ok()&&super::dance::after_new(){studio.generation_open.set(true);}result}else{super::dance::finish_new(studio,root,title,artist,timing,info,if kind=="pad"{crate::stepmania::Profile::Pad}else{crate::stepmania::Profile::Keyboard}).await};if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));busy.set(false);}});
             },if busy(){"Preparing…"}else{"Create chart"}}
         }
     }}

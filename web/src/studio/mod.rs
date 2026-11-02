@@ -6,6 +6,8 @@ mod chart_desk;
 mod clean;
 #[path = "../../../src/studio/collaboration.rs"]
 mod collaboration;
+#[path = "../../../src/studio/dance.rs"]
+mod dance;
 mod dialogs;
 #[path = "../../../src/studio/difficulty.rs"]
 mod difficulty;
@@ -90,10 +92,11 @@ const CSS: &str = concat!(
 );
 #[component]
 pub fn App() -> Element {
+    dance::provide();
     let github = github::use_session();
     use_context_provider(|| github);
     let studio = state::use_studio();
-    use_context_provider(|| studio);
+    use_hook(move || dioxus::core::provide_root_context(studio));
     difficulty::use_snapshot(studio);
     use_future(move || async move {
         let mut studio = studio;
@@ -170,10 +173,10 @@ pub fn App() -> Element {
             studio.tick();
         }
     });
-    rsx! {style{"{CSS}"}div{class:"studio-app",tabindex:"-1",onkeydown:move|event|shortcuts::handle(studio,event),
+    rsx! {style{"{CSS}"}div{class:"studio-app",tabindex:"-1",onkeydown:move|event|{if dance::active(){dance::handle(event);}else{shortcuts::handle(studio,event);}},
     project_bar::ProjectBar{studio}
-    if studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
-    div{class:"studio-status",span{"{studio.status}"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{role:"status",title:"Browser saves stay in this browser profile. Download a project backup to keep an independent copy.",if let Some(doc)=studio.snapshot(){if (studio.dirty)()||(studio.persistence_busy)(){"Project r{doc.revision} · saving in this browser…"}else if (studio.saved_revision)()!=Some(doc.revision){"Project r{doc.revision} not saved · download backup"}else{"Project saved in this browser · r{doc.revision}"}}else{"Projects save automatically in this browser"}} project_bar::ExportSummary{studio}}
+    if dance::active(){dance::Workbench{key:"{dance::view_epoch()}"}}else if studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
+    div{class:"studio-status",span{"{studio.status}"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{role:"status",title:"Browser saves stay in this browser profile. Download a project backup to keep an independent copy.",if let Some(status)=dance::save_status(){"{status}"}else if let Some(doc)=studio.snapshot(){if (studio.dirty)()||(studio.persistence_busy)(){"Project r{doc.revision} · saving in this browser…"}else if (studio.saved_revision)()!=Some(doc.revision){"Project r{doc.revision} not saved · download backup"}else{"Project saved in this browser · r{doc.revision}"}}else{"Projects save automatically in this browser"}} project_bar::ExportSummary{studio}}
     if let Some(error)=(studio.error)(){div{class:"studio-error",role:"alert",span{"{error}"}button{onclick:move |_|{let mut studio=studio;studio.error.set(None);},"Dismiss"}}}
     if (studio.review_open)(){review::ReviewPanel{studio}}
     if (studio.export_open)(){export::ExportDialog{studio}}
@@ -197,6 +200,7 @@ pub fn App() -> Element {
     }}
     clean::CleanPanel{studio}
     source_choice::SourceChoice{studio}
+    dance::Controller{studio}
     if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
     if (studio.blank_chart)(){new_blank::Setup{studio}}
     }}

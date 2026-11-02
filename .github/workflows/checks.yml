@@ -35,6 +35,11 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Test core without model downloads
         run: cargo test --locked --no-default-features --all-targets
+      - name: Check the portable StepMania core
+        run: |
+          cargo fmt --manifest-path crates/yace-stepmania/Cargo.toml -- --check
+          cargo test --locked --manifest-path crates/yace-stepmania/Cargo.toml
+          cargo clippy --locked --manifest-path crates/yace-stepmania/Cargo.toml --all-targets -- -D warnings
       - name: Check the desktop build
         run: cargo check --locked --no-default-features --features editor --all-targets
       - name: Test the browser editor and local host
@@ -105,6 +110,6 @@ jobs:
         run: cargo install cargo-audit --version 0.22.2 --locked
       - name: Audit application and tool lockfiles
         run: |
-          for lockfile in Cargo.lock tools/*/Cargo.lock web/Cargo.lock web/tools/Cargo.lock; do
+          for lockfile in Cargo.lock crates/*/Cargo.lock tools/*/Cargo.lock web/Cargo.lock web/tools/Cargo.lock; do
             cargo audit --file "$lockfile"
           done

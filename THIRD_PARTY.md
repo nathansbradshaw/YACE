@@ -139,3 +139,13 @@ official distribution, conversion hashes and attribution are recorded in
 [tools/larsnet-convert/LARSNET-WEIGHTS-NOTICE.md](tools/larsnet-convert/LARSNET-WEIGHTS-NOTICE.md).
 The frontend/converter do not import or execute upstream Python/TorchScript or
 copy the unrelated LARS plugin implementation.
+
+## Dance authoring
+
+The shared Rust StepMania core adapts SMEditor's before/note/after timing-cache
+organization at revision `bff17f0839109acd5dbcbe6f2febca7002f3f20c`.
+SMEditor is MIT, copyright (c) 2022 tillvit; the required notice is retained in
+[licenses/SMEditor-MIT.txt](licenses/SMEditor-MIT.txt). Its footwork review workflow
+informs YACE's advisory solver and override interface. Rendering assets and
+noteskins are not copied. Pinned timing references, optional learned-model
+research decisions and acceptance limits are in [Dance charting](docs/DANCE.md).

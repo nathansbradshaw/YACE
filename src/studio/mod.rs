@@ -6,6 +6,7 @@ mod browser_clipboard;
 mod chart_desk;
 mod clean;
 mod collaboration;
+mod dance;
 mod diagnostics;
 mod dialogs;
 mod difficulty;
@@ -103,10 +104,12 @@ const CSS: &str = concat!(
 );
 #[component]
 pub(crate) fn App() -> Element {
+    dance::provide();
     #[cfg(feature = "browser")]
     dialogs::provide_browser_dialogs();
     use_hook(diagnostics::install);
     let studio = state::use_studio();
+    use_hook(move || dioxus::core::provide_root_context(studio));
     difficulty::use_snapshot(studio);
     let display_link = frame_pacing::use_frame_pacing(studio);
     #[cfg(feature = "browser")]
@@ -149,10 +152,10 @@ pub(crate) fn App() -> Element {
     rsx! {
         style { "{CSS}" }
         div { class: "studio-app", tabindex: "-1",
-            onkeydown: move |event| shortcuts::handle(studio, event),
+            onkeydown: move |event| { if dance::active(){dance::handle(event);}else{shortcuts::handle(studio,event);} },
             project_bar::ProjectBar { studio }
-            if doc.is_some() { workspace::Workbench { studio } } else { welcome::Welcome { studio } }
-            div {class:"studio-status",span{title: studio.audio_details(), "{studio.status}"} if let Some(doc)=doc {span{title: "{doc.selected_track}", "Project saved · r{doc.revision}"}} project_bar::ExportSummary{studio}}
+            if dance::active() { dance::Workbench {key:"{dance::view_epoch()}"} } else if doc.is_some() { workspace::Workbench { studio } } else { welcome::Welcome { studio } }
+            div {class:"studio-status",span{title: studio.audio_details(), "{studio.status}"} if let Some(status)=dance::save_status(){span{"{status}"}}else if let Some(doc)=doc {span{title: "{doc.selected_track}", "Project saved · r{doc.revision}"}} project_bar::ExportSummary{studio}}
             if let Some(error)=(studio.error)(){div {class:"studio-error",role:"alert",span{"{error}"}button{onclick:move |_|{let mut s=studio;s.error.set(None)},"Dismiss"}}}
             if (studio.review_open)(){review::ReviewPanel{studio}}
             if (studio.export_open)(){export::ExportDialog{studio}}
@@ -166,6 +169,7 @@ pub(crate) fn App() -> Element {
         assistant::Assistant{studio}
         source_choice::SourceChoice{studio}
         {browser_files()}
+        dance::Controller { studio }
     }
 }
 fn browser_files() -> Element {

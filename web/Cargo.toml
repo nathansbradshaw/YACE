@@ -20,6 +20,7 @@ version = "=0.3.104"
 features = ["Window", "Performance", "Document", "Element", "Node", "HtmlElement", "HtmlInputElement", "HtmlAnchorElement", "HtmlAudioElement", "HtmlMediaElement", "HtmlDialogElement", "Event", "EventTarget", "File", "FileList", "Blob", "BlobPropertyBag", "Url", "AudioContext", "AudioContextOptions", "AudioBuffer", "AudioDestinationNode", "AudioNode", "AudioParam", "GainNode", "MediaElementAudioSourceNode", "Navigator", "Clipboard", "Storage", "IdbFactory", "IdbDatabase", "IdbRequest", "IdbOpenDbRequest", "IdbObjectStore", "IdbTransaction", "IdbTransactionMode", "DomException", "DomStringList", "Worker", "WorkerOptions", "WorkerType", "DedicatedWorkerGlobalScope", "MessageEvent", "ErrorEvent", "console", "Request", "RequestInit", "RequestCredentials", "RequestRedirect", "RequestCache", "ReferrerPolicy", "Headers", "Response", "AbortController", "AbortSignal", "ReadableStream", "ReadableStreamDefaultReader", "Cache", "CacheStorage"]
 
 [dependencies]
+yace-stepmania = { path = "../crates/yace-stepmania" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
