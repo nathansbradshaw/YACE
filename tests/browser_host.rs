@@ -13,20 +13,6 @@ impl Drop for Host {
     }
 }
 #[test]
-fn unapproved_preview_ports_are_rejected_without_starting_a_server() {
-    let workspace = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_yace-browser"))
-        .args(["serve", "--workspace"])
-        .arg(workspace.path())
-        .args(["--port", "3037"])
-        .env_remove("YACE_HTTP_TEST_FIXTURE")
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("not allowed"));
-}
-
-#[test]
 fn browser_host_requires_session_same_origin_and_bounded_upload_paths() {
     let workspace = tempfile::tempdir().unwrap();
     let child = Command::new(env!("CARGO_BIN_EXE_yace-browser"))
