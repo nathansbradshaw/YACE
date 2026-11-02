@@ -2346,7 +2346,9 @@ impl Store {
                 "Audio appeared in this chart-only source snapshot; attach it explicitly before exporting"
             );
         }
-        if doc.recording.is_some() {
+        // A copy without audio needs its known length; guessing from the last
+        // chart event can pad or replace the original recording timeline.
+        if doc.recording.is_some() || !options.include_audio {
             let ini = pipeline::song_ini(stage)?;
             fs::write(
                 stage.join("song.ini"),

@@ -113,6 +113,10 @@ checks are not rebound to an absent recording. Actual browser export/reimport
 of a dense full-song chart retained a Guitar Tap and a 240-tick Bass sustain.
 Native regression coverage also verifies that an export including audio still
 attaches its matching vocal checks.
+Audio-free exports declare the known timeline length in `song.ini`. Actual
+browser export/reimport retained both a3.000-second excerpt and a243.880-second
+full song, instead of inferring a60-second default or padding its final note.
+The game metadata records length to the nearest millisecond.
 
 Browser reload/close protection watches unsaved band and Dance/4-key projects,
 including hidden linked parts, pending save metadata and in-flight writes. A
