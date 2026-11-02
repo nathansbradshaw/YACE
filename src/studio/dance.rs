@@ -44,7 +44,7 @@ pub struct DanceStudio {
     note_kind: Signal<NoteKind>,
 }
 pub fn provide() {
-    use_context_provider(|| DanceStudio {
+    let studio = use_context_provider(|| DanceStudio {
         open: Signal::new(false),
         project: Signal::new(None),
         assets: Signal::new(Files::new()),
@@ -72,6 +72,8 @@ pub fn provide() {
         snap_rows: Signal::new(12),
         note_kind: Signal::new(NoteKind::Tap),
     });
+    // Imports, recovery and backups outlive the component that opened them.
+    use_hook(move || dioxus::core::provide_root_context(studio));
 }
 impl DanceStudio {
     fn report(mut self, result: Result<()>) {
@@ -672,7 +674,7 @@ mod tests {
     fn app() -> Element {
         provide();
         let studio = super::super::state::use_studio();
-        use_context_provider(|| studio);
+        use_hook(move || dioxus::core::provide_root_context(studio));
         let mut s = consume_context::<DanceStudio>();
         let slot = use_context::<Slot>();
         use_hook(move || {
@@ -688,6 +690,11 @@ mod tests {
             s.load(p, Files::new(), None, None).unwrap();
             s.open.set(true);
             *slot.borrow_mut() = Some(s);
+            dioxus::core::spawn_forever(async move {
+                let _ = consume_context::<super::super::state::Studio>();
+                let mut shared = consume_context::<DanceStudio>();
+                shared.status.set("Root task context verified".into());
+            });
         });
         rsx! {Workbench{}}
     }
@@ -698,6 +705,14 @@ mod tests {
         let mut dom = VirtualDom::new(app);
         dom.provide_root_context(slot.clone());
         let initial = dom.rebuild_to_vec();
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while slot.borrow().unwrap().status.read().as_str() != "Root task context verified" {
+                dom.wait_for_work().await;
+                dom.render_immediate_to_vec();
+            }
+        })
+        .await
+        .expect("App services remain available to persistent tasks");
         // Dioxus associates the click listener with the button parent. Match
         // the accessibility title rather than relying on generated node IDs.
         let button = initial

@@ -108,7 +108,7 @@ pub(crate) fn App() -> Element {
     dialogs::provide_browser_dialogs();
     use_hook(diagnostics::install);
     let studio = state::use_studio();
-    use_context_provider(|| studio);
+    use_hook(move || dioxus::core::provide_root_context(studio));
     difficulty::use_snapshot(studio);
     let display_link = frame_pacing::use_frame_pacing(studio);
     #[cfg(feature = "browser")]

@@ -94,7 +94,7 @@ pub fn App() -> Element {
     let github = github::use_session();
     use_context_provider(|| github);
     let studio = state::use_studio();
-    use_context_provider(|| studio);
+    use_hook(move || dioxus::core::provide_root_context(studio));
     difficulty::use_snapshot(studio);
     use_future(move || async move {
         let mut studio = studio;
