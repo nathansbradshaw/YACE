@@ -1,5 +1,17 @@
 # Singing pitch probe
 
+The probe also accepts `--model rmvpe` with the pinned RVC ONNX asset:
+[rmvpe.onnx](https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/e6d0c1a17da07c33557852f9dfa2bd44cc75737d/rmvpe.onnx),
+SHA-256 `5370e71ac80af8b4b7c793d27efd51fd8bf962de3a7ede0766dac0befa3660fd`.
+The Rust frontend follows RVC revision `81eed5e8f68b6bed1789f682fe78cdd324495afc`:
+centered reflect Hann1024/hop160, HTK128 magnitude mel30–8000Hz, Slaney area
+normalization and ln(max(x,1e-5)). It uses 30-second chunks with one-second
+context and pads mel frames to a multiple of 32. Chunked recurrent inference is
+experimental. Raw salience is retained; frequency is zero below salience 0.03.
+Confidence is not calibrated correctness or singer identity. RVC's MIT notice
+is in `licenses/RVC-MIT.txt`; the weight mirror declares MIT independently.
+No model weights are distributed. See [the research workflow](../../docs/VOCAL_ACCURACY.md).
+
 A standalone MIT Rust research CLI for reproducible native CREPE evidence. It produces raw pitch/salience, **not chart notes or musical approvals**. It has no generator hook, provider, lyrics dependency, Python runtime or model downloader. YACE's production vocal defaults remain unchanged.
 
 ## Run

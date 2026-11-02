@@ -138,6 +138,7 @@ fn vocal_review_import_uses_revision_guard_and_retains_notes_without_models() {
         .unwrap();
     let original = store.load().unwrap();
     let mut report = Generation {
+        note_evidence: vec![],
         version: 1,
         audio_sha256: original.audio_sha256.clone(),
         vocal_stem_sha256: original.audio_sha256.clone(),

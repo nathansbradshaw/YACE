@@ -214,6 +214,10 @@ pub fn serve_project(project: &Path, port: u16) -> Result<()> {
     serve_inner(&root, port, Some(project))
 }
 fn serve_inner(workspace: &Path, port: u16, start_project: Option<PathBuf>) -> Result<()> {
+    let fixture = port == 0 && std::env::var("YACE_HTTP_TEST_FIXTURE").as_deref() == Ok("1");
+    if !fixture {
+        crate::preview_ports::validate(port).map_err(anyhow::Error::msg)?;
+    }
     std::fs::create_dir_all(workspace)?;
     let root = workspace.canonicalize()?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -246,7 +250,18 @@ fn serve_inner(workspace: &Path, port: u16, start_project: Option<PathBuf>) -> R
             .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
             .layer(middleware::from_fn_with_state(host.clone(), guard))
             .with_state(host);
-        axum::serve(listener, app).await?;
+        let server = axum::serve(listener, app);
+        if fixture {
+            // Bound fixtures even if a client leaves an HTTP request open.
+            if let Ok(result) =
+                tokio::time::timeout(std::time::Duration::from_secs(30), async { server.await })
+                    .await
+            {
+                result?;
+            }
+        } else {
+            server.await?;
+        }
         Ok(())
     })
 }

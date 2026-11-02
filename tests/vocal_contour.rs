@@ -6,6 +6,151 @@ use chart_engine::{
     vocal_generation::{self, Policy},
 };
 const RATE: usize = 22050;
+
+#[test]
+fn acoustic_pitch_and_high_accuracy_boundaries_are_independent_of_wrong_or_missing_lyrics() {
+    use chart_engine::vocal_generation::AnalysisMode;
+    let signal = vowel(2., 0.25, 1.65, 57., 2.);
+    let timing = TempoMap::constant(120.).unwrap();
+    for mode in [AnalysisMode::Standard, AnalysisMode::HighAccuracy] {
+        let policy = Policy {
+            analysis_mode: mode,
+            ..Policy::default()
+        };
+        let no_words = vocal_generation::generate_pcm(
+            &signal,
+            &"a".repeat(64),
+            &"b".repeat(64),
+            2.,
+            &timing,
+            None,
+            None,
+            &policy,
+        )
+        .unwrap();
+        let bad_words = words(2., 0.41, 0.63);
+        let with_words = vocal_generation::generate_pcm(
+            &signal,
+            &"a".repeat(64),
+            &"b".repeat(64),
+            2.,
+            &timing,
+            Some(&bad_words),
+            None,
+            &policy,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&no_words.pitch_frames).unwrap(),
+            serde_json::to_value(&with_words.pitch_frames).unwrap()
+        );
+        if mode == AnalysisMode::HighAccuracy {
+            let notes = |report: &vocal_generation::Generation| {
+                report
+                    .chart
+                    .as_ref()
+                    .unwrap()
+                    .notes
+                    .iter()
+                    .map(|n| (n.start, n.end, n.tone.clone()))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(notes(&no_words), notes(&with_words));
+            assert!(!no_words.note_evidence.is_empty());
+            assert!(
+                no_words
+                    .chart
+                    .as_ref()
+                    .unwrap()
+                    .notes
+                    .iter()
+                    .all(|n| n.lyric == chart_engine::vocals::Syllable::Missing)
+            );
+        }
+    }
+}
+
+#[test]
+fn high_accuracy_preserves_silence_between_repeated_pitches_and_exports_missing_lyrics() {
+    use chart_engine::{vocal_generation::AnalysisMode, vocals};
+    let a = vowel(2., 0.2, 0.7, 57., 0.);
+    let b = vowel(2., 0.9, 1.5, 57., 0.);
+    let signal: Vec<_> = a.into_iter().zip(b).map(|(a, b)| a + b).collect();
+    let timing = TempoMap::constant(120.).unwrap();
+    let report = vocal_generation::generate_pcm(
+        &signal,
+        &"a".repeat(64),
+        &"b".repeat(64),
+        2.,
+        &timing,
+        None,
+        None,
+        &Policy {
+            analysis_mode: AnalysisMode::HighAccuracy,
+            ..Policy::default()
+        },
+    )
+    .unwrap();
+    let chart = report.chart.as_ref().unwrap();
+    assert_eq!(chart.notes.len(), 2);
+    assert!(
+        chart
+            .notes
+            .iter()
+            .all(|n| timing.seconds(n.end) <= 0.75 || timing.seconds(n.start) >= 0.85)
+    );
+    let original =
+        chart_engine::midi::new_midi(&timing, &chart_engine::chart::Tracks::new()).unwrap();
+    let midi = vocals::append_midi(&original, chart).unwrap();
+    assert_eq!(vocals::import_midi(&midi).unwrap().notes, chart.notes);
+}
+
+#[test]
+fn benchmark_measures_absolute_octaves_and_rejects_another_recording() {
+    use chart_engine::vocal_benchmark::{self, Reference, ReferenceFrame, ReferenceNote};
+    let signal = vowel(2., 0.2, 1.5, 57., 0.);
+    let mut report = vocal_generation::generate_pcm(
+        &signal,
+        &"a".repeat(64),
+        &"b".repeat(64),
+        2.,
+        &TempoMap::constant(120.).unwrap(),
+        None,
+        None,
+        &Policy::default(),
+    )
+    .unwrap();
+    let reference = Reference {
+        audio_sha256: "a".repeat(64),
+        duration_seconds: 2.,
+        provenance: "Known synthetic controlled oscillator; not a singing-quality reference".into(),
+        reviewed: true,
+        reference_kind: "performed_contour".into(),
+        frames: (30..140)
+            .map(|i| ReferenceFrame {
+                time_seconds: i as f64 / 100.,
+                midi: Some(57.),
+                backing_midi: vec![69.],
+            })
+            .collect(),
+        notes: vec![ReferenceNote {
+            start_seconds: 0.2,
+            end_seconds: 1.5,
+            midi: 57,
+        }],
+        words: vec![],
+    };
+    let correct = vocal_benchmark::score(&reference, &report).unwrap();
+    assert!(correct.correct_pitch_frames >= 100);
+    for frame in &mut report.pitch_frames {
+        frame.midi = frame.midi.map(|p| p + 12.);
+    }
+    let octave = vocal_benchmark::score(&reference, &report).unwrap();
+    assert_eq!(octave.correct_pitch_frames, 0);
+    assert!(octave.octave_error_frames >= 100 && octave.backing_capture_frames >= 100);
+    report.audio_sha256 = "c".repeat(64);
+    assert!(vocal_benchmark::score(&reference, &report).is_err());
+}
 fn vowel(duration: f64, start: f64, end: f64, midi: f64, glide: f64) -> Vec<f32> {
     let mut phase = 0.;
     (0..(duration * RATE as f64) as usize)

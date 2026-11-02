@@ -10,6 +10,20 @@ pub struct AcousticModel {
     model: model::ctc_model::Wav2Vec2ForCTC,
 }
 impl AcousticModel {
+    /// Read standard PyTorch state-dict weights natively for research models
+    /// whose publisher provides no safetensors. This executes no Python code.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load_pytorch(directory: &Path) -> Result<Self, Error> {
+        let config = serde_json::from_slice(&std::fs::read(directory.join("config.json"))?)?;
+        let builder = VarBuilder::from_pth(
+            directory.join("pytorch_model.bin"),
+            DType::F32,
+            &Device::Cpu,
+        )?;
+        Ok(Self {
+            model: model::ctc_model::Wav2Vec2ForCTC::load(&config, builder)?,
+        })
+    }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load(directory: &Path) -> Result<Self, Error> {
         Self::from_bytes(

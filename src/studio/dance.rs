@@ -830,6 +830,30 @@ mod tests {
 pub fn active() -> bool {
     try_consume_context::<DanceStudio>().is_some_and(|s| (s.open)() && s.project.read().is_some())
 }
+pub fn save_status() -> Option<&'static str> {
+    let s = try_consume_context::<DanceStudio>()?;
+    if !(s.open)() {
+        return None;
+    }
+    let revision = s.project.read().as_ref()?.revision;
+    Some(if (s.blocked)() {
+        if cfg!(target_arch = "wasm32") {
+            "Not saved · download project backup"
+        } else {
+            "Not saved · save project backup"
+        }
+    } else if (s.saved)() == Some(revision) {
+        if cfg!(target_arch = "wasm32") {
+            "Saved in this browser"
+        } else {
+            "Saved locally"
+        }
+    } else if cfg!(target_arch = "wasm32") {
+        "Saving in this browser…"
+    } else {
+        "Saving locally…"
+    })
+}
 pub fn identity() -> Option<(String, String)> {
     let s = try_consume_context::<DanceStudio>()?;
     if !(s.open)() {

@@ -447,6 +447,6 @@ mod tests {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_arch = "wasm32"), feature = "studio"))]
 #[path = "project_recording/tests.rs"]
 mod workflows;

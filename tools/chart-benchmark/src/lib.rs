@@ -416,7 +416,7 @@ pub fn prepare(case: &Path, output: &Path) -> Result<()> {
         roles.push(json!({"role":id,"status":"prepared","original":asset.name,"original_sha256":asset.sha256,"decoded_frames":frames,"padded_frames":case.mix.frames-frames,"output_sha256":sha256}));
     }
     ensure!(!assets.is_empty(), "No supported direct oracle roles");
-    let mut manifest=StemManifest{version:1,source_audio_sha256:case.mix.output_sha256.clone(),sample_rate:RATE as u32,channels:2,frames:case.mix.frames,alignment:AlignmentEvidence{method:"authored_archive_sample_zero_with_tail_padding".into(),details:"Direct authored role files from the same checksum-bound archive/mix receipt; ffmpeg44100Hz stereo float decode starts at frame0. Only missing tail frames zero-padded; no trim, offset, gain, normalization, or stem reassignment. Oracle condition; file identity/clock is not isolation purity or musical acceptance.".into()},stems:assets,generation:None};
+    let mut manifest=StemManifest{version:1,source_audio_sha256:case.mix.output_sha256.clone(),sample_rate:RATE as u32,channels:2,frames:case.mix.frames,alignment:AlignmentEvidence{method:"authored_archive_sample_zero_with_tail_padding".into(),details:"Direct authored role files from the same checksum-bound archive/mix receipt; ffmpeg44100Hz stereo float decode starts at frame0. Only missing tail frames zero-padded; no trim, offset, gain, normalization, or stem reassignment. Oracle condition; file identity/clock is not isolation purity or musical acceptance.".into()},stems:assets,generation:None,conventional:None};
     for stem in &mut manifest.stems {
         stem.path = stage.path().join(&stem.path).canonicalize()?;
     }

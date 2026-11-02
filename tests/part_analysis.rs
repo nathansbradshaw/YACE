@@ -41,10 +41,14 @@ fn wave(path: &Path) {
 fn fixture() -> tempfile::TempDir {
     let root = tempfile::tempdir().unwrap();
     wave(&root.path().join("song.wav"));
-    fs::copy(root.path().join("song.wav"), root.path().join("guitar.wav")).unwrap();
+    fs::copy(
+        root.path().join("song.wav"),
+        root.path().join("guitar-component.wav"),
+    )
+    .unwrap();
     let manifest = StemManifest::build(
         &root.path().join("song.wav"),
-        BTreeMap::from([(StemId::Guitar, root.path().join("guitar.wav"))]),
+        BTreeMap::from([(StemId::Guitar, root.path().join("guitar-component.wav"))]),
         AlignmentEvidence {
             method: "synthetic".into(),
             details: "Exact original PCM copy on the same clock".into(),
@@ -202,7 +206,7 @@ fn changed_stems_and_foreign_recording_receipts_fail_closed() {
         )
         .is_err()
     );
-    fs::write(p.join("guitar.wav"), "changed").unwrap();
+    fs::write(p.join("guitar-component.wav"), "changed").unwrap();
     assert!(
         part_analysis::analyze_files(
             &p.join("song.wav"),
@@ -224,7 +228,7 @@ fn controlled_articulation_report(
     let path = fixture.path();
     let manifest = StemManifest::build(
         &path.join("song.wav"),
-        BTreeMap::from([(StemId::Drums, path.join("guitar.wav"))]),
+        BTreeMap::from([(StemId::Drums, path.join("guitar-component.wav"))]),
         AlignmentEvidence {
             method: "controlled-projection".into(),
             details:
@@ -374,19 +378,16 @@ fn kit_audition_is_bounded_source_bound_and_survives_note_edits() {
     let store = Store::create(p, None, &dest.path().join("project")).unwrap();
     let mut doc = store.load().unwrap();
     let mut manifest = StemManifest::read(&p.join("stems.json")).unwrap();
-    // Import prepares canonical game audio; bind this synthetic control
-    // to that authoritative recording rather than its old container bytes.
-    manifest.source_audio_sha256 = doc.audio_sha256.clone();
-    let drum_hash = models::hash_file(&p.join("guitar.wav")).unwrap();
+    let drum_hash = models::hash_file(&p.join("guitar-component.wav")).unwrap();
     manifest.stems.push(StemAsset {
         id: StemId::Drums,
-        path: p.join("guitar.wav"),
+        path: p.join("guitar-component.wav"),
         sha256: drum_hash.clone(),
     });
     doc.content.stems = Some(manifest);
     let directory = dest.path().join("kit");
     fs::create_dir(&directory).unwrap();
-    fs::copy(p.join("guitar.wav"), directory.join("kick.wav")).unwrap();
+    fs::copy(p.join("guitar-component.wav"), directory.join("kick.wav")).unwrap();
     let output = OutputReceipt {
         part: "kick".into(),
         filename: "kick.wav".into(),
@@ -579,7 +580,7 @@ fn durable_kit_cache_restores_newest_valid_and_falls_back_without_models_or_writ
             .unwrap()
             .is_none()
     );
-    let source = f.path().join("guitar.wav");
+    let source = f.path().join("guitar-component.wav");
     doc.content.stems = Some(
         StemManifest::build(
             &store.audio_path(&doc).unwrap(),
@@ -670,16 +671,7 @@ fn kit_transport_fixture() -> (tempfile::TempDir, tempfile::TempDir, Store) {
     let destination = tempfile::tempdir().unwrap();
     let store = Store::create(source.path(), None, &destination.path().join("project")).unwrap();
     let mut doc = store.load().unwrap();
-    let drums = destination.path().join("transport-drums.wav");
-    // Components use the native float-WAV header. Match the canonical mix's
-    // decoded samples, rather than copying its container/encoding into a cache.
-    let samples = models::decode(&store.audio_path(&doc).unwrap(), 44100, 2).unwrap();
-    let mut native = fs::read(source.path().join("guitar.wav")).unwrap();
-    assert_eq!(native.len(), 44 + samples.len() * 4);
-    for (bytes, sample) in native[44..].chunks_exact_mut(4).zip(samples) {
-        bytes.copy_from_slice(&sample.to_le_bytes());
-    }
-    fs::write(&drums, native).unwrap();
+    let drums = source.path().join("guitar-component.wav");
     doc.content.stems = Some(
         StemManifest::build(
             &store.audio_path(&doc).unwrap(),
@@ -807,7 +799,7 @@ fn kit_audio_matches_the_same_source_clock_at_each_practice_rate_and_rejects_sub
     let doc = store.load().unwrap();
     let selected = part_analysis::select_kit_audition(&store, &doc, "kick").unwrap();
     for rate in [0.5, 1., 1.5] {
-        // The controlled component has the same decoded PCM as the original.
+        // The controlled component is a byte-identical copy of this original.
         // This exercises real atempo execution, not a fabricated duration field.
         let reference =
             models::decode_at_tempo(&store.audio_path(&doc).unwrap(), 44100, 2, rate).unwrap();

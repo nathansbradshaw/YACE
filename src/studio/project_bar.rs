@@ -55,7 +55,7 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
             nav { class: "project-actions", aria_label: "Chart workflow",
                 button { class: "project-generate", onclick: move |_| super::dance::generate(studio), title: "Generate charts from local audio", Icon { name: "music", size: 15 } "Generate" }
                 button { disabled: !loaded, onclick: move |_| super::dance::review(studio), title: "Review timed chart flags", Icon { name: "flag", size: 15 } "Review" }
-                button { disabled: !loaded, onclick: move |_| super::dance::export(studio), title: "Export a separate song folder", Icon { name: "export", size: 15 } "Export" }
+                button { disabled: !loaded || (studio.export_busy)(), onclick: move |_| super::dance::export(studio), title: "Choose tracks, format and audio for a separate song copy", Icon { name: "export", size: 15 } "Export playable song…" }
             }
             button { "popovertarget": "project-tools", aria_label: "More tools", "Tools" Icon { name: "chevron-down", size: 12 } }
         }
@@ -66,7 +66,7 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
             if cfg!(feature="browser") {button { disabled:(studio.library_busy)(),"popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(), Icon { name: "file-plus", size: 15 } "Open charting folder…" }}
             if !cfg!(target_arch="wasm32") {button{"popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.open_zip(),"Import project ZIP…"}}
             button { "popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.import_song(),"Import song ZIP…" }
-            button {disabled:!loaded,"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|super::dance::save(studio),"Save project ZIP…"}
+            button {disabled:!loaded || (studio.export_busy)(),"popovertarget":"project-actions","popovertargetaction":"hide",title:"Complete editable project ZIP with source files and undo history",onclick:move |_|super::dance::save(studio),if cfg!(target_arch="wasm32"){"Download project backup…"}else{"Save project backup…"}}
             if cfg!(target_arch="wasm32") {button {"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_| {
                 #[cfg(target_arch="wasm32")]
                 studio.open_saved_projects();

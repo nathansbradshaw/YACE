@@ -189,11 +189,12 @@ pub(super) fn VocalRoll(mut studio: Studio) -> Element {
                         let row=match note.tone{VocalTone::Pitched{midi}=>84-midi,VocalTone::Talkie{..}=>49};let y=row as f64*8.0+1.0;
                         let label=match &note.lyric{Syllable::Text{text,join_next}=>format!("{text}{}",if *join_next{"-"}else{""}),Syllable::Continue=>"+".into(),Syllable::ContinueWord=>"Continue word".into(),Syllable::Missing=>"Missing lyric".into()};
                         let note_tick=note.start;let resize_note=note.clone();let selected=active&&selected_vocals.contains(&index);
+                        let uncertain=doc.content.vocal_review.as_ref().and_then(|r|r.evidence_for(&doc,&timing,note)).is_some_and(|e|e.uncertain);
                         rsx!{g{
                             ondoubleclick:move|e|e.stop_propagation(),
                             onclick:move|e:MouseEvent|{e.stop_propagation();if gestures.consume_click(){return;}studio.select_vocal(index,e.modifiers().shift(),false);if (studio.tool)()==EditTool::Erase{studio.delete_selection();}},
                             onmousedown:move|e:MouseEvent|{e.stop_propagation();gestures.note("Vocals",None,index,note_tick,&e);},
-                            rect{x:"{x}",y:"{y}",width:"{(end-x).max(8.0)}",height:"6",rx:"2",fill:"#41c6b8",stroke:if selected{"white"}else{"#15191f"},role:"button","aria-pressed":selected.to_string(),"aria-label":"Edit vocal syllable {label}"}
+                            rect{x:"{x}",y:"{y}",width:"{(end-x).max(8.0)}",height:"6",rx:"2",fill:if uncertain{"#edb65a"}else{"#41c6b8"},stroke:if selected{"white"}else{"#15191f"},role:"button","aria-pressed":selected.to_string(),"aria-label":"Edit vocal syllable {label}; uncertain pitch: {uncertain}"}
                             text{x:"{x+2.0}",y:"{y-2.0}",font_size:"10",fill:"#e2e8ed",pointer_events:"none","{label}"}
                             rect{x:"{end-4.0}",y:"{y-1.0}",width:"8",height:"8",fill:"transparent",style:"cursor:ew-resize",onmousedown:move|e:MouseEvent|{e.stop_propagation();studio.select_vocal(index,false,false);drag.set(Some((index,resize_note.clone(),e.page_coordinates().x,e.page_coordinates().y,true)));}}
                         }} }
@@ -330,6 +331,13 @@ pub(super) fn Waveform(studio: Studio, #[props(default)] stem: Option<StemId>) -
 }
 #[component]
 fn InstrumentWaveform(studio: Studio, track: String) -> Element {
+    if crate::keys::is_keys(&track) && (studio.synth_reference)() {
+        return rsx! {div{class:"midi-waveform-strip",
+            div{class:"midi-waveform-label",style:"width:140px;flex-shrink:0;flex-direction:column;align-items:flex-start;justify-content:center;font-size:9px;gap:1px",
+                span{"Synth reference"}span{style:"font-size:8px;color:var(--text-muted)","Original recording · full mix"}}
+            Waveform{studio,stem:None}
+        }};
+    }
     let stem = studio.guitar_source.read().audition_stem(&track, false);
     if !has_stem_waveform(studio, stem) {
         return rsx! {};

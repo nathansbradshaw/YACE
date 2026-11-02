@@ -22,6 +22,8 @@ mod audio_resample;
 #[cfg(test)]
 #[path = "../src/media_clock.rs"]
 mod media_clock;
+#[path = "../../src/preview_ports.rs"]
+mod preview_ports;
 mod recognition_build;
 #[cfg(test)]
 #[path = "../../src/recording_metadata.rs"]
@@ -253,13 +255,23 @@ fn main() -> Result<()> {
             println!("Immutable static release: {}",release.display());Ok(())
         }
         Some("serve") => {
-            let port = args
-                .get(1)
+            let check_only = args.iter().any(|arg| arg == "--check");
+            let positional: Vec<_> = args.iter().skip(1).filter(|arg| arg.as_str() != "--check").collect();
+            if positional.len() > 2 { return Err("Use serve [3030|3032] [dist] [--check]".into()); }
+            let port = positional
+                .first()
                 .map(|s| s.parse())
                 .transpose()?
-                .unwrap_or(3032u16);
-            let dist = args.get(2).map(PathBuf::from).unwrap_or_else(||root.join("web/dist")).canonicalize()?;
-            let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))?;
+                .unwrap_or(preview_ports::PRIMARY);
+            preview_ports::validate(port)?;
+            let dist = positional.get(1).map(|path| PathBuf::from(path.as_str())).unwrap_or_else(||root.join("web/dist")).canonicalize()?;
+            println!("YACE preview source: {}", root.display());
+            println!("YACE preview files: {}", dist.display());
+            if check_only {
+                println!("Allowed preview port: {port}. No server started.");
+                return Ok(());
+            }
+            let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).map_err(|error| format!("Cannot start YACE preview on {port}: {error}. Preserve the existing owner; reuse, coordinate a handoff, or wait. Do not choose another port."))?;
             println!("Static YACE: http://127.0.0.1:{port}/");
             for stream in listener.incoming() {
                 let stream = stream?;
@@ -273,7 +285,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         _ => Err(
-            "Use: yace-static-web build | serve [port] [dist] | stage HOST_DIST SOURCE_REVISION | recognition-build SDK CRATE WORK".into(),
+            "Use: yace-static-web build | serve [3030|3032] [dist] [--check] | stage HOST_DIST SOURCE_REVISION | recognition-build SDK CRATE WORK".into(),
         ),
     }
 }

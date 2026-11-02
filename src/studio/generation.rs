@@ -186,6 +186,7 @@ struct View {
     drums: bool,
     vocals: bool,
     vocal_language: crate::lyric_language::Language,
+    vocal_analysis_mode: crate::vocal_generation::AnalysisMode,
     piano: bool,
     pro_piano: bool,
     keyboard_sound: crate::keyboard_detection::KeyboardSound,
@@ -227,6 +228,7 @@ impl Default for View {
             drums: true,
             vocals: false,
             vocal_language: crate::lyric_language::Language::Auto,
+            vocal_analysis_mode: Default::default(),
             piano: false,
             pro_piano: false,
             keyboard_sound: Default::default(),
@@ -334,6 +336,7 @@ impl View {
             keyboard_sound: self.keyboard_sound,
             piano_quality: self.piano_quality,
             vocal_language: self.vocal_language,
+            vocal_analysis_mode: self.vocal_analysis_mode,
             fetch_models: self.fetch,
             full_mix_drums: self.full_mix,
             standard_drums: self.standard,
@@ -751,6 +754,7 @@ fn recover(mut data: Signal<View>) {
                 v.lyrics = request.lyrics;
                 v.guitar_source = request.guitar_source;
                 v.vocal_language = request.vocal_language;
+                v.vocal_analysis_mode = request.vocal_analysis_mode;
                 v.fetch = request.fetch_models;
                 v.models = request.model_dir;
                 v.info = request.song_info;
@@ -1076,6 +1080,10 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                             }
                             if !part_mode { label{class:"form-check",title:"Estimate sung pitch and recognize lyrics in the selected language. Review before export.",input{r#type:"checkbox",checked:view.vocals,disabled:view.full_mix,onchange:move|e|data.write().vocals=e.checked()},"Vocals"} }
                             if view.vocals {
+                                label{class:"generation-field","Vocal analysis",
+                                    select{class:"field-control",value:if view.vocal_analysis_mode==crate::vocal_generation::AnalysisMode::Standard{"standard"}else{"high"},onchange:move|e|data.write().vocal_analysis_mode=if e.value()=="high"{crate::vocal_generation::AnalysisMode::HighAccuracy}else{crate::vocal_generation::AnalysisMode::Standard},option{value:"standard","Standard"}option{value:"high","High accuracy (experimental)"}}
+                                    if view.vocal_analysis_mode==crate::vocal_generation::AnalysisMode::HighAccuracy{p{class:"field-hint","Experimental: extra pitches can be wrong. Review amber notes before export."}}
+                                }
                                 label{class:"generation-field","Vocal language",
                                     select{class:"field-control",value:match view.vocal_language {crate::lyric_language::Language::Auto=>"auto",crate::lyric_language::Language::English=>"english",crate::lyric_language::Language::Spanish=>"spanish"},onchange:move|e|data.write().vocal_language=match e.value().as_str(){"english"=>crate::lyric_language::Language::English,"spanish"=>crate::lyric_language::Language::Spanish,_=>crate::lyric_language::Language::Auto},
                                         option{value:"auto","Detect automatically"} option{value:"spanish","Spanish"} option{value:"english","English"}

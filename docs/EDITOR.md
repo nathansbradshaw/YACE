@@ -62,6 +62,13 @@ Keep the whole review-project folder. It contains the source copy, saved edits
 and undo history. YACE saves chart edits automatically after each successful
 change; it does not edit the original song folder.
 
+Project ZIP backups retain unknown companion files, including source filenames
+ending in `.lock`. Only YACE's known session locks at the project root are omitted.
+ZIP export refuses filenames it cannot represent faithfully, including literal
+backslashes or invalid UTF-8, rather than silently renaming them. The project and
+source stay available after a refusal. ZIP imports also refuse backslash entry
+names instead of treating them as a different directory structure.
+
 ## Edit notes
 
 Use **Add part** beside **Track** to add guitar, bass, drums, Keys, Pro Keys or
@@ -170,8 +177,23 @@ Shift makes larger steps; Home and End select the size limits.
 
 ## Export
 
-Use **Export** and choose a new song-folder path. Export is separate from
-project autosave. Keep your review project for further editing and recovery.
+Use **Export playable song…** to choose instruments and difficulties, a target
+preset, chart format and whether to include recordings and stems. All available
+parts and audio are selected by default. Automatic format preserves imported MIDI
+and uses MIDI for vocals and Pro Keys. A `.chart` choice refuses incompatible
+parts or imported MIDI rather than losing their events. Clone Hero requires
+you to deselect vocals, Pro Keys and other original MIDI parts explicitly.
+Original MIDI parts without editable views appear as `MIDI: …` entries.
+
+Review the package contents and approximate source size, then choose a new
+song-folder path. Source size is measured before compression; generated files
+and audio conversion can change the final size. An export without audio needs
+matching audio before game playback. Export choices affect the separate copy;
+the project and its undo history remain complete.
+
+**YACE menu → Save project backup…** saves the complete editable project ZIP,
+including available source assets and recovery history. Backups always retain
+the full project regardless of playable-song export selections.
 
 Open the exported folder in Clone Hero, YARG or another editor and check the
 parts you intend to use. See [Review a draft](CHARTING_STANDARD.md).

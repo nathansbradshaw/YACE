@@ -14,6 +14,7 @@ pub mod difficulty_links;
 pub mod drum_articulation;
 pub mod drum_parts;
 pub mod editor;
+pub mod export_options;
 pub mod github_reviews;
 pub mod kit_audition;
 pub mod note_groups;
@@ -69,6 +70,7 @@ pub mod octave_adapter;
 pub mod part_analysis;
 pub mod piano_model;
 pub mod pipeline;
+pub mod preview_ports;
 pub mod pro_keys;
 #[cfg(any(feature = "editor", feature = "browser"))]
 pub mod project_files;
@@ -88,6 +90,7 @@ pub mod timing;
 pub mod transkun;
 #[cfg(feature = "vocal-alignment")]
 pub mod vocal_alignment;
+pub mod vocal_benchmark;
 pub mod vocal_generation;
 pub mod vocal_pitch;
 pub mod vocal_review;

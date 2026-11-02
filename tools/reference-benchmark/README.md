@@ -1,5 +1,13 @@
 # Private installed-pack preparation
 
+Vocal research also supports `select-vocal-english INVENTORY EXPOSURE_HISTORY
+NEW_MANIFEST` and `prepare-vocal-selection MANIFEST NEW_DIRECTORY`. The former
+uses reliable lyric-language metadata, direct vocal channels, nonzero vocal
+difficulty and distinct unexposed artists, sorted by archive hash. It freezes
+two development and four held-out English songs before reading target pitches.
+Two distinct batches can supply the twelve-song pitch benchmark; language
+balance is optional. See [vocal accuracy](../../docs/VOCAL_ACCURACY.md).
+
 This optional standalone Rust executable inventories and extracts an already installed YARG song pack. It produces source identity receipts and a synchronized full mix for evaluating a generator against a human-authored chart of the **same recording**. It never modifies the archives or downloads songs.
 
 This helper is **LGPL-3.0-only**, separate from the MIT application. See [NOTICE.md](NOTICE.md), [LICENSE](LICENSE), and [COPYING.GPL-3.0](COPYING.GPL-3.0). No extracted music, lyrics, charts, or private manifests may be committed.
@@ -27,3 +35,11 @@ Archive parsing rejects unsafe/duplicate paths, overlapping/out-of-range entries
 
 Use only recordings and charts you have permission to process.
 Keep extracted content and reports outside the source repository.
+
+For pitch-first evaluation, `select-vocal-pitch INVENTORY EXPOSURE_HISTORY
+NEW_MANIFEST` freezes six distinct fresh artists with direct vocal stems and
+vocal difficulty metadata, without requiring a language mix.
+`select-vocal-english` additionally requires reliable English lyric-language
+metadata. Each batch has two development and four held-out artists;
+`prepare-vocal-selection MANIFEST NEW_DIRECTORY` prepares both partitions.
+Language estimates are screening metadata, not human annotations.

@@ -687,6 +687,7 @@ fn vocal_flags_use_same_pending_approval_hide_and_stale_edit_queue() {
         ],
     };
     let report = vg::Generation {
+        note_evidence: vec![],
         version: 1,
         audio_sha256: doc.audio_sha256.clone(),
         vocal_stem_sha256: "b".repeat(64),
@@ -1071,6 +1072,7 @@ fn replacing_aligned_vocal_stem_keeps_stale_checks_inspectable_hideable_and_navi
     let doc = store.load().unwrap();
     let timing = doc.timing(&store).unwrap();
     let report = vg::Generation {
+        note_evidence: vec![],
         version: 1,
         audio_sha256: doc.audio_sha256,
         vocal_stem_sha256: models::hash_file(&voice_a).unwrap(),

@@ -364,6 +364,8 @@ pub struct Studio {
     pub blank_chart: Signal<bool>,
     pub clean_ranges: Signal<Vec<(f64, f64)>>,
     pub review_open: Signal<bool>,
+    pub export_open: Signal<bool>,
+    pub export_busy: Signal<bool>,
     pub assistant_open: Signal<bool>,
     pub view_start: Signal<f64>,
     pub span: Signal<f64>,
@@ -375,6 +377,7 @@ pub struct Studio {
     pub waveforms: Signal<Option<Arc<ReviewWaveforms>>>,
     pub source_audio: Signal<Option<PathBuf>>,
     pub guitar_source: Signal<crate::mapping::GuitarSource>,
+    pub synth_reference: Signal<bool>,
     pub album_art: Signal<Option<String>>,
     pub collaboration_open: Signal<bool>,
     pub parts_open: Signal<bool>,
@@ -558,6 +561,17 @@ impl Studio {
         };
         match store.load() {
             Ok(doc) => {
+                let reference_changed = self.doc.peek().as_ref().is_none_or(|old| {
+                    old.selected_track != doc.selected_track
+                        || old.audio_sha256 != doc.audio_sha256
+                        || old.content.keyboard_stems != doc.content.keyboard_stems
+                        || old.content.stems != doc.content.stems
+                        || serde_json::to_value(&old.content.track_origins).ok()
+                            != serde_json::to_value(&doc.content.track_origins).ok()
+                });
+                if reference_changed {
+                    self.synth_reference.set(store.synth_reference(&doc));
+                }
                 let Ok(timing) = doc.timing(&store) else {
                     self.error.set(Some("Cannot read chart timing".into()));
                     return;
@@ -1573,25 +1587,69 @@ impl Studio {
             }
         });
     }
-    pub fn export_dialog(self) {
+    pub fn export_dialog(mut self) {
+        self.export_open.set(true);
+    }
+    pub fn export_selected(
+        mut self,
+        options: crate::export_options::Options,
+        root: PathBuf,
+        revision: u64,
+    ) {
+        if (self.export_busy)() {
+            return;
+        }
+        self.export_busy.set(true);
         spawn(async move {
-            let Some(doc) = self.snapshot() else { return };
-            let name = self.metadata_value("name");
-            let name = if name.trim().is_empty() {
-                &doc.title
-            } else {
-                &name
-            };
-            if let Some(path) = rfd::AsyncFileDialog::new()
-                .set_title("Export song into a new folder")
-                .set_file_name(format!("{name} reviewed"))
-                .save_file()
-                .await
-            {
-                self.dispatch(Action::Export {
-                    output: path.path().to_owned(),
-                });
+            let result = async {
+                let doc = self.snapshot().context("Open a project")?;
+                let store = self.store.read().clone().context("Open a project")?;
+                anyhow::ensure!(
+                    store.root == root && doc.revision == revision,
+                    "The project changed; reopen Export"
+                );
+                options.selected(&store, &doc)?;
+                let name = self.metadata_value("name");
+                let name = if name.trim().is_empty() {
+                    &doc.title
+                } else {
+                    &name
+                };
+                if let Some(path) = rfd::AsyncFileDialog::new()
+                    .set_title("Export song into a new folder")
+                    .set_file_name(format!("{name} reviewed"))
+                    .save_file()
+                    .await
+                {
+                    let output = path.path().to_owned();
+                    let current = self.snapshot().context("Open a project")?;
+                    anyhow::ensure!(
+                        self.store.read().as_ref().is_some_and(|s| s.root == root)
+                            && current.revision == revision,
+                        "The project changed; reopen Export"
+                    );
+                    let actor = Actor {
+                        kind: ActorKind::Human,
+                        name: (self.reviewer)(),
+                    };
+                    let download = output.clone();
+                    self.status.set("Preparing song export…".into());
+                    tokio::task::spawn_blocking(move || {
+                        store.export_with_options(&doc, &output, &actor, &options)
+                    })
+                    .await??;
+                    self.status
+                        .set(format!("Song exported to {}", download.display()));
+                    rfd::download(&download).await;
+                    self.export_open.set(false);
+                }
+                Ok::<_, anyhow::Error>(())
             }
+            .await;
+            if let Err(error) = result {
+                self.error.set(Some(format!("{error:#}")));
+            }
+            self.export_busy.set(false);
         });
     }
     pub async fn open_project(mut self, path: PathBuf) {
@@ -1670,6 +1728,7 @@ impl Studio {
                 .context("This project already has an editor window open")?;
             let doc = store.load()?;
             let guitar_source = store.guitar_source(&doc)?;
+            let synth_reference = store.synth_reference(&doc);
             let timing = doc.timing(&store)?;
             let sections = store.source_sections(&doc)?;
             let sync = store.source_sync(&doc).ok();
@@ -1707,6 +1766,7 @@ impl Studio {
                 metadata,
                 art,
                 guitar_source,
+                synth_reference,
                 Arc::new(WindowLock(lock)),
                 sections,
                 sync,
@@ -1722,6 +1782,7 @@ impl Studio {
             metadata,
             art,
             guitar_source,
+            synth_reference,
             lock,
             sections,
             sync,
@@ -1783,6 +1844,7 @@ impl Studio {
         }
         self.metadata.set(metadata);
         self.guitar_source.set(guitar_source);
+        self.synth_reference.set(synth_reference);
         self.album_art.set(art);
         self.source_audio.set(audio_path);
         self.waveforms.set(None);
@@ -1982,6 +2044,8 @@ pub fn use_studio() -> Studio {
         blank_chart: use_signal(|| false),
         clean_ranges: use_signal(Vec::new),
         review_open: use_signal(|| false),
+        export_open: use_signal(|| false),
+        export_busy: use_signal(|| false),
         assistant_open: use_signal(|| false),
         view_start: use_signal(|| 0.0),
         span: use_signal(|| 12.0),
@@ -1993,6 +2057,7 @@ pub fn use_studio() -> Studio {
         waveforms: use_signal(|| None),
         source_audio: use_signal(|| None),
         guitar_source: use_signal(Default::default),
+        synth_reference: use_signal(|| false),
         album_art: use_signal(|| None),
         collaboration_open: use_signal(|| false),
         parts_open: use_signal(|| false),

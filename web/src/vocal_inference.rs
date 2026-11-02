@@ -16,17 +16,20 @@ pub async fn generate(
         manifest,
         timing,
         Default::default(),
+        Default::default(),
         None,
         None,
         progress,
     )
     .await
 }
+#[allow(clippy::too_many_arguments)]
 pub async fn generate_language(
     audio: &Path,
     manifest: &crate::stem_review::StemManifest,
     timing: &crate::timing::TempoMap,
     language: crate::lyric_language::Language,
+    analysis_mode: crate::vocal_generation::AnalysisMode,
     evidence_output: Option<&Path>,
     lyrics: Option<&crate::vocal_generation::LyricSource>,
     progress: &mut impl FnMut(String),
@@ -88,11 +91,19 @@ pub async fn generate_language(
     } else {
         None
     };
+    let mut recognition_warning = None;
     let recognized = if acoustic.is_none() {
-        Some(
-            crate::recognition::analyze(audio, Some((&stem.path, &binding)), language, progress)
-                .await?,
-        )
+        match crate::recognition::analyze(audio, Some((&stem.path, &binding)), language, progress)
+            .await
+        {
+            Ok(result) => Some(result),
+            Err(error) => {
+                recognition_warning = Some(format!(
+                    "Optional lyric recognition unavailable: {error:#}. Acoustic pitch generation continued; lyrics remain unknown."
+                ));
+                None
+            }
+        }
     } else {
         None
     };
@@ -135,7 +146,10 @@ pub async fn generate_language(
             timing,
             words,
             lyrics,
-            policy: &Default::default(),
+            policy: &crate::vocal_generation::Policy {
+                analysis_mode,
+                ..Default::default()
+            },
             neural_pitch: Some(&neural),
             vocal_pitch: Some(&evidence),
         },
@@ -148,6 +162,9 @@ pub async fn generate_language(
             false
         },
     )?;
+    if let Some(warning) = recognition_warning {
+        result.warnings.push(warning);
+    }
     if language != crate::lyric_language::Language::English {
         result.warnings.push("Multilingual recognition supplies word estimates without the English-only acoustic aligner. Spanish singing, rapid syllables, rap and language changes still need word/pitch review; uncertain pitch is never automatically converted to unpitched rap.".into());
     }

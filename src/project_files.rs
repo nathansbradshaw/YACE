@@ -7,6 +7,9 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 use std::{fs, io::Write, path::Path};
+#[cfg(test)]
+#[path = "project_files/tests.rs"]
+mod tests;
 fn collect(root: &Path, folder: &Path, files: &mut Files) -> Result<()> {
     for entry in fs::read_dir(folder)? {
         let entry = entry?;
@@ -18,11 +21,16 @@ fn collect(root: &Path, folder: &Path, files: &mut Files) -> Result<()> {
         );
         if kind.is_dir() {
             collect(root, &path, files)?;
-        } else if kind.is_file() && !entry.file_name().to_string_lossy().ends_with(".lock") {
-            let name = path
-                .strip_prefix(root)?
-                .to_string_lossy()
-                .replace('\\', "/");
+        } else if kind.is_file() {
+            let name = archive_codec::relative_name(path.strip_prefix(root)?)?;
+            // Only YACE's own root session locks are disposable. A source or
+            // unknown companion file ending in .lock is still authored data.
+            if matches!(
+                name.as_str(),
+                "editor.lock" | "window.lock" | "worker.lock" | "vocal-worker.lock"
+            ) {
+                continue;
+            }
             files.insert(name, fs::read(path)?);
         }
     }

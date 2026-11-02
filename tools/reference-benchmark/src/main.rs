@@ -3,6 +3,7 @@
 mod archive;
 mod mix;
 mod split;
+mod vocal;
 use anyhow::{Context, Result, ensure};
 use archive::{Archive, sha};
 use serde::Serialize;
@@ -18,6 +19,9 @@ struct Song {
     metadata: BTreeMap<String, String>,
     files: Vec<archive::Entry>,
     midi_tracks: Vec<String>,
+    /// Evaluator-only metadata derived from authored lyric text, never pitches.
+    vocal_language: Option<String>,
+    vocal_language_reliable: bool,
     split: &'static str,
 }
 fn split(artist: &str) -> &'static str {
@@ -31,6 +35,30 @@ fn split(artist: &str) -> &'static str {
 }
 fn song(path: &Path) -> Result<Song> {
     let a = Archive::open(path)?;
+    let (vocal_language, vocal_language_reliable) = if let Some(bytes) = a.get("notes.mid") {
+        let midi = midly::Smf::parse(&bytes)?;
+        let mut lyrics = String::new();
+        for track in &midi.tracks {
+            let lead=track.iter().any(|e|matches!(e.kind,midly::TrackEventKind::Meta(midly::MetaMessage::TrackName(name)) if name==b"PART VOCALS"));
+            if !lead {
+                continue;
+            }
+            for event in track {
+                if let midly::TrackEventKind::Meta(midly::MetaMessage::Lyric(text)) = event.kind {
+                    let word = String::from_utf8_lossy(text);
+                    lyrics.push_str(word.trim_matches(['-', '#', '^', '+', '%']));
+                    if !word.ends_with('-') {
+                        lyrics.push(' ');
+                    }
+                }
+            }
+        }
+        whatlang::detect(&lyrics)
+            .map(|info| (Some(info.lang().code().to_owned()), info.is_reliable()))
+            .unwrap_or((None, false))
+    } else {
+        (None, false)
+    };
     let midi_tracks = if let Some(bytes) = a.get("notes.mid") {
         let midi = midly::Smf::parse(&bytes)?;
         midi.tracks
@@ -49,6 +77,8 @@ fn song(path: &Path) -> Result<Song> {
     };
     let s = split(a.metadata.get("artist").map(String::as_str).unwrap_or(""));
     Ok(Song {
+        vocal_language,
+        vocal_language_reliable,
         archive: path.to_path_buf(),
         archive_sha256: a.sha256,
         metadata: a.metadata,
@@ -60,6 +90,26 @@ fn song(path: &Path) -> Result<Song> {
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.first().map(String::as_str) {
+        Some("select-vocal-english" | "select-vocal-pitch") => {
+            ensure!(
+                args.len() == 4,
+                "select-vocal-pitch (or select-vocal-english) INVENTORY EXPOSURE_HISTORY NEW_MANIFEST"
+            );
+            let inventory = std::fs::read(&args[1])?;
+            let history = std::fs::read(&args[2])?;
+            let mut selection = vocal::select(
+                &serde_json::from_slice(&inventory)?,
+                &serde_json::from_slice(&history)?,
+                args[0] == "select-vocal-english",
+            )?;
+            selection["inventory_sha256"] = serde_json::json!(sha(&inventory));
+            selection["exposure_history_sha256"] = serde_json::json!(sha(&history));
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&args[3])?
+                .write_all(&serde_json::to_vec_pretty(&selection)?)?;
+        }
         Some("select-fresh") => {
             ensure!(
                 args.len() == 4,
@@ -83,7 +133,7 @@ fn main() -> Result<()> {
                 serde_json::json!({"songs":6,"manifest":args[3],"note_values_read":false})
             );
         }
-        Some("prepare-heldout") => {
+        Some("prepare-heldout") | Some("prepare-vocal-selection") => {
             ensure!(
                 args.len() == 3,
                 "prepare-heldout FROZEN_BATCH NEW_DIRECTORY"
@@ -98,7 +148,11 @@ fn main() -> Result<()> {
             ensure!(!destination.exists(), "refusing existing batch directory");
             // Verify every original identity before creating any output.
             for song in songs {
-                ensure!(song["split"] == "held_out", "non-held-out entry");
+                ensure!(
+                    song["split"] == "held_out"
+                        || (args[0] == "prepare-vocal-selection" && song["split"] == "development"),
+                    "invalid selection split"
+                );
                 let path = song["archive"].as_str().context("missing archive path")?;
                 ensure!(
                     Archive::open(Path::new(path))?.sha256 == song["archive_sha256"],
@@ -109,7 +163,12 @@ fn main() -> Result<()> {
             let executable = std::env::current_exe()?;
             for (index, song) in songs.iter().enumerate() {
                 let path = song["archive"].as_str().unwrap();
-                let output = destination.join(format!("heldout-{:02}", index + 1));
+                let prefix = if args[0] == "prepare-vocal-selection" {
+                    "case"
+                } else {
+                    "heldout"
+                };
+                let output = destination.join(format!("{prefix}-{:02}", index + 1));
                 ensure!(
                     std::process::Command::new(&executable)
                         .arg("extract")

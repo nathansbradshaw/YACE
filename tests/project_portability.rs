@@ -90,6 +90,7 @@ fn write(root: &Path, files: &Files) {
 }
 
 #[test]
+#[cfg(any(feature = "editor", feature = "browser"))]
 fn imported_unedited_project_can_make_its_first_checkpoint_and_undo() {
     let temp = tempfile::tempdir().unwrap();
     let (original, _) = fixture(temp.path());
@@ -126,6 +127,7 @@ fn imported_unedited_project_can_make_its_first_checkpoint_and_undo() {
 fn relocated_stems_and_content_addressed_history_survive_undo_and_redo() {
     let temp = tempfile::tempdir().unwrap();
     let (store, stem) = fixture(temp.path());
+    let stem_hash = models::hash_file(&stem).unwrap();
     let original = store.load().unwrap();
     let mut files = bundle(&store, &stem);
     let original_files = files.clone();
@@ -142,15 +144,9 @@ fn relocated_stems_and_content_addressed_history_survive_undo_and_redo() {
     assert_eq!(doc.audit.len(), original.audit.len());
     assert_eq!(doc.undo.len(), 3);
     assert_ne!(doc.undo, original.undo);
-    assert_eq!(
-        doc.content.stems.as_ref().unwrap().stems[0].path,
-        output.join(
-            original.content.stems.as_ref().unwrap().stems[0]
-                .path
-                .strip_prefix(&store.root)
-                .unwrap()
-        )
-    );
+    let retained = &doc.content.stems.as_ref().unwrap().stems[0].path;
+    assert!(retained.starts_with(&output));
+    assert_eq!(models::hash_file(retained).unwrap(), stem_hash);
     doc.content
         .stems
         .as_ref()

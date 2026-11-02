@@ -39,6 +39,20 @@ pub fn prepare_model(
     control: &Control,
 ) -> Result<PathBuf> {
     let asset = language.asset();
+    prepare_asset(dir, download, &asset, control)
+}
+
+fn prepare_asset(
+    dir: &Path,
+    download: bool,
+    asset: &models::ModelAsset,
+    control: &Control,
+) -> Result<PathBuf> {
+    let size_mb = match asset.id.as_str() {
+        "lyrics-large-v3" => 1081,
+        "lyrics-large-v3-turbo" => 574,
+        _ => 190,
+    };
     let resolved =
         models::optional_model_directory(dir, Path::new(""), &[asset.filename.as_str()])?;
     let dir = resolved.as_path();
@@ -59,7 +73,8 @@ pub fn prepare_model(
     }
     ensure!(
         download,
-        "Selected lyric model is missing; allow its one-time download (about 190 MB)"
+        "Selected lyric model {} is missing; allow its one-time download (about {size_mb} MB)",
+        asset.filename
     );
     fs::create_dir_all(dir)?;
     let client = reqwest::blocking::Client::builder()
@@ -67,7 +82,10 @@ pub fn prepare_model(
         .timeout(Duration::from_secs(900))
         .user_agent("chart-engine/0.1")
         .build()?;
-    control.update("Downloading the selected lyric model (190 MB, once)…");
+    control.update(format!(
+        "Downloading {} (about {size_mb} MB, once)…",
+        asset.filename
+    ));
     let mut response = client.get(&asset.url).send()?.error_for_status()?;
     let mut stage = tempfile::NamedTempFile::new_in(dir)?;
     let mut buffer = [0u8; 65536];
@@ -81,7 +99,7 @@ pub fn prepare_model(
         stage.write_all(&buffer[..count])?;
         received += count as u64;
         control.update(format!(
-            "Downloading the selected lyric model: {:.1} / 190 MB…",
+            "Downloading the selected lyric model: {:.1} / {size_mb} MB…",
             received as f64 / 1_000_000.
         ));
     }
@@ -164,6 +182,25 @@ pub fn detect_language(
     control: Arc<Control>,
     language: crate::lyric_language::Language,
 ) -> Result<Detection> {
+    detect_profile(
+        request,
+        policy,
+        mode,
+        control,
+        language,
+        crate::lyric_language::RecognitionProfile::Small,
+    )
+}
+
+/// Explicit local research comparison; does not change production profiles.
+pub fn detect_profile(
+    request: Request<'_>,
+    policy: &CleanPolicy,
+    mode: CleanMode,
+    control: Arc<Control>,
+    language: crate::lyric_language::Language,
+    profile: crate::lyric_language::RecognitionProfile,
+) -> Result<Detection> {
     policy.validate()?;
     control.check()?;
     control.update("Reading the recording…");
@@ -195,12 +232,8 @@ pub fn detect_language(
     } else {
         (request.audio, source_hash.clone())
     };
-    let model_path = prepare_model(
-        request.model_dir,
-        request.download_model,
-        language,
-        &control,
-    )?;
+    let asset = language.research_asset(profile);
+    let model_path = prepare_asset(request.model_dir, request.download_model, &asset, &control)?;
     control.check()?;
     control.update("Preparing local lyric recognition…");
     let samples = models::decode(input, 16000, 1)?;
@@ -299,7 +332,6 @@ pub fn detect_language(
             no_speech_probability: segment.no_speech_probability(),
         });
     }
-    let asset = language.asset();
     let model_hash = asset.sha256;
     let detected_language = whisper_rs::get_lang_str(state.full_lang_id_from_state())
         .context("Recognition returned no language")?

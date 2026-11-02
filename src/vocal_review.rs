@@ -71,6 +71,8 @@ pub struct VocalReviewMap {
     pub report_sha256: String,
     pub generated_chart_sha256: String,
     pub regions: Vec<VocalReviewRegion>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub note_evidence: Vec<crate::vocal_generation::NoteEvidence>,
 }
 impl VocalReviewMap {
     fn region_id(report: &str, index: usize, region: &VocalReviewRegion) -> Result<String> {
@@ -146,6 +148,7 @@ impl VocalReviewMap {
             })
             .collect::<Result<Vec<_>>>()?;
         let map = Self {
+            note_evidence: report.note_evidence.clone(),
             version: 1,
             audio_sha256: report.audio_sha256.clone(),
             vocal_stem_sha256: report.vocal_stem_sha256.clone(),
@@ -159,6 +162,17 @@ impl VocalReviewMap {
         Ok(map)
     }
     pub fn validate(&self) -> Result<()> {
+        ensure!(
+            self.note_evidence.len() <= 200_000
+                && self.note_evidence.iter().all(|e| e.start < e.end
+                    && (36..=84).contains(&e.selected_midi)
+                    && e.alternatives.len() <= 49
+                    && e.alternatives.iter().all(|p| (36..=84).contains(p))
+                    && e.support.len() <= 7
+                    && e.reasons.len() <= 16
+                    && e.reasons.iter().all(|r| r.len() <= 4096)),
+            "Invalid per-note vocal evidence"
+        );
         ensure!(
             self.version == 1 && self.duration_seconds.is_finite() && self.duration_seconds > 0.,
             "Invalid vocal review version or duration"
@@ -237,6 +251,22 @@ impl VocalReviewMap {
             );
         }
         Ok(())
+    }
+
+    pub fn evidence_for(
+        &self,
+        project: &Project,
+        timing: &TempoMap,
+        note: &crate::vocals::VocalNote,
+    ) -> Option<&crate::vocal_generation::NoteEvidence> {
+        self.validate_binding(project).ok()?;
+        self.validate_timing(timing, true).ok()?;
+        let crate::vocals::VocalTone::Pitched { midi } = note.tone else {
+            return None;
+        };
+        self.note_evidence
+            .iter()
+            .find(|e| e.start == note.start && e.end == note.end && e.selected_midi == midi)
     }
     pub fn validate_timing(&self, timing: &TempoMap, automated: bool) -> Result<()> {
         if let Some(recorded) = &self.timing {

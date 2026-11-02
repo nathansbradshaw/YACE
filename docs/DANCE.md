@@ -37,7 +37,7 @@ not in simfile note symbols. Chart edits invalidate matching review decisions.
 
 ## Files and recovery
 
-**Save project ZIP** from the project menu preserves the version-2 StepMania document, stable chart and
+**Save/download project backup** from the project menu preserves the version-2 StepMania document, stable chart and
 note IDs, immutable simfile text, SHA-256-bound source assets, undo/redo, foot
 labels, review notes and audit entries. Reopening verifies source hashes.
 

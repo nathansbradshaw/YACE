@@ -24,7 +24,8 @@ pub fn read(root: &Path) -> Result<Files> {
             );
             let name = path
                 .strip_prefix(root)?
-                .to_string_lossy()
+                .to_str()
+                .context("Source filenames must be valid UTF-8; originals are unchanged")?
                 .replace('\\', "/");
             files.insert(name, fs::read(path)?);
         }
@@ -115,5 +116,17 @@ mod tests {
         fs::write(temp.path().join("real"), b"data").unwrap();
         std::os::unix::fs::symlink(temp.path().join("real"), temp.path().join("link")).unwrap();
         assert!(read(temp.path()).is_err());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn source_names_cannot_be_lossily_renamed() {
+        use std::os::unix::ffi::OsStringExt;
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp
+            .path()
+            .join(std::ffi::OsString::from_vec(b"art\xff.png".to_vec()));
+        fs::write(&file, b"original").unwrap();
+        assert!(read(temp.path()).unwrap_err().to_string().contains("UTF-8"));
+        assert_eq!(fs::read(file).unwrap(), b"original");
     }
 }

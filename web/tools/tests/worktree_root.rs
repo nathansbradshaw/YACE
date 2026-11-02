@@ -1,9 +1,7 @@
 use std::{
     fs,
-    io::{BufRead, BufReader, Read, Write},
-    net::{TcpListener, TcpStream},
     path::PathBuf,
-    process::{Child, Command, Stdio},
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -13,16 +11,9 @@ impl Drop for Fixture {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
-struct Server(Child);
-impl Drop for Server {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
 
 #[test]
-fn one_cached_executable_serves_the_selected_worktree_not_its_compile_directory() {
+fn one_cached_executable_resolves_the_selected_worktree_without_starting_a_server() {
     let base = Fixture(std::env::temp_dir().join(format!(
             "yace-worktree-test-{}-{}",
             std::process::id(),
@@ -40,35 +31,38 @@ fn one_cached_executable_serves_the_selected_worktree_not_its_compile_directory(
         fs::write(root.join("web/index.html"), "").unwrap();
         fs::write(root.join("src/editor.rs"), "").unwrap();
         fs::write(root.join("web/dist/index.html"), name).unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        let mut server = Server(
-            Command::new(env!("CARGO_BIN_EXE_yace-static-web"))
+        let result = Command::new(env!("CARGO_BIN_EXE_yace-static-web"))
+            .current_dir(&root)
+            .env_remove("YACE_SOURCE_ROOT")
+            .args(["serve", "3030", "--check"])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let output = String::from_utf8(result.stdout).unwrap();
+        assert!(
+            output.contains(
+                &root
+                    .join("web/dist")
+                    .canonicalize()
+                    .unwrap()
+                    .display()
+                    .to_string()
+            )
+        );
+        assert!(output.contains("No server started"));
+        for port in ["0", "3031", "3033", "3037", "3049", "46871"] {
+            let rejected = Command::new(env!("CARGO_BIN_EXE_yace-static-web"))
                 .current_dir(&root)
                 .env_remove("YACE_SOURCE_ROOT")
-                .args(["serve", &port.to_string()])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::inherit())
-                .spawn()
-                .unwrap(),
-        );
-        let mut ready = String::new();
-        let mut output = BufReader::new(server.0.stdout.take().unwrap());
-        output.read_line(&mut ready).unwrap();
-        assert!(
-            ready.contains(&format!(":{port}/")),
-            "server did not start: {ready}"
-        );
-        let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
-        stream
-            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-            .unwrap();
-        let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
-        assert!(
-            response.ends_with(name),
-            "cached tool served a different worktree for {name}"
-        );
+                .args(["serve", port, "--check"])
+                .output()
+                .unwrap();
+            assert!(!rejected.status.success());
+            assert!(String::from_utf8_lossy(&rejected.stderr).contains("not allowed"));
+        }
     }
 }

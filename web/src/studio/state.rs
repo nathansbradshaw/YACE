@@ -37,6 +37,7 @@ pub struct Studio {
     pub saved_projects: Signal<Option<Vec<crate::chart_library::Entry>>>,
     pub export_ready: Signal<Option<(PathBuf, String, DownloadKind)>>,
     pub export_busy: Signal<bool>,
+    pub export_open: Signal<bool>,
     pub doc: Signal<Option<Arc<Project>>>,
     pub store: Signal<Option<Store>>,
     pub timing: Signal<Option<TempoMap>>,
@@ -61,6 +62,7 @@ pub struct Studio {
     pub waveforms: Signal<Option<Arc<ReviewWaveforms>>>,
     pub source_audio: Signal<Option<PathBuf>>,
     pub guitar_source: Signal<crate::mapping::GuitarSource>,
+    pub synth_reference: Signal<bool>,
     pub album_art: Signal<Option<String>>,
     pub collaboration_open: Signal<bool>,
     pub parts_open: Signal<bool>,
@@ -100,6 +102,7 @@ pub fn use_studio() -> Studio {
         saved_projects: use_signal(|| None),
         export_ready: use_signal(|| None),
         export_busy: use_signal(|| false),
+        export_open: use_signal(|| false),
         doc: use_signal(|| None),
         store: use_signal(|| None),
         timing: use_signal(|| None),
@@ -124,6 +127,7 @@ pub fn use_studio() -> Studio {
         waveforms: use_signal(|| None),
         source_audio: use_signal(|| None),
         guitar_source: use_signal(Default::default),
+        synth_reference: use_signal(|| false),
         album_art: use_signal(|| None),
         collaboration_open: use_signal(|| false),
         parts_open: use_signal(|| false),
@@ -225,6 +229,17 @@ impl Studio {
             .unwrap_or_else(|| store.load().map(Arc::new));
         match snapshot {
             Ok(doc) => {
+                let reference_changed = self.doc.peek().as_ref().is_none_or(|old| {
+                    old.selected_track != doc.selected_track
+                        || old.audio_sha256 != doc.audio_sha256
+                        || old.content.keyboard_stems != doc.content.keyboard_stems
+                        || old.content.stems != doc.content.stems
+                        || serde_json::to_value(&old.content.track_origins).ok()
+                            != serde_json::to_value(&doc.content.track_origins).ok()
+                });
+                if reference_changed {
+                    self.synth_reference.set(store.synth_reference(&doc));
+                }
                 let source_audio = match doc
                     .has_recording()
                     .then(|| store.audio_path(&doc))
@@ -1140,6 +1155,7 @@ impl Studio {
             .then(|| store.audio_path(&doc))
             .transpose()?;
         let guitar_source = store.guitar_source(&doc)?;
+        let synth_reference = store.synth_reference(&doc);
         self.epoch.set((self.epoch)().wrapping_add(1));
         let epoch = (self.epoch)();
         self.status.set("Preparing browser audio…".into());
@@ -1166,6 +1182,7 @@ impl Studio {
         self.timing_open.set(false);
         self.source_audio.set(source_audio);
         self.guitar_source.set(guitar_source);
+        self.synth_reference.set(synth_reference);
         self.group.set(Default::default());
         self.vocal_note.set(None);
         self.sections_open.set(false);
@@ -1190,6 +1207,14 @@ impl Studio {
         Ok(())
     }
     pub fn export_dialog(mut self) {
+        self.export_open.set(true);
+    }
+    pub fn export_selected(
+        mut self,
+        options: crate::export_options::Options,
+        root: PathBuf,
+        revision: u64,
+    ) {
         if (self.export_busy)() {
             return;
         }
@@ -1198,6 +1223,11 @@ impl Studio {
             let result = async {
                 let store = self.store.read().clone().context("Open a project")?;
                 let doc = self.snapshot().context("Open a project")?;
+                ensure!(
+                    store.root == root && doc.revision == revision,
+                    "The project changed; reopen Export"
+                );
+                options.selected(&store, &doc)?;
                 let name = format!("{} reviewed.zip", self.metadata_value("name"));
                 let output = PathBuf::from(format!("/exports/{}", js_sys::Date::now() as u64));
                 self.status
@@ -1206,13 +1236,14 @@ impl Studio {
                     kind: ActorKind::Human,
                     name: (self.reviewer)(),
                 };
-                let task = if doc.has_recording() {
+                let task = if doc.has_recording() && options.include_audio {
                     crate::worker::Task::Export {
                         root: store.root.clone(),
                         project: Box::new(doc.as_ref().clone()),
                         audio: store.audio_path(&doc)?,
                         output: output.clone(),
                         actor,
+                        options,
                     }
                 } else {
                     crate::worker::Task::ExportChartOnly {
@@ -1220,6 +1251,7 @@ impl Studio {
                         project: Box::new(doc.as_ref().clone()),
                         output: output.clone(),
                         actor,
+                        options,
                     }
                 };
                 let _: () = crate::worker::run_with_progress(
@@ -1232,6 +1264,7 @@ impl Studio {
                 )
                 .await?;
                 let archive = output.with_extension("zip");
+                self.export_open.set(false);
                 if let Some((previous, _, _)) =
                     self.export_ready
                         .replace(Some((archive, name, DownloadKind::Song)))

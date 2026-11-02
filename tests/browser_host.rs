@@ -15,18 +15,19 @@ impl Drop for Host {
 #[test]
 fn browser_host_requires_session_same_origin_and_bounded_upload_paths() {
     let workspace = tempfile::tempdir().unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_yace-browser"))
+    let child = Command::new(env!("CARGO_BIN_EXE_yace-browser"))
         .args(["serve", "--workspace"])
         .arg(workspace.path())
         .args(["--port", "0"])
+        .env("YACE_HTTP_TEST_FIXTURE", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
         .unwrap();
-    let mut output = BufReader::new(child.stdout.take().unwrap());
+    let mut host = Host(child);
+    let mut output = BufReader::new(host.0.stdout.take().unwrap());
     let mut line = String::new();
     output.read_line(&mut line).unwrap();
-    let _host = Host(child);
     let url = line
         .trim()
         .strip_prefix("YACE browser editor: ")

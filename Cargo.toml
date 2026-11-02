@@ -18,6 +18,11 @@ required-features = ["browser"]
 name = "separation-preview"
 required-features = ["separation"]
 
+[[bin]]
+name = "vocal-research"
+path = "src/bin/vocal-research.rs"
+required-features = ["vocal-alignment"]
+
 [features]
 default = ["separation", "editor", "vocal-alignment"]
 vocal-alignment = ["dep:practice-acoustic", "dep:whatlang"]

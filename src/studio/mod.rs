@@ -10,6 +10,7 @@ mod dance;
 mod diagnostics;
 mod dialogs;
 mod difficulty;
+mod export;
 mod frame_pacing;
 mod game_preview;
 mod generation;
@@ -154,9 +155,10 @@ pub(crate) fn App() -> Element {
             onkeydown: move |event| { if dance::active(){dance::handle(event);}else{shortcuts::handle(studio,event);} },
             project_bar::ProjectBar { studio }
             if dance::active() { dance::Workbench {} } else if doc.is_some() { workspace::Workbench { studio } } else { welcome::Welcome { studio } }
-            div {class:"studio-status",span{title: studio.audio_details(), "{studio.status}"} if let Some(doc)=doc {span{title: "Revision {doc.revision} · {doc.selected_track}", "Saved · {state::instrument(&doc.selected_track)}"}}}
+            div {class:"studio-status",span{title: studio.audio_details(), "{studio.status}"} if let Some(status)=dance::save_status(){span{"{status}"}}else if let Some(doc)=doc {span{title: "Revision {doc.revision} · {doc.selected_track}", "Saved · {state::instrument(&doc.selected_track)}"}}}
             if let Some(error)=(studio.error)(){div {class:"studio-error",role:"alert",span{"{error}"}button{onclick:move |_|{let mut s=studio;s.error.set(None)},"Dismiss"}}}
             if (studio.review_open)(){review::ReviewPanel{studio}}
+            if (studio.export_open)(){export::ExportDialog{studio}}
             if (studio.parts_open)(){parts::PartsPanel{studio}}
             clean::CleanPanel{studio}
         }
