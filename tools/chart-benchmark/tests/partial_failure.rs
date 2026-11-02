@@ -124,6 +124,7 @@ fn vocal_stage_failure_retains_source_bound_band_artifact_and_never_scores_parti
     let oracle = temp.path().join("oracle");
     chart_benchmark::prepare(&case, &oracle).unwrap();
     let report = Generation {
+        note_evidence: vec![],
         version: 1,
         audio_sha256: hash_file(&case.join("source.wav")).unwrap(),
         vocal_stem_sha256: hash_file(&oracle.join("vocals.wav")).unwrap(),

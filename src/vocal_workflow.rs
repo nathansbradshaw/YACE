@@ -35,6 +35,7 @@ fn optional_vocal_pitch_model(
 }
 
 pub struct ProjectRequest<'a> {
+    pub analysis_mode: vocal_generation::AnalysisMode,
     pub project: &'a Path,
     pub model_dir: &'a Path,
     pub recognize: bool,
@@ -124,6 +125,7 @@ pub fn generate_project(
     let output = job.join("proposal");
     let result = generate(
         Request {
+            analysis_mode: request.analysis_mode,
             audio: &audio,
             manifest: &job.join("isolation.json"),
             timing: &timing,
@@ -172,6 +174,7 @@ pub fn generate_project(
 }
 
 pub struct Request<'a> {
+    pub analysis_mode: vocal_generation::AnalysisMode,
     pub audio: &'a Path,
     pub manifest: &'a Path,
     pub timing: &'a TempoMap,
@@ -272,22 +275,29 @@ pub fn generate(
     let acoustic_words = acoustic.as_ref().map(|result| &result.words);
     #[cfg(not(feature = "vocal-alignment"))]
     let acoustic_words: Option<&clean::WordTimings> = None;
+    let mut recognition_warning = None;
     let recognition = if request.recognize && acoustic_words.is_none() {
-        Some(
-            clean_recognition::detect_language(
-                clean_recognition::Request {
-                    audio: request.audio,
-                    model_dir: request.model_dir,
-                    download_model: request.download_model,
-                    vocal_stem: Some((&stem.path, &alignment)),
-                },
-                &clean::CleanPolicy::default(),
-                clean::CleanMode::FullMix,
-                control.clone(),
-                request.language,
-            )?
-            .recognition,
-        )
+        match clean_recognition::detect_language(
+            clean_recognition::Request {
+                audio: request.audio,
+                model_dir: request.model_dir,
+                download_model: request.download_model,
+                vocal_stem: Some((&stem.path, &alignment)),
+            },
+            &clean::CleanPolicy::default(),
+            clean::CleanMode::FullMix,
+            control.clone(),
+            request.language,
+        ) {
+            Ok(result) => Some(result.recognition),
+            Err(error) => {
+                ensure!(!control.is_cancelled(), "Vocal generation cancelled");
+                recognition_warning = Some(format!(
+                    "Optional lyric recognition unavailable: {error:#}. Acoustic pitch generation continued; lyrics remain unknown."
+                ));
+                None
+            }
+        }
     } else {
         None
     };
@@ -346,12 +356,18 @@ pub fn generate(
             timing: request.timing,
             words,
             lyrics: request.lyrics,
-            policy: &Policy::default(),
+            policy: &Policy {
+                analysis_mode: request.analysis_mode,
+                ..Policy::default()
+            },
             neural_pitch: neural_pitch.as_ref(),
             vocal_pitch: vocal_pitch.as_ref(),
         },
         &|| control.is_cancelled(),
     )?;
+    if let Some(warning) = recognition_warning {
+        result.warnings.push(warning);
+    }
     if request.recognize && request.language != crate::lyric_language::Language::English {
         result.warnings.push("Multilingual recognition supplies word estimates without the English-only acoustic aligner. Spanish singing, rapid syllables, rap and language changes still need word/pitch review; uncertain pitch is never automatically converted to unpitched rap.".into());
     }

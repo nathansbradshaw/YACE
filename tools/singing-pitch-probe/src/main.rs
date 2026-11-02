@@ -11,6 +11,7 @@ use std::{
     process::{Command, Stdio},
     time::Instant,
 };
+mod rmvpe;
 
 const RATE: usize = 16000;
 const HOP: usize = 160;
@@ -23,23 +24,26 @@ const REVISION: &str = "946f80e7f61fb78c72a037beac46b8b2dc3892bc";
 #[allow(clippy::excessive_precision)]
 const CREPE_CENTS_OFFSET: f64 = 1997.3794084376191;
 
-#[derive(Clone, Copy, Debug, ValueEnum, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Model {
     Full,
     Tiny,
+    Rmvpe,
 }
 impl Model {
     fn id(self) -> &'static str {
         match self {
             Self::Full => "crepe-full-onnx-v1.1.0",
             Self::Tiny => "crepe-tiny-onnx-v1.1.0",
+            Self::Rmvpe => "rmvpe-rvc-onnx-experimental",
         }
     }
     fn sha(self) -> &'static str {
         match self {
             Self::Full => "119845c72c702e052e5262430f9d120bce46176689aa226c39d09dea5cc3a610",
             Self::Tiny => "91fc2a0fd10f965dbf7775995daf50e99273caedd7efd00001f23be649da1bc3",
+            Self::Rmvpe => "5370e71ac80af8b4b7c793d27efd51fd8bf962de3a7ede0766dac0befa3660fd",
         }
     }
     fn url(self) -> &'static str {
@@ -49,6 +53,9 @@ impl Model {
             }
             Self::Tiny => {
                 "https://github.com/yqzhishen/onnxcrepe/releases/download/v1.1.0/tiny.onnx"
+            }
+            Self::Rmvpe => {
+                "https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/e6d0c1a17da07c33557852f9dfa2bd44cc75737d/rmvpe.onnx"
             }
         }
     }
@@ -124,6 +131,7 @@ struct Evidence {
 fn implementation_hash() -> String {
     let mut digest = Sha256::new();
     digest.update(include_bytes!("main.rs"));
+    digest.update(include_bytes!("rmvpe.rs"));
     digest.update(include_bytes!("../Cargo.toml"));
     digest.update(include_bytes!("../Cargo.lock"));
     format!("{:x}", digest.finalize())
@@ -279,19 +287,22 @@ fn infer(pcm: &[f32], model: Model, model_path: &Path, stage: &Path) -> Result<E
     );
     let mut salience_hash = Sha256::new();
     let mut observed = [f32::INFINITY, f32::NEG_INFINITY];
-    for start in (0..count).step_by(BATCH) {
-        let end = (start + BATCH).min(count);
-        let values: Vec<_> = (start..end).flat_map(|i| extract_frame(pcm, i)).collect();
-        let input = Tensor::from_array(([end - start, WINDOW], values.into_boxed_slice()))?;
-        let output = session.run(ort::inputs!["frames" => input])?;
-        let (shape, values) = output[0].try_extract_tensor::<f32>()?;
-        ensure!(
-            shape.len() == 2
-                && shape[0] == (end - start) as i64
-                && shape[1] == 360
-                && values.len() == (end - start) * 360,
-            "Unexpected CREPE tensor contract"
-        );
+    let batch = if model == Model::Rmvpe { 3000 } else { BATCH };
+    for start in (0..count).step_by(batch) {
+        let end = (start + batch).min(count);
+        let values = if model == Model::Rmvpe {
+            rmvpe::infer(&mut session, pcm, start, end)?
+        } else {
+            let values: Vec<_> = (start..end).flat_map(|i| extract_frame(pcm, i)).collect();
+            let input = Tensor::from_array(([end - start, WINDOW], values.into_boxed_slice()))?;
+            let output = session.run(ort::inputs!["frames" => input])?;
+            let (shape, values) = output[0].try_extract_tensor::<f32>()?;
+            ensure!(
+                shape.len() == 2 && shape[0] == (end - start) as i64 && shape[1] == 360,
+                "Unexpected CREPE tensor contract"
+            );
+            values.to_vec()
+        };
         for (local, row) in values.chunks_exact(360).enumerate() {
             let (hz, confidence) = decode(row)?;
             let index = start + local;
@@ -304,7 +315,11 @@ fn infer(pcm: &[f32], model: Model, model_path: &Path, stage: &Path) -> Result<E
             };
             frames.push(Frame {
                 time_seconds: index as f64 * 0.010,
-                frequency_hz: hz,
+                frequency_hz: if model == Model::Rmvpe && confidence <= 0.03 {
+                    0.
+                } else {
+                    hz
+                },
                 confidence: confidence as f64,
                 local_rms: rms,
             });
@@ -337,7 +352,7 @@ fn infer(pcm: &[f32], model: Model, model_path: &Path, stage: &Path) -> Result<E
         version: 1,
         status: "raw_research_evidence_not_chart_notes".into(),
         model_id: model.id().into(),
-        model_revision: REVISION.into(),
+        model_revision: if model == Model::Rmvpe { "e6d0c1a17da07c33557852f9dfa2bd44cc75737d" } else { REVISION }.into(),
         model_sha256: model.sha().into(),
         model_url: model.url().into(),
         model_bytes: fs::metadata(model_path)?.len(),
@@ -349,11 +364,11 @@ fn infer(pcm: &[f32], model: Model, model_path: &Path, stage: &Path) -> Result<E
         window_samples: WINDOW,
         duration_seconds: pcm.len() as f64 / RATE as f64,
         decoder: "Original CREPE local salience-weighted mean +/-4 bins; no second sigmoid, dither, Viterbi or confidence calibration".into(),
-        padding: "Centered 1024 samples, zero outside source, first frame at 0, exact 10ms hop, EOF frame retained when sample count is divisible by hop".into(),
-        normalization: "Z-score embedded in pinned ONNX; raw amplitude input".into(),
+        padding: if model==Model::Rmvpe { "Centered reflect STFT; 30s chunks with 1s context each side; mel frames zero-padded to multiple of 32; no time offset. Chunked recurrent inference is experimental." } else { "Centered 1024 samples, zero outside source, first frame at 0, exact 10ms hop, EOF frame retained when sample count is divisible by hop" }.into(),
+        normalization: if model==Model::Rmvpe { "16kHz; periodic Hann1024/hop160; magnitude HTK128 mel30..8000Hz; Slaney area normalization; ln(max(x,1e-5)); unvoiced when max salience<=0.03" } else { "Z-score embedded in pinned ONNX; raw amplitude input" }.into(),
         confidence_meaning: "Maximum model salience, not probability of correct lead singing; nonvoice periodic signals can receive high confidence".into(),
         threads: 2,
-        batch_frames: BATCH,
+        batch_frames: batch,
         observed_salience_range: observed.map(f64::from),
         salience_file: "salience.f32le".into(),
         salience_shape: [count, 360],

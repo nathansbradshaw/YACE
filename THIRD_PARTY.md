@@ -35,6 +35,15 @@ Research-only source checkouts and private recordings are not included.
 
 ## Intentional port changes
 
+The optional Rust singing-pitch probe additionally translates RMVPE mel/decoder
+conventions from RVC revision `81eed5e8f68b6bed1789f682fe78cdd324495afc`.
+Its original MIT notice is retained in
+`tools/singing-pitch-probe/licenses/RVC-MIT.txt`. Research model source/revision,
+checksums, preprocessing and separate weight-term limitations are recorded in
+[vocal research documentation](docs/VOCAL_ACCURACY.md) and the
+[probe README](tools/singing-pitch-probe/README.md). Research weights are neither
+bundled nor selected by production generation.
+
 The static client also uses the same MPL-2.0 `practice-acoustic` Rust model and
 patched Candle CPU implementation for optional English supplied-lyric alignment.
 The filesystem-free model constructor preserves the desktop decoder. Complete

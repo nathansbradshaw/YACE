@@ -610,7 +610,7 @@ fn align_candidate(
         let peaks_mean = (!letter_peaks.is_empty())
             .then(|| letter_peaks.iter().sum::<f32>() / letter_peaks.len() as f32);
         let reason = if target.unsupported {
-            Some("Word contains characters outside the English acoustic vocabulary")
+            Some("Word contains characters outside the selected acoustic vocabulary")
         } else if !all_letters || observations.is_empty() {
             Some("Not every lyric letter has an acoustic alignment")
         } else if !mean.is_some_and(|mean| mean.is_finite() && mean.exp() >= 0.01)
@@ -820,6 +820,50 @@ mod tests {
             .into_iter()
             .map(|(s, i)| (s.into(), i))
             .collect()
+    }
+    #[test]
+    fn spanish_vocabulary_preserves_accents_enye_and_repeated_words() {
+        let vocabulary: HashMap<String, usize> = ["<pad>", "|", "n", "i", "ñ", "o", "s", "í"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, s)| (s.into(), i))
+            .collect();
+        let tokens = [
+            0, 0, 2, 2, 3, 3, 4, 4, 5, 5, 1, 1, 6, 6, 7, 7, 1, 1, 6, 6, 7, 7, 0, 0,
+        ];
+        let rows: Vec<_> = tokens
+            .iter()
+            .map(|&token| {
+                let mut row = vec![-9.; 8];
+                row[token] = -0.01;
+                row
+            })
+            .collect();
+        let lyrics = LyricSource {
+            text: "niño sí sí".into(),
+            source: "Known synthetic Spanish CTC path".into(),
+            synced_lyrics: None,
+        };
+        let (words, diagnostics) =
+            align_emissions(&rows, &vocabulary, &lyrics, &"a".repeat(64), 0.48, &|| {
+                false
+            })
+            .unwrap();
+        assert_eq!(
+            words
+                .words
+                .iter()
+                .map(|w| w.text.as_deref().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["niño", "sí", "sí"]
+        );
+        assert!(diagnostics.iter().all(|d| !d.uncertain));
+        assert!(
+            words
+                .words
+                .windows(2)
+                .all(|pair| pair[0].end.unwrap() <= pair[1].start.unwrap())
+        );
     }
     fn emissions(tokens: &[usize]) -> Vec<Vec<f32>> {
         tokens

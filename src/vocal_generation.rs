@@ -16,11 +16,31 @@ use std::path::Path;
 const RATE: usize = 22050;
 const WINDOW: usize = 2048;
 const HOP: usize = 220;
-pub const ALGORITHM: &str = "rust-yin-mcleod-v7; pitch-first-missing-lyrics; recognition-preserving-ordered-lyrics; 22050Hz; centered2048; hop220; consensus0.55semitone; optional-source-hop-energy-gate; anchored-YIN-recovery<=0.8s,period-correlation>=0.85,known-word,stable-dual-anchors; optional-neural-YIN-recovery-score0.6,agreement0.5semi,period0.75,nonharmonic-margin0.15,fundamental-contrast0.15; optional-SwiftF0-score0.8,word,local-energy,pairwise-DSP-veto0.55semi,stable3of5within0.7semi,period0.75,fundamental-contrast0.15; median5; no-transposition; source-time; same-word-slide-only-contiguous<=1tick; explicit-continue-word-across-gaps; short-word-fragment-and-coverage-boundary-flags";
+#[path = "vocal_acoustics.rs"]
+mod acoustics;
+pub const ALGORITHM: &str = "rust-yin-mcleod-v8; acoustic-recovery-independent-of-lyrics; 22050Hz; centered2048; hop220; consensus0.55semitone; local-energy; anchored-YIN-period0.85; neural-YIN-score0.6-margin0.15-period0.75; SwiftF0-score0.8-stable3of5-period0.75; median5; high-accuracy-experimental-acoustic-boundaries-and-flagged-alternatives; no-transposition; source-time";
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(not(target_arch = "wasm32"), derive(clap::ValueEnum))]
+#[serde(rename_all = "snake_case")]
+pub enum AnalysisMode {
+    #[default]
+    Standard,
+    /// Experimental acoustic segmentation and supported disagreement proposals.
+    /// This label is a requested processing mode, not a measured quality claim.
+    HighAccuracy,
+}
+impl AnalysisMode {
+    pub fn is_standard(&self) -> bool {
+        *self == Self::Standard
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(try_from = "PolicyWire")]
 pub struct Policy {
+    #[serde(default, skip_serializing_if = "AnalysisMode::is_standard")]
+    pub analysis_mode: AnalysisMode,
     pub minimum_note_seconds: f64,
     pub phrase_gap_seconds: f64,
     pub maximum_phrase_seconds: f64,
@@ -40,6 +60,8 @@ pub struct Policy {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PolicyWire {
+    #[serde(default)]
+    analysis_mode: AnalysisMode,
     minimum_note_seconds: f64,
     phrase_gap_seconds: f64,
     maximum_phrase_seconds: f64,
@@ -61,6 +83,7 @@ impl TryFrom<PolicyWire> for Policy {
             return Err("Rejected experimental vocal policy requires its frozen research runner");
         }
         Ok(Self {
+            analysis_mode: w.analysis_mode,
             minimum_note_seconds: w.minimum_note_seconds,
             phrase_gap_seconds: w.phrase_gap_seconds,
             maximum_phrase_seconds: w.maximum_phrase_seconds,
@@ -74,6 +97,7 @@ impl TryFrom<PolicyWire> for Policy {
 impl Default for Policy {
     fn default() -> Self {
         Self {
+            analysis_mode: AnalysisMode::Standard,
             minimum_note_seconds: 0.080,
             phrase_gap_seconds: 0.65,
             maximum_phrase_seconds: 12.,
@@ -181,6 +205,19 @@ pub enum PitchSupport {
     AnchoredYin,
     NeuralYin,
     SwiftF0,
+    AcousticAlternative,
+}
+
+/// Source-bound sidecar data. The MIDI and editable note type stay unchanged.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NoteEvidence {
+    pub start: u64,
+    pub end: u64,
+    pub selected_midi: u8,
+    pub alternatives: Vec<u8>,
+    pub support: Vec<PitchSupport>,
+    pub uncertain: bool,
+    pub reasons: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -233,6 +270,8 @@ pub struct Generation {
     pub neural_pitch: Option<NeuralPitchEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vocal_pitch: Option<crate::vocal_pitch::Evidence>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub note_evidence: Vec<NoteEvidence>,
 }
 pub struct Request<'a> {
     pub audio: &'a Path,
@@ -410,7 +449,6 @@ fn centered_rms(signal: &[f32], center: usize, length: usize) -> f64 {
 #[derive(Default, Serialize)]
 struct SwiftStages {
     missing_consensus: usize,
-    known_word: usize,
     local_energy: usize,
     model_confident: usize,
     dsp_compatible: usize,
@@ -421,15 +459,12 @@ struct SwiftStages {
 fn recover_swift_frames(
     frames: &mut [PitchFrame],
     signal: &[f32],
-    words: Option<&WordTimings>,
+    _words: Option<&WordTimings>,
     evidence: &crate::vocal_pitch::Evidence,
     gate: f64,
     issues: &mut Vec<Issue>,
 ) -> SwiftStages {
     let mut stages = SwiftStages::default();
-    let Some(words) = words else {
-        return stages;
-    };
     if evidence.frames.is_empty() {
         return stages;
     }
@@ -438,15 +473,6 @@ fn recover_swift_frames(
             continue;
         }
         stages.missing_consensus += 1;
-        if !words.words.iter().any(|w| {
-            w.text.is_some()
-                && w.start
-                    .zip(w.end)
-                    .is_some_and(|(s, e)| s <= frame.time_seconds && frame.time_seconds < e)
-        }) {
-            continue;
-        }
-        stages.known_word += 1;
         let center = (frame.time_seconds * RATE as f64).round() as usize;
         if centered_rms(signal, center, HOP) < gate || frame.rms < gate {
             continue;
@@ -518,7 +544,7 @@ fn recover_swift_frames(
             frame.time_seconds,
             frame.time_seconds + HOP as f64 / RATE as f64,
             Reason::PitchDisagreement,
-            "SwiftF0 recovery: known word, source-frame energy, no raw DSP conflict, stable high-confidence model contour and direct fundamental-period support. Listening review remains required.",
+            "SwiftF0 recovery: source-frame energy, no raw DSP conflict, stable model contour and direct fundamental-period support. Words are not pitch evidence; listening review remains required.",
         );
         stages.recovered += 1;
     }
@@ -527,16 +553,13 @@ fn recover_swift_frames(
 
 /// Recover a bounded detector dropout, never an unanchored melody or an
 /// octave disagreement. Both ends must have stable consensus; each recovered
-/// frame additionally needs measured periodicity and known timed-word context.
+/// frame additionally needs measured periodicity and local source energy.
 fn recover_yin_gaps(
     frames: &mut [PitchFrame],
     signal: &[f32],
-    words: Option<&WordTimings>,
+    _words: Option<&WordTimings>,
     issues: &mut Vec<Issue>,
 ) {
-    let Some(words) = words else {
-        return;
-    };
     let trusted: Vec<_> = frames.iter().map(|frame| frame.midi).collect();
     let stable_anchor = |index: usize, pitch: f64| {
         let nearby = &trusted[index.saturating_sub(4)..(index + 5).min(trusted.len())];
@@ -584,15 +607,6 @@ fn recover_yin_gaps(
             {
                 continue;
             }
-            if !words.words.iter().any(|word| {
-                word.text.is_some()
-                    && word
-                        .start
-                        .zip(word.end)
-                        .is_some_and(|(a, b)| a <= frame.time_seconds && frame.time_seconds < b)
-            }) {
-                continue;
-            }
             let mut nearby: Vec<_> = frames[at.saturating_sub(2)..(at + 3).min(frames.len())]
                 .iter()
                 .filter_map(|f| f.yin_midi)
@@ -627,7 +641,7 @@ fn recover_yin_gaps(
             frame.time_seconds,
             frame.time_seconds + HOP as f64 / RATE as f64,
             Reason::PitchDisagreement,
-            "Recovered a brief YIN-only contour using stable dual-detector anchors, measured period correlation and timed-word context. McLeod did not provide a pitch; listening review remains required.",
+            "Recovered a brief YIN-only contour using stable dual-detector anchors and measured period correlation, independently of lyrics. McLeod did not provide a pitch; listening review remains required.",
         );
     }
 }
@@ -637,13 +651,10 @@ fn recover_yin_gaps(
 fn recover_neural_yin(
     frames: &mut [PitchFrame],
     signal: &[f32],
-    words: Option<&WordTimings>,
+    _words: Option<&WordTimings>,
     neural: &NeuralPitchEvidence,
     issues: &mut Vec<Issue>,
 ) {
-    let Some(words) = words else {
-        return;
-    };
     let mut pending = Vec::new();
     for (index, frame) in frames.iter().enumerate() {
         let Some(yin) = frame.yin_midi else {
@@ -653,12 +664,6 @@ fn recover_neural_yin(
             || frame.local_energy_active == Some(false)
             || frame.mcleod_midi.is_some()
             || !(35.5..84.5).contains(&yin)
-            || !words.words.iter().any(|w| {
-                w.text.is_some()
-                    && w.start
-                        .zip(w.end)
-                        .is_some_and(|(a, b)| a <= frame.time_seconds && frame.time_seconds < b)
-            })
         {
             continue;
         }
@@ -1036,15 +1041,61 @@ fn generate_pcm_cancellable(
             &mut issues,
         );
     }
-    let spans = pitch_spans(&frames, duration, policy.minimum_note_seconds);
-    let chart = chart_from_spans(
+    if policy.analysis_mode == AnalysisMode::HighAccuracy {
+        acoustics::recover_alternatives(&mut frames, signal, gate, &mut issues);
+    }
+    let spans = pitch_spans(
+        &frames,
+        duration,
+        policy.minimum_note_seconds,
+        policy.analysis_mode,
+    );
+    let acoustic_boundaries = policy.analysis_mode == AnalysisMode::HighAccuracy;
+    let mut chart = chart_from_spans(
         &spans,
         &frames,
-        aligned.as_ref(),
+        if acoustic_boundaries {
+            None
+        } else {
+            aligned.as_ref()
+        },
         &timing,
         policy,
         &mut issues,
     )?;
+    if acoustic_boundaries && let Some(chart) = &mut chart {
+        // Missing-lyric flags are recalculated after optional word attachment.
+        issues.retain(|issue| issue.reason != Reason::MissingLyrics);
+        acoustics::attach_words(chart, aligned.as_ref(), &timing, &mut issues);
+        for note in &chart.notes {
+            if note.lyric == Syllable::Missing {
+                issue(
+                    &mut issues,
+                    timing.seconds(note.start),
+                    timing.seconds(note.end),
+                    Reason::MissingLyrics,
+                    "Acoustic pitch retained without an unambiguous timed word; review or add the lyric.",
+                );
+            }
+        }
+        chart.validate()?;
+    }
+    let note_evidence = acoustics::note_evidence(chart.as_ref(), &frames, &timing);
+    for evidence in note_evidence.iter().filter(|e| e.uncertain) {
+        let start = timing.seconds(evidence.start);
+        let end = timing.seconds(evidence.end);
+        if !issues.iter().any(|i| {
+            i.reason == Reason::PitchDisagreement && i.start_seconds < end && start < i.end_seconds
+        }) {
+            issue(
+                &mut issues,
+                start,
+                end,
+                Reason::PitchDisagreement,
+                "This retained note has recovered, low-clarity or conflicting acoustic evidence. Inspect its pitch alternatives and compare the source before approving.",
+            );
+        }
+    }
     let status = if spans.is_empty() {
         Status::NoVoicedPitch
     } else if chart.as_ref().is_none_or(|chart| {
@@ -1058,6 +1109,9 @@ fn generate_pcm_cancellable(
         Status::ReviewRequired
     };
     let mut warnings = vec!["Automatic vocal pitch, word boundaries and breathing phrases are proposals. Unison/backing vocals, consonants and stem leakage need listening review; detector agreement is not musical acceptance.".into()];
+    if acoustic_boundaries {
+        warnings.push("High accuracy is experimental and has not passed the held-out musical quality gate. Acoustic note boundaries precede lyric attachment; supported uncertain notes are retained and flagged, including on export.".into());
+    }
     if chart.as_ref().is_some_and(|chart| {
         chart
             .notes
@@ -1089,6 +1143,7 @@ fn generate_pcm_cancellable(
         warnings,
         neural_pitch: neural.cloned(),
         vocal_pitch: vocal_pitch.cloned(),
+        note_evidence,
     })
 }
 
@@ -1096,6 +1151,7 @@ fn pitch_spans(
     frames: &[PitchFrame],
     duration: f64,
     minimum_note_seconds: f64,
+    mode: AnalysisMode,
 ) -> Vec<PitchedSpan> {
     // Smooth voiced frames to reduce vibrato and isolated pitch jumps.
     // Leave breaths and unvoiced frames empty.
@@ -1136,7 +1192,15 @@ fn pitch_spans(
         let end = (frame.time_seconds + hop / 2.).min(duration);
         if let Some(previous) = spans.last_mut()
             && previous.midi == midi
-            && start <= previous.end_seconds + 0.025
+            && start
+                <= previous.end_seconds
+                    + if mode == AnalysisMode::Standard {
+                        0.025
+                    } else {
+                        0.000001
+                    }
+            && !(mode == AnalysisMode::HighAccuracy
+                && acoustic_attack(frames, index, previous.start_seconds))
         {
             previous.end_seconds = end;
             previous.clarity = previous.clarity.min(frame.clarity);
@@ -1151,6 +1215,17 @@ fn pitch_spans(
     }
     spans.retain(|n| n.end_seconds - n.start_seconds >= minimum_note_seconds);
     spans
+}
+
+fn acoustic_attack(frames: &[PitchFrame], index: usize, note_start: f64) -> bool {
+    if index < 5 || frames[index].time_seconds - note_start < 0.080 {
+        return false;
+    }
+    let energy = |i: usize| frames[i].local_rms.unwrap_or(frames[i].rms);
+    let peak = (index.saturating_sub(15)..index.saturating_sub(2))
+        .map(energy)
+        .fold(0., f64::max);
+    energy(index - 1) < peak * 0.45 && energy(index) > energy(index - 1) * 1.8
 }
 
 /// Match provider lyrics to recognized words in order.
@@ -1944,7 +2019,7 @@ mod coverage_probes {
         assert!(error.to_string().contains("decoded source PCM"));
     }
     #[test]
-    fn swift_recovery_requires_acoustic_word_and_model_evidence_and_keeps_flags() {
+    fn swift_recovery_requires_acoustic_and_model_evidence_independent_of_words() {
         let signal = sine();
         let mut f = yin_only();
         for frame in &mut f {
@@ -2022,6 +2097,13 @@ mod coverage_probes {
             let mut issues = vec![];
             let stages =
                 recover_swift_frames(&mut f, &signal, Some(&w), &evidence, 0.0015, &mut issues);
+            if mode == 5 {
+                assert!(
+                    stages.recovered > 140,
+                    "Missing words must not veto acoustic recovery"
+                );
+                continue;
+            }
             assert_eq!(stages.recovered, 0, "Unsafe Swift recovery mode{mode}");
             assert!(issues.is_empty());
         }
@@ -2422,7 +2504,7 @@ mod coverage_probes {
         assert!(issues[0].detail.contains("not musical approval"));
     }
     #[test]
-    fn neural_vote_cannot_rescue_noise_wrong_octave_bleed_conflicts_ambiguity_or_unknown_words() {
+    fn neural_vote_rejects_noise_octave_bleed_and_conflicts_but_does_not_require_words() {
         for mode in 0..10 {
             let mut frames = yin_only();
             let mut signal = sine();
@@ -2466,6 +2548,10 @@ mod coverage_probes {
             }
             let mut issues = Vec::new();
             recover_neural_yin(&mut frames, &signal, Some(&words), &neural, &mut issues);
+            if mode == 6 {
+                assert!(frames.iter().filter(|f| f.midi.is_some()).count() > 140);
+                continue;
+            }
             assert!(
                 frames.iter().all(|f| f.midi.is_none()),
                 "Unsafe neural recovery case {mode}"
@@ -2558,7 +2644,7 @@ mod coverage_probes {
         assert!(issues[0].detail.contains("McLeod did not provide"));
     }
     #[test]
-    fn recovery_rejects_unanchored_missing_word_octave_conflict_noise_and_bleed() {
+    fn recovery_rejects_unanchored_octave_conflict_noise_and_bleed_independent_of_words() {
         let original = frames();
         for mode in 0..6 {
             let mut frames = original.clone();
@@ -2600,6 +2686,10 @@ mod coverage_probes {
             }
             let mut issues = Vec::new();
             recover_yin_gaps(&mut frames, &audio, Some(&words), &mut issues);
+            if mode == 1 {
+                assert!(frames[70..105].iter().all(|frame| frame.midi.is_some()));
+                continue;
+            }
             assert!(
                 frames[70..105].iter().all(|frame| frame.midi.is_none()),
                 "unsafe recovery in case {mode}"

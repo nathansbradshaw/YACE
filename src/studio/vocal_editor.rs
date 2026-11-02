@@ -26,6 +26,7 @@ fn syllable(note: &VocalNote) -> String {
 #[component]
 pub fn VocalEditor(studio: Studio) -> Element {
     let mut recognize = use_signal(|| true);
+    let mut analysis_mode = use_signal(crate::vocal_generation::AnalysisMode::default);
     let mut language = use_signal(|| crate::lyric_language::Language::Auto);
     let mut lookup = use_signal(|| true);
     let mut control = use_signal(|| None::<std::sync::Arc<crate::clean_recognition::Control>>);
@@ -90,7 +91,8 @@ pub fn VocalEditor(studio: Studio) -> Element {
                 let worker=std::sync::Arc::new(crate::clean_recognition::Control::default());control.set(Some(worker.clone()));generation_error.set(None);generation_notice.set(None);
                 spawn(async move{
                     let expected_root=project.clone();
-                    let result=tokio::task::spawn_blocking(move||crate::vocal_workflow::generate_project(crate::vocal_workflow::ProjectRequest{project:&project,model_dir:&models,recognize,language,neural_pitch:recognize,download_model:true,lookup_lyrics,actor},worker)).await;
+                    let mode=analysis_mode();
+                    let result=tokio::task::spawn_blocking(move||crate::vocal_workflow::generate_project(crate::vocal_workflow::ProjectRequest{analysis_mode:mode,project:&project,model_dir:&models,recognize,language,neural_pitch:recognize,download_model:true,lookup_lyrics,actor},worker)).await;
                     if studio.store.read().as_ref().is_some_and(|store|store.root==expected_root){studio.reload(true);refresh.set(refresh()+1);
                     match result{Ok(Ok(result))=>{if !result.applied {
                         let message=match result.status{crate::vocal_generation::Status::ReviewRequired=>Some("New draft saved; current edits kept"),crate::vocal_generation::Status::NeedsLyrics if studio.snapshot().is_some_and(|doc|doc.content.vocal_review.is_some())=>Some("Draft needs timed lyrics; current vocals kept"),crate::vocal_generation::Status::NoVoicedPitch if studio.snapshot().is_some_and(|doc|doc.content.vocal_review.is_some())=>Some("No stable vocal pitch; current vocals kept"),_=>None};
@@ -103,6 +105,9 @@ pub fn VocalEditor(studio: Studio) -> Element {
             if busy{button{class:"studio-tool",disabled:cancelled,onclick:move |_|{if let Some(control)=control.read().as_ref(){control.cancel();}},if cancelled{"Cancelling…"}else{"Cancel"}}}
         }
         details{class:"review-evidence vocal-generation-options",summary{"Options"}
+            label{class:"field-label","Vocal analysis"}
+            select{class:"field-control",disabled:busy,value:if analysis_mode()==crate::vocal_generation::AnalysisMode::Standard{"standard"}else{"high"},onchange:move|e|analysis_mode.set(if e.value()=="high"{crate::vocal_generation::AnalysisMode::HighAccuracy}else{crate::vocal_generation::AnalysisMode::Standard}),option{value:"standard","Standard"}option{value:"high","High accuracy (experimental)"}}
+            if analysis_mode()==crate::vocal_generation::AnalysisMode::HighAccuracy{p{class:"field-hint","Experimental: extra pitches can be wrong. Review amber notes before export."}}
             label{class:"generation-field","Vocal language",select{class:"field-control",disabled:busy,value:match language(){crate::lyric_language::Language::Auto=>"auto",crate::lyric_language::Language::English=>"english",crate::lyric_language::Language::Spanish=>"spanish"},onkeydown:move|e|e.stop_propagation(),onchange:move|e|language.set(match e.value().as_str(){"english"=>crate::lyric_language::Language::English,"spanish"=>crate::lyric_language::Language::Spanish,_=>crate::lyric_language::Language::Auto}),option{value:"auto","Detect automatically"}option{value:"spanish","Spanish"}option{value:"english","English"}}}
             label{class:"form-check",title:"Optional local models recognize and align lyrics and add a pitch estimate. Off keeps pitch extraction model-free; supply timed words or import JSON to complete lyrics.",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:recognize(),disabled:busy,onchange:move|event|recognize.set(event.checked())}"Local AI assistance"}
             label{class:"form-check",title:"Look up matching lyrics online; source metadata is sent to the lyrics provider",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:lookup(),disabled:busy,onchange:move|event|lookup.set(event.checked())}"Fetch lyrics"}
@@ -544,7 +549,25 @@ fn VocalNoteEditor(
     let mut error = use_signal(|| None::<String>);
     let current = draft.read().clone();
     let pitched = current.mode == "pitched";
+    let evidence = studio.snapshot().and_then(|doc| {
+        let review = doc.content.vocal_review.as_ref()?;
+        review
+            .evidence_for(&doc, &(studio.timing)()?, &note)
+            .cloned()
+    });
     rsx! {div{class:"vocal-note-editor",
+        if let Some(evidence) = evidence {
+            details{class:"review-evidence",open:evidence.uncertain,
+                summary{if evidence.uncertain{"⚑ Uncertain pitch — review"}else{"Acoustic pitch evidence"}}
+                div{class:"review-evidence-body","Selected MIDI {evidence.selected_midi} · support: {evidence.support:?}"}
+                for reason in &evidence.reasons {p{"{reason}"}}
+                if !evidence.alternatives.is_empty(){
+                    div{class:"field-label","Alternative detector estimates (MIDI)"}
+                    for alternative in &evidence.alternatives {button{class:"studio-tool",onclick:{let alternative=*alternative;move |_|draft.write().pitch=alternative.to_string()},"{alternative}"}}
+                    p{class:"field-hint","Choose a pitch, listen, then Apply note. Existing review checks remain available below."}
+                }
+            }
+        }
         div{class:"field-row",
             div{class:"field-stack field-half",label{class:"field-label","Start tick"}input{class:"field-control",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal note start tick",r#type:"number",min:"0",value:current.start,oninput:move|event|draft.write().start=event.value()}}
             div{class:"field-stack field-half",label{class:"field-label","End tick"}input{class:"field-control",onkeydown:move|event|event.stop_propagation(),aria_label:"Vocal note end tick",r#type:"number",min:"1",value:current.end,oninput:move|event|draft.write().end=event.value()}}

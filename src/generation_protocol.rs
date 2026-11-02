@@ -28,6 +28,11 @@ pub struct Request {
     /// Omitted legacy jobs retain their English recognition policy.
     #[serde(default)]
     pub vocal_language: crate::lyric_language::Language,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::vocal_generation::AnalysisMode::is_standard"
+    )]
+    pub vocal_analysis_mode: crate::vocal_generation::AnalysisMode,
     pub model_dir: PathBuf,
     #[serde(default)]
     pub fetch_models: bool,

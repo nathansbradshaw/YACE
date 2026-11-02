@@ -417,6 +417,7 @@ pub async fn run_stage(
                 &isolation(root)?,
                 &request.timing()?,
                 request.vocal_language,
+                request.vocal_analysis_mode,
                 Some(&root.join("vocals/recognition.json")),
                 input.lyrics.as_ref(),
                 progress,

@@ -10,6 +10,7 @@ fn request(audio: &Path) -> Request {
     Request {
         guitar_source: Default::default(),
         vocal_language: Default::default(),
+        vocal_analysis_mode: Default::default(),
         source: Source::Audio {
             path: audio.to_owned(),
         },
