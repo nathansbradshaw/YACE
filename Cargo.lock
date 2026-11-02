@@ -1112,6 +1112,7 @@ dependencies = [
  "burn",
  "candle-core 0.10.2",
  "clap",
+ "crossbeam-queue",
  "demucs-core",
  "dioxus",
  "dioxus-document",
@@ -1132,6 +1133,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "timestretch",
  "tokio",
  "tower-http",
  "whatlang",
@@ -1559,6 +1561,15 @@ name = "crossbeam-epoch"
 version = "0.9.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc74980687109a3b14c72fd458107bf0baa1da1a1a805e178d15501ba9b86d9d"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-queue"
+version = "0.3.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03e8bd762f7479489c70ed6c768ddca99d7296857de437a68dcb2a94365b3fae"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -7598,6 +7609,24 @@ checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
 dependencies = [
  "num-conv",
  "time-core",
+]
+
+[[package]]
+name = "timestretch"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad484075af6caf97e09f3f869bed42c99ff4fea501f6df6ad65d5bb8c7186808"
+dependencies = [
+ "timestretch-core",
+]
+
+[[package]]
+name = "timestretch-core"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa8cb1cae3fd3788a7a9e704dd079d7dc56b00a8b2d0688e9be94130ebcbe1aa"
+dependencies = [
+ "rustfft",
 ]
 
 [[package]]

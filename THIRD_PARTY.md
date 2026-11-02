@@ -6,6 +6,8 @@ Research-only source checkouts and private recordings are not included.
 
 | Upstream | Pinned revision | Use and license |
 | --- | --- | --- |
+| timestretch-rs | `timestretch` and `timestretch-core` 0.16.0, Cargo.lock | MIT; optional native audition worker uses the portable Rust pitch-preserving session and source-position ledger. Original notice: `licenses/Timestretch-MIT.txt`. No model weights or external processing service. |
+| Crossbeam | `crossbeam-queue` 0.3.14, Cargo.lock | MIT/Apache-2.0; bounded preallocated block queues between the native audition worker and device source. Original MIT notice: `licenses/Crossbeam-MIT.txt`. |
 | Symphonia (Rust codecs) | `0.5.5`, `web/Cargo.lock` | MPL-2.0. YACE's Vorbis and MPEG audio adapters preserve float headroom by removing their final output clamps; covered source, original headers and change notices are in `vendor/symphonia-codec-vorbis` and `vendor/symphonia-bundle-mp3` and included in the static distribution under `sources/`. Other codec sources are the exact crates recorded in the lockfile and available from [upstream](https://github.com/pdeljanov/Symphonia/tree/v0.5.5). Complete license: `licenses/Symphonia-MPL-2.0.txt`. No model weights are included in the static app. |
 | arboard (Rust crate) | `3.7.0`, Cargo.lock | MIT/Apache-2.0; native text clipboard for desktop note copy/paste. Original MIT notice: `licenses/Arboard-MIT.txt`. Image clipboard support is disabled. |
 | zip-rs/zip2 | `zip` 9.1.3, upstream `af2ed2a3e12af1fdd733b1886b3e9067bf510be5` | MIT; complete original notice in `licenses/ZIP-MIT.txt`. Replaces ZIP 7 in the application and converter. NPY/pickle readers handle fallible names; pinned TorchScript conversion supplies its known byte-zero archive offset. |
