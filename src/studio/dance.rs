@@ -1427,6 +1427,11 @@ pub fn selected_track() -> Option<String> {
     (s.open)().then(|| format!("dance:{}", (s.selected)()))
 }
 pub fn select_track(mut s: DanceStudio, id: String) {
+    if let Some(studio) = try_consume_context::<super::state::Studio>()
+        && studio.snapshot().is_some_and(|p| p.transport.playing)
+    {
+        studio.dispatch(crate::editor::Action::Playback { playing: false });
+    }
     let profile = s.project.read().as_ref().and_then(|p| {
         p.content
             .document
