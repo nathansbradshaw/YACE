@@ -11,6 +11,9 @@ The previous Sites deployment is retained as a rollback, with its stable identit
 in `.openai/hosting.json` and origin
 <https://yace-n8bradshaw.aurorasheep.chatgpt.site>. Do not create another Site or
 delete the retained deployment during routine Pages updates.
+The custom hostname was detached from Sites during the migration. A rollback to
+that host must register the hostname again and use its returned validation
+records; changing DNS alone is insufficient.
 
 ## Build and update
 
@@ -63,7 +66,8 @@ and its HTTPS certificate. Keep this DNS-only CNAME:
 | --- | --- | --- |
 | CNAME | `yace` | `nathansbradshaw.github.io` |
 
-Keep the previous Sites verification records while retaining its rollback:
+Previous Sites verification records remain in DNS for reference. A new hostname
+registration may issue different values:
 
 | Type | Name | Value |
 | --- | --- | --- |
