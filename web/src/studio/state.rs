@@ -641,7 +641,11 @@ impl Studio {
                 self.status.set("Retaining recording locally…".into());
                 let prepared:crate::project_recording::PreparedRecording=crate::worker::run(crate::worker::Task::PrepareRecording{source:input,root:store.root.clone()},std::slice::from_ref(&store.root)).await?;
                 ensure!(self.store.read().as_ref().is_some_and(|current|current.root==store.root)&&self.snapshot().is_some_and(|current|current.revision==doc.revision),"The chart changed while choosing audio; attach it again to the current revision");
-                self.dispatch(Action::AttachRecording{prepared});Ok::<_,anyhow::Error>(())
+                self.dispatch(Action::AttachRecording{prepared});
+                if self.error.peek().is_some() {
+                    self.status.set("Recording not attached · chart preserved".into());
+                }
+                Ok::<_,anyhow::Error>(())
             }.await;
             if let Err(error) = result {
                 self.error.set(Some(error.to_string()));
