@@ -96,6 +96,7 @@ fn Divider(
 #[component]
 pub fn Workbench(studio: Studio) -> Element {
     super::part_analysis::provide_panel();
+    super::track_views::provide(studio);
     let mut right = use_signal(|| 28.0_f64);
     let mut top = use_signal(|| 45.0_f64);
     let mut size = use_signal(|| (1400.0_f64, 800.0_f64));

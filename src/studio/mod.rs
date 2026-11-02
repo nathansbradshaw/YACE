@@ -43,6 +43,7 @@ mod stems;
 mod timeline_player;
 mod timing_editor;
 mod track_picker;
+mod track_views;
 mod vocal_editor;
 mod vocal_pitch_analysis;
 mod vocal_preview;

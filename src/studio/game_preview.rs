@@ -109,32 +109,36 @@ fn advance_animation(
     next
 }
 
-fn scene_notes(doc: &Project, timing: &TempoMap, policy: &Policy) -> Result<Vec<PreviewNote>> {
+fn scene_notes(
+    doc: &Project,
+    timing: &TempoMap,
+    policy: &Policy,
+    track: &str,
+) -> Result<Vec<PreviewNote>> {
     let selected = doc
         .selected_note
         .as_ref()
         .and_then(|id| doc.find_note(id))
+        .filter(|(owner, _)| *owner == track)
         .map(|(_, item)| (item.note.tick, item.note.lane));
     // Technique depends on the preceding attack, which may be outside the
     // viewport. Always classify the complete raw track before any culling.
-    let Some(track) = doc.content.tracks.get(&doc.selected_track) else {
+    let Some(items) = doc.content.tracks.get(track) else {
         return Ok(Vec::new());
     };
-    let raw: Vec<_> = track.iter().map(|item| item.note.clone()).collect();
-    Ok(
-        gameplay_view::classify(&doc.selected_track, &raw, timing, policy)?
-            .into_iter()
-            .map(|gem| PreviewNote {
-                start: gem.seconds,
-                end: gem.end_seconds,
-                lane: gem.lane,
-                cymbal: gem.shape == GemShape::Cymbal,
-                selected: selected == Some((gem.tick, gem.lane)),
-                technique: gem.technique,
-                dynamics: gem.dynamics,
-            })
-            .collect(),
-    )
+    let raw: Vec<_> = items.iter().map(|item| item.note.clone()).collect();
+    Ok(gameplay_view::classify(track, &raw, timing, policy)?
+        .into_iter()
+        .map(|gem| PreviewNote {
+            start: gem.seconds,
+            end: gem.end_seconds,
+            lane: gem.lane,
+            cymbal: gem.shape == GemShape::Cymbal,
+            selected: selected == Some((gem.tick, gem.lane)),
+            technique: gem.technique,
+            dynamics: gem.dynamics,
+        })
+        .collect())
 }
 
 fn preview_policy(studio: Studio, timing: &TempoMap, pro_drums: bool) -> (Policy, bool) {
@@ -163,9 +167,46 @@ pub fn Preview(studio: Studio) -> Element {
 fn BandPreview(studio: Studio) -> Element {
     let mut pro_drums = use_signal(|| true);
     let mut lookahead = use_signal(|| DEFAULT_LOOKAHEAD);
+    let tracks = super::track_views::visible(studio, super::track_views::Pane::Preview);
+    let has_vocals = tracks.iter().any(|id| id == "Vocals");
+    let has_drums = tracks.iter().any(|id| id.ends_with("Drums"));
+    let bands: Vec<_> = tracks.into_iter().filter(|id| id != "Vocals").collect();
+    let multi = bands.len() + usize::from(has_vocals) > 1;
+    rsx! {section {class:"audition-view",
+        header {class:"desk-heading audition-heading",h2{"Audition"}span{class:"audition-mode","Autoplay"}}
+        super::track_views::Controls{studio,pane:super::track_views::Pane::Preview}
+        div{class:if multi{"audition-surface track-preview-surface multi-track-preview"}else{"audition-surface track-preview-surface"},
+            if has_vocals {div{class:"preview-vocals",
+                button{aria_label:"Select Vocals for editing",aria_pressed:(super::track_views::active(studio)=="Vocals").to_string(),onclick:move|_|super::track_views::select(studio,"Vocals".into()),"Vocals"}
+                super::vocal_preview::VocalPreview{studio,lookahead:lookahead()}
+            }}
+            if !bands.is_empty(){div{class:"preview-highways",role:"region",aria_label:"Visible instrument previews",tabindex:"0",
+                for track in bands {Highway{key:"{track}",studio,track,pro_drums,lookahead}}
+            }}
+            if !has_vocals&&super::track_views::available(studio).is_empty(){div{class:"studio-empty-preview","Open a chart to preview its notes."}}
+        }
+        super::practice::PracticeControls{studio,
+            super::stems::StemControls{studio}
+            div{class:"audition-settings",
+                if has_drums {label{class:"form-check",input{r#type:"checkbox",checked:pro_drums(),onkeydown:move|e|e.stop_propagation(),onchange:move|e|pro_drums.set(e.checked())}span{"Pro Drums"}}}
+                label{class:"game-preview-lookahead",span{"Look ahead"}select{aria_label:"Preview look ahead",value:"{lookahead}",onkeydown:move|e|e.stop_propagation(),onchange:move|e|if let Ok(value)=e.value().parse::<f64>(){lookahead.set(value.clamp(2.,6.));},
+                    for seconds in [2.,2.8,3.6,4.5,6.]{option{value:"{seconds}",selected:seconds==lookahead(),"{seconds:.1}s"}}
+                }}
+            }
+        }
+    }}
+}
+#[component]
+fn Highway(
+    studio: Studio,
+    track: String,
+    pro_drums: Signal<bool>,
+    lookahead: Signal<f64>,
+) -> Element {
     let animation_history = use_hook(|| Rc::new(RefCell::new(Animation::default())));
-    let classified = use_memo(
-        move || -> std::result::Result<(Vec<PreviewNote>, bool), String> {
+    let classified = use_memo(use_reactive(
+        &track,
+        move |track| -> std::result::Result<(Vec<PreviewNote>, bool), String> {
             let Some(doc) = studio.snapshot() else {
                 return Ok((Vec::new(), false));
             };
@@ -173,12 +214,12 @@ fn BandPreview(studio: Studio) -> Element {
                 return Err("Chart timing unavailable".into());
             };
             let (policy, unknown) = preview_policy(studio, &timing, pro_drums());
-            scene_notes(&doc, &timing, &policy)
+            scene_notes(&doc, &timing, &policy, &track)
                 .map(|notes| (notes, unknown))
                 .map_err(|error| format!("Cannot interpret this track: {error:#}"))
         },
-    );
-    let animation = use_memo(move || {
+    ));
+    let animation = use_memo(use_reactive(&track, move |track| {
         let document = studio.doc.read();
         let Some(doc) = document.as_ref() else {
             return Animation::default();
@@ -190,7 +231,7 @@ fn BandPreview(studio: Studio) -> Element {
             .map_or(&[][..], |(notes, _)| notes.as_slice());
         let next = advance_animation(
             &previous,
-            &format!("{}:{}", doc.audio_sha256, doc.selected_track),
+            &format!("{}:{}", doc.audio_sha256, track),
             doc.revision,
             (studio.playhead)(),
             doc.transport.playing && (studio.audio_ready)(),
@@ -198,12 +239,8 @@ fn BandPreview(studio: Studio) -> Element {
         );
         *previous = next.clone();
         next
-    });
+    }));
     let doc = studio.doc.read();
-    let track = doc
-        .as_ref()
-        .map_or("ExpertDrums", |doc| doc.selected_track.as_str())
-        .to_owned();
     let drums = track.ends_with("Drums");
     let position = (studio.playhead)();
     let unknown_policy = classified
@@ -235,54 +272,15 @@ fn BandPreview(studio: Studio) -> Element {
     let telemetry_revision = doc.as_ref().map_or(0, |doc| doc.revision);
     let telemetry_playing =
         doc.as_ref().is_some_and(|doc| doc.transport.playing) && (studio.audio_ready)();
-    rsx! {
-        section { class: "audition-view", "data-preview-position":"{position}", "data-preview-playing":"{telemetry_playing}", "data-preview-revision":"{telemetry_revision}", "data-preview-audio":"{telemetry_audio}",
-            header { class: "desk-heading audition-heading",
-                h2 { "Audition" }
-                span { class: "audition-track", "{super::track_picker::title(&track)}" }
-                span { class: "audition-mode", "Autoplay" }
-            }
-            div { class: "audition-surface",
-                if track == "Vocals" {
-                    super::vocal_preview::VocalPreview { studio, lookahead: lookahead() }
-                } else if doc.is_some() {
-                    svg { class: "studio-highway", view_box: "0 0 1000 620", preserve_aspect_ratio: "xMidYMid meet", role: "img",
-                        "aria-label": "Autoplay editing preview with instrument notes; no scoring or controller judgment",
-                        dangerous_inner_html: "{geometry}"
-                    }
-                    if (studio.audio_stalled)() && telemetry_playing { div { class: "game-preview-policy-warning", "Audio position stalled · preview held" } }
-                    if unknown_policy && !drums && !crate::keys::is_keys(&track) { div { class: "game-preview-policy-warning", "HOPO policy unknown · neutral note caps" } }
-                    if let Some(error) = classification_error { div { class: "game-preview-policy-warning", "{error}" } }
-                } else {
-                    div { class: "studio-empty-preview",
-                        div { class: "empty-state-title", "No song selected" }
-                        div { "Open a song folder to preview its chart" }
-                        button { onclick: move |_| studio.create_dialog(), "Open song folder" }
-                        button { onclick: move |_| studio.open_dialog(), "Open saved project" }
-                    }
-                }
-            }
-            super::practice::PracticeControls { studio,
-              super::stems::StemControls { studio }
-            div { class: "audition-settings",
-                if drums {
-                    label { class: "form-check",
-                        input { r#type: "checkbox", checked: pro_drums(), onkeydown: move |event| event.stop_propagation(), onchange: move |event| pro_drums.set(event.checked()) }
-                        span { "Pro Drums" }
-                    }
-                }
-                label { class: "game-preview-lookahead",
-                    span { "Look ahead" }
-                    select { value: "{lookahead}", onkeydown: move |event| event.stop_propagation(), onchange: move |event| { if let Ok(value) = event.value().parse::<f64>() { lookahead.set(value.clamp(2.0, 6.0)); } },
-                        for seconds in [2.0, 2.8, 3.6, 4.5, 6.0] { option { value: "{seconds}", selected: seconds == lookahead(), "{seconds:.1}s" } }
-                    }
-                }
-            }
-            }
-        }
-    }
+    let target = track.clone();
+    rsx! {section{class:"preview-highway-tile",aria_label:"{super::track_picker::title(&track)} preview","data-preview-track":"{track}","data-preview-position":"{position}","data-preview-playing":"{telemetry_playing}","data-preview-revision":"{telemetry_revision}","data-preview-audio":"{telemetry_audio}",
+        button{class:"preview-track-target",aria_label:"Select {super::track_picker::title(&track)} for editing",aria_pressed:(super::track_views::active(studio)==track).to_string(),onclick:move|_|super::track_views::select(studio,target.clone()),"{super::track_picker::title(&track)}"}
+        svg{class:"studio-highway",view_box:"0 0 1000 620",preserve_aspect_ratio:"xMidYMid meet",role:"img","aria-label":"Autoplay editing preview with instrument notes; no scoring or controller judgment",dangerous_inner_html:"{geometry}"}
+        if (studio.audio_stalled)()&&telemetry_playing{div{class:"game-preview-policy-warning","Audio position stalled · preview held"}}
+        if unknown_policy&&!drums&&!crate::keys::is_keys(&track){div{class:"game-preview-policy-warning","HOPO policy unknown · neutral note caps"}}
+        if let Some(error)=classification_error {div{class:"game-preview-policy-warning","{error}"}}
+    }}
 }
-
 const PREVIEW_STYLE: &str = include_str!("../../assets/game-preview.css");
 
 /// Perspective of a straight fretboard. Far notes converge while event time
