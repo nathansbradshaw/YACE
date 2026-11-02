@@ -5,22 +5,34 @@ from **Add part** on an existing recording. The desktop and static browser use
 one Rust simfile library, command protocol, generation algorithm and editor.
 Existing Clone Hero/YARG projects retain their original schema and workflow.
 
+New audio charts choose a **First part**, then use the normal song project.
+Dance and 4-key sit beside the other instruments in the track picker. Switching
+parts keeps the resizable Audition, Selection and note-editor panes in place.
+The same toolbar owns Select/Place/Erase, undo/redo, clipboard, snap, zoom and
+Follow. The same practice controls own playback, seeking, speed, volume and loops.
+Parts attached to the same source recording use its existing audio player and
+clock; imported standalone simfiles supply their own backend to those controls.
+Dance timing remains independent of guitar timing, and its horizontal beat grid
+does not collapse notes inside warps or disappear under zero/reverse scroll.
+
 Open one song folder or a song ZIP with its recording. SSC is selected over an
 SM companion in the same folder. Start from **New chart from audio** for a new song.
 Choose Dance pad or 4-key keyboard, set the starting BPM and first beat in the
 recording, then generate the selected Beginner–Challenge drafts. Generation adds
 charts; it does not replace authored work. Meters are estimates requiring review.
 
-Click an occupied grid cell to select its note. Click an empty cell to place the
-selected note type. Note properties add, move, resize, change or delete notes.
-The four columns are left, down, up, right. Holds and rolls have editable lengths.
+Use Select to click notes or drag a selection box; Shift-click toggles notes.
+Use Place (or double-click with Select) to add the selected note type. Use Erase
+to remove a note. Drag notes to move them; drag a sustain's end grip to resize it.
+Note properties in the Selection pane change beat, lane, length, type and foot.
+The four lanes are left, down, up, right. Holds and rolls have editable lengths.
 Mines, lifts and fake notes remain distinct types. The beat grid stays independent
 of scrolling effects; the preview follows the recording's clock.
 
-Shift-click adds notes to a passage selection. Copy/paste, mirror, quantize and
-earlier/later shifts keep sustains together and form one undo step. The 1–4 keys
-toggle the four lanes at the cursor; arrow keys move the cursor and Page Up/Down
-move the grid. Ctrl/Cmd-Z, Shift-Z, A, C, X and V provide history and selection
+Copy/paste, mirror, quantize and passage moves keep sustains together and form
+one undo step. The 1/2/3 keys select Select/Place/Erase for every instrument.
+Arrow keys move the beat cursor and Page Up/Down move the grid.
+Ctrl/Cmd-Z, Shift-Z, A, C, X and V provide history and selection
 shortcuts. Inputs keep these keys local while editing text or numbers.
 
 **Advanced timing** edits the song map or a complete selected-chart override:

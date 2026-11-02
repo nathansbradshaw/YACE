@@ -14,7 +14,7 @@ pub fn Setup(mut studio: Studio, root: PathBuf, suggested_title: String) -> Elem
     let mut busy = use_signal(|| false);
     let mut lookup_busy = use_signal(|| false);
     let mut lyrics = use_signal(|| false);
-    let mut chart_type = use_signal(|| "band".to_owned());
+    let chart_type = use_signal(|| "band".to_owned());
     let analysis_root = root.clone();
     let analysis = use_resource(move || {
         let root = analysis_root.clone();
@@ -90,12 +90,8 @@ pub fn Setup(mut studio: Studio, root: PathBuf, suggested_title: String) -> Elem
     rsx! {Modal{id:"new-song-dialog",label:"New chart",onclose:close,
         section{class:"sections-dialog",
             h2{"New chart"}
-            p{"Choose a chart type for this recording. Add and generate parts in the editor."}
-            label{class:"field-stack","Chart type",select{class:"field-control",aria_label:"Chart type",value:"{chart_type}",onchange:move|e|chart_type.set(e.value()),
-                option{value:"band",selected:chart_type()=="band","Band instruments"}
-                option{value:"pad",selected:chart_type()=="pad","Dance"}
-                option{value:"keyboard",selected:chart_type()=="keyboard","4-key"}
-            }}
+            p{"Choose the first part for this recording. Add and generate more parts in the editor."}
+            super::parts::FirstPart{value:chart_type,disabled:busy()}
             label{class:"field-stack","Title",input{class:"field-control",aria_label:"Song title",value:title,disabled:busy()||lookup_busy(),oninput:move|e|title.set(e.value())}}
             label{class:"field-stack","Artist",input{class:"field-control",aria_label:"Song artist",value:artist,disabled:busy()||lookup_busy(),oninput:move|e|artist.set(e.value())}}
             if analyzing {p{class:"field-hint","Reading recording tags and analyzing tempo throughout the recording…"}}

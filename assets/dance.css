@@ -1,2 +1,12 @@
-#dance-workbench{min-height:0;overflow:auto}.dance-workbench{padding:12px;color:var(--text-color,#e2e6ed);background:var(--background-color,#1b1e26);height:100%;box-sizing:border-box;overflow:auto}.step-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:8px 0}.dance-workbench details{border:1px solid #465067;padding:10px;margin:8px 0}.dance-workbench label{margin-right:12px}.dance-workbench input{max-width:200px}.dance-workbench button{padding:6px 10px;cursor:pointer}.step-editor-columns{display:grid;grid-template-columns:minmax(300px,1.2fr) minmax(260px,1fr);gap:18px}.step-grid{max-height:440px;overflow:auto;background:#171b24}.step-grid-row{display:grid;grid-template-columns:80px repeat(4,1fr);gap:2px;align-items:center}.step-grid-row>span{text-align:center;padding:4px}.step-cell{min-height:26px;background:#242c3c;color:#aebcd2;border:1px solid #354359}.step-cell.occupied{background:#345c8a;color:#fff}.step-error{color:#ff9b9b}.step-timing-list{max-height:240px;overflow:auto}.step-timing-list>div{display:flex;gap:8px;margin:3px}.step-preview{background:#141821;padding:10px}.dance-workbench audio{width:100%}
-.step-cell[data-selected="true"]{outline:2px solid #f3cc71;outline-offset:-2px}
+/* Instrument properties use the same workspace, transport and theme. */
+.dance-inspector details { border-bottom:1px solid var(--border-color); padding:10px 0; }
+.dance-inspector label { display:grid; gap:4px; margin:8px 0; color:var(--text-secondary); font-size:11px; }
+.dance-inspector input,.dance-inspector select { width:100%; min-width:0; }
+.dance-inspector .step-toolbar { display:grid; gap:6px; }
+.dance-inspector p { font-size:12px; }
+.dance-ruler-label { width:140px; flex-shrink:0; padding:8px 12px; box-sizing:border-box; color:var(--text-secondary); font-size:11px; }
+.dance-audition { display:flex; justify-content:center; }
+.dance-audition svg { width:auto; max-width:100%; height:100%; background:var(--canvas-background,var(--bg-secondary)); }
+.step-timing-list { max-height:240px; overflow:auto; }
+.step-timing-list>div { display:flex; gap:4px; margin:4px 0; }
+.step-timing-list button { font-size:11px; text-align:left; }

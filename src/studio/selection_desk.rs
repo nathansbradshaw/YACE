@@ -110,6 +110,9 @@ fn ReviewQueue(mut studio: Studio) -> Element {
 
 #[component]
 pub fn SelectionDesk(studio: Studio) -> Element {
+    if super::dance::active() {
+        return rsx! {super::dance::Inspector{key:"{super::dance::view_epoch()}",studio}};
+    }
     let Some(document) = studio.snapshot() else {
         return rsx! {};
     };
