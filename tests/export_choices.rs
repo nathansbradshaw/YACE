@@ -362,6 +362,12 @@ fn chart_only_generated_vocals_reopen_without_attaching_checks_for_omitted_audio
         doc
     };
     assert!(!doc.has_recording());
+    assert_eq!(doc.duration, store.load().unwrap().duration);
+    assert!(
+        fs::read_to_string(output.join("song.ini"))
+            .unwrap()
+            .contains("song_length = 4000")
+    );
     assert_eq!(doc.content.vocals.as_ref(), Some(&vocals));
     assert!(doc.content.vocal_review.is_none());
     assert_eq!(
