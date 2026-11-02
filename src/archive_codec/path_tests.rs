@@ -39,3 +39,30 @@ fn native_windows_separators_become_zip_separators() {
         "source/extras/cue.bin"
     );
 }
+
+#[test]
+fn zip_import_refuses_backslash_names_instead_of_renaming_them() {
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    zip.start_file(
+        "extras/opaque\\cue.bin",
+        zip::write::SimpleFileOptions::default(),
+    )
+    .unwrap();
+    zip.write_all(b"opaque payload").unwrap();
+    let bytes = zip.finish().unwrap().into_inner();
+    assert!(
+        decode_shared(&bytes)
+            .unwrap_err()
+            .to_string()
+            .contains("backslash")
+    );
+    assert_eq!(
+        zip::ZipArchive::new(Cursor::new(&bytes))
+            .unwrap()
+            .by_index(0)
+            .unwrap()
+            .name()
+            .unwrap(),
+        "extras/opaque\\cue.bin"
+    );
+}

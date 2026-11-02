@@ -66,7 +66,8 @@ Project ZIP backups retain unknown companion files, including source filenames
 ending in `.lock`. Only YACE's known session locks at the project root are omitted.
 ZIP export refuses filenames it cannot represent faithfully, including literal
 backslashes or invalid UTF-8, rather than silently renaming them. The project and
-source stay available after a refusal.
+source stay available after a refusal. ZIP imports also refuse backslash entry
+names instead of treating them as a different directory structure.
 
 ## Edit notes
 

@@ -48,19 +48,17 @@ pub fn decode_shared(bytes: &[u8]) -> Result<SharedFiles> {
     for index in 0..archive.len() {
         let entry = archive.by_index(index)?;
         ensure!(!entry.is_symlink(), "Archive symlinks are unsupported");
+        ensure!(
+            !entry.name()?.contains('\\'),
+            "ZIP filename contains a backslash; source archive retained"
+        );
         let path = entry
             .enclosed_name()
             .context("Archive path leaves the project")?;
         if entry.is_dir() {
             continue;
         }
-        let name = path.to_string_lossy().replace('\\', "/");
-        ensure!(
-            Path::new(&name)
-                .components()
-                .all(|c| matches!(c, Component::Normal(_))),
-            "Invalid archive path"
-        );
+        let name = relative_name(&path)?;
         ensure!(names.insert(name.clone()), "Duplicate archive path");
         total = total
             .checked_add(entry.size())
