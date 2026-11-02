@@ -404,6 +404,9 @@ fn fail(mut data: Signal<View>, error: impl std::fmt::Display) {
 }
 
 fn local_file(mut data: Signal<View>) {
+    if data.peek().busy {
+        return;
+    }
     data.with_mut(|view| {
         view.busy = true;
         view.started_ms = Some(crate::generation_progress::now_ms());
@@ -462,6 +465,9 @@ fn local_file(mut data: Signal<View>) {
 }
 
 fn lookup_song(mut data: Signal<View>) {
+    if data.peek().busy {
+        return;
+    }
     let view = data.read().clone();
     let Some(audio) = view.audio else {
         return;
@@ -502,6 +508,9 @@ fn lookup_song(mut data: Signal<View>) {
 }
 
 fn create_blank(mut studio: Studio, mut data: Signal<View>) {
+    if data.peek().busy {
+        return;
+    }
     let view = data.read().clone();
     let result = (|| -> Result<_> {
         let audio = view.audio.clone().context("Choose an audio file")?;
@@ -569,6 +578,13 @@ fn cover_data(path: &Path) -> Option<String> {
 }
 
 fn choose_artwork(mut data: Signal<View>) {
+    if data.peek().busy {
+        return;
+    }
+    data.with_mut(|view| {
+        view.busy = true;
+        view.notice = "Choosing cover artwork…".into();
+    });
     spawn(async move {
         let Some(file) = rfd::AsyncFileDialog::new()
             .set_title("Choose cover artwork")
@@ -576,6 +592,7 @@ fn choose_artwork(mut data: Signal<View>) {
             .pick_file()
             .await
         else {
+            data.write().busy = false;
             return;
         };
         let path = file.path().to_owned();
@@ -585,6 +602,7 @@ fn choose_artwork(mut data: Signal<View>) {
             .ok()
             .flatten();
         data.with_mut(|view| {
+            view.busy = false;
             view.cover_preview = preview;
             if let Some(info) = view.info.as_mut() {
                 info.artwork = Some(path);
@@ -633,6 +651,9 @@ fn launch_worker(mut data: Signal<View>, root: PathBuf) -> Result<()> {
 }
 
 fn generate(mut studio: Studio, mut data: Signal<View>) {
+    if data.peek().busy {
+        return;
+    }
     studio.analysis_preview.set(None);
     let mut view = data.read().clone();
     if let Some(target) = &view.target {
@@ -714,6 +735,9 @@ fn generate(mut studio: Studio, mut data: Signal<View>) {
 }
 
 fn apply_part(mut studio: Studio, mut data: Signal<View>) {
+    if data.peek().busy {
+        return;
+    }
     studio.analysis_preview.set(None);
     let view = data.read().clone();
     let Some(target) = view.target else {
@@ -782,6 +806,9 @@ fn apply_part(mut studio: Studio, mut data: Signal<View>) {
 }
 
 fn recover(mut data: Signal<View>) {
+    if data.peek().busy {
+        return;
+    }
     data.write().busy = true;
     spawn(async move {
         let Some(folder) = rfd::AsyncFileDialog::new()
@@ -856,6 +883,9 @@ fn recover(mut data: Signal<View>) {
     });
 }
 fn review_saved_part(studio: Studio, mut data: Signal<View>, root: PathBuf) {
+    if data.peek().busy {
+        return;
+    }
     let loaded = (|| -> Result<View> {
         let request = generation::read_request(&root)?;
         let target = crate::parts::target(&root)?.context("Saved job has no part target")?;
@@ -1018,6 +1048,12 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             worker.borrow_mut().cancel();
         }
     });
+    use_effect(move || {
+        let busy = data.read().busy;
+        if *studio.generation_busy.peek() != busy {
+            studio.generation_busy.set(busy);
+        }
+    });
     let view = data.read().clone();
     let elapsed = view
         .started_ms
@@ -1042,13 +1078,16 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         .map(|progress| progress.detail.clone())
         .or_else(|| view.status.as_ref().map(|status| status.detail.clone()))
         .unwrap_or_else(|| view.notice.clone());
+    let notice_detail = if view.busy {
+        format!("{elapsed} · {detail}")
+    } else {
+        view.error.clone().unwrap_or_else(|| detail.clone())
+    };
     if !(studio.generation_open)() {
-        return if view.busy {
+        return if view.busy || view.root.is_some() || view.error.is_some() {
             rsx! {
                 style { "{CSS}" }
-                button { class: "generation-running", onclick: move |_| studio.generation_open.set(true),
-                    aria_label: "Show generation progress", strong { "Generation · {elapsed}" } span { "{detail}" }
-                }
+                super::activity::JobNotice {busy:view.busy,state:view.status.as_ref().map(|status|status.state.clone()),failed:view.error.is_some(),detail:notice_detail,onopen:move |_|studio.generation_open.set(true)}
             }
         } else {
             rsx! {}
@@ -1165,7 +1204,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         let diagnostics = rsx! {div{class:"ra-saved-list",
             button{class:"action-secondary",disabled:busy,onclick:move |_|recover(data),"Open saved analysis…"}
             if let Some(root)=view.root.clone(){
-                if !busy && view.status.as_ref().is_some_and(|status|status.state!=State::Complete){button{class:"action-secondary",disabled:stale,onclick:move |_|{if let Err(error)=launch_worker(data,root.clone()){fail(data,error);}},"Resume saved analysis"}}
+                if !busy && view.status.as_ref().is_some_and(|status|status.state!=State::Complete){button{class:"action-secondary",disabled:stale,onclick:move |_|{if data.peek().busy{return;}if let Err(error)=launch_worker(data,root.clone()){fail(data,error);}},"Resume saved analysis"}}
                 if complete && view.error.is_some(){button{class:"action-secondary",onclick:move |_|data.write().error=None,"Review saved draft"}}
             }
             if let Some(previous)=view.previous_draft.clone(){button{class:"action-secondary",disabled:busy,onclick:move |_|review_saved_part(studio,data,previous.clone()),"Previous successful draft"}}
@@ -1187,10 +1226,10 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     }
                     div{class:"generation-actions",
                         if view.worker.is_some(){button{class:"action-secondary",onclick:move|_|{if let Some(worker)=data.read().worker.clone(){worker.borrow_mut().cancel();}},"Cancel"}}
-                        if saved&&!busy&&!complete{button{class:"action-primary",onclick:move|_|{let root=data.read().root.clone();if let Some(root)=root && let Err(error)=launch_worker(data,root){fail(data,format!("{error:#}"));}},"Resume generation"}}
+                        if saved&&!busy&&!complete{button{class:"action-primary",onclick:move|_|{if data.peek().busy{return;}let root=data.read().root.clone();if let Some(root)=root && let Err(error)=launch_worker(data,root){fail(data,format!("{error:#}"));}},"Resume generation"}}
                         if complete && !part_mode{button{class:"action-primary",onclick:move|_|{spawn(async move{let root=data.read().root.clone();if let Some(root)=root{studio.open_project(generation::project_path(&root)).await;studio.generation_open.set(false);}});},"Open generated chart"}}
                         if !saved && !part_mode { button { class:"action-secondary", disabled:busy || view.audio.is_none() || view.title.trim().is_empty() || view.artist.trim().is_empty() || view.output().is_err(), onclick:move |_|create_blank(studio, data), "Create blank chart" } }
-                        if !saved || part_mode {button{class:"action-primary",disabled:busy||!can_generate,title:"{validation}",aria_describedby: if !busy && !can_generate { Some("generation-validation") } else { None },onclick:move|_|generate(studio,data),if busy{"Working…"}else if part_mode{"Analyze"}else{"Generate charts"}}}
+                        if !saved || part_mode {button{class:"action-primary",disabled:busy||!can_generate,title:"{validation}",aria_describedby: if !busy && !can_generate { Some("generation-validation") } else { None },aria_busy:busy,onclick:move|_|generate(studio,data),super::activity::BusyLabel{busy,label:if part_mode{"Analyze"}else{"Generate charts"},active:"Analyzing recording…"}}}
                     }
                  },
 

@@ -70,7 +70,7 @@ pub fn ExportDialog(mut studio: Studio) -> Element {
             actions: rsx! {
                 button {disabled: busy, onclick: move |_| close.call(()), "Cancel"}
                 button {class: "primary", disabled: busy || validation.is_some(), onclick: move |_| studio.export_selected(options(), root.clone(), revision),
-                    if busy {"Preparing export…"} else if cfg!(target_arch="wasm32") {"Prepare song ZIP"} else {"Choose export folder…"}
+                    aria_busy:busy, super::activity::BusyLabel{busy,label:if cfg!(target_arch="wasm32"){"Prepare song ZIP"}else{"Choose export folder…"},active:"Preparing export…"}
                 }
             },
             fieldset {disabled: busy,

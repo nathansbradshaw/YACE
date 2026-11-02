@@ -359,6 +359,8 @@ pub struct Studio {
     pub store: Signal<Option<Store>>,
     pub library: Signal<Option<crate::chart_library::Library>>,
     pub library_busy: Signal<bool>,
+    pub file_activity: Signal<Option<super::activity::FileAction>>,
+    pub generation_busy: Signal<bool>,
     pub library_selected: Signal<Option<usize>>,
     pub source_choice: Signal<Option<super::source_choice::Prompt>>,
     pub timing: Signal<Option<TempoMap>>,
@@ -1208,9 +1210,20 @@ impl Studio {
         }
     }
     pub fn open_dialog(self) {
+        if (self.library_busy)() {
+            return;
+        }
+        let Some(guard) = super::activity::FileGuard::start(
+            self.file_activity,
+            self.status,
+            super::activity::FileAction::Open,
+        ) else {
+            return;
+        };
         // Opening a chart removes the welcome screen. Keep its load task owned
         // by the app so audio preparation and library cleanup can finish.
         dioxus::core::spawn_forever(async move {
+            let _guard = guard;
             if let Some(path) = rfd::AsyncFileDialog::new()
                 .set_title("Open a YACE project or charting folder (searches 3 levels)")
                 .pick_folder()
@@ -1224,7 +1237,18 @@ impl Studio {
         });
     }
     pub fn new_chart(mut self) {
-        spawn(async move {
+        if (self.library_busy)() {
+            return;
+        }
+        let Some(guard) = super::activity::FileGuard::start(
+            self.file_activity,
+            self.status,
+            super::activity::FileAction::Recording,
+        ) else {
+            return;
+        };
+        dioxus::core::spawn_forever(async move {
+            let _guard = guard;
             if let Some(file) = rfd::AsyncFileDialog::new()
                 .set_title("Start a manual chart from a recording")
                 .add_filter("Recording", &["ogg", "opus", "mp3", "flac", "wav", "m4a"])
@@ -1258,7 +1282,15 @@ impl Studio {
         if doc.has_recording() {
             return;
         }
+        let Some(guard) = super::activity::FileGuard::start(
+            self.file_activity,
+            self.status,
+            super::activity::FileAction::Recording,
+        ) else {
+            return;
+        };
         dioxus::core::spawn_forever(async move {
+            let _guard = guard;
             let Some(file) = rfd::AsyncFileDialog::new()
                 .set_title("Attach a recording to this chart")
                 .add_filter(
@@ -1320,7 +1352,22 @@ impl Studio {
         self.import_zip(false);
     }
     fn import_zip(mut self, project: bool) {
+        if (self.library_busy)() {
+            return;
+        }
+        let Some(guard) = super::activity::FileGuard::start(
+            self.file_activity,
+            self.status,
+            if project {
+                super::activity::FileAction::Open
+            } else {
+                super::activity::FileAction::Import
+            },
+        ) else {
+            return;
+        };
         dioxus::core::spawn_forever(async move {
+            let _guard = guard;
             let Some(input) = rfd::AsyncFileDialog::new()
                 .set_title(if project {
                     "Open project ZIP"
@@ -1335,9 +1382,13 @@ impl Studio {
             };
             let dance = async {
                 super::dance::flush().await?;
-                let files = crate::archive_codec::decode(&std::fs::read(input.path())?)?
-                    .into_iter()
-                    .collect();
+                let path = input.path().to_owned();
+                let files = tokio::task::spawn_blocking(move || -> Result<_> {
+                    crate::archive_codec::decode(&std::fs::read(path)?)
+                })
+                .await??
+                .into_iter()
+                .collect();
                 super::dance::try_open_files(files)
             }
             .await;
@@ -1394,7 +1445,18 @@ impl Studio {
             return;
         };
         let title = self.metadata_value("name");
-        spawn(async move {
+        let Some(guard) = super::activity::FileGuard::start(
+            self.file_activity,
+            self.status,
+            super::activity::FileAction::Backup,
+        ) else {
+            return;
+        };
+        let Some(busy) = super::activity::BusyGuard::start(self.export_busy) else {
+            return;
+        };
+        dioxus::core::spawn_forever(async move {
+            let (_guard, _busy) = (guard, busy);
             let Some(output) = rfd::AsyncFileDialog::new()
                 .set_title("Save a portable project backup")
                 .set_file_name(format!("{title} project.zip"))
@@ -1620,49 +1682,62 @@ impl Studio {
             self.open_dialog();
         }
         #[cfg(feature = "browser")]
-        spawn(async move {
-            let Some(song) = rfd::AsyncFileDialog::new()
-                .set_title("Open song folder (.chart or MIDI)")
-                .pick_folder()
-                .await
-            else {
+        {
+            if (self.library_busy)() {
                 return;
-            };
-            let Some(output) = rfd::AsyncFileDialog::new()
-                .set_title("Save editing project in a new folder")
-                .set_file_name(format!("{} Review Project", song.file_name()))
-                .save_file()
-                .await
-            else {
-                return;
-            };
-            let song = song.path().to_owned();
-            let output = output.path().to_owned();
-            let choice = match self.choose_chart_source(&song).await {
-                Ok(Some(choice)) => choice,
-                Ok(None) => return,
-                Err(error) => {
-                    let mut studio = self;
-                    studio.error.set(Some(format!("{error:#}")));
-                    return;
-                }
-            };
-            let result = tokio::task::spawn_blocking(move || {
-                Store::create_with_source(&song, None, &output, Some(choice))
-            })
-            .await;
-            match result {
-                Ok(Ok(store)) => self.open_project(store.root).await,
-                Ok(Err(error)) => {
-                    let mut this = self;
-                    this.error.set(Some(format!("{error:#}")));
-                }
-                Err(error) => {
-                    let mut this = self;
-                    this.error.set(Some(error.to_string()));
-                }
             }
-        });
+            let Some(guard) = super::activity::FileGuard::start(
+                self.file_activity,
+                self.status,
+                super::activity::FileAction::Open,
+            ) else {
+                return;
+            };
+            dioxus::core::spawn_forever(async move {
+                let _guard = guard;
+                let Some(song) = rfd::AsyncFileDialog::new()
+                    .set_title("Open song folder (.chart or MIDI)")
+                    .pick_folder()
+                    .await
+                else {
+                    return;
+                };
+                let Some(output) = rfd::AsyncFileDialog::new()
+                    .set_title("Save editing project in a new folder")
+                    .set_file_name(format!("{} Review Project", song.file_name()))
+                    .save_file()
+                    .await
+                else {
+                    return;
+                };
+                let song = song.path().to_owned();
+                let output = output.path().to_owned();
+                let choice = match self.choose_chart_source(&song).await {
+                    Ok(Some(choice)) => choice,
+                    Ok(None) => return,
+                    Err(error) => {
+                        let mut studio = self;
+                        studio.error.set(Some(format!("{error:#}")));
+                        return;
+                    }
+                };
+                let result = tokio::task::spawn_blocking(move || {
+                    Store::create_with_source(&song, None, &output, Some(choice))
+                })
+                .await;
+                match result {
+                    Ok(Ok(store)) => self.open_project(store.root).await,
+                    Ok(Err(error)) => {
+                        let mut this = self;
+                        this.error.set(Some(format!("{error:#}")));
+                    }
+                    Err(error) => {
+                        let mut this = self;
+                        this.error.set(Some(error.to_string()));
+                    }
+                }
+            });
+        }
     }
     pub fn export_dialog(mut self) {
         self.export_open.set(true);
@@ -1673,11 +1748,11 @@ impl Studio {
         root: PathBuf,
         revision: u64,
     ) {
-        if (self.export_busy)() {
+        let Some(busy) = super::activity::BusyGuard::start(self.export_busy) else {
             return;
-        }
-        self.export_busy.set(true);
-        spawn(async move {
+        };
+        dioxus::core::spawn_forever(async move {
+            let _busy = busy;
             let result = async {
                 let doc = self.snapshot().context("Open a project")?;
                 let store = self.store.read().clone().context("Open a project")?;
@@ -1736,7 +1811,6 @@ impl Studio {
             if let Err(error) = result {
                 self.error.set(Some(format!("{error:#}")));
             }
-            self.export_busy.set(false);
         });
     }
     pub async fn open_project(mut self, path: PathBuf) {
@@ -2141,6 +2215,8 @@ pub fn use_studio() -> Studio {
         store: use_signal(|| None),
         library: use_signal(|| None),
         library_busy: use_signal(|| false),
+        file_activity: use_signal(|| None),
+        generation_busy: use_signal(|| false),
         library_selected: use_signal(|| None),
         source_choice: use_signal(|| None),
         timing: use_signal(|| None),

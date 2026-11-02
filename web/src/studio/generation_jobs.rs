@@ -62,6 +62,11 @@ struct Runner {
     refresh: Signal<u64>,
 }
 impl Runner {
+    fn resume(self, studio: Studio, job: Job) {
+        if !*self.busy.peek() {
+            self.start(studio, job);
+        }
+    }
     fn start(mut self, mut studio: Studio, mut job: Job) {
         self.updated.set(js_sys::Date::now() as u64);
         let (sender, receiver) = futures_channel::oneshot::channel();
@@ -185,6 +190,9 @@ impl Runner {
                 );
                 self.error.set(Some(format!("{error:#}")));
             }
+            if let Ok(latest) = view(&job.root) {
+                self.view.set(Some(latest));
+            }
             self.busy.set(false);
             self.stop.set(None);
             self.refresh += 1;
@@ -199,6 +207,12 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut current = use_signal(|| None::<View>);
     let mut previous_draft = use_signal(|| None::<Job>);
     let mut busy = use_signal(|| false);
+    use_effect(move || {
+        let value = busy();
+        if *studio.generation_busy.peek() != value {
+            studio.generation_busy.set(value);
+        }
+    });
     let mut model_busy = use_signal(|| false);
     let mut model_error = use_signal(|| None::<String>);
     let mut started = use_signal(|| None::<u64>);
@@ -305,6 +319,9 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         refresh,
     };
     let start_analysis = EventHandler::new(move |_: ()| {
+        if *busy.peek() {
+            return;
+        }
         let target_track = (studio.generation_target)()
             .or_else(|| current.peek().as_ref().and_then(|view| view.part.clone()));
         studio.analysis_preview.set(None);
@@ -460,8 +477,8 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             });},"Use a downloaded model…"}
     };
     if !(studio.generation_open)() {
-        return if busy() {
-            rsx! {button{class:"generation-running",onclick:move |_|studio.generation_open.set(true),"Analysis in progress",span{"{status}"}}}
+        return if busy() || job.read().is_some() || error.read().is_some() {
+            rsx! {super::activity::JobNotice{busy:busy(),state:current.read().as_ref().map(|view|view.status.state.clone()),failed:error.read().is_some(),detail:status(),onopen:move |_|studio.generation_open.set(true)}}
         } else {
             rsx! {}
         };
@@ -557,7 +574,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         let diagnostics = rsx! {div{class:"ra-saved-list",
             if let Some(previous)=previous_draft(){button{class:"action-secondary",disabled:busy(),onclick:move |_|{match view(&previous.root){Ok(loaded)=>{sensitivity.set(loaded.settings.detection.sensitivity);loop_only.set(loaded.loop_only);guitar_source.set(loaded.settings.guitar_source);keyboard_sound.set(loaded.settings.keyboard_sound);piano_quality.set(loaded.settings.piano_quality);language.set(loaded.settings.vocal_language);vocal_mode.set(loaded.settings.vocal_analysis_mode);standard_drums.set(loaded.settings.standard_drums);full_mix_drums.set(loaded.settings.full_mix_drums);job.set(Some(previous.clone()));current.set(Some(loaded));error.set(None);},Err(problem)=>error.set(Some(format!("{problem:#}")))}},"Previous successful draft"}}
             if let Some(handle)=job(){
-                if !busy() && active.as_ref().is_some_and(|view|view.status.state!=State::Complete){button{class:"action-secondary",disabled:stale,onclick:move |_|runner.start(studio,handle.clone()),"Resume saved analysis"}if stale{p{class:"ra-hint","Settings changed. Analyze again to use them."}}}
+                if !busy() && active.as_ref().is_some_and(|view|view.status.state!=State::Complete){button{class:"action-secondary",disabled:stale,onclick:move |_|runner.resume(studio,handle.clone()),"Resume saved analysis"}if stale{p{class:"ra-hint","Settings changed. Analyze again to use them."}}}
                 if active.as_ref().is_some_and(|view|view.status.state==State::Complete)&&error().is_some(){button{class:"action-secondary",onclick:move |_|error.set(None),"Review saved draft"}}
                 p{class:"ra-hint","Analysis stages are saved in this browser."}
             }
@@ -618,7 +635,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     }
                 }
                 if let Some(target)=(studio.generation_target)(){p{"Build {target} for this chart. Apply the finished draft when ready; other parts stay in place."}}
-                button{disabled:busy()||model_busy()||requested.read().is_empty(),onclick:move |_|start_analysis.call(()),"Generate selected parts"}
+                button{disabled:busy()||model_busy()||requested.read().is_empty(),aria_busy:busy(),onclick:move |_|start_analysis.call(()),super::activity::BusyLabel{busy:busy(),label:"Generate selected parts",active:"Analyzing selected parts…"}}
             }else{button{disabled:busy(),onclick:move |_|{studio.generation_after_import.set(true);studio.generation_open.set(false);studio.new_chart();},"Choose recording…"}}
             if busy()&&stop.read().is_some(){button{onclick:move |_|{if let Some(control)=stop.read().as_ref(){control.0.set(true);if let Some(sender)=control.1.borrow_mut().take(){let _=sender.send(());}}},"Cancel generation"}}
             if let Some(previous) = previous_draft() { button { disabled: busy(), onclick: move |_| {
@@ -633,7 +650,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 if let Some(frames)=result.summary.frames{p{"{frames} stereo frames · source checksums verified"}}
                 ul{for(part,count)in &result.summary.instruments{li{"{part}: {count} detections"}}}
                 if result.summary.vocal_notes>0||result.summary.vocal_issues>0{p{"{result.summary.vocal_notes} vocal notes · {result.summary.vocal_issues} review issues"}}
-                if result.status.state!=State::Complete{button{disabled:busy(),onclick:{let handle=handle.clone();move |_|runner.start(studio,handle.clone())},"Resume remaining stages"}}
+                if result.status.state!=State::Complete{button{disabled:busy(),onclick:{let handle=handle.clone();move |_|runner.resume(studio,handle.clone())},"Resume remaining stages"}}
                 if result.status.state==State::Complete{
                     if result.part.is_some(){
                         super::reanalysis_review::ReviewDraft { key: "{handle.root:?}", studio, job: handle.root.clone(), stale: stale || busy(), onapply: {let root=handle.root.clone();move |_|{
