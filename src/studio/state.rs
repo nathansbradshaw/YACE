@@ -1064,7 +1064,12 @@ impl Studio {
             audio.set_mix(mix)
         }
     }
-    pub fn set_playback_rate(self, rate: f64) {
+    pub fn set_playback_rate(mut self, rate: f64) {
+        if !rate.is_finite() || !(0.25..=2.).contains(&rate) {
+            self.error
+                .set(Some("Practice rate must be between 0.25 and 2.0".into()));
+            return;
+        }
         #[cfg(feature = "browser")]
         self.seek(self.current_audio_position());
         #[cfg(not(feature = "browser"))]
@@ -1080,7 +1085,10 @@ impl Studio {
         ) {
             return;
         }
-        self.dispatch(Action::SetPlaybackRate { rate });
+        if self.dispatch_with_transport(Action::SetPlaybackRate { rate }, true) {
+            self.status
+                .set(format!("Playback speed {:.0}%", rate * 100.));
+        }
     }
     /// The same saved selection as editor/AI actions, with validation on a
     /// worker and autoplay only after the shared source has been installed.

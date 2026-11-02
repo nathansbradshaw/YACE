@@ -44,6 +44,8 @@ changes prime at the held position. The device callback only consumes pooled
 blocks. Position follows acknowledged original-source frames, including rate
 transitions and continuous loops. The shared accepted range is 25–200 percent;
 saved custom values such as 83 percent retain the existing project/action format.
+Per-section reanalysis routes are mixed in original source time before native
+stretching; the proposed-review guard continues to save only canonical transport.
 
 Actual native checks exercised original recording, isolated stems and a restored
 Kick audition; rate changes retained the source identity and play/pause state.
