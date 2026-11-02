@@ -70,8 +70,9 @@ pub mod keyboard_voicing;
 pub mod keys;
 #[path = "../../src/kit_audition.rs"]
 pub mod kit_audition;
-#[path = "../../src/larsnet_receipt.rs"]
 pub mod larsnet;
+#[path = "../../src/larsnet_receipt.rs"]
+pub mod larsnet_receipt;
 #[path = "../../src/lyric_language.rs"]
 pub mod lyric_language;
 #[path = "../../src/mapping.rs"]
@@ -103,6 +104,8 @@ pub mod pro_keys;
 pub mod project_portability;
 #[path = "../../src/project_recording.rs"]
 pub mod project_recording;
+#[path = "../../src/recent_projects.rs"]
+pub mod recent_projects;
 mod recognition;
 #[path = "../../src/recording_metadata.rs"]
 pub mod recording_metadata;

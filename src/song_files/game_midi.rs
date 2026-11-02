@@ -461,9 +461,8 @@ pub fn export(
         None
     };
     ensure!(
-        chart.timing.resolution == baseline.timing.resolution
-            && chart.timing.offset == baseline.timing.offset,
-        "An imported MIDI's resolution and recording offset must remain unchanged"
+        chart.timing.resolution == baseline.timing.resolution,
+        "An imported MIDI's resolution must remain unchanged"
     );
     let attributes: Vec<_> = tracks
         .iter()

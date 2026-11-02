@@ -10,9 +10,13 @@
 }
 
 .welcome-content {
-  width:min(520px,100%);
+  width:min(960px,100%);
   margin:auto;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  column-gap:40px;
 }
+.welcome-content > h1, .welcome-intro, .welcome-hint, .welcome-library { grid-column:1 / -1; }
 
 .welcome-content h1 {
   margin:0 0 8px;
@@ -28,6 +32,8 @@
 
 .welcome-actions {
   display:grid;
+  grid-column:1;
+  grid-row:3;
   border-top:1px solid var(--border-color);
 }
 
@@ -73,3 +79,17 @@
 .chart-library-picker select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 .welcome-chart-list { display: grid; gap: .5rem; max-height: 35vh; overflow-y: auto; }
 .welcome-library { width: 100%; }
+.welcome-recent { grid-column:2; grid-row:3; min-width:0; }
+.welcome-recent-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.welcome-recent-heading h2 { font-size: 15px; margin: 0; }
+.welcome-recent-heading button, .welcome-recent-remove { background: transparent; box-shadow: none; color: var(--text-secondary); }
+.welcome-recent-empty { font-size: 12px; color: var(--text-secondary); }
+.welcome-recent-row { display: flex; align-items: center; min-width: 0; }
+.welcome-recent-row .welcome-action { flex: 1; min-width: 0; }
+.welcome-recent-row .welcome-action > div { min-width: 0; }
+.welcome-recent-row strong, .welcome-recent-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.welcome-recent-remove { flex-shrink: 0; font-size: 20px; padding: 8px; }
+@media (max-width:760px) {
+  .welcome-content { display:block; width:min(520px,100%); }
+  .welcome-recent { margin-top:24px; }
+}

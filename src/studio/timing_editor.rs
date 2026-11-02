@@ -1,4 +1,4 @@
-//! Tempo and meter controls share the note editor's clock and undo history.
+//! Timing controls share the note editor's clock and undo history.
 use super::{
     icons::Icon,
     state::{Studio, clock},
@@ -11,6 +11,9 @@ use crate::{
 use anyhow::{Context, Result};
 use dioxus::prelude::*;
 use std::collections::BTreeMap;
+#[cfg(all(test, not(feature = "browser")))]
+#[path = "timing_editor_tests.rs"]
+mod tests;
 
 pub(super) fn current(studio: Studio) -> Option<SyncTrack> {
     let doc = studio.doc.read();
@@ -19,6 +22,7 @@ pub(super) fn current(studio: Studio) -> Option<SyncTrack> {
     Some(SyncTrack {
         tempos: sync.tempos.clone(),
         meters: sync.meters.clone(),
+        offset: sync.offset,
         archived_vocal_review: None,
     })
 }
@@ -252,6 +256,7 @@ fn TimingDialog(mut studio: Studio) -> Element {
             section {class:"sections-dialog timing-dialog",
                 header {h2 {"Timing"}button {aria_label:"Close timing",onclick:move |_|studio.timing_open.set(false),Icon {name:"close",size:16}}}
                 p {class:"field-hint","Tempo changes shift note playback. Notes keep their beat positions."}
+                OffsetControl {studio}
                 ul {class:"sections-list timing-list",
                     for row in rows {
                         {let edit=row.clone();let remove=row.clone();let label=row.label();let kind=match row {Selected::Tempo(_)=>"Tempo",Selected::Meter(_)=>"Time signature"};let tick=row.tick();
@@ -278,9 +283,76 @@ fn TimingDialog(mut studio: Studio) -> Element {
                         }
                     }
                 }
-                if archive {p {class:"field-hint","Tempo changed. Earlier vocal checks are kept in history; review this part again."}}
+                if archive {p {class:"field-hint","Timing changed. Earlier vocal checks are kept in history; review this part again."}}
                 if let Some(error)=error(){p {role:"alert",class:"section-error","{error}"}}
             }
         }
+    }
+}
+
+#[derive(Clone)]
+struct OffsetDraft {
+    observed: f64,
+    millis: String,
+}
+impl OffsetDraft {
+    fn new(offset: f64) -> Self {
+        Self {
+            observed: offset,
+            millis: (offset * 1000.).to_string(),
+        }
+    }
+    fn edit(&self) -> Result<Edit> {
+        let millis: f64 = self
+            .millis
+            .parse()
+            .context("Enter a whole number of milliseconds")?;
+        anyhow::ensure!(
+            millis.is_finite() && millis.fract() == 0.,
+            "Enter a whole number of milliseconds"
+        );
+        let seconds = millis / 1000.;
+        crate::sync_track::validate_offset(seconds)?;
+        Ok(Edit::SetOffset {
+            previous: self.observed,
+            seconds,
+        })
+    }
+}
+
+#[component]
+fn OffsetControl(mut studio: Studio) -> Element {
+    let mut draft =
+        use_signal(|| OffsetDraft::new(studio.timing.peek().as_ref().map_or(0., |t| t.offset)));
+    let mut error = use_signal(|| None::<String>);
+    use_effect(move || {
+        if let Some(timing) = (studio.timing)()
+            && draft.peek().observed != timing.offset
+        {
+            draft.set(OffsetDraft::new(timing.offset));
+            error.set(None);
+        }
+    });
+    let unchanged = draft()
+        .millis
+        .parse::<f64>()
+        .is_ok_and(|millis| millis / 1000. == draft().observed);
+    rsx! {
+        form {class:"section-form",onsubmit:move |event|{
+            event.prevent_default();
+            match draft().edit() {
+                Ok(edit)=>{
+                    studio.dispatch(Action::EditSync{edit});
+                    error.set((studio.error)());
+                    if error().is_none() && let Some(timing)=(studio.timing)(){draft.set(OffsetDraft::new(timing.offset));}
+                },
+                Err(failure)=>error.set(Some(failure.to_string())),
+            }
+        },
+            label {"Song offset (ms)" input {aria_label:"Song offset in milliseconds",aria_describedby:"song-offset-help",r#type:"number",min:"-2147483647",max:"2147483647",step:"1",value:draft().millis,oninput:move |event|{draft.write().millis=event.value();error.set(None);}}}
+            button {r#type:"submit",aria_label:"Apply song offset",disabled:unchanged,"Apply offset"}
+        }
+        p {id:"song-offset-help",class:"field-hint","Positive moves chart events later against the recording; negative moves them earlier. Beat positions and audio stay unchanged. Events before 0 seconds are retained. Undo restores the previous offset."}
+        if let Some(message)=error(){p {role:"alert",class:"section-error","{message}"}}
     }
 }

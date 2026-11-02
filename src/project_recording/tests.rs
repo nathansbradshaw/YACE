@@ -94,17 +94,20 @@ fn chart_only_edits_export_and_recovery_keep_history_without_fake_audio() {
         reopened.load().unwrap().content.tracks["ExpertSingle"].len(),
         edited
     );
-    let zip = root.path().join("backup.zip");
-    crate::project_files::backup(&store, &zip).unwrap();
-    let restored = root.path().join("restored");
-    let restored = crate::project_files::import(&zip, &restored).unwrap();
-    apply(&restored, Action::Undo);
-    apply(&restored, Action::Redo);
-    assert_eq!(
-        restored.load().unwrap().content.tracks["ExpertSingle"].len(),
-        edited
-    );
-    assert!(audio_files(&restored.root).is_empty());
+    #[cfg(any(feature = "editor", feature = "browser"))]
+    {
+        let zip = root.path().join("backup.zip");
+        crate::project_files::backup(&store, &zip).unwrap();
+        let restored = root.path().join("restored");
+        let restored = crate::project_files::import(&zip, &restored).unwrap();
+        apply(&restored, Action::Undo);
+        apply(&restored, Action::Redo);
+        assert_eq!(
+            restored.load().unwrap().content.tracks["ExpertSingle"].len(),
+            edited
+        );
+        assert!(audio_files(&restored.root).is_empty());
+    }
     assert_eq!(fs::read_to_string(song.join("notes.chart")).unwrap(), CHART);
     assert!(!fs::exists(song.join(".yace")));
 }
@@ -283,17 +286,21 @@ fn recording_attachment_undo_redo_and_backup_retain_notes_and_real_source_bytes(
     );
     let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
     assert!(reopened.load().unwrap().has_recording());
-    let backup = root.path().join("backup.zip");
-    crate::project_files::backup(&store, &backup).unwrap();
-    let restored = crate::project_files::import(&backup, &root.path().join("restored")).unwrap();
-    apply(&restored, Action::Undo);
-    assert!(!restored.load().unwrap().has_recording());
-    apply(&restored, Action::Redo);
-    assert!(restored.load().unwrap().has_recording());
-    assert_eq!(
-        restored.load().unwrap().content.tracks["ExpertSingle"].len(),
-        count
-    );
+    #[cfg(any(feature = "editor", feature = "browser"))]
+    {
+        let backup = root.path().join("backup.zip");
+        crate::project_files::backup(&store, &backup).unwrap();
+        let restored =
+            crate::project_files::import(&backup, &root.path().join("restored")).unwrap();
+        apply(&restored, Action::Undo);
+        assert!(!restored.load().unwrap().has_recording());
+        apply(&restored, Action::Redo);
+        assert!(restored.load().unwrap().has_recording());
+        assert_eq!(
+            restored.load().unwrap().content.tracks["ExpertSingle"].len(),
+            count
+        );
+    }
 }
 
 #[test]

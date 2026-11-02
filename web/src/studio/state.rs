@@ -28,6 +28,7 @@ pub struct ReviewWaveforms {
 }
 #[derive(Clone, Copy, PartialEq)]
 pub struct Studio {
+    pub recent_projects: Signal<crate::recent_projects::History>,
     pub library: Signal<Option<crate::chart_library::Library>>,
     pub library_busy: Signal<bool>,
     pub library_selected: Signal<Option<usize>>,
@@ -91,6 +92,7 @@ pub struct Studio {
 }
 pub fn use_studio() -> Studio {
     Studio {
+        recent_projects: use_signal(|| crate::recent_projects::History::load().unwrap_or_default()),
         library: use_signal(|| None),
         library_busy: use_signal(|| false),
         library_selected: use_signal(|| None),
@@ -173,6 +175,39 @@ impl Drop for Candidate {
     }
 }
 impl Studio {
+    pub fn remember_recent(mut self, path: PathBuf) {
+        let mut history = crate::recent_projects::History::load().unwrap_or_default();
+        history.remember(
+            path.clone(),
+            crate::recent_projects::title(&self.metadata.read(), &path),
+        );
+        if let Err(error) = history.save() {
+            self.error.set(Some(format!(
+                "Project saved, but recent history could not be saved: {error:#}"
+            )));
+        }
+        self.recent_projects.set(history);
+    }
+
+    pub fn forget_recent(mut self, path: Option<PathBuf>) {
+        let mut history = (self.recent_projects)();
+        if let Some(path) = path {
+            history.forget(&path);
+        } else {
+            history.entries.clear();
+        }
+        match history.save() {
+            Ok(()) => self.recent_projects.set(history),
+            Err(error) => self
+                .error
+                .set(Some(format!("Could not update recent projects: {error:#}"))),
+        }
+    }
+
+    pub async fn open_recent(self, path: PathBuf) {
+        self.open_saved_project(path).await;
+    }
+
     pub fn snapshot(self) -> Option<Arc<Project>> {
         self.doc.read().clone()
     }
@@ -192,6 +227,20 @@ impl Studio {
             .unwrap_or_else(|| store.load().map(Arc::new));
         match snapshot {
             Ok(doc) => {
+                let source_audio = match doc
+                    .has_recording()
+                    .then(|| store.audio_path(&doc))
+                    .transpose()
+                {
+                    Ok(path) => path,
+                    Err(error) => {
+                        self.error.set(Some(format!("{error:#}")));
+                        return;
+                    }
+                };
+                if *self.source_audio.peek() != source_audio {
+                    self.source_audio.set(source_audio);
+                }
                 self.timing.set(doc.timing(&store).ok());
                 self.chart_hash
                     .set(doc.chart_hash(&store).unwrap_or_default());
@@ -583,6 +632,8 @@ impl Studio {
             }.await;
             if let Err(error) = result {
                 self.error.set(Some(error.to_string()));
+                self.status
+                    .set("Recording not attached · chart preserved".into());
             }
         });
     }
@@ -939,11 +990,14 @@ impl Studio {
             return Ok(());
         }
         self.persistence_busy.set(true);
-        let result =
-            crate::persistence::save(&store.root, doc.revision, (self.saved_revision)()).await;
+        let expected = (self.saved_revision)();
+        let result = crate::persistence::save(&store.root, doc.revision, expected).await;
         self.persistence_busy.set(false);
         result?;
         self.saved_revision.set(Some(doc.revision));
+        if expected.is_none() {
+            self.remember_recent(store.root.clone());
+        }
         ensure!(
             self.snapshot()
                 .is_some_and(|current| current.revision == doc.revision),
@@ -1059,6 +1113,18 @@ impl Studio {
         }
         let metadata =
             crate::pipeline::ini_fields(&crate::pipeline::song_ini(&root.join("source"))?);
+        // Resolve every fallible view input before replacing the active store.
+        // A chart-only project intentionally has no audio path; a failed open
+        // must not pair the previous document with the new project's store.
+        let timing = doc.timing(&store)?;
+        let sections = store.source_sections(&doc)?;
+        let sync = store.source_sync(&doc).ok();
+        let star_power = store.source_star_power(&doc)?;
+        let source_audio = doc
+            .has_recording()
+            .then(|| store.audio_path(&doc))
+            .transpose()?;
+        let guitar_source = store.guitar_source(&doc)?;
         self.epoch.set((self.epoch)().wrapping_add(1));
         let epoch = (self.epoch)();
         self.status.set("Preparing browser audio…".into());
@@ -1076,19 +1142,15 @@ impl Studio {
         self.store.set(Some(store.clone()));
         self.saved_revision.set(saved_revision);
         self.metadata.set(metadata);
-        self.timing.set(Some(doc.timing(&store)?));
-        self.source_sections.set(store.source_sections(&doc)?);
-        self.source_sync.set(store.source_sync(&doc).ok());
-        self.source_star_power.set(store.source_star_power(&doc)?);
+        self.timing.set(Some(timing));
+        self.source_sections.set(sections);
+        self.source_sync.set(sync);
+        self.source_star_power.set(star_power);
         self.star_power_open.set(false);
         self.star_power_target.set(None);
         self.timing_open.set(false);
-        self.source_audio.set(if doc.has_recording() {
-            Some(store.audio_path(&doc)?)
-        } else {
-            None
-        });
-        self.guitar_source.set(store.guitar_source(&doc)?);
+        self.source_audio.set(source_audio);
+        self.guitar_source.set(guitar_source);
         self.group.set(Default::default());
         self.vocal_note.set(None);
         self.sections_open.set(false);
@@ -1102,6 +1164,9 @@ impl Studio {
         self.audio_ready.set(true);
         self.stem_status.set(kit_notice.unwrap_or(notice));
         self.status.set("Ready · files stay in this browser".into());
+        if saved_revision.is_some() {
+            self.remember_recent(root.clone());
+        }
         if let Some(previous) = previous_root.filter(|previous| previous != &root) {
             crate::storage::clear(&previous);
         }

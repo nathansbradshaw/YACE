@@ -531,7 +531,10 @@ pub(super) fn rewrite(
         source.header.format != Format::Sequential && source.header.timing == new.header.timing,
         "Incompatible MIDI timing"
     );
-    let timing_changed = before.chart.timing != after.chart.timing
+    // Recording offset lives in song.ini, never in SMF tick timing. Keep the
+    // original MIDI byte-for-byte when it is the only timing change.
+    let timing_changed = before.chart.timing.resolution != after.chart.timing.resolution
+        || before.chart.timing.tempos != after.chart.timing.tempos
         || sync_track::imported(before.chart)?.meters != sync_track::imported(after.chart)?.meters;
     let sections_changed = body(before.chart, "Events") != body(after.chart, "Events");
     let labels: BTreeSet<_> = source
