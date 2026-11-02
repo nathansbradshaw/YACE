@@ -99,6 +99,18 @@ pub fn App() -> Element {
     use_context_provider(|| github);
     let studio = state::use_studio();
     use_hook(move || dioxus::core::provide_root_context(studio));
+    crate::unload::use_unsaved_changes(move || {
+        // A failed save clears `dirty` to stop retries, but its revision is
+        // still unsaved. Include pending export metadata and active writes.
+        let band = studio.doc.read().as_ref().is_some_and(|doc| {
+            (studio.dirty)()
+                || (studio.persistence_busy)()
+                || (studio.saved_revision)() != Some(doc.revision)
+        });
+        // Always subscribe to both families, including a hidden linked chart.
+        let dance = dance::has_unsaved_changes();
+        band || dance
+    });
     difficulty::use_snapshot(studio);
     use_future(move || async move {
         let mut studio = studio;
