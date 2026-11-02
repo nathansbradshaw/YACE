@@ -9,6 +9,8 @@ use crate::stepmania::{
 use anyhow::{Context, Result, ensure};
 use dioxus::prelude::*;
 use std::path::PathBuf;
+#[path = "dance_preview.rs"]
+mod preview;
 #[path = "dance_workspace.rs"]
 mod workspace;
 pub use workspace::{Audition, Inspector, Roll};
@@ -34,6 +36,7 @@ pub struct DanceStudio {
     selected: Signal<String>,
     audio: Signal<String>,
     clock: Signal<f64>,
+    motion_epoch: Signal<u64>,
     playing: Signal<bool>,
     length: Signal<f64>,
     rate: Signal<f64>,
@@ -67,6 +70,7 @@ pub fn provide() {
         selected: Signal::new(String::new()),
         audio: Signal::new(String::new()),
         clock: Signal::new(0.),
+        motion_epoch: Signal::new(0),
         playing: Signal::new(false),
         length: Signal::new(0.),
         rate: Signal::new(1.),
@@ -194,6 +198,7 @@ impl DanceStudio {
         #[cfg(not(target_arch = "wasm32"))]
         self.audio.set(audio);
         self.clock.set(0.);
+        self.motion_epoch.set((self.motion_epoch)().wrapping_add(1));
         self.playing.set(false);
         self.length.set(0.);
         self.rate.set(1.);
@@ -540,23 +545,6 @@ fn ChartProperties(s: DanceStudio, chart: Chart) -> Element {
     let mut meter = use_signal(|| chart.meter.to_string());
     let mut description = use_signal(|| chart.description.clone());
     rsx! {div{class:"step-toolbar",onkeydown:move |e|e.stop_propagation(),label{"Difficulty " select {value:"{difficulty}",onchange:move |e|difficulty.set(e.value()),for d in Difficulty::GENERATED.into_iter().chain([Difficulty::Edit]){option{value:d.name(),selected:d.name()==difficulty(),"{d.name()}"}}}}label{"Meter (estimated for drafts) " input {r#type:"number",min:"1",max:"999",value:"{meter}",oninput:move |e|meter.set(e.value())}}label{"Description " input {value:"{description}",oninput:move |e|description.set(e.value())}}button{onclick:move |_|match meter().parse(){Ok(meter)=>s.apply(Action::SetChart{chart_id:chart.id.clone(),difficulty:difficulty(),meter,description:description()}),Err(e)=>s.report(Err(anyhow::Error::new(e)))},"Apply chart details"}}}
-}
-#[component]
-fn Preview(chart: Chart, timing: Timing, beat: f64, seconds: f64, cmod: bool) -> Element {
-    let notes: Vec<_> = chart
-        .notes
-        .iter()
-        .filter_map(|n| {
-            let distance = timing.display_at(n.row as f64 / 48., beat, seconds, cmod);
-            let y = 80. + distance * 42.;
-            ((-20.0..=500.).contains(&y)).then_some((n, y))
-        })
-        .take(2000)
-        .collect();
-    rsx! {svg{class:"studio-highway",view_box:"0 0 320 500",role:"img","aria-label":"Dance scrolling arrow preview",
-        for(i,arrow)in ["←","↓","↑","→"].iter().enumerate(){text{x:"{40+i*80}",y:"80",fill:"#8190a5",text_anchor:"middle",font_size:"36","{arrow}"}}
-        for(n,y)in notes{if let Some(end)=n.end_row{line{x1:"{40+n.lane as usize*80}",x2:"{40+n.lane as usize*80}",y1:"{y}",y2:"{(80.+timing.display_at(end as f64/48.,beat,seconds,cmod)*42.).clamp(-100.,600.)}",stroke:"#7c9cf4",stroke_width:"12"}}text{x:"{40+n.lane as usize*80}",y:"{y}",fill:if matches!(n.kind,NoteKind::Mine){"#ef6a72"}else if !timing.judgable(n.row as f64/48.)||n.kind==NoteKind::Fake{"#7f8797"}else{"#8bc5ff"},text_anchor:"middle",font_size:"32",{if n.kind==NoteKind::Mine {"✕"}else if n.kind==NoteKind::Lift{"◇"}else{["←","↓","↑","→"][n.lane as usize]}}}}
-    }}
 }
 #[component]
 fn TimingEditor(s: DanceStudio) -> Element {

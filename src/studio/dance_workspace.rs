@@ -39,20 +39,33 @@ fn timing(s: DanceStudio) -> Timing {
 pub fn Audition(studio: Studio) -> Element {
     let s = use_context::<DanceStudio>();
     let mut cmod = use_signal(|| false);
-    let chart = selected_chart(s);
+    let mut zoom = use_signal(|| 1_f64);
+    let chart = use_memo(move || selected_chart(s));
     let position = super::super::session::position(studio);
-    let playing = super::super::session::transport(studio).is_some_and(|t| t.playing);
-    let timing = timing(s);
-    let beat = beat(&timing, super::super::session::position(studio));
+    let playing = super::super::session::transport(studio).is_some_and(|t| t.playing && t.ready);
+    let timing = use_memo(move || timing(s));
+    let beat = beat(&timing.read(), position);
+    let revision = s.project.read().as_ref().map_or(0, |p| p.revision);
+    let motion = if uses_recording(studio) {
+        studio.snapshot().map_or(0, |p| p.revision)
+    } else {
+        (s.motion_epoch)()
+    };
+    let identity = format!("{}:{}:{revision}:{motion}", (s.epoch)(), (s.selected)());
     let title = tracks(studio)
         .into_iter()
         .find(|(id, _)| id == &format!("dance:{}", (s.selected)()))
         .map_or(String::new(), |(_, title)| title);
     rsx! {section{class:"audition-view", "data-preview-position":"{position}", "data-preview-playing":"{playing}",
         header{class:"desk-heading audition-heading",h2{"Audition"}span{class:"audition-track","{title}"}span{class:"audition-mode","Autoplay"}}
-        div{class:"audition-surface dance-audition",if let Some(chart)=chart {Preview{chart,timing,beat,seconds:super::super::session::position(studio),cmod:cmod()}}}
+        div{class:"audition-surface dance-audition",
+            if chart.read().as_ref().is_some_and(|c|c.stepstype=="dance-single"&&c.read_only_reason.is_none()) {
+                super::preview::Preview{chart,timing,beat,seconds:position,playing,cmod:cmod(),identity,zoom:zoom()}
+            }else{div{class:"studio-empty-preview","This imported chart is preserved read-only."}}
+        }
         super::super::practice::PracticeControls{studio,
             div{class:"audition-settings",label{class:"form-check",input{r#type:"checkbox",checked:cmod(),onchange:move|e|cmod.set(e.checked())}span{"Constant scroll speed"}}}
+            label{class:"game-preview-lookahead",span{"Arrow size"}select{aria_label:"Arrow size",value:"{zoom}",onchange:move|e|if let Ok(value)=e.value().parse::<f64>(){zoom.set(value.clamp(0.5,1.5));},for (value,label)in[(0.75,"75%"),(1.,"100%"),(1.25,"125%")]{option{value:"{value}",selected:value==zoom(),"{label}"}}}}
         }
     }}
 }

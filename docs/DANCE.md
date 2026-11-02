@@ -29,6 +29,20 @@ The four lanes are left, down, up, right. Holds and rolls have editable lengths.
 Mines, lifts and fake notes remain distinct types. The beat grid stays independent
 of scrolling effects; the preview follows the recording's clock.
 
+The Audition field uses an original vector noteskin with beveled directional
+arrows, subdivision colors, metallic receptors, textured hold/roll bodies and
+playback-driven receptor flashes. Long holds stay visible after their heads
+reach the targets. Mines and fake/warped notes do not produce autoplay hits.
+Feedback resets on seeks, loop wraps, chart edits and pauses; it does not imply
+controller judgments or scoring. Reduced-motion preferences hide hit bursts and
+receptor pulsing while preserving the essential scrolling preview.
+Playback options include **Arrow size**; resizing the pane changes how much of
+the field is visible while retaining readable arrows.
+
+The visual reference is StepMania's [noteskin structure](https://github.com/stepmania/stepmania/wiki/NoteSkins)
+and [beat-based note/receptor metrics](https://github.com/stepmania/stepmania/blob/5_1-new/NoteSkins/common/common/metrics.ini).
+The SVG artwork is YACE's own; no game textures or theme scripts are bundled.
+
 Copy/paste, mirror, quantize and passage moves keep sustains together and form
 one undo step. The 1/2/3 keys select Select/Place/Erase for every instrument.
 Arrow keys move the beat cursor and Page Up/Down move the grid.
