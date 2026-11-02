@@ -62,6 +62,7 @@ pub struct Studio {
     pub waveforms: Signal<Option<Arc<ReviewWaveforms>>>,
     pub source_audio: Signal<Option<PathBuf>>,
     pub guitar_source: Signal<crate::mapping::GuitarSource>,
+    pub synth_reference: Signal<bool>,
     pub album_art: Signal<Option<String>>,
     pub collaboration_open: Signal<bool>,
     pub parts_open: Signal<bool>,
@@ -126,6 +127,7 @@ pub fn use_studio() -> Studio {
         waveforms: use_signal(|| None),
         source_audio: use_signal(|| None),
         guitar_source: use_signal(Default::default),
+        synth_reference: use_signal(|| false),
         album_art: use_signal(|| None),
         collaboration_open: use_signal(|| false),
         parts_open: use_signal(|| false),
@@ -227,6 +229,17 @@ impl Studio {
             .unwrap_or_else(|| store.load().map(Arc::new));
         match snapshot {
             Ok(doc) => {
+                let reference_changed = self.doc.peek().as_ref().is_none_or(|old| {
+                    old.selected_track != doc.selected_track
+                        || old.audio_sha256 != doc.audio_sha256
+                        || old.content.keyboard_stems != doc.content.keyboard_stems
+                        || old.content.stems != doc.content.stems
+                        || serde_json::to_value(&old.content.track_origins).ok()
+                            != serde_json::to_value(&doc.content.track_origins).ok()
+                });
+                if reference_changed {
+                    self.synth_reference.set(store.synth_reference(&doc));
+                }
                 let source_audio = match doc
                     .has_recording()
                     .then(|| store.audio_path(&doc))
@@ -1125,6 +1138,7 @@ impl Studio {
             .then(|| store.audio_path(&doc))
             .transpose()?;
         let guitar_source = store.guitar_source(&doc)?;
+        let synth_reference = store.synth_reference(&doc);
         self.epoch.set((self.epoch)().wrapping_add(1));
         let epoch = (self.epoch)();
         self.status.set("Preparing browser audio…".into());
@@ -1151,6 +1165,7 @@ impl Studio {
         self.timing_open.set(false);
         self.source_audio.set(source_audio);
         self.guitar_source.set(guitar_source);
+        self.synth_reference.set(synth_reference);
         self.group.set(Default::default());
         self.vocal_note.set(None);
         self.sections_open.set(false);
