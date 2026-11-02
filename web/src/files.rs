@@ -12,6 +12,9 @@ thread_local! {static DOWNLOADS:RefCell<std::collections::BTreeMap<PathBuf,web_s
 pub fn retain_download(path: PathBuf, blob: web_sys::Blob) {
     DOWNLOADS.with(|downloads| downloads.borrow_mut().insert(path, blob));
 }
+pub(crate) fn retained_download(path: &Path) -> Option<web_sys::Blob> {
+    DOWNLOADS.with(|downloads| downloads.borrow().get(path).cloned())
+}
 pub fn clear_downloads(root: &Path) {
     DOWNLOADS.with(|downloads| {
         downloads

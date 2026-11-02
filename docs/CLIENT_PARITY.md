@@ -7,8 +7,9 @@ rules; it does not establish that both applications expose working controls.
 
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer
-closes this work. No application service is substituted. Browser generation is
-under active implementation; see [its acceptance record](BROWSER_GENERATORS.md).
+closes this work. No application service is substituted. Browser generation,
+recognition and supplied-lyric alignment have actual full-song verification;
+see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATORS.md).
 
 ## Acceptance ledger
 

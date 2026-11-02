@@ -10,6 +10,11 @@ ID; do not create another Site for an update. Its generated origin is
 
 ## Build and update
 
+Deploy each completed feature after its relevant verification passes. Do not
+hold completed browser work for an entire parity backlog. The deployed
+`build-info.json` records the exact source revision. After publication, check
+the custom-domain application and the feature's actual browser workflow.
+
 1. Fetch/rebase the Rust source, run the checks in [BROWSER.md](BROWSER.md), and
    build with `cargo run --locked --manifest-path web/tools/Cargo.toml -- build`.
 2. The application build emits `web/dist`. Do not include recordings, projects,

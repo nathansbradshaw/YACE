@@ -90,13 +90,16 @@ pub async fn download(path: &Path) {
             .ok_or_else(|| anyhow::anyhow!("Open the editor to download this file"))?;
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         let root = crate::files::unique_root();
-        let name = if crate::storage::is_file(path) {
+        let blob = crate::files::retained_download(path);
+        let name = if blob.is_some() || crate::storage::is_file(path) {
             name.into_owned()
         } else {
             format!("{name}.zip")
         };
         let output = root.join(&name);
-        if crate::storage::is_file(path) {
+        if let Some(blob) = blob {
+            crate::files::retain_download(output.clone(), blob);
+        } else if crate::storage::is_file(path) {
             crate::storage::copy(path, &output)?;
         } else {
             anyhow::ensure!(

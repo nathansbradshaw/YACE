@@ -1,9 +1,9 @@
-# Browser generator acceptance — in progress
+# Browser generator engineering acceptance
 
-This extends the manual parity run. It does not mark the complete generator
-workflow or full-song generation accepted. The development branch is rebased
-frequently onto shared `main`; desktop export and source-import fixes remain
-part of the browser gate.
+This extends the manual parity run with actual full-song local generation,
+playback, editing, recovery and exported-file checks. It establishes the
+exercised engineering workflows, not musical accuracy. Incoming desktop export
+and source-import fixes remain part of the browser gate.
 
 ## Architecture
 
@@ -178,15 +178,25 @@ opened all 498 notes with its review context. Unsupported words remain untimed.
 The raw alignment and vocal reports were downloaded through the app. This
 checks engine/workflow agreement, not lyric or singing accuracy.
 
-## Open gates
+Automatic clean-panel recognition also passed on the real three-second excerpt:
+three recognized words, zero explicit matches, and cancellation preserving the
+previous analysis. The saved plan retained the recognition/source provenance.
+After reload, a clearly labelled manual range was restored and rendered with
+the matching vocal stem. Its actual downloaded archive passed all CRC checks;
+the receipt retained 132,300 stereo frames at 44.1 kHz in vocal-only mode. This
+exposed and fixed a download-adapter bug for browser-backed Blob archives.
 
-- HQ Piano runtime verification and automatic clean-panel recognition remain
-  open. Standard piano, Synth, recognition and supplied-lyric alignment have
-  actual browser/native model comparisons.
-- Complete full-song cancellation/resume and edited-target conflict checks for
-  recoverable browser generation jobs; the excerpt apply/Undo/reload path passed.
+## Limits and release gates
+
+- The optional 705 MB HQ Piano checkpoint failed actual local inference with
+  optimized/unoptimized CPU graphs, reduced arena allocation and the WebGPU
+  provider. It is disabled in the browser under the user's inference exception;
+  no service or silent engine substitution is used. Standard piano and Synth
+  remain available. The unused GPU runtime experiment is not shipped.
+- Full-song cancellation/reload/resume and excerpt changed-target refusal,
+  unrelated-edit preservation, application, Undo and reload passed.
 - The full-song generation/playback/editing/reload/song ZIP/project backup gates
   have passed the exercised engineering checks; game/controller and musical
   listening acceptance remain separate.
-- Full regression checks, final source rebase, push/merge and public static deploy
-  with actual live verification. Current public manual-parity release is unchanged.
+- Final source regression, push/merge, public deployment and live-origin checks
+  accompany publication; the hosted `build-info.json` identifies the source.
