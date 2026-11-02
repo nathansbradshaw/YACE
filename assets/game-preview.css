@@ -119,3 +119,11 @@
   color:#f5f7fa;
   font-variant-numeric:tabular-nums;
 }
+
+/* Preserve musical motion while suppressing decorative flashes and texture. */
+@media (prefers-reduced-motion:reduce) {
+  .studio-highway [data-kind='board-grain'],
+  .studio-highway [data-kind='lane-light'],
+  .studio-highway [data-kind='autoplay-flash'],
+  .studio-highway [data-kind='bar-flash'] { display:none; }
+}

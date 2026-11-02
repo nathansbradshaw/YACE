@@ -10,7 +10,7 @@ use crate::{
 };
 use dioxus::{html::input_data::MouseButton, prelude::*};
 
-fn current(studio: Studio, track: &str) -> Option<Vec<Phrase>> {
+pub(super) fn current(studio: Studio, track: &str) -> Option<Vec<Phrase>> {
     let doc = studio.doc.read();
     if let Some(phrases) = doc.as_ref()?.content.star_power.get(track) {
         return Some(phrases.clone());
