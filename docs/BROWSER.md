@@ -30,6 +30,10 @@ generated `snippets` directory with the JS/WASM files. Relative asset URLs also
 support hosting the app below a directory. HTTPS or loopback is required for
 browser storage and clipboard APIs. A desktop shell is not required.
 
+For production updates, use the immutable-release staging command documented
+in [DEPLOYMENT.md](DEPLOYMENT.md). To preview a staged hosting directory on the
+existing local port, use `yace-static-web serve 3032 /path/to/hosting/dist`.
+
 The Rust build tool optimizes the generated module with the pinned Binaryen
 release and rejects an artifact above the static host's 25 MiB per-file limit.
 No additional JavaScript loader or application service is required.
