@@ -12,6 +12,8 @@ extern "C" {
     fn create(data: &Uint8Array, options: &JsValue) -> std::result::Result<Promise, JsValue>;
     #[wasm_bindgen(method, js_name = run, catch)]
     fn run_js(this: &InferenceSession, feeds: &JsValue) -> std::result::Result<Promise, JsValue>;
+    #[wasm_bindgen(method, js_name = release, catch)]
+    fn release_js(this: &InferenceSession) -> std::result::Result<Promise, JsValue>;
     #[wasm_bindgen(js_name = Tensor)]
     type Tensor;
     #[wasm_bindgen(constructor, catch)]
@@ -106,6 +108,11 @@ impl Runtime {
         disable_optimization: bool,
     ) -> Result<Self> {
         let weights = crate::model_assets::load(id, progress).await?;
+        progress(format!("Loading {id} transcription model locally"));
+        Self::from_bytes(&weights, disable_optimization).await
+    }
+    /// Local optional checkpoints use the same pinned runtime without a network request.
+    pub async fn from_bytes(weights: &[u8], disable_optimization: bool) -> Result<Self> {
         ENV.with(|env| -> Result<()> {
             let wasm = Reflect::get(env, &"wasm".into()).map_err(error)?;
             set(&wasm, "numThreads", &1.into())?;
@@ -119,15 +126,19 @@ impl Runtime {
         if disable_optimization {
             set(&options, "graphOptimizationLevel", &"disabled".into())?;
         }
-        progress(format!("Loading {id} transcription model locally"));
         let session = JsFuture::from(
-            InferenceSession::create(&Uint8Array::from(weights.as_slice()), &options)
-                .map_err(error)?,
+            InferenceSession::create(&Uint8Array::from(weights), &options).map_err(error)?,
         )
         .await
         .map_err(error)?
         .unchecked_into();
         Ok(Self { session })
+    }
+    pub async fn release(self) -> Result<()> {
+        JsFuture::from(self.session.release_js().map_err(error)?)
+            .await
+            .map_err(error)?;
+        Ok(())
     }
     pub async fn run(&self, name: &str, values: &[f32], shape: &[usize]) -> Result<JsValue> {
         self.run_inputs(&[Input {

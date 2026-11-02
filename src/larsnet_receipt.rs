@@ -75,7 +75,8 @@ pub fn implementation_hash() -> String {
         Sha256::digest(
             [
                 include_bytes!("larsnet.rs").as_slice(),
-                include_bytes!("larsnet_receipt.rs").as_slice()
+                include_bytes!("larsnet_receipt.rs").as_slice(),
+                include_bytes!("../web/src/larsnet.rs").as_slice()
             ]
             .concat()
         )
@@ -86,4 +87,5 @@ pub fn implementation_hash() -> String {
 pub fn supported_implementation(hash: &str) -> bool {
     hash == implementation_hash()
         || hash == "2655740a47fc5a301df34873b7154a3b07ee5e4e3158c9a04a190b06c218f973"
+        || hash == "c651e67d5484dcda5bb1a6e7aee58138676f677b19a1c9cd7d16b2a9aa68a6b4"
 }
