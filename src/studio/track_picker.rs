@@ -107,5 +107,11 @@ pub fn TrackPicker(mut studio: Studio) -> Element {
                 }
             }
         }
+        if let Some(doc) = document && crate::parts::instrument(&doc.selected_track).is_ok() {
+            button { class: "studio-tool", disabled: (studio.analysis_preview)().is_some(), onclick: move |_| {
+                studio.generation_target.set(Some(doc.selected_track.clone()));
+                studio.generation_open.set(true);
+            }, "Reanalyze…" }
+        }
     }
 }

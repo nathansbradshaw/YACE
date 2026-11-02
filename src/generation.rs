@@ -209,12 +209,30 @@ mod analysis_backup_tests {
     }
 }
 
+#[cfg(test)]
 fn validate_vocal_cache(
     report: &crate::vocal_generation::Generation,
     audio_sha256: &str,
     stem_sha256: &str,
     duration: f64,
     timing: &TempoMap,
+) -> Result<()> {
+    validate_vocal_cache_configured(
+        report,
+        audio_sha256,
+        stem_sha256,
+        duration,
+        timing,
+        Default::default(),
+    )
+}
+fn validate_vocal_cache_configured(
+    report: &crate::vocal_generation::Generation,
+    audio_sha256: &str,
+    stem_sha256: &str,
+    duration: f64,
+    timing: &TempoMap,
+    settings: crate::detection_settings::Settings,
 ) -> Result<()> {
     ensure!(
         report.audio_sha256.eq_ignore_ascii_case(audio_sha256)
@@ -250,10 +268,7 @@ fn validate_vocal_cache(
     }
     ensure!(
         serde_json::to_value(&report.policy)?
-            == serde_json::to_value(crate::vocal_generation::Policy {
-                analysis_mode: report.policy.analysis_mode,
-                ..Default::default()
-            })?,
+            == serde_json::to_value(settings.vocals(report.policy.analysis_mode))?,
         "Saved vocal proposals use different pitch/recovery settings; retain the proposal and regenerate for the current job settings"
     );
     if let Some(evidence) = &report.vocal_pitch {
@@ -1034,6 +1049,7 @@ fn run_inner(root: &Path) -> Result<()> {
                 &audio,
                 &request.model_dir,
                 IsolationOptions {
+                    detection: request.detection,
                     guitar_source: request.guitar_source,
                     manifest: manifest.as_deref(),
                     full_mix_drums: request.full_mix_drums,
@@ -1219,12 +1235,13 @@ fn run_inner(root: &Path) -> Result<()> {
                 models::hash_file(&stem.path)?.eq_ignore_ascii_case(&stem.sha256),
                 "The vocal stem changed after transcription; cached proposals were retained"
             );
-            validate_vocal_cache(
+            validate_vocal_cache_configured(
                 &result,
                 &audio_hash,
                 &stem.sha256,
                 isolation.frames as f64 / isolation.sample_rate as f64,
                 &timing,
+                request.detection,
             )?;
             if request.fetch_models || models::verified(&request.model_dir, "vocal-pitch").is_ok() {
                 ensure!(
@@ -1256,7 +1273,7 @@ fn run_inner(root: &Path) -> Result<()> {
                         ),
                     })
             });
-            crate::vocal_workflow::generate(
+            crate::vocal_workflow::generate_configured(
                 crate::vocal_workflow::Request {
                     analysis_mode: request.vocal_analysis_mode,
                     audio: &audio,
@@ -1272,6 +1289,7 @@ fn run_inner(root: &Path) -> Result<()> {
                 },
                 &vocal_dir,
                 std::sync::Arc::new(crate::clean_recognition::Control::default()),
+                request.detection,
             )?
         };
         // The .chart remains the working master. The editor exports a single
@@ -1518,6 +1536,9 @@ mod manifest_portability_tests {
         write_json(
             &part.join("editor-target.json"),
             &crate::parts::Target {
+                requested_range: None,
+                effective_range: None,
+                affected_fingerprints: Default::default(),
                 version: 1,
                 project: PathBuf::from("../../../project"),
                 track: "ExpertDrums".into(),

@@ -298,14 +298,19 @@ impl Audio {
         })
     }
     fn set_mix(&self, mix: &StemMix) -> Result<()> {
+        self.set_routed_mix(mix, None)
+    }
+    fn set_routed_mix(
+        &self,
+        mix: &StemMix,
+        route: Option<crate::reanalysis::AuditionRoute>,
+    ) -> Result<()> {
         let Some(buffer) = &self.buffer else {
             mix.prepare([])?;
             return Ok(());
         };
         let original = StemMix::default();
-        let mix = if buffer.loaded.stems.is_empty()
-            && mix.mode == crate::stem_review::MixMode::Original
-        {
+        let mix = if buffer.loaded.stems.is_empty() {
             &original
         } else {
             mix
@@ -313,7 +318,13 @@ impl Audio {
         let mut mix = mix.clone();
         mix.channels
             .retain(|id, _| buffer.loaded.stems.contains_key(id));
-        let prepared = mix.prepare(buffer.loaded.stems.keys().copied())?;
+        let mut prepared = mix.prepare(buffer.loaded.stems.keys().copied())?;
+        // These buffers are now in original source time. The legacy hosted
+        // client still accounts for its tempo-rendered buffers separately.
+        prepared.route = route.map(|mut route| {
+            route.playback_rate = 1.;
+            route
+        });
         *buffer
             .mix
             .write()
@@ -517,6 +528,8 @@ impl Drop for WindowLock {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Studio {
+    pub analysis_preview: Signal<Option<Arc<Project>>>,
+    pub follow_analysis_sources: Signal<bool>,
     pub recent_projects: Signal<crate::recent_projects::History>,
     pub doc: Signal<Option<Arc<Project>>>,
     pub store: Signal<Option<Store>>,
@@ -626,12 +639,42 @@ impl Studio {
     }
 
     pub fn snapshot(self) -> Option<Arc<Project>> {
-        self.doc.read().clone()
+        self.analysis_preview
+            .read()
+            .clone()
+            .or_else(|| self.doc.read().clone())
+    }
+    pub fn show_analysis_preview(mut self, proposed: Option<Project>) {
+        let was = self.snapshot();
+        self.playhead.set(self.current_audio_position());
+        self.analysis_preview.set(proposed.map(Arc::new));
+        let current = self.snapshot();
+        if was
+            .as_ref()
+            .map(|doc| stem_assets_key(doc, doc.selected_track == "Vocals"))
+            != current
+                .as_ref()
+                .map(|doc| stem_assets_key(doc, doc.selected_track == "Vocals"))
+        {
+            if let Some(audio) = self.audio.read().as_ref() {
+                audio.player.pause();
+            }
+            spawn(async move {
+                self.prepare_practice_audio().await;
+            });
+        }
     }
     pub fn dispatch(self, action: Action) {
         self.dispatch_with_transport(action, true);
     }
     fn dispatch_with_transport(mut self, action: Action, apply_audio_transport: bool) -> bool {
+        if self.analysis_preview.peek().is_some() && !crate::reanalysis::preview_transport(&action)
+        {
+            self.error.set(Some(
+                "Switch to Current before editing; the proposed draft is read-only".into(),
+            ));
+            return false;
+        }
         // Stop sound before reading, validating or saving a project. Large charts
         // and a busy disk must never delay a musician's pause command.
         let action = if matches!(
@@ -676,7 +719,7 @@ impl Studio {
         let Some(store) = self.store.read().clone() else {
             return false;
         };
-        let Some(doc) = self.snapshot() else {
+        let Some(doc) = self.doc.read().clone() else {
             return false;
         };
         let actor = Actor {
@@ -755,6 +798,17 @@ impl Studio {
         };
         match store.load() {
             Ok(doc) => {
+                let preview = self.analysis_preview.peek().clone();
+                if let Some(preview) = preview {
+                    if preview.audio_sha256 != doc.audio_sha256 {
+                        self.analysis_preview.set(None);
+                    } else {
+                        let mut preview = (*preview).clone();
+                        preview.transport = doc.transport.clone();
+                        preview.revision = doc.revision;
+                        self.analysis_preview.set(Some(Arc::new(preview)));
+                    }
+                }
                 let reference_changed = self.doc.peek().as_ref().is_none_or(|old| {
                     old.selected_track != doc.selected_track
                         || old.audio_sha256 != doc.audio_sha256
@@ -905,13 +959,14 @@ impl Studio {
                     self.audio_target.set(None);
                     self.audio_ready.set(true);
                 }
-                if !replace_audio
-                    && let Some(audio) = self.audio.read().as_ref()
-                    && let Err(error) = audio.set_mix(&doc.content.stem_mix)
-                {
-                    self.error.set(Some(format!(
-                        "Stem mix unavailable; original audio retained: {error:#}"
-                    )));
+                if !replace_audio && let Some(audio) = self.audio.read().as_ref() {
+                    let preview = self.analysis_preview.peek();
+                    let active = preview.as_deref().unwrap_or(&doc);
+                    if let Err(error) = self.apply_audio_mix(audio, active) {
+                        self.error.set(Some(format!(
+                            "Stem mix unavailable; original audio retained: {error:#}"
+                        )));
+                    }
                 }
                 if !replace_audio {
                     self.audio_ready.set(self.audio.read().is_some());
@@ -993,6 +1048,21 @@ impl Studio {
             .read()
             .as_ref()
             .map_or((self.playhead)(), |audio| audio.position())
+    }
+    fn apply_audio_mix(self, audio: &Audio, doc: &Project) -> Result<()> {
+        let original = StemMix::default();
+        let follow = (self.follow_analysis_sources)();
+        let mix = if follow {
+            &doc.content.stem_mix
+        } else {
+            &original
+        };
+        let route = crate::reanalysis::audition_route(doc, (self.guitar_source)(), follow);
+        if route.is_some() {
+            audio.set_routed_mix(mix, route)
+        } else {
+            audio.set_mix(mix)
+        }
     }
     pub fn set_playback_rate(self, rate: f64) {
         #[cfg(feature = "browser")]
@@ -1251,13 +1321,8 @@ impl Studio {
                                 .set(Some(format!("Audio transport unavailable: {error:#}")));
                             return;
                         }
-                        let latest_mix = if has_stems {
-                            current.content.stem_mix.clone()
-                        } else {
-                            StemMix::default()
-                        };
-                        if let Err(error) = audio
-                            .set_mix(&latest_mix)
+                        if let Err(error) = self
+                            .apply_audio_mix(&audio, &current)
                             .and_then(|_| audio.seek((self.playhead)()))
                         {
                             self.error
@@ -1945,6 +2010,7 @@ impl Studio {
         });
     }
     pub async fn open_project(mut self, path: PathBuf) {
+        self.analysis_preview.set(None);
         if let Err(error) = super::dance::flush().await {
             self.error.set(Some(format!("{error:#}")));
             return;
@@ -2181,6 +2247,9 @@ impl Studio {
                 }
             }
         }
+        if let (Some(doc), Some(audio)) = (self.snapshot(), self.audio.peek().as_ref()) {
+            let _ = self.apply_audio_mix(audio, &doc);
+        }
         if !(self.audio_ready)() {
             return;
         }
@@ -2356,6 +2425,8 @@ impl Studio {
 }
 pub fn use_studio() -> Studio {
     Studio {
+        analysis_preview: use_signal(|| None),
+        follow_analysis_sources: use_signal(|| true),
         recent_projects: use_signal(|| crate::recent_projects::History::load().unwrap_or_default()),
         doc: use_signal(|| None),
         store: use_signal(|| None),
@@ -2673,7 +2744,15 @@ mod tests {
     #[cfg(not(feature = "browser"))]
     fn streaming_rate_and_end_restart_keep_cached_pcm_device_and_play_state() {
         let loaded = Arc::new(
-            LoadedStems::from_pcm(44100, Arc::new(vec![0.1; 44100 * 4]), BTreeMap::new()).unwrap(),
+            LoadedStems::from_pcm(
+                44100,
+                Arc::new(vec![0.1; 44100 * 4]),
+                BTreeMap::from([
+                    (StemId::Guitar, Arc::new(vec![0.2; 44100 * 4])),
+                    (StemId::Other, Arc::new(vec![-0.2; 44100 * 4])),
+                ]),
+            )
+            .unwrap(),
         );
         let buffer = ReviewSource {
             loaded: loaded.clone(),
@@ -2708,6 +2787,33 @@ mod tests {
             clock: RefCell::new(PresentationClock::default()),
             epoch: Instant::now(),
         };
+        for rate in [0.25, 0.5, 0.83, 1., 1.5, 2.] {
+            audio
+                .set_routed_mix(
+                    &StemMix::default(),
+                    Some(crate::reanalysis::AuditionRoute {
+                        intervals: vec![crate::reanalysis::SourceInterval {
+                            range: crate::editor::TimeRange {
+                                start: 0.75,
+                                end: 1.25,
+                            },
+                            source: crate::mapping::GuitarSource::Other,
+                        }],
+                        fallback: crate::mapping::GuitarSource::Guitar,
+                        playback_rate: rate,
+                    }),
+                )
+                .unwrap();
+            let prepared = audio.buffer.as_ref().unwrap().mix.read().unwrap();
+            assert_eq!(loaded.frame_with_mix(44100 / 2, &prepared), [0.2; 2]);
+            assert_eq!(
+                loaded.frame_with_mix(44100, &prepared),
+                [-0.2; 2],
+                "Source routing moved to a different recording interval at rate {rate}"
+            );
+            assert_eq!(loaded.frame_with_mix(44100 * 3 / 2, &prepared), [0.2; 2]);
+        }
+        audio.set_mix(&StemMix::default()).unwrap();
         audio.set_rate(0.25).unwrap();
         assert!(audio.player.is_paused());
         audio

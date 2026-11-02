@@ -412,8 +412,8 @@ pub(super) fn Ruler(studio: Studio) -> Element {
         })
         .collect();
     rsx! {
-        div {class:"midi-ruler",style:"display:flex",
-            div {style:"width:140px;flex-shrink:0;padding-left:12px;font-size:10px;color:var(--text-muted)",div {"Time"} div {"Bar"}}
+        div {class:"midi-ruler",
+            div {class:"midi-ruler-label","Time / Bar"}
             div {style:"flex:1;min-width:0",onresize:move|e|{if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.0));}},
                 svg {class:"midi-ruler-canvas",view_box:"0 0 {width} 32",preserve_aspect_ratio:"none",
                     for seconds in labels {

@@ -77,6 +77,8 @@ pub fn implementation_hash() -> String {
         include_bytes!("../../models/manifest.json"),
         include_bytes!("../Cargo.lock"),
         include_bytes!("../../src/models/postprocessing.rs"),
+        include_bytes!("../../src/detection_settings.rs"),
+        include_bytes!("../../src/reanalysis.rs"),
         include_bytes!("../../src/generation_build.rs"),
         include_bytes!("../../src/vocal_generation.rs"),
         include_bytes!("../../src/vocal_acoustics.rs"),
@@ -120,7 +122,27 @@ pub fn freeze(root: &Path, metadata: crate::pipeline::Metadata) -> Result<()> {
                         root.join("supplied-lyrics.json"),
                     )?)?)
                 })
-                .transpose()?,
+                .transpose()?
+                .or_else(|| {
+                    request
+                        .song_info
+                        .as_ref()
+                        .and_then(|info| info.lyrics.as_ref())
+                        .and_then(|value| {
+                            value["plainLyrics"].as_str().map(|text| {
+                                crate::vocal_generation::LyricSource {
+                                    text: text.into(),
+                                    source: value["source"]
+                                        .as_str()
+                                        .unwrap_or("Existing vocal text")
+                                        .into(),
+                                    synced_lyrics: value["syncedLyrics"]
+                                        .as_str()
+                                        .map(str::to_owned),
+                                }
+                            })
+                        })
+                }),
         },
     )
 }
@@ -373,7 +395,8 @@ pub async fn run_stage(
                 .collect();
             let events = if request.full_mix_drums {
                 let (drums, drum_recovered_hits) =
-                    crate::transcription::drums(audio, progress).await?;
+                    crate::transcription::drums_configured(audio, request.detection, progress)
+                        .await?;
                 crate::mapping::Transcription{drums,drum_recovered_hits,warnings:vec!["Explicit full-mix drum fallback; no isolated source was used. Listening review is required.".into()],..Default::default()}
             } else {
                 let manifest = isolation(root)?;
@@ -391,13 +414,14 @@ pub async fn run_stage(
                         } else {
                             None
                         };
-                    crate::transcription::instruments_with_sound(
+                    crate::transcription::instruments_configured(
                         audio,
                         &manifest,
                         &wanted,
                         request.guitar_source,
                         request.keyboard_sound,
                         keyboard.as_ref(),
+                        request.detection,
                         progress,
                     )
                     .await?
@@ -414,7 +438,7 @@ pub async fn run_stage(
             write_json(&root.join("transcription.json"), &events)?;
         }
         Stage::Vocals => {
-            let result = crate::vocal_inference::generate_language(
+            let result = crate::vocal_inference::generate_language_configured(
                 audio,
                 &isolation(root)?,
                 &request.timing()?,
@@ -422,6 +446,7 @@ pub async fn run_stage(
                 request.vocal_analysis_mode,
                 Some(&root.join("vocals/recognition.json")),
                 input.lyrics.as_ref(),
+                request.detection,
                 progress,
             )
             .await?;

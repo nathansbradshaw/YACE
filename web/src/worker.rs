@@ -926,15 +926,16 @@ async fn exchange(input: &JsValue, progress: Rc<dyn Fn(String)>) -> Result<JsVal
                 let _ = sender.send(Ok(event.data()));
             }
         });
-    let onerror =
-        Closure::<dyn FnMut(web_sys::ErrorEvent)>::new(move |event: web_sys::ErrorEvent| {
+    let onerror = Closure::<dyn FnMut(web_sys::ErrorEvent)>::new(
+        move |event: web_sys::ErrorEvent| {
             if let Some(sender) = errors.borrow_mut().take() {
                 let _ = sender.send(Err(anyhow::anyhow!(
                     "Could not run local processing worker: {}",
-                    event.message()
+                    js_sys::Reflect::get(event.as_ref(),&JsValue::from_str("message")).ok().and_then(|message|message.as_string()).filter(|message|!message.trim().is_empty()).unwrap_or_else(||"The worker could not load. Reload YACE and try again; your chart is unchanged.".into())
                 )));
             }
-        });
+        },
+    );
     worker
         .0
         .set_onmessage(Some(onmessage.as_ref().unchecked_ref()));

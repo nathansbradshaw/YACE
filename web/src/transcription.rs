@@ -34,6 +34,30 @@ pub async fn instruments_with_sound(
     keyboard_analysis: Option<&crate::stem_review::StemManifest>,
     progress: &mut impl FnMut(String),
 ) -> Result<crate::mapping::Transcription> {
+    instruments_configured(
+        audio,
+        manifest,
+        wanted,
+        guitar_source,
+        keyboard_sound,
+        keyboard_analysis,
+        Default::default(),
+        progress,
+    )
+    .await
+}
+#[allow(clippy::too_many_arguments)]
+pub async fn instruments_configured(
+    audio: &Path,
+    manifest: &crate::stem_review::StemManifest,
+    wanted: &[String],
+    guitar_source: crate::mapping::GuitarSource,
+    keyboard_sound: crate::keyboard_detection::KeyboardSound,
+    keyboard_analysis: Option<&crate::stem_review::StemManifest>,
+    settings: crate::detection_settings::Settings,
+    progress: &mut impl FnMut(String),
+) -> Result<crate::mapping::Transcription> {
+    settings.validate()?;
     ensure!(
         !wanted.is_empty()
             && wanted
@@ -65,7 +89,7 @@ pub async fn instruments_with_sound(
     };
     if wanted.iter().any(|n| n == "drums") {
         let path = stem("drums")?;
-        let (hits, recovered) = drums(&path, progress).await?;
+        let (hits, recovered) = drums_configured(&path, settings, progress).await?;
         out.drums = hits;
         out.drum_recovered_hits = recovered;
         out.drum_articulations =
@@ -76,10 +100,11 @@ pub async fn instruments_with_sound(
     }
     if wanted.iter().any(|n| n == "guitar") {
         let path = stem(guitar_source.stem().as_str())?;
-        let inference = models::postprocessing::guitar_from_activations(
+        let inference = models::postprocessing::guitar_from_activations_configured(
             pitch_activations(&path, progress).await?,
             &models::decode(&path, 11025, 1)?,
             guitar_source,
+            settings,
         );
         out.guitar = inference
             .candidates
@@ -93,9 +118,10 @@ pub async fn instruments_with_sound(
     }
     if wanted.iter().any(|n| n == "bass") {
         let path = stem("bass")?;
-        let inference = models::postprocessing::recover_short_bass(
+        let inference = models::postprocessing::recover_short_bass_configured(
             &pitch_activations(&path, progress).await?,
             &models::decode(&path, 11025, 1)?,
+            settings,
         );
         out.bass = inference
             .candidates
@@ -125,9 +151,10 @@ pub async fn instruments_with_sound(
             out.keyboard_analysis = Some(analysis.clone());
         }
         let evidence = if keyboard_sound == crate::keyboard_detection::KeyboardSound::Synth {
-            crate::keyboard_detection::synth_from_output(
+            crate::keyboard_detection::synth_from_output_configured(
                 manifest,
                 crate::synth::transcribe(audio, progress).await?,
+                settings,
             )
         } else {
             let path = keyboard_manifest
@@ -138,16 +165,27 @@ pub async fn instruments_with_sound(
                 .path
                 .clone();
             let model = Runtime::load("piano", progress, true).await?;
-            let baseline =
-                piano_samples(&models::decode(&path, 16000, 1)?, &model, progress).await?;
+            let baseline = piano_samples_configured(
+                &models::decode(&path, 16000, 1)?,
+                &model,
+                settings,
+                progress,
+            )
+            .await?;
             let residual = if baseline.notes.iter().any(|n| n.confidence >= 0.65) {
                 let prepared = crate::keyboard_audio::prepare(audio, keyboard_manifest)?;
-                let output = piano_samples(&prepared.samples, &model, progress).await?;
+                let output =
+                    piano_samples_configured(&prepared.samples, &model, settings, progress).await?;
                 Some((prepared.receipt, output))
             } else {
                 None
             };
-            crate::keyboard_detection::piano_from_views(keyboard_manifest, baseline, residual)?
+            crate::keyboard_detection::piano_from_views_configured(
+                keyboard_manifest,
+                baseline,
+                residual,
+                settings,
+            )?
         };
         if wanted.iter().any(|n| n == "piano") {
             out.piano = evidence.raw_notes.clone();
@@ -218,6 +256,13 @@ pub async fn drums(
     audio: &Path,
     progress: &mut impl FnMut(String),
 ) -> Result<(Vec<DrumHit>, Vec<DrumHit>)> {
+    drums_configured(audio, Default::default(), progress).await
+}
+pub async fn drums_configured(
+    audio: &Path,
+    settings: crate::detection_settings::Settings,
+    progress: &mut impl FnMut(String),
+) -> Result<(Vec<DrumHit>, Vec<DrumHit>)> {
     let samples = models::decode(audio, 44100, 1)?;
     let model = Runtime::load("drums", progress, false).await?;
     let count = samples.len().div_ceil(441);
@@ -250,9 +295,10 @@ pub async fn drums(
         activations[global * 5..(global + frames) * 5]
             .copy_from_slice(&output.values[local * 5..(local + frames) * 5]);
     }
-    Ok(models::supported_drum_peaks(
+    Ok(models::postprocessing::supported_drum_peaks_configured(
         &activations,
         &models::decode(audio, 22050, 1)?,
+        settings,
     ))
 }
 
@@ -328,6 +374,14 @@ async fn piano_samples(
     model: &Runtime,
     progress: &mut impl FnMut(String),
 ) -> Result<crate::piano_model::Output> {
+    piano_samples_configured(samples, model, Default::default(), progress).await
+}
+async fn piano_samples_configured(
+    samples: &[f32],
+    model: &Runtime,
+    settings: crate::detection_settings::Settings,
+    progress: &mut impl FnMut(String),
+) -> Result<crate::piano_model::Output> {
     const WINDOW: usize = 160000;
     const HOP: usize = 80000;
     ensure!(
@@ -387,6 +441,6 @@ async fn piano_samples(
             reg_pedal_offset,
             pedal_frame,
         },
-        Default::default(),
+        settings.piano(),
     )
 }

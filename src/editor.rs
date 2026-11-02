@@ -158,9 +158,11 @@ pub struct FlagScope {
     pub region_id: String,
     pub track: String,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Content {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub analysis_sources: crate::reanalysis::Sources,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub star_power: crate::star_power::Tracks,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1215,6 +1217,7 @@ impl Store {
                         None
                     }
                 },
+                analysis_sources: Default::default(),
                 difficulty_links: Default::default(),
                 vocal_review: None,
                 vocal_pitch_analysis: None,
@@ -1272,6 +1275,7 @@ impl Store {
         let chart = self.source_chart(&doc)?;
         crate::editor_validation::validate(&doc, &chart)?;
         crate::difficulty_links::validate(&doc.content, &doc.timing(self)?, doc.duration)?;
+        crate::reanalysis::validate_sources(&doc.content, doc.duration)?;
         #[cfg(target_arch = "wasm32")]
         crate::storage::remember_project(&self.root, &doc);
         Ok(doc)
@@ -2220,6 +2224,7 @@ impl Store {
             doc.content.stem_mix.prepare(doc.content.stem_ids())?;
             crate::editor_validation::validate(&doc, &self.source_chart(&doc)?.chart)?;
             crate::difficulty_links::validate(&doc.content, &timing, doc.duration)?;
+            crate::reanalysis::validate_sources(&doc.content, doc.duration)?;
         }
         if content_action {
             doc.undo.push(self.checkpoint(

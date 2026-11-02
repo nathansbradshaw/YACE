@@ -68,6 +68,8 @@ impl KeyboardSound {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Evidence {
+    #[serde(default)]
+    pub detection: crate::detection_settings::Settings,
     pub version: u32,
     pub sound: KeyboardSound,
     pub source_audio_sha256: String,
@@ -326,6 +328,17 @@ fn legacy_synth_selected_indices(notes: &[muscriptor::Note]) -> Vec<usize> {
 /// Constants use C3/C4 register boundaries and local phrase continuity, never
 /// song identity, reference notes, model "confidence" or target note counts.
 pub fn synth_selected_indices(notes: &[muscriptor::Note]) -> Vec<usize> {
+    synth_selected_configured(notes, Default::default())
+}
+pub fn synth_selected_configured(
+    notes: &[muscriptor::Note],
+    settings: crate::detection_settings::Settings,
+) -> Vec<usize> {
+    let scale = f64::from(if settings.sensitivity > 50 {
+        settings.multiplier()
+    } else {
+        1.
+    });
     let mut candidates: Vec<_> = notes
         .iter()
         .enumerate()
@@ -336,7 +349,7 @@ pub fn synth_selected_indices(notes: &[muscriptor::Note]) -> Vec<usize> {
                 && n.start.is_finite()
                 && n.start >= 0.
                 && n.end.is_finite()
-                && n.end - n.start + 1e-9 >= 0.040
+                && n.end - n.start + 1e-9 >= 0.040 * scale
         })
         .map(|(i, _)| i)
         .collect();
@@ -352,7 +365,7 @@ pub fn synth_selected_indices(notes: &[muscriptor::Note]) -> Vec<usize> {
     let mut first = 0;
     for right in 0..candidates.len() {
         let n = &notes[candidates[right]];
-        while first < right && n.start - notes[candidates[first]].start > 0.750 + 1e-9 {
+        while first < right && n.start - notes[candidates[first]].start > 0.750 / scale + 1e-9 {
             first += 1;
         }
         for left in first..right {
@@ -390,7 +403,10 @@ pub fn synth_selected_indices(notes: &[muscriptor::Note]) -> Vec<usize> {
     let mut rescue = vec![false; notes.len()];
     for indices in phrases.values() {
         let span = notes[*indices.last().unwrap()].start - notes[indices[0]].start;
-        if span + 1e-9 >= 0.200 && distinct(indices, false) >= 3 && distinct(indices, true) >= 2 {
+        if span + 1e-9 >= 0.200 * scale
+            && distinct(indices, false) >= 3
+            && distinct(indices, true) >= 2
+        {
             for &index in indices {
                 rescue[index] = true;
             }
@@ -400,7 +416,11 @@ pub fn synth_selected_indices(notes: &[muscriptor::Note]) -> Vec<usize> {
         .iter()
         .enumerate()
         .filter(|(i, n)| {
-            !n.is_drum && n.program != 128 && (!(32..=39).contains(&n.program) || rescue[*i])
+            !n.is_drum
+                && n.program != 128
+                && (!(32..=39).contains(&n.program) || rescue[*i])
+                && n.end - n.start + 1e-9
+                    >= 0.120 * f64::from(50u8.saturating_sub(settings.sensitivity)) / 50.
         })
         .map(|(i, _)| i)
         .collect()
@@ -479,6 +499,18 @@ fn parameters(sound: KeyboardSound) -> BTreeMap<String, f32> {
         ]),
     }
 }
+fn configured_parameters(
+    sound: KeyboardSound,
+    settings: crate::detection_settings::Settings,
+) -> BTreeMap<String, f32> {
+    let mut values = parameters(sound);
+    for key in ["onset_threshold", "frame_threshold"] {
+        if let Some(value) = values.get_mut(key) {
+            *value = settings.threshold(*value);
+        }
+    }
+    values
+}
 pub fn implementation_hash(sound: KeyboardSound) -> String {
     let mut h = Sha256::new();
     let detector: &[u8] = match sound {
@@ -490,6 +522,7 @@ pub fn implementation_hash(sound: KeyboardSound) -> String {
         detector,
         include_bytes!("models.rs").as_slice(),
         include_bytes!("keyboard_audio.rs").as_slice(),
+        include_bytes!("detection_settings.rs").as_slice(),
     ] {
         h.update((bytes.len() as u64).to_le_bytes());
         h.update(bytes);
@@ -500,8 +533,9 @@ impl Evidence {
     /// Validate saved evidence without requiring the detector/model to be installed.
     /// Historical implementation hashes remain valid after application updates.
     pub fn validate(&self, transcription: &Transcription) -> Result<()> {
+        self.detection.validate()?;
         ensure!(
-            [1, 2, 3, 4, 5, 6].contains(&self.version),
+            [1, 2, 3, 4, 5, 6, 7].contains(&self.version),
             "Unsupported keyboard evidence version"
         );
         let manifest = transcription
@@ -516,7 +550,7 @@ impl Evidence {
             hash_valid(&self.implementation_sha256),
             "Invalid keyboard implementation hash"
         );
-        if [2, 3].contains(&self.version) {
+        if [2, 3, 7].contains(&self.version) {
             ensure!(
                 self.piano_audio.is_none() && self.piano_multiview.is_none(),
                 "MuScriptor cannot claim a piano audio recipe"
@@ -572,7 +606,7 @@ impl Evidence {
         ensure!(
             self.method == method
                 && self.score_semantics == self.sound.score_semantics()
-                && self.decoder_parameters == parameters(self.sound),
+                && self.decoder_parameters == configured_parameters(self.sound, self.detection),
             "Keyboard decoder identity or score semantics changed"
         );
         let model = models::assets()
@@ -742,7 +776,10 @@ impl Evidence {
                 legacy_synth_selected_indices(&output.notes),
             )
         } else {
-            (SYNTH_SELECTION, synth_selected_indices(&output.notes))
+            (
+                SYNTH_SELECTION,
+                synth_selected_configured(&output.notes, self.detection),
+            )
         };
         ensure!(
             evidence.selection_policy == policy && evidence.selected_indices == indices,
@@ -863,6 +900,16 @@ pub fn detect(
     model_dir: &Path,
     sound: KeyboardSound,
 ) -> Result<Evidence> {
+    detect_configured(audio, manifest, model_dir, sound, Default::default())
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub fn detect_configured(
+    audio: &Path,
+    manifest: &StemManifest,
+    model_dir: &Path,
+    sound: KeyboardSound,
+    settings: crate::detection_settings::Settings,
+) -> Result<Evidence> {
     manifest.validate_binding(
         &manifest.source_audio_sha256,
         manifest.frames as f64 / 44100.,
@@ -890,25 +937,25 @@ pub fn detect(
         for id in ["muscriptor-cond", "muscriptor-lm"] {
             models::verified(model_dir, id)?;
         }
-        return Ok(synth_from_output(manifest, output));
+        return Ok(synth_from_output_configured(manifest, output, settings));
     }
     let model = models::verified(model_dir, sound.model_id())?;
     let mut baseline_manifest = manifest.clone();
     baseline_manifest.stems.retain(|s| s.id == StemId::Piano);
     drop(baseline_manifest.load(audio)?);
     let mut transcriber = piano_model::Transcriber::load(&model)?;
-    let baseline = transcriber.transcribe(&baseline_manifest.stems[0].path, Default::default())?;
+    let baseline = transcriber.transcribe(&baseline_manifest.stems[0].path, settings.piano())?;
     let residual = if baseline.notes.iter().any(|note| note.confidence >= 0.65) {
         let prepared = keyboard_audio::prepare(audio, manifest)?;
         let output = piano_model::decode(
             &transcriber.infer_samples(&prepared.samples)?,
-            Default::default(),
+            settings.piano(),
         )?;
         Some((prepared.receipt, output))
     } else {
         None
     };
-    let evidence = piano_from_views(manifest, baseline, residual)?;
+    let evidence = piano_from_views_configured(manifest, baseline, residual, settings)?;
     let hashes = &evidence.stem_sha256;
     ensure!(
         models::hash_file(&model)?
@@ -988,8 +1035,16 @@ pub fn required_models_with_quality(
 
 /// Shared source-bound Synth selection and provenance, after actual inference.
 pub fn synth_from_output(manifest: &StemManifest, output: muscriptor::Output) -> Evidence {
-    let indices = synth_selected_indices(&output.notes);
+    synth_from_output_configured(manifest, output, Default::default())
+}
+pub fn synth_from_output_configured(
+    manifest: &StemManifest,
+    output: muscriptor::Output,
+    settings: crate::detection_settings::Settings,
+) -> Evidence {
+    let indices = synth_selected_configured(&output.notes, settings);
     Evidence {
+        detection: settings,
         version: 3,
         sound: KeyboardSound::Synth,
         source_audio_sha256: manifest.source_audio_sha256.clone(),
@@ -1020,6 +1075,14 @@ pub fn piano_from_views(
     manifest: &StemManifest,
     baseline: piano_model::Output,
     residual: Option<(keyboard_audio::Receipt, piano_model::Output)>,
+) -> Result<Evidence> {
+    piano_from_views_configured(manifest, baseline, residual, Default::default())
+}
+pub fn piano_from_views_configured(
+    manifest: &StemManifest,
+    baseline: piano_model::Output,
+    residual: Option<(keyboard_audio::Receipt, piano_model::Output)>,
+    settings: crate::detection_settings::Settings,
 ) -> Result<Evidence> {
     let sound = KeyboardSound::Piano;
     let (version, method, hashes, output, piano_audio, piano_multiview) = if baseline
@@ -1068,6 +1131,7 @@ pub fn piano_from_views(
         )
     };
     Ok(Evidence {
+        detection: settings,
         version,
         sound,
         source_audio_sha256: manifest.source_audio_sha256.clone(),
@@ -1078,7 +1142,7 @@ pub fn piano_from_views(
         implementation_sha256: implementation_hash(sound),
         method,
         score_semantics: sound.score_semantics().into(),
-        decoder_parameters: parameters(sound),
+        decoder_parameters: configured_parameters(sound, settings),
         raw_notes: output.notes,
         basic_pitch_candidates: vec![],
         velocities: output.velocities,
@@ -1087,4 +1151,53 @@ pub fn piano_from_views(
         piano_audio,
         piano_multiview,
     })
+}
+
+#[cfg(test)]
+mod sensitivity_tests {
+    use super::*;
+    #[test]
+    fn synth_sensitivity_uses_duration_and_retains_hard_instrument_exclusions() {
+        let notes = vec![
+            muscriptor::Note {
+                start: 0.,
+                end: 0.060,
+                pitch: 72,
+                program: 80,
+                instrument: muscriptor::instrument_name(80),
+                is_drum: false,
+                release: muscriptor::Release::Explicit,
+            },
+            muscriptor::Note {
+                start: 1.,
+                end: 1.5,
+                pitch: 36,
+                program: 32,
+                instrument: muscriptor::instrument_name(32),
+                is_drum: false,
+                release: muscriptor::Release::Explicit,
+            },
+        ];
+        assert_eq!(synth_selected_indices(&notes), vec![0]);
+        assert!(
+            synth_selected_configured(
+                &notes,
+                crate::detection_settings::Settings {
+                    sensitivity: 0,
+                    ..Default::default()
+                }
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            synth_selected_configured(
+                &notes,
+                crate::detection_settings::Settings {
+                    sensitivity: 100,
+                    ..Default::default()
+                }
+            ),
+            vec![0]
+        );
+    }
 }

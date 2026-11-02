@@ -180,6 +180,15 @@ pub(crate) fn record_decoder_identity(
 /// cannot recover attacks discarded by a previous decoder.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn infer(events: &mut Transcription, audio: &Path, model: &Path) -> Result<()> {
+    infer_configured(events, audio, model, Default::default())
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub fn infer_configured(
+    events: &mut Transcription,
+    audio: &Path,
+    model: &Path,
+    settings: crate::detection_settings::Settings,
+) -> Result<()> {
     events.validate()?;
     let source_sha = models::hash_file(audio)?;
     let model_sha = models::hash_file(model)?;
@@ -189,7 +198,7 @@ pub fn infer(events: &mut Transcription, audio: &Path, model: &Path) -> Result<(
             .any(|asset| asset.id == "pitch" && asset.sha256 == model_sha),
         "Bass decoder requires the pinned pitch model"
     );
-    let inference = models::bass_pitch_with_evidence(audio, model)?;
+    let inference = models::bass_configured(audio, model, settings)?;
     ensure!(
         models::hash_file(audio)? == source_sha && models::hash_file(model)? == model_sha,
         "Bass decoder inputs changed; previous events retained"

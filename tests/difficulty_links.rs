@@ -75,6 +75,7 @@ fn fixture(root: &Path, generated: bool) -> Store {
     let chart_hash = format!("{:x}", Sha256::digest(text.as_bytes()));
     let audio_hash = format!("{:x}", Sha256::digest(audio));
     let content = Content {
+        analysis_sources: Default::default(),
         star_power: Default::default(),
         sync: None,
         sections: None,

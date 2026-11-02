@@ -23,6 +23,7 @@
 }
 
 .midi-ruler {
+  display: flex;
   height: 34px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
@@ -48,13 +49,16 @@
   background: var(--bg-secondary);
 }
 
-.midi-waveform-label {
+.midi-ruler-label, .midi-waveform-label {
   display: flex;
   align-items: center;
+  width: 140px;
+  flex-shrink: 0;
   padding: 0 12px;
   border-right: 1px solid var(--border-color);
   font-size: 11px;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .midi-waveform-canvas-wrap {
