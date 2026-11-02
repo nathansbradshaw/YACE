@@ -35,6 +35,33 @@ Research-only source checkouts and private recordings are not included.
 
 ## Intentional port changes
 
+The static client also uses the same MPL-2.0 `practice-acoustic` Rust model and
+patched Candle CPU implementation for optional English supplied-lyric alignment.
+The filesystem-free model constructor preserves the desktop decoder. Complete
+covered source and notices ship under `sources/practice-acoustic` and
+`sources/candle-core` in the static distribution.
+
+The browser's native-compatible float resampler adapts FFmpeg n8.1.2
+`libswresample/resample.c` and `resample_template.c` (Michael Niedermayer,
+LGPL-2.1-or-later). Its Rust source is `web/src/audio_resample.rs`; the original
+license is retained in `licenses/FFmpeg-LGPL-2.1.txt`. It matches native Kaiser
+filter/phase, boundary reflection, float channel matrix and source-clock rules.
+The browser crate's license expression includes this component's license.
+
+The static browser client includes the official ONNX Runtime Web 1.22.0 WASM
+distribution (MIT). Its original license, third-party notices, package integrity
+and source revision are retained in [web/runtime/README.md](web/runtime/README.md).
+YACE calls that runtime through Rust bindings; the included JavaScript is the
+upstream platform runtime. Model weights retain their separate terms above.
+
+The browser also embeds whisper.cpp 1.8.3 from the exact published
+`whisper-rs-sys` 0.15.0 source archive used by desktop, compiled with official
+WASI SDK 34.0 and a Rust reactor wrapper. Its MIT notice remains in
+`licenses/whisper.cpp-MIT.txt`. Source pins and the Rust rebuilding command are
+documented in `web/recognition-runtime/README.md`; the complete upstream source
+is available in the checksum-pinned crates.io archive linked there. The static
+application gives this engine no filesystem or network access.
+
 OAF Drums attribution above records the conversion publisher's license and
 checkpoint claims; a converter's license does not relicense an original
 checkpoint. Magenta's Apache-2.0 source license and E-GMD's CC-BY-4.0 dataset

@@ -106,7 +106,7 @@ mod tests {
         let native = std::env::var("GUITAR_REPLAY_MODEL").ok();
         let native_inference = native.is_some();
         if let Some(model) = &native {
-            input = super::super::pitch_activations(Path::new(&stem), Path::new(model)).unwrap();
+            input = crate::models::pitch_activations(Path::new(&stem), Path::new(model)).unwrap();
             let native_baseline = super::super::recover_short_plucks(&input, &audio11, 40..=88);
             assert_eq!(
                 serde_json::to_value(&native_baseline.candidates).unwrap(),
@@ -162,7 +162,7 @@ mod tests {
         let native_parity_model = std::env::var("GUITAR_REPLAY_NATIVE_PARITY").ok();
         if let Some(model) = &native_parity_model {
             let inference =
-                super::super::guitar_pitch_with_evidence(Path::new(&stem), Path::new(model))
+                crate::models::guitar_pitch_with_evidence(Path::new(&stem), Path::new(model))
                     .unwrap();
             assert_eq!(
                 serde_json::to_value(&inference.candidates).unwrap(),

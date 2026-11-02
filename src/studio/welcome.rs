@@ -10,7 +10,7 @@ pub fn Welcome(mut studio: Studio) -> Element {
                 p { class: "welcome-intro", "Start with audio, a chart, or a saved project." }
                 div { class: "welcome-actions", onkeydown: move |event| event.stop_propagation(),
                     button {class:"welcome-action",onclick:move |_|studio.new_chart(),Icon{name:"music",size:20}div{strong{"New chart from audio"}span{"Start a blank chart from a recording."}}}
-                    button { class: "welcome-action", disabled:cfg!(target_arch="wasm32"),title:if cfg!(target_arch="wasm32"){ "The current model backends cannot run in-browser" }else{ "Generate a draft from local audio" },onclick: move |_| studio.generation_open.set(true),
+                    button { class: "welcome-action", title:"Generate a draft from local audio",onclick: move |_| studio.generation_open.set(true),
                         Icon { name: "music", size: 20 }
                         div { strong { "Import audio" } span { "Generate a chart draft from a recording." } }
                     }

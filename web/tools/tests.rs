@@ -1,5 +1,514 @@
 use super::audio_decode::{self, Pcm};
 
+fn compare_native_resampling(path: &std::path::Path) {
+    let pcm = ready(audio_decode::decode(&std::fs::read(path).unwrap())).unwrap();
+    for rate in [11025, 16000, 22050, 44100, 48000] {
+        for channels in [1, 2] {
+            let native = std::process::Command::new("ffmpeg")
+                .args(["-v", "error", "-i"])
+                .arg(path)
+                .args([
+                    "-f",
+                    "f32le",
+                    "-ac",
+                    &channels.to_string(),
+                    "-ar",
+                    &rate.to_string(),
+                    "-",
+                ])
+                .output()
+                .unwrap();
+            assert!(native.status.success());
+            let native: Vec<_> = native
+                .stdout
+                .chunks_exact(4)
+                .map(|s| f32::from_le_bytes(s.try_into().unwrap()))
+                .collect();
+            let ours = pcm.samples(rate, channels).unwrap();
+            assert_eq!(ours.len(), native.len(), "{rate}Hz/{channels} source clock");
+            let max = ours
+                .iter()
+                .zip(&native)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0f32, f32::max);
+            let rms = (ours
+                .iter()
+                .zip(&native)
+                .map(|(a, b)| (*a as f64 - *b as f64).powi(2))
+                .sum::<f64>()
+                / ours.len() as f64)
+                .sqrt();
+            eprintln!("{rate}Hz/{channels}: max {max}; RMS {rms}");
+            assert!(
+                max < 0.00001 && rms < 0.000001,
+                "Native/browser resampling differs"
+            );
+        }
+    }
+}
+#[test]
+fn analysis_resampling_matches_native_filter_edges_and_fractional_source_clock() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("signal.wav");
+    for source_rate in [44100, 48000, 96000] {
+        let pcm = Pcm {
+            rate: source_rate,
+            channels: 2,
+            stereo: (0..1003)
+                .flat_map(|frame| {
+                    [
+                        if frame == 0 {
+                            1.5
+                        } else {
+                            (frame as f32 * 0.33).sin() * 0.7
+                        },
+                        (frame as f32 * 1.37).cos() * 0.3,
+                    ]
+                })
+                .collect(),
+        };
+        std::fs::write(&path, pcm.float_wave().unwrap()).unwrap();
+        compare_native_resampling(&path);
+    }
+}
+#[test]
+#[ignore = "Requires explicit real YACE_RESAMPLE_INPUT"]
+fn actual_recording_resampling_matches_native_model_inputs() {
+    compare_native_resampling(std::path::Path::new(
+        &std::env::var_os("YACE_RESAMPLE_INPUT").expect("actual audio"),
+    ));
+}
+
+#[test]
+#[ignore = "Requires YACE_AUDIO_EXPORT_ZIP from actual browser generation"]
+fn actual_float_audio_archive_compression_profile() {
+    use std::io::{Cursor, Read, Write};
+    let input =
+        std::fs::File::open(std::env::var_os("YACE_AUDIO_EXPORT_ZIP").expect("actual export"))
+            .unwrap();
+    let mut archive = zip::ZipArchive::new(input).unwrap();
+    let mut pcm = Vec::new();
+    archive
+        .by_name("drums.wav")
+        .unwrap()
+        .read_to_end(&mut pcm)
+        .unwrap();
+    for level in [1, 3, 6] {
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        zip.start_file(
+            "drums.wav",
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated)
+                .compression_level(Some(level)),
+        )
+        .unwrap();
+        zip.write_all(&pcm).unwrap();
+        let result = zip.finish().unwrap().into_inner();
+        eprintln!("level {level}: {} -> {} bytes", pcm.len(), result.len());
+    }
+}
+
+#[test]
+fn imported_game_archive_shares_its_identical_recovery_audio() {
+    use super::archive_codec;
+    let audio = vec![19u8; 65536];
+    let bytes = archive_codec::encode([
+        ("song.ini", b"[song]\nname=test\n".as_slice()),
+        ("guitar.ogg", audio.as_slice()),
+        (".yace/audio/stem.ogg", audio.as_slice()),
+    ])
+    .unwrap();
+    let files = archive_codec::decode_shared(&bytes).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&files[1].1, &files[2].1));
+    assert_eq!(*files[1].1, audio);
+    assert_eq!(
+        archive_codec::strip_wrapper(archive_codec::decode(&bytes).unwrap(), "song.ini")
+            .unwrap()
+            .len(),
+        3
+    );
+}
+
+#[test]
+fn shared_archive_import_checks_the_complete_entry_crc() {
+    use super::archive_codec;
+    let mut bytes = archive_codec::encode([("recording.ogg", [19u8; 64].as_slice())]).unwrap();
+    let offset = {
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        zip.by_index(0).unwrap().data_start().unwrap() as usize
+    };
+    bytes[offset] ^= 1;
+    assert!(archive_codec::decode_shared(&bytes).is_err());
+}
+
+#[test]
+fn shared_archive_import_rejects_paths_outside_the_project() {
+    use std::io::{Cursor, Write};
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    zip.start_file("../outside", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    zip.write_all(b"no").unwrap();
+    assert!(super::archive_codec::decode_shared(&zip.finish().unwrap().into_inner()).is_err());
+}
+
+#[test]
+#[ignore = "Requires YACE_BROWSER_TRANSCRIPTION actual app download and YACE_NATIVE_TRANSCRIPTION reference"]
+fn actual_browser_transcription_matches_native_notes_and_source_clocks() {
+    use serde_json::Value;
+    use std::fs;
+    let read = |key| -> Value {
+        serde_json::from_slice(
+            &fs::read(std::env::var_os(key).expect("Explicit real model output required")).unwrap(),
+        )
+        .unwrap()
+    };
+    let browser = read("YACE_BROWSER_TRANSCRIPTION");
+    let native = read("YACE_NATIVE_TRANSCRIPTION");
+    assert_eq!(
+        browser["isolation"]["source_audio_sha256"],
+        native["isolation"]["source_audio_sha256"]
+    );
+    let instruments =
+        std::env::var("YACE_TRANSCRIPTION_PARTS").unwrap_or_else(|_| "drums,guitar,bass".into());
+    // Explicit diagnostic mode preserves a recorded CPU/WASM threshold case;
+    // strict comparisons remain the default and no inference threshold changes.
+    let review_boundaries = std::env::var("YACE_ALLOW_ONSET_BOUNDARY_REVIEW").as_deref() == Ok("1");
+    for instrument in instruments.split(',') {
+        assert!(["drums", "guitar", "bass", "piano", "pro_piano"].contains(&instrument));
+        let ours = browser[instrument].as_array().unwrap();
+        let theirs = native[instrument].as_array().unwrap();
+        assert_eq!(ours.len(), theirs.len(), "{instrument} detection count");
+        let mut max_time = 0f64;
+        let mut max_score = 0f64;
+        let mut boundary_count = 0usize;
+        for (index, (a, b)) in ours.iter().zip(theirs).enumerate() {
+            let near_gate = |value: &Value| {
+                value
+                    .as_f64()
+                    .is_some_and(|score| (score - 0.5).abs() <= 64. * f64::from(f32::EPSILON))
+            };
+            let boundary = review_boundaries
+                && instrument == "guitar"
+                && a["start"] != b["start"]
+                && a["end"] == b["end"]
+                && (near_gate(&browser["guitar_candidates"][index]["onset_score"])
+                    || near_gate(&native["guitar_candidates"][index]["onset_score"]));
+            if boundary {
+                boundary_count += 1;
+                eprintln!(
+                    "Review required: {instrument} onset threshold boundary; browser {a}, native {b}"
+                );
+            }
+            for field in if instrument == "drums" {
+                vec!["time"]
+            } else {
+                vec!["start", "end"]
+            } {
+                let delta = (a[field].as_f64().unwrap() - b[field].as_f64().unwrap()).abs();
+                max_time = max_time.max(delta);
+                let tolerance = if matches!(instrument, "piano" | "pro_piano") {
+                    // Kong refines event times with float regression outputs.
+                    // Different WASM/native kernels retain sub-sample agreement.
+                    1e-6
+                } else {
+                    1e-9
+                };
+                assert!(
+                    delta < tolerance || (boundary && field == "start"),
+                    "{instrument} {field} differs: {a} / {b}"
+                );
+            }
+            let identity = if instrument == "drums" {
+                "voice"
+            } else {
+                "pitch"
+            };
+            assert_eq!(a[identity], b[identity], "{instrument} note identity");
+            let delta =
+                (a["confidence"].as_f64().unwrap() - b["confidence"].as_f64().unwrap()).abs();
+            max_score = max_score.max(delta);
+            assert!(delta < 0.002 || boundary, "{instrument} score differs");
+        }
+        eprintln!(
+            "{instrument}: {} notes, maximum time delta {max_time}, maximum score delta {max_score}, explicitly reviewed onset boundaries {boundary_count}",
+            ours.len()
+        );
+    }
+}
+
+#[test]
+fn analysis_speaker_matrix_matches_the_native_float_decoder() {
+    use std::{fs, process::Command};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("stereo.wav");
+    let pcm = Pcm {
+        stereo: (0..4410)
+            .flat_map(|i| {
+                [
+                    ((i as f32) * 0.03).sin() * 0.8,
+                    ((i as f32) * 0.07).sin() * 0.4,
+                ]
+            })
+            .collect(),
+        rate: 44100,
+        channels: 2,
+    };
+    fs::write(&path, pcm.float_wave().unwrap()).unwrap();
+    let result = Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(&path)
+        .args(["-ac", "1", "-f", "f32le", "pipe:1"])
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    let native: Vec<_> = result
+        .stdout
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+        .collect();
+    let ours = pcm.samples(44100, 1).unwrap();
+    assert_eq!(ours.len(), native.len());
+    assert!(
+        ours.iter()
+            .zip(native)
+            .all(|(a, b)| (a - b).abs() < 0.000001)
+    );
+    let mono = Pcm {
+        stereo: vec![0.25; 200],
+        rate: 44100,
+        channels: 1,
+    };
+    assert!(mono.samples(44100, 1).unwrap().iter().all(|s| *s == 0.25));
+    assert!(
+        mono.samples(44100, 2)
+            .unwrap()
+            .iter()
+            .all(|s| (*s - 0.25 * std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-8)
+    );
+}
+
+#[test]
+#[ignore = "Requires named actual browser/native recognition and vocal-generation downloads"]
+fn actual_browser_recognition_preserves_native_words_times_and_vocal_chart() {
+    use serde_json::Value;
+    let read = |key| -> Value {
+        serde_json::from_slice(
+            &std::fs::read(std::env::var_os(key).expect("Explicit real model output required"))
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let browser = read("YACE_BROWSER_RECOGNITION");
+    let native = read("YACE_NATIVE_RECOGNITION");
+    for field in ["language", "model_sha256", "recognition_audio_sha256"] {
+        assert_eq!(browser[field], native[field], "{field}");
+    }
+    for field in ["audio_sha256", "duration_seconds", "words"] {
+        assert_eq!(browser["words"][field], native["words"][field], "{field}");
+    }
+    let ours = browser["segments"].as_array().unwrap();
+    let theirs = native["segments"].as_array().unwrap();
+    assert_eq!(ours.len(), theirs.len());
+    let mut maximum = 0f64;
+    for (a, b) in ours.iter().zip(theirs) {
+        for field in ["text", "start_seconds", "end_seconds"] {
+            assert_eq!(a[field], b[field], "{field}");
+        }
+        for field in ["mean_token_probability", "no_speech_probability"] {
+            let a = a[field].as_f64().unwrap();
+            let b = b[field].as_f64().unwrap();
+            assert!((0. ..=1.).contains(&a) && (0. ..=1.).contains(&b));
+            maximum = maximum.max((a - b).abs());
+        }
+    }
+    // CPU/WASM and native Metal confidence scores are not identical. These
+    // compare source-bound decisions, not a claim of identical arithmetic.
+    eprintln!(
+        "{} segments, identical words/times, maximum probability delta {maximum}",
+        ours.len()
+    );
+    let browser = read("YACE_BROWSER_VOCAL_GENERATION");
+    let native = read("YACE_NATIVE_VOCAL_GENERATION");
+    for field in ["chart", "issues", "status"] {
+        assert_eq!(browser[field], native[field], "{field}");
+    }
+}
+
+#[test]
+#[ignore = "Requires YACE_BROWSER_VOCAL_GENERATION and a real native run using the same word evidence"]
+fn actual_browser_vocal_chart_matches_native_supplied_word_evidence() {
+    use serde_json::Value;
+    let read = |key| -> Value {
+        serde_json::from_slice(
+            &std::fs::read(std::env::var_os(key).expect("Explicit real model output required"))
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let browser = read("YACE_BROWSER_VOCAL_GENERATION");
+    let native = read("YACE_NATIVE_VOCAL_GENERATION");
+    for field in [
+        "audio_sha256",
+        "vocal_stem_sha256",
+        "duration_seconds",
+        "algorithm",
+        "policy",
+        "timing",
+        "words",
+        "chart",
+        "issues",
+        "status",
+    ] {
+        assert_eq!(browser[field], native[field], "{field}");
+    }
+    eprintln!(
+        "{} notes, {} phrases, {} review issues; same words and source clock",
+        browser["chart"]["notes"].as_array().unwrap().len(),
+        browser["chart"]["phrases"].as_array().unwrap().len(),
+        browser["issues"].as_array().unwrap().len()
+    );
+}
+
+#[test]
+#[ignore = "Requires actual downloaded YACE_BROWSER_ALIGNMENT and real YACE_NATIVE_ALIGNMENT from identical supplied lyrics and stems"]
+fn actual_browser_acoustic_alignment_preserves_native_word_boundaries() {
+    use serde_json::Value;
+    let read = |key| -> Value {
+        serde_json::from_slice(
+            &std::fs::read(std::env::var_os(key).expect("Explicit real alignment output required"))
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let mut browser = read("YACE_BROWSER_ALIGNMENT");
+    let mut native = read("YACE_NATIVE_ALIGNMENT");
+    let left = browser["diagnostics"].as_array_mut().unwrap();
+    let right = native["diagnostics"].as_array_mut().unwrap();
+    assert_eq!(left.len(), right.len());
+    let mut maximum = 0_f64;
+    for (a, b) in left.iter_mut().zip(right.iter_mut()) {
+        match (
+            a["mean_log_probability"].as_f64(),
+            b["mean_log_probability"].as_f64(),
+        ) {
+            (Some(a), Some(b)) => {
+                maximum = maximum.max((a - b).abs());
+                assert!(
+                    (a - b).abs() < 0.001,
+                    "Acoustic probability diverged: {a}/{b}"
+                );
+            }
+            (None, None) => {}
+            _ => panic!("Acoustic diagnostics lost probability"),
+        }
+        a.as_object_mut().unwrap().remove("mean_log_probability");
+        b.as_object_mut().unwrap().remove("mean_log_probability");
+    }
+    assert_eq!(
+        browser, native,
+        "Word boundaries, uncertainty, source binding and selection must match"
+    );
+    eprintln!(
+        "{} aligned words; maximum acoustic log probability delta {maximum}",
+        browser["words"]["words"].as_array().unwrap().len()
+    );
+}
+
+#[test]
+#[ignore = "Requires explicit YACE_NATIVE_STEMS and the actual browser download YACE_BROWSER_STEMS_ZIP"]
+fn actual_browser_separation_matches_the_native_model_and_source_clock() {
+    use sha2::{Digest, Sha256};
+    use std::{fs, io::Read, path::PathBuf};
+    let native =
+        PathBuf::from(std::env::var_os("YACE_NATIVE_STEMS").expect("native reference folder"));
+    let browser =
+        std::env::var_os("YACE_BROWSER_STEMS_ZIP").expect("actual browser-generated download");
+    let mut zip = zip::ZipArchive::new(fs::File::open(browser).unwrap()).unwrap();
+    let manifest = if zip
+        .file_names()
+        .any(|name| name.is_ok_and(|name| name == "stem-manifest.json"))
+    {
+        "stem-manifest.json"
+    } else {
+        "manifest.json"
+    };
+    let mut read = |name: &str| {
+        let mut bytes = Vec::new();
+        zip.by_name(name).unwrap().read_to_end(&mut bytes).unwrap();
+        bytes
+    };
+    let ours: serde_json::Value = serde_json::from_slice(&read(manifest)).unwrap();
+    let theirs: serde_json::Value =
+        serde_json::from_slice(&fs::read(native.join("stem-manifest.json")).unwrap()).unwrap();
+    assert_eq!(ours["source_audio_sha256"], theirs["source_audio_sha256"]);
+    assert_eq!(
+        ours["generation"]["model_sha256"],
+        theirs["generation"]["model_sha256"]
+    );
+    assert_eq!(ours["frames"], theirs["frames"]);
+    assert_eq!(ours["sample_rate"], 44100);
+    assert_eq!(ours["channels"], 2);
+    assert_eq!(ours["stems"].as_array().unwrap().len(), 6);
+    for name in ["drums", "bass", "vocals", "guitar", "piano", "other"] {
+        let bytes = read(&format!("{name}.wav"));
+        let asset = ours["stems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|asset| asset["id"] == name)
+            .unwrap();
+        assert_eq!(
+            asset["sha256"].as_str().unwrap(),
+            format!("{:x}", Sha256::digest(&bytes))
+        );
+        let ours = ready(audio_decode::decode(&bytes)).unwrap();
+        let reference = theirs["stems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|asset| asset["id"] == name)
+            .unwrap()["path"]
+            .as_str()
+            .unwrap();
+        let path = PathBuf::from(reference);
+        let path = if path.is_absolute() {
+            path
+        } else {
+            native.join(path)
+        };
+        let theirs = ready(audio_decode::decode(&fs::read(path).unwrap())).unwrap();
+        assert_eq!(ours.rate, theirs.rate);
+        assert_eq!(ours.stereo.len(), theirs.stereo.len());
+        assert!(ours.stereo.iter().all(|sample| sample.is_finite()));
+        let maximum = ours
+            .stereo
+            .iter()
+            .zip(&theirs.stereo)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0f32, f32::max);
+        let square: f64 = ours
+            .stereo
+            .iter()
+            .zip(&theirs.stereo)
+            .map(|(a, b)| ((*a - *b) as f64).powi(2))
+            .sum();
+        let energy: f64 = theirs
+            .stereo
+            .iter()
+            .map(|sample| (*sample as f64).powi(2))
+            .sum();
+        let normalized = (square / energy.max(1e-20)).sqrt();
+        eprintln!(
+            "{name}: {} frames; max delta {maximum}; normalized RMS delta {normalized}",
+            ours.stereo.len() / 2
+        );
+        assert!(
+            maximum < 0.0002 && normalized < 0.001,
+            "Browser/native separation differs for {name}"
+        );
+    }
+}
+
 #[test]
 fn real_mp3_tags_and_embedded_cover_are_read_without_a_native_probe() {
     use std::{fs, process::Command};
@@ -235,15 +744,21 @@ fn sample_conversion_preserves_duration_dc_and_stereo_polarity() {
     assert!(
         converted
             .chunks_exact(2)
-            .all(|s| (s[0] - 0.25).abs() < 1e-6 && (s[1] + 0.5).abs() < 1e-6)
+            // Native SWR normalizes the phase bank together and has a small
+            // DC ripple. Also compare the complete result with native below.
+            .all(|s| (s[0] - 0.25).abs() < 1e-5 && (s[1] + 0.5).abs() < 1e-5)
     );
     assert!(
         pcm.samples(22050, 1)
             .unwrap()
             .iter()
-            .all(|s| (*s + 0.125).abs() < 1e-6)
+            .all(|s| (*s + 0.125 * std::f32::consts::SQRT_2).abs() < 1e-5)
     );
     assert_eq!(pcm.samples(48000, 2).unwrap(), pcm.stereo);
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("constant.wav");
+    std::fs::write(&path, pcm.float_wave().unwrap()).unwrap();
+    compare_native_resampling(&path);
 }
 
 #[test]

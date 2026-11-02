@@ -1,0 +1,202 @@
+# Browser generator engineering acceptance
+
+This extends the manual parity run with actual full-song local generation,
+playback, editing, recovery and exported-file checks. It establishes the
+exercised engineering workflows, not musical accuracy. Incoming desktop export
+and source-import fixes remain part of the browser gate.
+
+## Architecture
+
+The static Dioxus client runs the existing Rust Demucs implementation and pinned
+six-stem checkpoint on worker WebGPU. The resulting six full-source-clock float
+WAVs are checked for finite samples, complete frame counts and exact hashes.
+No input audio leaves the browser. Model downloads are content verified before
+use or CacheStorage insertion. A native file picker accepts existing local
+models only when their complete SHA-256 matches a catalogue entry.
+
+Instrument inference uses the official ONNX Runtime Web 1.22.0 distribution,
+matching native ORT's release. Its WASM execution provider runs one thread in
+YACE's existing worker, requiring no application backend or isolation headers.
+YACE's bindings, model inputs, decoding, candidate recovery, source checks,
+chart building and export are Rust. Runtime licensing and package integrity
+are retained in `web/runtime/`.
+
+Both clients now share `models/postprocessing.rs`, `generation_build.rs`, piano
+view selection, SwiftF0 frame decoding and initial vocal review attachment.
+Browser resampling uses repeated rational filter phases; it no longer evaluates
+trigonometric functions for every tap of every output sample. Float channel
+mixing follows the native decoder instead of silently averaging stereo input.
+The native-compatible Kaiser filter now also matches phase tables, boundary
+reflection and fractional output frame counts. Real piano input comparisons
+against the native decoder differ by at most 0.000000120 per sample.
+
+## Actual browser evidence
+
+A real three-second excerpt of the existing acceptance recording was processed
+through the browser app, using the actual downloaded checkpoints:
+
+- All six stems retained exactly 132,300 stereo frames at 44.1 kHz. Against the
+  native model, maximum sample delta was 0.000002444 and normalized RMS delta
+  was below 0.000087. This is numerical consistency, not musical approval.
+- Drum/guitar/bass inference produced 23/22/15 detections. Every compared note
+  identity and start/end time matched native exactly. Maximum score deltas were
+  0.0000011 / 0.000957 / 0.0000068 respectively.
+- Piano/Pro Keys inference completed; this excerpt produced no keyboard notes.
+  This is not a positive musical keyboard acceptance fixture.
+- Cancellation during GPU preparation kept the chart and recording available;
+  restarting from the verified model cache completed successfully.
+- The generated draft opened with twelve difficulty tracks and three linked
+  instrument families, source-bound separated audio and timed review flags.
+- Actual app playback reached the three-second end on the recording and all six
+  stem channels. A generated snare moved from tick 250 to 251; Undo restored 250.
+- The actual song ZIP was downloaded. Native inspection read all twelve tracks
+  successfully with no error. Source/evidence and private results stay out of Git.
+- Browser Basic Pitch/SwiftF0/DSP vocal inference produced one pitched note at
+  ticks53–570, MIDI52, with a typed missing lyric. Its exported vocal JSON was
+  byte-identical to the native no-recognition/neural-pitch reference. Native
+  validation accepted the combined export. This does not establish sung-pitch
+  accuracy or lyric recognition.
+- Fresh import attached the missing-lyric review window and both checks. After
+  save/reload, the vocal note, pending review and audio sources were recovered.
+  Existing saved projects remained readable when large audio files moved to
+  checksum-verified shared IndexedDB blocks; mutable JSON keeps its existing
+  replacement encoding. Worker output aliases avoid copying the same audio
+  again for each generated project path.
+- The actual native picker reused the desktop pitch checkpoint and rejected an
+  invalid local model. No file was sent to an inference service.
+- Recoverable generation now freezes the recording, timing, requested parts and
+  engine identity, checkpoints before/after stages and lists retained jobs after
+  reload. In the actual browser a vocal-only job reused the chart's verified
+  stems, completed, applied through the shared source/timing/part guards, and
+  Undo restored the previous part while other tracks retained their counts.
+  Reload recovered the complete job and its draft. Cancelling a full-song job
+  during separation retained the source chart and exposed Resume remaining stages.
+- A downloaded separated-parts archive now contains a relative-path
+  `stem-manifest.json`. The explicit actual-download comparison again passed
+  against native output; the six source clocks and hashes remained valid. The
+  native transcription CLI also loaded that downloaded manifest and produced
+  the expected 23/22/15 drum/guitar/bass detections.
+- The real 243.880-second recording completed all four browser job stages after
+  cancellation/reload/resume. All six stems contain 10,755,108 stereo frames.
+  Inference retained 1,435 drum, 2,086 guitar and 971 bass detections, plus 298
+  vocal notes with 466 issues. The generated project opened with twelve
+  difficulty tracks, three linked families and source-bound vocal review.
+  The resulting Expert tracks contained 1,429 drum, 1,777 guitar and 807 bass
+  notes after arrangement, with all 298 vocal notes retained. Actual playback
+  reached the end at 100% on the original and all six stem elements. A generated
+  snare moved from tick 55,422 to 55,423; Undo restored it during playback.
+  Reload recovered the project at the song end with its twelve tracks and stems.
+- The full-song run exposed an incomplete worker input transfer: unused encoded
+  stems were still required to validate the complete manifest. Keeping those
+  encoded inputs fixed detection, and the saved separation resumed successfully.
+  Only the required parts are decoded. Existing audio copied into the built
+  project returns as verified aliases rather than repeated byte arrays.
+- Full-song export exposed a worker resource failure. Export now validates WAV
+  stems one at a time and writes the ZIP into browser-backed chunks. The actual
+  downloaded 31-file archive passed all CRC checks; native inspection read its
+  combined MIDI. Its archived original Ogg SHA-256 exactly matched the recording.
+  WAV compression level 3 reduced the complete archive to 957,505,126 bytes;
+  all CRC checks passed. Its actual file-picker import retained the three Expert
+  counts, all 298 vocal notes, the vocal review windows and all seven 243.880 s
+  audio clocks. Identical game/recovery audio shares allocations during import.
+- The resulting full-song project backup was downloaded (490,070,498 bytes),
+  passed archive integrity checks and reopened through Open saved project.
+  A guitar edit and its undo history survived: Redo restored the edited attack
+  at 0.210 seconds; Undo restored the original 0.209-second attack.
+- A real five-second Linkin Park piano introduction exposed a resampling
+  mismatch: the browser omitted one of native's ten candidates. Matching the
+  native filter restored all ten, with identical pitches, maximum timing delta
+  0.000000036 seconds and score delta 0.0000018 on the same browser-separated
+  stems. Applying the corrected draft retained an unrelated Bass part created
+  while inference ran, and produced seven arranged Keys attacks. A prior
+  changed-target attempt was refused; Undoing that target edit allowed retry.
+  This is numerical/workflow agreement, not a musical quality judgment.
+- The corresponding Pro Keys job retained all ten native candidates too. Its
+  seven arranged Expert attacks opened on the actual keyboard timeline;
+  playback reached the five-second end on all seven audio elements. An attack
+  edit from tick 1,754 to 1,755 and Undo restored the original timing. Reload
+  recovered the project; its downloaded MIDI was read by native inspection as
+  `PART REAL_KEYS_E/M/H/X` with no error.
+- The actual browser now runs the desktop whisper.cpp 1.8.3 engine as a local
+  single-threaded SIMD WASI reactor. The reproducible Rust builder validates
+  the exact published native source archive before extraction; no registry
+  source is modified. Both the Rust host and runtime pass strict Clippy.
+  On the real three-second vocal excerpt, recognized text and word times match
+  native exactly. All vocal notes, phrases, issues and status also match exactly.
+  CPU/WASM and native Metal probabilities differ (maximum 0.0343); this is not
+  identical arithmetic or a correctness judgment about the recognized lyrics.
+  English, Spanish and automatic-language model selection use their existing
+  native pins. Raw recognition can be downloaded separately for review.
+- Actual recovery testing found anonymous `source` titles in the saved-project
+  chooser and a stale collection header after opening generated projects.
+  Saved entries now read their existing song metadata and show duration/revision;
+  external-project navigation detaches the old collection after successful open.
+
+Regression coverage includes shared native decoding tests, native library tests,
+static-tool audio tests and strict WASM/native Clippy. Explicit ignored tests in
+`web/tools/tests.rs` compare actual browser downloads with real native outputs;
+they require named private input paths and never fabricate inference results.
+
+## Corrected full-song and optional-engine comparisons
+
+The complete 243.880-second recording was regenerated after the native-compatible
+resampler and local recognition were added. All six stem clocks remained exact.
+The resulting Expert parts contained 1,429 drum, 1,779 guitar and 807 bass notes;
+the vocal chart retained 471 notes, 41 phrases and 1,328 review issues, including
+94 explicit missing lyrics. Actual playback reached the end on all seven audio
+elements. A vocal attack changed from tick 1,242 to 1,243 during playback; Undo
+restored it. Both the downloaded full song and project backup passed CRC checks
+and reopened through their actual browser pickers with all 471 vocal notes.
+Native inspection read the combined exported MIDI without error.
+
+Against native on the same stems, all full-song drum and bass events match.
+One guitar attack differs by 58.049887 ms: a browser onset score of 0.50000226
+crosses the shared 0.5 gate, changing the selected attack while retaining the
+same pitch and release. Every other guitar identity and boundary matches.
+The strict comparison still rejects this difference; an explicit diagnostic
+mode reports this single threshold-boundary case rather than changing detector
+policy to force agreement. Full-song Whisper text also varies between WASM,
+native CPU and Metal execution. These outputs remain review proposals. Given
+the same actual browser word evidence, native and browser vocal notes, phrases,
+issues, timing and status match exactly.
+
+The optional Synth engine was exercised on a real five-second Creo excerpt.
+Browser and native produced the same 21 Keys and 21 Pro Keys detections; raw
+MuScriptor notes, token output and diagnostics matched exactly. The generated
+eight-track project played to the end on all seven sources. Its downloaded
+song archive passed CRC checks and native MIDI inspection.
+
+The desktop Rust English acoustic aligner now runs in the browser worker using
+the same pinned wav2vec2 weights, Candle model, supplied text and shared CTC
+decoder. The native file picker loaded the existing local weights and a
+provenance-labelled, explicitly unverified full-song recognition candidate.
+Both clients retained 263 words, 232 with supported timing; every word boundary,
+uncertainty flag, path choice and source hash matched. The maximum diagnostic
+log-probability delta was 0.0001823. Both final vocal charts contain the same
+498 notes, 48 phrases and 1,305 review issues, and the actual browser timeline
+opened all 498 notes with its review context. Unsupported words remain untimed.
+The raw alignment and vocal reports were downloaded through the app. This
+checks engine/workflow agreement, not lyric or singing accuracy.
+
+Automatic clean-panel recognition also passed on the real three-second excerpt:
+three recognized words, zero explicit matches, and cancellation preserving the
+previous analysis. The saved plan retained the recognition/source provenance.
+After reload, a clearly labelled manual range was restored and rendered with
+the matching vocal stem. Its actual downloaded archive passed all CRC checks;
+the receipt retained 132,300 stereo frames at 44.1 kHz in vocal-only mode. This
+exposed and fixed a download-adapter bug for browser-backed Blob archives.
+
+## Limits and release gates
+
+- The optional 705 MB HQ Piano checkpoint failed actual local inference with
+  optimized/unoptimized CPU graphs, reduced arena allocation and the WebGPU
+  provider. It is disabled in the browser under the user's inference exception;
+  no service or silent engine substitution is used. Standard piano and Synth
+  remain available. The unused GPU runtime experiment is not shipped.
+- Full-song cancellation/reload/resume and excerpt changed-target refusal,
+  unrelated-edit preservation, application, Undo and reload passed.
+- The full-song generation/playback/editing/reload/song ZIP/project backup gates
+  have passed the exercised engineering checks; game/controller and musical
+  listening acceptance remain separate.
+- Final source regression, push/merge, public deployment and live-origin checks
+  accompany publication; the hosted `build-info.json` identifies the source.

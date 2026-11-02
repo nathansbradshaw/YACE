@@ -7,7 +7,28 @@ use std::{
 };
 use wasm_bindgen::{JsCast, closure::Closure};
 use wasm_bindgen_futures::JsFuture;
-pub type Files = Vec<(String, Vec<u8>)>;
+pub type Files = crate::archive_codec::SharedFiles;
+thread_local! {static DOWNLOADS:RefCell<std::collections::BTreeMap<PathBuf,web_sys::Blob>>=RefCell::default();}
+pub fn retain_download(path: PathBuf, blob: web_sys::Blob) {
+    DOWNLOADS.with(|downloads| downloads.borrow_mut().insert(path, blob));
+}
+pub(crate) fn retained_download(path: &Path) -> Option<web_sys::Blob> {
+    DOWNLOADS.with(|downloads| downloads.borrow().get(path).cloned())
+}
+pub fn clear_downloads(root: &Path) {
+    DOWNLOADS.with(|downloads| {
+        downloads
+            .borrow_mut()
+            .retain(|path, _| !path.starts_with(root))
+    });
+}
+pub fn download_path(name: &str, path: &Path) -> Result<()> {
+    if let Some(blob) = DOWNLOADS.with(|downloads| downloads.borrow().get(path).cloned()) {
+        download_blob(name, &blob)
+    } else {
+        download(name, &crate::storage::shared(path)?)
+    }
+}
 /// OS-selected File handles retain access without reading the whole library.
 pub struct FolderSelection(Vec<(String, web_sys::File)>);
 impl FolderSelection {
@@ -22,7 +43,7 @@ impl FolderSelection {
             } else {
                 Vec::new()
             };
-            mount(root, vec![(name.clone(), bytes)])?;
+            mount(root, vec![(name.clone(), bytes.into())])?;
         }
         Ok(())
     }
@@ -78,7 +99,7 @@ pub async fn pick(folder: bool, accept: &str) -> Result<Option<Files>> {
     );
     let mut result = Vec::new();
     for (name, file) in files.0 {
-        result.push((name, read_file(&file).await?));
+        result.push((name, read_file(&file).await?.into()));
     }
     Ok(Some(result))
 }
@@ -170,7 +191,7 @@ pub fn unpack(files: Files) -> Result<Files> {
     if files.len() != 1 || !files[0].0.to_ascii_lowercase().ends_with(".zip") {
         return Ok(files);
     }
-    crate::archive_codec::decode(&files[0].1)
+    crate::archive_codec::decode_shared(&files[0].1)
 }
 pub fn mount(root: &Path, files: Files) -> Result<()> {
     for (name, bytes) in files {
@@ -184,7 +205,7 @@ pub fn mount(root: &Path, files: Files) -> Result<()> {
         );
         let target = root.join(path);
         ensure!(!crate::storage::is_file(&target), "Duplicate project path");
-        crate::storage::write_owned(target, bytes)?;
+        crate::storage::write_shared(target, bytes)?;
     }
     Ok(())
 }
@@ -206,6 +227,26 @@ pub fn archive(root: &Path) -> Result<Vec<u8>> {
             .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
     )
 }
+pub fn archive_blob(root: &Path) -> Result<web_sys::Blob> {
+    let files = crate::storage::list(root)?;
+    let names = files
+        .iter()
+        .map(|(path, _)| {
+            Ok(path
+                .strip_prefix(root)?
+                .to_string_lossy()
+                .replace('\\', "/"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    crate::archive_codec::encode_into(
+        names
+            .iter()
+            .zip(&files)
+            .map(|(name, (_, bytes))| (name.as_str(), bytes.as_slice())),
+        crate::archive_blob::Writer::default(),
+    )?
+    .finish()
+}
 pub fn download(name: &str, bytes: &[u8]) -> Result<()> {
     let chunks = js_sys::Array::new();
     chunks.push(&js_sys::Uint8Array::from(bytes));
@@ -213,7 +254,10 @@ pub fn download(name: &str, bytes: &[u8]) -> Result<()> {
     options.set_type("application/octet-stream");
     let blob =
         web_sys::Blob::new_with_u8_array_sequence_and_options(&chunks, &options).map_err(error)?;
-    let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(error)?;
+    download_blob(name, &blob)
+}
+fn download_blob(name: &str, blob: &web_sys::Blob) -> Result<()> {
+    let url = web_sys::Url::create_object_url_with_blob(blob).map_err(error)?;
     let document = web_sys::window()
         .context("No window")?
         .document()

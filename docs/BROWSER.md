@@ -8,11 +8,13 @@ server, account, WebSocket, FFmpeg process or generation service is needed.
 
 ## Build and run
 
-Install the Rust target and matching official binding generator once:
+Install the Rust target, matching official binding generator and Binaryen 132
+(`wasm-opt`) once:
 
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.127 --locked
+wasm-opt --version # wasm-opt version 132
 ```
 
 From the repository root:
@@ -27,6 +29,10 @@ testing; any static host with `application/wasm` support can replace it. Keep th
 generated `snippets` directory with the JS/WASM files. Relative asset URLs also
 support hosting the app below a directory. HTTPS or loopback is required for
 browser storage and clipboard APIs. A desktop shell is not required.
+
+The Rust build tool optimizes the generated module with the pinned Binaryen
+release and rejects an artifact above the static host's 25 MiB per-file limit.
+No additional JavaScript loader or application service is required.
 
 The hand-written JavaScript imports and starts the WASM module, displays startup
 failures and starts the module worker. Dioxus and wasm-bindgen generate
@@ -72,6 +78,10 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
 Files stay on the user's computer. Browser file inputs open the native picker;
 there is no custom workspace file browser and no upload endpoint. ZIP imports
 reject unsafe paths, symbolic links, duplicates and excessive expanded sizes.
+ZIP selection is limited to 1 GiB encoded; expansion allows 3 GiB of entries
+while retaining at most 1 GiB of unique data. Identical game/recovery audio shares
+one immutable allocation. Exports compress WAVs and write bounded browser chunks
+instead of growing one large WASM archive buffer.
 Folder import reads a snapshot; it does not establish ongoing disk access.
 
 IndexedDB stores the current project, source files and checkpoints in a single
@@ -94,18 +104,26 @@ this does not establish sample-perfect stem synchronization or acoustic latency.
 
 **Part analysis** runs the shared read-only analysis on a local Rust worker.
 Existing validated kit results can be reviewed and auditioned; generating new
-separations remains subject to the AI exception below. **Clean audio** accepts
-word timings, saved plans and manual ranges. It auditions the source and renders
+separations is being verified separately below. **Clean audio** accepts
+local English word recognition, word timings, saved plans and manual ranges. It auditions the source and renders
 a separate float WAV, plan and receipt locally. Download and listen to the
 rendered copy before accepting it; clean-panel edits require an explicit saved
 plan or export.
 
 ## Generation and collaboration
 
-**Audio-to-chart AI generation is disabled in the static browser build.** The
-current model runners require native ONNX/separation/alignment dependencies.
-No service is substituted, and no weaker heuristic is presented as generation.
-Existing generated projects, evidence and manual editing remain available.
+**Generation runs locally in the browser.** The Rust six-stem
+separator runs on WebGPU in a dedicated worker. The same pinned instrument
+models run through ONNX Runtime WASM, with shared Rust decoding, recovery,
+arrangement and export. Downloads are checksum verified and cached locally;
+an already-downloaded pinned model can also be selected using the OS picker.
+No recording is sent to an inference service. The small upstream ONNX runtime
+loader is vendored; YACE's processing and orchestration remain Rust.
+Instrument parts, standard Piano/Pro Keys, Synth, vocal pitch, word recognition
+and supplied-English-lyric acoustic alignment are available. The optional HQ
+piano checkpoint is disabled after failing browser runtime verification;
+standard piano remains available. No model service is substituted.
+See [actual full-song checks and remaining limits](BROWSER_GENERATORS.md).
 
 **Collaborate** supports the shared proposal/comment/approval/conflict workflow
 through downloaded and imported review files against matching source material.

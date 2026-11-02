@@ -5,10 +5,11 @@ before additional product features ship. Use one source revision and the same
 full-length song project for acceptance. Sharing Rust modules establishes shared
 rules; it does not establish that both applications expose working controls.
 
-The sole approved exception is AI inference: browser generation, separation,
-recognition and assistant backends stay disabled when they cannot run entirely
-inside the browser. No optional application service is substituted. Reviewing
-saved results and manual tools are still in scope.
+The user has expanded the parity gate to include local browser generators and
+vocals/instrument separation. The earlier blanket inference exception no longer
+closes this work. No application service is substituted. Browser generation,
+recognition and supplied-lyric alignment have actual full-song verification;
+see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATORS.md).
 
 ## Acceptance ledger
 
@@ -18,7 +19,8 @@ saved results and manual tools are still in scope.
 | Instrument/difficulty editing | Shared command tests plus actual guitar timing/Tap, Keys, Pro Keys, vocal editing, and native edit/Undo; paired full-song MIDI/master/vocal export matches | Verified supported workflows |
 | Timing, sections and Star Power | Browser edits/Undo and native tempo, section and phrase Add/Undo exercised through their actual dialogs | Verified |
 | Playback, seek, loop, speed and waveform | Full 243.880 s browser playthrough; native whole-song playback; browser loop/speed; all five saved kit components at 75%; native kit backup opened at saved speed/selection | Verified; acoustic synchronization is unmeasured |
-| Supplied stems and part analysis | Real full-length supplied drums, worker validation, native cached kit analysis/audition and portable roundtrip; attachment Undo/Redo replaced actual browser audio channels | Verified supplied/cached workflows; new inference uses the AI exception |
+| Supplied stems and part analysis | Real full-length supplied drums, worker validation, native cached kit analysis/audition and portable roundtrip; attachment Undo/Redo replaced actual browser audio channels | Verified supplied/cached workflows |
+| Local generation and separation | Actual browser six-stem inference and drum/guitar/bass detections compared with native on a real excerpt; generated draft opened, played, edited/undone and exported | In progress: the complete new-generator full-song gate remains open |
 | Manual clean audio | Both actual panels rendered the same bound plan; native output matched shared DSP exactly; 10,755,108 browser stereo frames, zero lag, maximum decoder delta 0.00000054 | Verified functional render; musical acceptance remains with the listener |
 | Review and flags | Shared rules, actual browser queue/decisions and portable source-bound review history | Verified |
 | Team proposals | Actual browser proposal → native import/independent approval/merge → browser conflict resolution → fresh native approval → browser merge; new parts preserved | Verified file exchange and protocol tests. Authenticated GitHub writes remain untested at the user's request |
@@ -30,6 +32,26 @@ saved results and manual tools are still in scope.
 Do not mark a row passed from compilation alone. Record the revision, fixture,
 actual application actions, downloaded/exported results, and any limitations.
 Keep private recordings, transcripts and generated receipts outside Git.
+
+During generator integration, inspect each fetched desktop change before
+rebasing and rerun the affected browser workflow. The integration through
+`4c24191` includes shared solo, drum-detail, rhythm/co-op, six-fret, five-lane
+Keys MIDI and legacy-delay fixes. The delay enhancement changes were carried
+into `generation_build.rs` when resolving the extraction conflict. Actual
+browser import/export/reimport retained the expected 0.620-second note position
+with conflicting legacy fields, cleared exported INI delay and preserved the
+original chart/INI witnesses. Native library migration is an OS filesystem maintenance tool;
+browser imports must still recover its resulting project layout, exact saved
+audio and editing history. A successful rebase alone does not verify that path.
+Timing-anchor support passed actual browser import, tempo editing, Undo,
+export and reimport. Changing 120 to 150 BPM compensated the following segment
+to 100 BPM while preserving anchored attacks at 1.250 and 2.250 seconds; both
+original microsecond anchors remained in the exported chart. Ordinary game
+MIDI also passed actual browser import, edit, Undo and export: unchanged export
+preserved the complete original MIDI bytes, and edited export retained injected
+opaque program/controller/SysEx/text events. Explicit chart/MIDI source choice
+is integrated; its browser recovery identity also includes alternate-source
+provenance so a pre-choice editing copy cannot discard a newly supplied source.
 
 See [the dated acceptance evidence](BROWSER_ACCEPTANCE.md) for revisions, private
 artifacts, test coverage and limits. This gate concerns the supported YACE

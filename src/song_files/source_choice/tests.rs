@@ -326,3 +326,28 @@ fn native_song_zip_keeps_its_staged_sources_alive_for_the_same_selection_flow() 
             .any(|n| n.note.tick == 480 && n.note.lane == 3)
     );
 }
+#[test]
+fn recovery_identity_distinguishes_new_alternate_sources_and_selection() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("notes.mid"), b"retained midi").unwrap();
+    assert_eq!(
+        recovery_identity(root.path(), Some(Source::Midi)).unwrap(),
+        None
+    );
+    fs::write(root.path().join("notes.chart"), b"new alternate chart").unwrap();
+    assert!(recovery_identity(root.path(), None).is_err());
+    let midi = recovery_identity(root.path(), Some(Source::Midi))
+        .unwrap()
+        .unwrap();
+    let chart = recovery_identity(root.path(), Some(Source::Chart))
+        .unwrap()
+        .unwrap();
+    assert_ne!(midi, chart);
+    fs::write(root.path().join("notes.chart"), b"updated alternate chart").unwrap();
+    assert_ne!(
+        recovery_identity(root.path(), Some(Source::Midi))
+            .unwrap()
+            .unwrap(),
+        midi
+    );
+}

@@ -1,5 +1,6 @@
 //! IndexedDB transactions preserve the source, checkpoints and revision together.
 use anyhow::{Context, Result, ensure};
+use sha2::{Digest, Sha256};
 use std::{
     cell::RefCell,
     path::{Path, PathBuf},
@@ -79,6 +80,7 @@ struct TransactionGuard {
     tx: IdbTransaction,
     _callbacks: Vec<Closure<dyn FnMut(web_sys::Event)>>,
     rx: Option<futures_channel::oneshot::Receiver<Result<(), String>>>,
+    finished: bool,
 }
 impl TransactionGuard {
     fn new(tx: IdbTransaction) -> Self {
@@ -102,19 +104,26 @@ impl TransactionGuard {
             tx,
             _callbacks: vec![done, fail],
             rx: Some(rx),
+            finished: false,
         }
     }
     async fn finish(&mut self) -> Result<()> {
-        self.rx
+        let result = self
+            .rx
             .take()
             .context("Transaction already awaited")?
             .await
             .context("Storage transaction interrupted")?
-            .map_err(anyhow::Error::msg)
+            .map_err(anyhow::Error::msg);
+        self.finished = true;
+        result
     }
 }
 impl Drop for TransactionGuard {
     fn drop(&mut self) {
+        if !self.finished {
+            let _ = self.tx.abort();
+        }
         self.tx.set_oncomplete(None);
         self.tx.set_onabort(None);
         self.tx.set_onerror(None);
@@ -127,6 +136,17 @@ impl Drop for Database {
     }
 }
 pub async fn save(root: &Path, revision: u64, expected: Option<u64>) -> Result<()> {
+    save_snapshot(root, revision, expected, true).await
+}
+pub async fn save_job(root: &Path, revision: u64, expected: Option<u64>) -> Result<()> {
+    save_snapshot(root, revision, expected, false).await
+}
+async fn save_snapshot(
+    root: &Path,
+    revision: u64,
+    expected: Option<u64>,
+    project: bool,
+) -> Result<()> {
     let db = Database(open().await?);
     let tx =
         db.0.transaction_with_str_and_mode("files", IdbTransactionMode::Readwrite)
@@ -150,10 +170,42 @@ pub async fn save(root: &Path, revision: u64, expected: Option<u64>) -> Result<(
         .iter()
         .map(|(path, _)| path.to_string_lossy().into_owned())
         .collect();
+    let mut hashes = std::collections::BTreeMap::new();
+    let mut written = std::collections::BTreeSet::new();
     for (path, bytes) in &dirty {
+        let audio = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| {
+                ["wav", "ogg", "opus", "mp3", "flac", "m4a"]
+                    .contains(&ext.to_ascii_lowercase().as_str())
+            });
+        if !audio || bytes.len() < 65536 {
+            // Mutable documents keep their existing replace-in-place encoding.
+            // Content-address only large audio, so repeated edits do not leave
+            // an orphaned copy of every historical project JSON document.
+            store
+                .put_with_key(
+                    &js_sys::Uint8Array::from(bytes.as_slice()),
+                    &format!("file:{}", path.display()).into(),
+                )
+                .map_err(error)?;
+            continue;
+        }
+        let hash = hashes
+            .entry(std::sync::Arc::as_ptr(bytes))
+            .or_insert_with(|| crate::models::hash_shared(bytes));
+        if written.insert(hash.clone()) {
+            store
+                .put_with_key(
+                    &js_sys::Uint8Array::from(bytes.as_slice()),
+                    &format!("blob:{hash}").into(),
+                )
+                .map_err(error)?;
+        }
         store
             .put_with_key(
-                &js_sys::Uint8Array::from(bytes.as_slice()),
+                &format!("sha256:{hash}").into(),
                 &format!("file:{}", path.display()).into(),
             )
             .map_err(error)?;
@@ -168,7 +220,10 @@ pub async fn save(root: &Path, revision: u64, expected: Option<u64>) -> Result<(
         .put_with_key(&JsValue::from_f64(revision as f64), &revision_key)
         .map_err(error)?;
     store
-        .put_with_key(&root.to_string_lossy().as_ref().into(), &"last".into())
+        .put_with_key(
+            &root.to_string_lossy().as_ref().into(),
+            &if project { "last" } else { "last-generation" }.into(),
+        )
         .map_err(error)?;
     transaction.finish().await?;
     crate::storage::acknowledge(dirty);
@@ -214,6 +269,7 @@ pub async fn load(root: &Path) -> Result<Option<(PathBuf, u64)>> {
     .as_f64()
     .context("Saved project revision is missing")? as u64;
     let mut loaded = Vec::with_capacity(paths.len());
+    let mut blocks = std::collections::BTreeMap::new();
     for path in paths {
         ensure!(
             Path::new(&path).starts_with(root.as_ref()),
@@ -224,18 +280,52 @@ pub async fn load(root: &Path) -> Result<Option<(PathBuf, u64)>> {
             !value.is_undefined(),
             "Saved project file is missing: {path}"
         );
-        loaded.push((
-            PathBuf::from(path),
-            js_sys::Uint8Array::new(&value).to_vec(),
-        ));
+        let bytes = read_bytes(&store, value, &mut blocks).await?;
+        loaded.push((PathBuf::from(path), bytes));
     }
     // Publish only a complete snapshot. A missing/quota-corrupt file must not
     // partially overwrite the working copy currently offered for ZIP recovery.
     for (path, bytes) in loaded {
-        crate::storage::write_owned(path, bytes)?;
+        crate::storage::write_shared(path, bytes)?;
     }
     crate::storage::acknowledge(crate::storage::pending(Path::new(root.as_ref()))?);
     Ok(Some((PathBuf::from(root.as_ref()), revision)))
+}
+
+async fn read_bytes(
+    store: &web_sys::IdbObjectStore,
+    value: JsValue,
+    blocks: &mut std::collections::BTreeMap<String, std::sync::Arc<Vec<u8>>>,
+) -> Result<std::sync::Arc<Vec<u8>>> {
+    if let Some(reference) = value.as_string() {
+        let hash = reference
+            .strip_prefix("sha256:")
+            .context("Unknown saved file encoding")?;
+        ensure!(
+            hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()),
+            "Invalid saved content identity"
+        );
+        if let Some(bytes) = blocks.get(hash) {
+            return Ok(bytes.clone());
+        }
+        let value = request(store.get(&format!("blob:{hash}").into()).map_err(error)?).await?;
+        ensure!(
+            !value.is_undefined() && !value.is_string(),
+            "Saved file content is missing"
+        );
+        let bytes = std::sync::Arc::new(js_sys::Uint8Array::new(&value).to_vec());
+        ensure!(
+            format!("{:x}", Sha256::digest(bytes.as_slice())) == hash,
+            "Saved file checksum differs; existing working copy kept"
+        );
+        crate::models::remember_verified_hash(&bytes, hash);
+        blocks.insert(hash.into(), bytes.clone());
+        Ok(bytes)
+    } else {
+        Ok(std::sync::Arc::new(
+            js_sys::Uint8Array::new(&value).to_vec(),
+        ))
+    }
 }
 
 /// Only the small project documents are read for the chooser, never audio.
@@ -245,6 +335,7 @@ pub async fn projects() -> Result<Vec<crate::chart_library::Entry>> {
     let store = tx.object_store("files").map_err(error)?;
     let keys = request(store.get_all_keys().map_err(error)?).await?;
     let mut entries = Vec::new();
+    let mut blocks = std::collections::BTreeMap::new();
     for key in js_sys::Array::from(&keys)
         .iter()
         .filter_map(|key| key.as_string())
@@ -261,11 +352,38 @@ pub async fn projects() -> Result<Vec<crate::chart_library::Entry>> {
         if value.is_undefined() {
             continue;
         }
-        let doc: crate::editor::Project =
-            serde_json::from_slice(&js_sys::Uint8Array::new(&value).to_vec())?;
+        let bytes = read_bytes(&store, value, &mut blocks).await?;
+        let doc: crate::editor::Project = serde_json::from_slice(&bytes)?;
+        let metadata = request(
+            store
+                .get(&format!("file:{root}/source/song.ini").into())
+                .map_err(error)?,
+        )
+        .await?;
+        let fields = if metadata.is_undefined() {
+            std::collections::BTreeMap::new()
+        } else {
+            crate::pipeline::ini_fields(std::str::from_utf8(
+                &read_bytes(&store, metadata, &mut blocks).await?,
+            )?)
+        };
+        let title = fields
+            .get("name")
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(&doc.title);
+        let title = fields
+            .get("artist")
+            .filter(|s| !s.trim().is_empty())
+            .map_or_else(|| title.clone(), |artist| format!("{artist} — {title}"));
+        let seconds = doc.duration.round() as u64;
         entries.push(crate::chart_library::Entry {
             path: root.into(),
-            title: doc.title,
+            title: format!(
+                "{title} · {}:{:02} · revision {}",
+                seconds / 60,
+                seconds % 60,
+                doc.revision
+            ),
             kind: crate::chart_library::Kind::Project,
         });
     }
@@ -276,4 +394,46 @@ pub async fn projects() -> Result<Vec<crate::chart_library::Entry>> {
             .then(a.path.cmp(&b.path))
     });
     Ok(entries)
+}
+
+/// Only frozen request metadata is read; choosing a job loads its audio later.
+pub async fn jobs() -> Result<Vec<(PathBuf, String)>> {
+    let db = Database(open().await?);
+    let tx = db.0.transaction_with_str("files").map_err(error)?;
+    let store = tx.object_store("files").map_err(error)?;
+    let keys = request(store.get_all_keys().map_err(error)?).await?;
+    let mut rows = Vec::new();
+    let mut blocks = std::collections::BTreeMap::new();
+    for key in js_sys::Array::from(&keys)
+        .iter()
+        .filter_map(|key| key.as_string())
+    {
+        let Some(root) = key.strip_prefix("manifest:") else {
+            continue;
+        };
+        let marker = request(
+            store
+                .get(&format!("file:{root}/browser-job-input.json").into())
+                .map_err(error)?,
+        )
+        .await?;
+        if marker.is_undefined() {
+            continue;
+        }
+        let value = request(
+            store
+                .get(&format!("file:{root}/request.json").into())
+                .map_err(error)?,
+        )
+        .await?;
+        ensure!(!value.is_undefined(), "Saved generation request is missing");
+        let bytes = read_bytes(&store, value, &mut blocks).await?;
+        let job: crate::generation::Request = serde_json::from_slice(&bytes)?;
+        rows.push((
+            PathBuf::from(root),
+            format!("{} — {}", job.artist, job.title),
+        ));
+    }
+    rows.sort_by(|a, b| b.0.cmp(&a.0));
+    Ok(rows)
 }

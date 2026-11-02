@@ -1,16 +1,17 @@
 //! Optional native English acoustic alignment of supplied lyrics. Reuses the
 //! pinned Rust wav2vec2 model from EntreNota. No Python, ASR text invention or
 //! evenly divided word/line timestamps.
+#[cfg(not(target_arch = "wasm32"))]
+use crate::{clean::StemAlignment, clean_recognition::Control, models};
 use crate::{
-    clean::{AlignedWord, StemAlignment, WordTimings},
-    clean_recognition::Control,
-    models,
+    clean::{AlignedWord, WordTimings},
     vocal_generation::LyricSource,
 };
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::{
-    collections::HashMap,
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -40,6 +41,7 @@ pub fn assets() -> [Asset; 3] {
         },
     ]
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub fn verified(model_dir: &Path) -> Result<PathBuf> {
     let directory = alignment_directory(model_dir)?;
     for asset in assets() {
@@ -51,6 +53,7 @@ pub fn verified(model_dir: &Path) -> Result<PathBuf> {
     }
     Ok(directory)
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn alignment_directory(root: &Path) -> Result<PathBuf> {
     models::optional_model_directory(
         root,
@@ -89,6 +92,7 @@ mod bundle_asset_tests {
         assert_eq!(fs::read_dir(directory).unwrap().count(), 3);
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn prepare(root: &Path, download: bool, control: &Control) -> Result<PathBuf> {
     if let Ok(path) = verified(root) {
         return Ok(path);
@@ -191,6 +195,7 @@ pub struct PathSelection {
     pub used_guide: bool,
     pub reason: String,
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Request<'a> {
     pub audio: &'a Path,
     pub vocal_stem: &'a Path,
@@ -199,6 +204,7 @@ pub struct Request<'a> {
     pub model_dir: &'a Path,
     pub download_model: bool,
 }
+#[cfg(not(target_arch = "wasm32"))]
 pub fn align(request: Request<'_>, control: Arc<Control>) -> Result<Alignment> {
     ensure!(
         !control.is_cancelled(),

@@ -8,8 +8,18 @@ use std::{
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[cfg(test)]
+#[path = "../../src/archive_codec.rs"]
+mod archive_codec;
+#[cfg(test)]
 #[path = "../src/audio_decode.rs"]
 mod audio_decode;
+#[cfg(test)]
+#[path = "../src/audio_identity.rs"]
+mod audio_identity;
+#[cfg(test)]
+#[path = "../src/audio_resample.rs"]
+mod audio_resample;
+mod recognition_build;
 #[cfg(test)]
 #[path = "../../src/recording_metadata.rs"]
 mod recording_metadata;
@@ -62,9 +72,41 @@ fn build(root: &Path) -> Result<()> {
         .arg(target.join("wasm32-unknown-unknown/release/yace_web.wasm"))
         .args(["--target", "web", "--no-typescript", "--out-dir"])
         .arg(&dist))?;
+    let optimizer = Command::new("wasm-opt").arg("--version").output()?;
+    if !optimizer.status.success()
+        || String::from_utf8_lossy(&optimizer.stdout).trim() != "wasm-opt version 132"
+    {
+        return Err("Static builds require Binaryen wasm-opt 132".into());
+    }
+    let wasm = dist.join("yace_web_bg.wasm");
+    let optimized = dist.join("yace_web_bg.optimized.wasm");
+    run(Command::new("wasm-opt")
+        .arg(&wasm)
+        .args([
+            "-Oz",
+            "--enable-bulk-memory",
+            "--enable-multivalue",
+            "--enable-mutable-globals",
+            "--enable-nontrapping-float-to-int",
+            "--enable-reference-types",
+            "--enable-sign-ext",
+            "--strip-debug",
+            "-o",
+        ])
+        .arg(&optimized))?;
+    if fs::metadata(&optimized)?.len() > 25 * 1024 * 1024 {
+        return Err("Optimized WebAssembly exceeds the static host's 25 MiB asset limit".into());
+    }
+    fs::rename(optimized, wasm)?;
     fs::copy(root.join("web/index.html"), dist.join("index.html"))?;
     fs::copy(root.join("web/worker.js"), dist.join("worker.js"))?;
-    for package in ["symphonia-codec-vorbis", "symphonia-bundle-mp3"] {
+    copy_source(&root.join("web/runtime"), &dist.join("runtime"))?;
+    for package in [
+        "symphonia-codec-vorbis",
+        "symphonia-bundle-mp3",
+        "practice-acoustic",
+        "candle-core",
+    ] {
         copy_source(
             &root.join("vendor").join(package),
             &dist.join("sources").join(package),
@@ -164,7 +206,7 @@ fn serve_file(mut stream: TcpStream, root: &Path) -> Result<()> {
     }
     let mime = match path.extension().and_then(|s| s.to_str()) {
         Some("html") => "text/html; charset=utf-8",
-        Some("js") => "text/javascript; charset=utf-8",
+        Some("js" | "mjs") => "text/javascript; charset=utf-8",
         Some("wasm") => "application/wasm",
         Some("css") => "text/css; charset=utf-8",
         Some("json") => "application/json",
@@ -199,6 +241,7 @@ fn main() -> Result<()> {
     let args: Vec<_> = env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("build") => build(&root),
+        Some("recognition-build") => recognition_build::build(&root, &args[1..]),
         Some("serve") => {
             let port = args
                 .get(1)
@@ -219,6 +262,8 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        _ => Err("Use: yace-static-web build | serve [port]".into()),
+        _ => Err(
+            "Use: yace-static-web build | serve [port] | recognition-build SDK CRATE WORK".into(),
+        ),
     }
 }

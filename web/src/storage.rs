@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 thread_local! { static FILES: RefCell<BTreeMap<PathBuf, Arc<Vec<u8>>>> = RefCell::default(); }
+thread_local! { static DIRECTORIES: RefCell<BTreeSet<PathBuf>> = RefCell::default(); }
 thread_local! { static DIRTY: RefCell<BTreeSet<PathBuf>> = RefCell::default(); }
 thread_local! { static PROJECTS: RefCell<BTreeMap<PathBuf,Arc<crate::editor::Project>>> = RefCell::default(); }
 thread_local! { static UNENCODED: RefCell<BTreeSet<PathBuf>> = RefCell::default(); }
@@ -98,14 +99,15 @@ pub fn write(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> 
     write_owned(path, bytes.as_ref().to_vec())
 }
 pub fn write_owned(path: impl AsRef<Path>, bytes: Vec<u8>) -> io::Result<()> {
+    write_shared(path, Arc::new(bytes))
+}
+pub fn write_shared(path: impl AsRef<Path>, bytes: Arc<Vec<u8>>) -> io::Result<()> {
     invalidate(path.as_ref())?;
     DIRTY.with(|dirty| {
         dirty.borrow_mut().insert(path.as_ref().to_owned());
     });
     FILES.with(|files| {
-        files
-            .borrow_mut()
-            .insert(path.as_ref().to_owned(), Arc::new(bytes));
+        files.borrow_mut().insert(path.as_ref().to_owned(), bytes);
     });
     Ok(())
 }
@@ -115,6 +117,10 @@ pub fn exists(path: impl AsRef<Path>) -> bool {
             .borrow()
             .keys()
             .any(|key| key == path.as_ref() || key.starts_with(path.as_ref()))
+    }) || DIRECTORIES.with(|dirs| {
+        dirs.borrow()
+            .iter()
+            .any(|dir| dir == path.as_ref() || dir.starts_with(path.as_ref()))
     })
 }
 pub fn is_file(path: impl AsRef<Path>) -> bool {
@@ -146,6 +152,8 @@ pub fn list(root: &Path) -> io::Result<Vec<(PathBuf, Arc<Vec<u8>>)>> {
     }))
 }
 pub fn clear(root: &Path) {
+    crate::files::clear_downloads(root);
+    DIRECTORIES.with(|dirs| dirs.borrow_mut().retain(|path| !path.starts_with(root)));
     crate::part_analysis::forget_root(root);
     PROJECTS.with(|projects| {
         projects
@@ -157,8 +165,23 @@ pub fn clear(root: &Path) {
     DIRTY.with(|dirty| dirty.borrow_mut().retain(|path| !path.starts_with(root)));
 }
 pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
-    if exists(&path) {
-        Ok(path.as_ref().to_owned())
+    let mut normalized = PathBuf::new();
+    for component in path.as_ref().components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !normalized.pop() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Path leaves the browser working set",
+                    ));
+                }
+            }
+            component => normalized.push(component.as_os_str()),
+        }
+    }
+    if exists(&normalized) {
+        Ok(normalized)
     } else {
         Err(io::Error::new(
             io::ErrorKind::NotFound,
@@ -175,11 +198,34 @@ pub fn is_absolute(path: impl AsRef<Path>) -> bool {
             && bytes[1] == b':'
             && matches!(bytes[2], b'/' | b'\\'))
 }
-pub fn create_dir(_path: impl AsRef<Path>) -> io::Result<()> {
+pub fn create_dir(path: impl AsRef<Path>) -> io::Result<()> {
+    if exists(&path) {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "Directory already exists",
+        ));
+    }
+    DIRECTORIES.with(|dirs| dirs.borrow_mut().insert(path.as_ref().to_owned()));
     Ok(())
 }
 pub fn create_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
-    create_dir(path)
+    if is_file(&path) {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "Path is a file",
+        ));
+    }
+    DIRECTORIES.with(|dirs| {
+        let mut dirs = dirs.borrow_mut();
+        for parent in path
+            .as_ref()
+            .ancestors()
+            .filter(|p| !p.as_os_str().is_empty())
+        {
+            dirs.insert(parent.to_owned());
+        }
+    });
+    Ok(())
 }
 pub fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
     if !is_file(&path) {
@@ -189,9 +235,16 @@ pub fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
     Ok(())
 }
 pub fn remove_dir(path: impl AsRef<Path>) -> io::Result<()> {
-    if exists(path) {
+    if !list(path.as_ref())?.is_empty()
+        || DIRECTORIES.with(|dirs| {
+            dirs.borrow()
+                .iter()
+                .any(|dir| dir != path.as_ref() && dir.starts_with(path.as_ref()))
+        })
+    {
         return Err(io::Error::other("Directory is not empty"));
     }
+    DIRECTORIES.with(|dirs| dirs.borrow_mut().remove(path.as_ref()));
     Ok(())
 }
 pub fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u64> {
@@ -208,13 +261,26 @@ pub fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u64> {
 }
 pub fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
     let items = list(from.as_ref())?;
-    if items.is_empty() {
+    let directories: Vec<_> = DIRECTORIES.with(|dirs| {
+        dirs.borrow()
+            .iter()
+            .filter(|path| path.starts_with(from.as_ref()))
+            .cloned()
+            .collect()
+    });
+    if items.is_empty() && directories.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
             "Project source is missing",
         ));
     }
     clear(from.as_ref());
+    for path in directories {
+        DIRECTORIES.with(|dirs| {
+            dirs.borrow_mut()
+                .insert(to.as_ref().join(path.strip_prefix(from.as_ref()).unwrap()))
+        });
+    }
     for (path, bytes) in items {
         let relative = path.strip_prefix(from.as_ref()).unwrap();
         let target = if relative.as_os_str().is_empty() {
@@ -334,7 +400,7 @@ pub fn read_dir(root: impl AsRef<Path>) -> io::Result<std::vec::IntoIter<io::Res
             "Project folder is missing",
         ));
     }
-    let children: BTreeSet<_> = list(root)?
+    let mut children: BTreeSet<_> = list(root)?
         .iter()
         .filter_map(|(path, _)| {
             path.strip_prefix(root)
@@ -344,6 +410,15 @@ pub fn read_dir(root: impl AsRef<Path>) -> io::Result<std::vec::IntoIter<io::Res
                 .map(|part| root.join(part.as_os_str()))
         })
         .collect();
+    DIRECTORIES.with(|dirs| {
+        for path in dirs.borrow().iter() {
+            if let Ok(relative) = path.strip_prefix(root)
+                && let Some(part) = relative.components().next()
+            {
+                children.insert(root.join(part.as_os_str()));
+            }
+        }
+    });
     Ok(children
         .into_iter()
         .map(|path| Ok(DirEntry(path)))

@@ -2,6 +2,7 @@ mod config;
 mod model;
 use candle_core::{D, DType, Device, Tensor};
 use candle_nn::VarBuilder;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -9,9 +10,16 @@ pub struct AcousticModel {
     model: model::ctc_model::Wav2Vec2ForCTC,
 }
 impl AcousticModel {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load(directory: &Path) -> Result<Self, Error> {
-        let config = serde_json::from_slice(&std::fs::read(directory.join("config.json"))?)?;
-        let weights = std::fs::read(directory.join("model.safetensors"))?;
+        Self::from_bytes(
+            &std::fs::read(directory.join("config.json"))?,
+            std::fs::read(directory.join("model.safetensors"))?,
+        )
+    }
+    /// Same decoder, with verified caller-owned bytes for static browser use.
+    pub fn from_bytes(config: &[u8], weights: Vec<u8>) -> Result<Self, Error> {
+        let config = serde_json::from_slice(config)?;
         let builder = VarBuilder::from_buffered_safetensors(weights, DType::F32, &Device::Cpu)?;
         Ok(Self {
             model: model::ctc_model::Wav2Vec2ForCTC::load(&config, builder)?,

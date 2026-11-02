@@ -11,6 +11,7 @@ mod dialogs;
 mod difficulty;
 #[path = "../../../src/studio/game_preview.rs"]
 mod game_preview;
+mod generation_jobs;
 pub mod github;
 #[path = "../../../src/studio/icons.rs"]
 mod icons;
@@ -170,10 +171,11 @@ pub fn App() -> Element {
     if (studio.review_open)(){review::ReviewPanel{studio}}
     if (studio.parts_open)(){parts::PartsPanel{studio}}
     if (studio.collaboration_open)(){collaboration::Collaboration{studio}}
+    generation_jobs::GenerationPanel{studio}
     if let Some((path,name,kind))=(studio.export_ready)(){modal::Modal{id:"song-export",label:"File download",onclose:move |_|studio.close_export(),h2{match kind{state::DownloadKind::Project=>"Project backup ready",state::DownloadKind::Song=>"Song export ready",state::DownloadKind::File=>"File ready to download"}}
         p{"Download the prepared copy. Your editing project stays saved in this browser."}
         p{style:"overflow-wrap:anywhere","{name}"}
-        button{onclick:move |_|{let result=crate::storage::shared(&path).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download(&name,&bytes));if let Err(error)=result{let mut s=studio;s.error.set(Some(format!("{error:#}")));}},match kind{state::DownloadKind::Project=>"Download project ZIP",state::DownloadKind::Song=>"Download song ZIP",state::DownloadKind::File=>"Download file"}}
+        button{onclick:move |_|{let result=crate::files::download_path(&name,&path);if let Err(error)=result{let mut s=studio;s.error.set(Some(format!("{error:#}")));}},match kind{state::DownloadKind::Project=>"Download project ZIP",state::DownloadKind::Song=>"Download song ZIP",state::DownloadKind::File=>"Download file"}}
         button{onclick:move |_|studio.close_export(),"Close"}
     }}
     if let Some(entries)=(studio.saved_projects)(){modal::Modal{id:"saved-projects",label:"Saved in this browser",onclose:move |_|{let mut s=studio;s.saved_projects.set(None);},h2{"Saved in this browser"}
@@ -184,6 +186,5 @@ pub fn App() -> Element {
     clean::CleanPanel{studio}
     source_choice::SourceChoice{studio}
     if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
-    if (studio.generation_open)(){modal::Modal{id:"browser-generation",label:"Browser generation",onclose:move |_|{let mut s=studio;s.generation_open.set(false);},h2{"Generation unavailable"}p{"The current model backends require native runtimes. Generation is disabled in this static build. Open a chart or add parts and notes manually."}button{onclick:move |_|{let mut s=studio;s.generation_open.set(false);},"Close generation"}}}
     }}
 }

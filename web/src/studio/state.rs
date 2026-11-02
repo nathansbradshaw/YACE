@@ -72,6 +72,7 @@ pub struct Studio {
     pub star_power_open: Signal<bool>,
     pub star_power_target: Signal<Option<crate::star_power::Phrase>>,
     pub generation_target: Signal<Option<String>>,
+    pub generation_after_import: Signal<bool>,
     pub new_song: Signal<Option<(PathBuf, String)>>,
     pub vocal_note: Signal<Option<usize>>,
     pub group: Signal<crate::note_groups::Selection>,
@@ -132,6 +133,7 @@ pub fn use_studio() -> Studio {
         star_power_open: use_signal(|| false),
         star_power_target: use_signal(|| None),
         generation_target: use_signal(|| None),
+        generation_after_import: use_signal(|| false),
         new_song: use_signal(|| None),
         vocal_note: use_signal(|| None),
         group: use_signal(Default::default),
@@ -517,6 +519,7 @@ impl Studio {
                 let Some(mut files) =
                     crate::files::pick(false, ".ogg,.opus,.mp3,.flac,.wav,.m4a").await?
                 else {
+                    self.generation_after_import.set(false);
                     return Ok(());
                 };
                 let (name, bytes) = files.pop().context("Choose a recording")?;
@@ -546,6 +549,7 @@ impl Studio {
             }
             .await;
             if let Err(error) = result {
+                self.generation_after_import.set(false);
                 self.error.set(Some(format!("{error:#}")));
             }
         });
@@ -553,6 +557,7 @@ impl Studio {
     pub fn cancel_new_chart(mut self, root: &std::path::Path) {
         crate::storage::clear(root);
         self.new_song.set(None);
+        self.generation_after_import.set(false);
     }
     pub async fn prepare_new_chart(
         self,
@@ -607,7 +612,10 @@ impl Studio {
         self.open_project(root.clone()).await?;
         crate::storage::clear(&root);
         self.new_song.set(None);
-        self.library_selected.set(None);
+        self.detach_library();
+        if self.generation_after_import.replace(false) {
+            self.generation_open.set(true);
+        }
         Ok(())
     }
     pub fn import(mut self, folder: bool) {
@@ -749,6 +757,9 @@ impl Studio {
         for path in [crate::pipeline::audio_file(&source)?, chart] {
             identity.update(crate::models::hash_file(&path)?.as_bytes());
         }
+        if let Some(provenance)=crate::song_files::source_choice::recovery_identity(&source,choice)? {
+            identity.update(provenance.as_bytes());
+        }
         for path in [
             source.join("song.ini"),
             project_source
@@ -784,6 +795,15 @@ impl Studio {
             let duration =
                 super::media::duration(crate::storage::shared(&audio)?.as_slice()).await?;
             Store::new(&root).initialize(&root.join("source"), None, duration)?;
+            let report = crate::song_layout::resolve(
+                &root.join("source"),
+                "chart-engine-vocal-generation.json",
+            );
+            if crate::storage::is_file(&report) {
+                let report = serde_json::from_slice(&crate::storage::read(report)?)?;
+                let store = Store::new(&root);
+                crate::vocal_review::attach_generation(&store, store.load()?, &report)?;
+            }
             self.open_project(root).await?;
         }
         Ok(true)
@@ -808,7 +828,7 @@ impl Studio {
                 .context("Saved project is missing")?;
             self.open_project_with_revision(root, Some(revision))
                 .await?;
-            self.library_selected.set(None);
+            self.detach_library();
             self.saved_projects.set(None);
             Ok::<_, anyhow::Error>(())
         }
@@ -818,7 +838,7 @@ impl Studio {
             self.error.set(Some(format!("{error:#}")));
         }
     }
-    async fn persist_current(mut self) -> Result<()> {
+    pub(super) async fn persist_current(mut self) -> Result<()> {
         while (self.persistence_busy)() {
             gloo_timers::future::TimeoutFuture::new(20).await;
         }
@@ -848,6 +868,15 @@ impl Studio {
     pub async fn open_project(self, source: PathBuf) -> Result<()> {
         self.open_project_with_revision(source, None).await
     }
+    pub(super) fn detach_library(mut self) {
+        self.library_selected.set(None);
+        self.library_files.set(None);
+        if let Some(previous) = self.library.replace(None)
+            && self.store.read().as_ref().is_none_or(|store| !store.root.starts_with(&previous.root))
+        {
+            crate::storage::clear(&previous.root);
+        }
+    }
     pub async fn open_project_with_revision(
         mut self,
         source: PathBuf,
@@ -876,6 +905,15 @@ impl Studio {
                 Some(choice),
             )?;
             Store::new(&root).initialize(&root.join("source"), None, duration)?;
+            let report = crate::song_layout::resolve(
+                &root.join("source"),
+                "chart-engine-vocal-generation.json",
+            );
+            if crate::storage::is_file(&report) {
+                let report = serde_json::from_slice(&crate::storage::read(report)?)?;
+                let store = Store::new(&root);
+                crate::vocal_review::attach_generation(&store, store.load()?, &report)?;
+            }
         }
         let store = Store::new(&root);
         if saved_revision.is_none() {
@@ -982,7 +1020,7 @@ impl Studio {
                 let output = PathBuf::from(format!("/exports/{}", js_sys::Date::now() as u64));
                 self.status
                     .set("Preparing playable song ZIP locally…".into());
-                let _: () = crate::worker::run(
+                let _: () = crate::worker::run_with_progress(
                     crate::worker::Task::Export {
                         root: store.root.clone(),
                         project: Box::new(doc.as_ref().clone()),
@@ -994,6 +1032,10 @@ impl Studio {
                         },
                     },
                     std::slice::from_ref(&store.root),
+                    Rc::new(move |label| {
+                        let mut studio = self;
+                        studio.status.set(label);
+                    }),
                 )
                 .await?;
                 let archive = output.with_extension("zip");
@@ -1155,17 +1197,16 @@ impl Studio {
                 {
                     for asset in &manifest.stems {
                         for (name, bytes) in &files {
-                            use sha2::{Digest, Sha256};
-                            if format!("{:x}", Sha256::digest(bytes)) == asset.sha256 {
+                            if crate::models::hash_shared(bytes) == asset.sha256 {
                                 let filename = PathBuf::from(name)
                                     .file_name()
                                     .context("Invalid stem filename")?
                                     .to_owned();
-                                crate::storage::write(
+                                crate::storage::write_shared(
                                     store.root.join("source/stems").join(filename),
-                                    bytes,
+                                    bytes.clone(),
                                 )?;
-                                crate::storage::write(&asset.path, bytes)?;
+                                crate::storage::write_shared(&asset.path, bytes.clone())?;
                                 matched += 1;
                                 break;
                             }

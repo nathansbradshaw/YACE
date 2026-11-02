@@ -1311,7 +1311,6 @@ impl Store {
         } else {
             None
         };
-        #[cfg(not(target_arch = "wasm32"))]
         let mut generated_part = if let Action::ApplyGeneratedPart { job } = &request.action {
             let snapshot = self.load()?;
             ensure!(
@@ -1435,11 +1434,6 @@ impl Store {
             Action::CreateTrack { track } => {
                 crate::parts::create(&mut doc, track)?;
             }
-            #[cfg(target_arch = "wasm32")]
-            Action::ApplyGeneratedPart { .. } => {
-                anyhow::bail!("This generation backend cannot run in the browser")
-            }
-            #[cfg(not(target_arch = "wasm32"))]
             Action::ApplyGeneratedPart { .. } => generated_part
                 .take()
                 .context("Missing generated draft")?

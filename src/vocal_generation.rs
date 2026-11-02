@@ -196,6 +196,7 @@ pub struct NeuralPitchEvidence {
 pub fn neural_pitch_implementation_hash() -> String {
     let mut hash = Sha256::new();
     hash.update(include_bytes!("models.rs"));
+    hash.update(include_bytes!("models/postprocessing.rs"));
     hash.update(include_bytes!("../Cargo.lock"));
     format!("{:x}", hash.finalize())
 }

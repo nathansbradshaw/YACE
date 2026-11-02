@@ -23,50 +23,33 @@ impl Pcm {
         );
         let frames = self.stereo.len() / 2;
         ensure!(frames > 0, "Empty audio");
+        // Match the native float decoder's speaker matrix. Stereo-to-mono
+        // uses -3 dB per speaker; mono-to-stereo uses -3 dB per output.
+        // An arithmetic average quietly lowered every stereo model input.
+        let mono_gain = if self.channels == 1 {
+            0.5
+        } else {
+            std::f32::consts::FRAC_1_SQRT_2
+        };
+        let stereo_gain = if self.channels == 1 {
+            std::f32::consts::FRAC_1_SQRT_2
+        } else {
+            1.
+        };
         if rate == self.rate {
             return Ok(if channels == 2 {
-                self.stereo.clone()
+                self.stereo
+                    .iter()
+                    .map(|sample| sample * stereo_gain)
+                    .collect()
             } else {
                 self.stereo
                     .chunks_exact(2)
-                    .map(|s| (s[0] + s[1]) * 0.5)
+                    .map(|s| s[0] * mono_gain + s[1] * mono_gain)
                     .collect()
             });
         }
-        let count =
-            ((frames as u64 * rate as u64 + self.rate as u64 / 2) / self.rate as u64) as usize;
-        let cutoff = (rate as f64 / self.rate as f64).min(1.) * 0.94;
-        let radius = (32. / cutoff).ceil() as i64;
-        let mut out = Vec::with_capacity(count * channels as usize);
-        for frame in 0..count {
-            let position = frame as f64 * self.rate as f64 / rate as f64;
-            let center = position.floor() as i64;
-            let mut sum = [0.; 2];
-            let mut weight = 0.;
-            for index in center - radius..=center + radius {
-                let distance = index as f64 - position;
-                let window = distance / radius as f64;
-                if window.abs() > 1. {
-                    continue;
-                }
-                let x = std::f64::consts::PI * distance * cutoff;
-                let sinc = if x.abs() < 1e-12 { 1. } else { x.sin() / x };
-                let w = sinc
-                    * (0.42
-                        + 0.5 * (std::f64::consts::PI * window).cos()
-                        + 0.08 * (2. * std::f64::consts::PI * window).cos());
-                let i = index.clamp(0, frames as i64 - 1) as usize * 2;
-                sum[0] += self.stereo[i] as f64 * w;
-                sum[1] += self.stereo[i + 1] as f64 * w;
-                weight += w;
-            }
-            if channels == 1 {
-                out.push(((sum[0] + sum[1]) * 0.5 / weight) as f32);
-            } else {
-                out.extend(sum.map(|s| (s / weight) as f32));
-            }
-        }
-        Ok(out)
+        crate::audio_resample::convert(&self.stereo, self.rate, self.channels, rate, channels)
     }
     pub fn wave(&self) -> Result<Vec<u8>> {
         let size = u32::try_from(

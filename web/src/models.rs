@@ -1,5 +1,10 @@
-//! Portable source identity; native inference is not linked into the browser.
+//! Portable source identity and shared inference decoding.
+#[path = "../../src/models/postprocessing.rs"]
+pub mod postprocessing;
 use anyhow::{Context, Result, ensure};
+pub use postprocessing::{
+    decode_pitch, decode_pitch_with_evidence, drum_peaks, pitch_frame_seconds, supported_drum_peaks,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -12,13 +17,23 @@ pub struct ModelAsset {
     pub license: String,
 }
 pub fn assets() -> Vec<ModelAsset> {
-    serde_json::from_str(include_str!("../../models/manifest.json")).expect("pinned manifest")
+    let mut assets: Vec<ModelAsset> =
+        serde_json::from_str(include_str!("../../models/manifest.json")).expect("pinned manifest");
+    assets.push(crate::lyric_language::multilingual_asset());
+    assets.push(crate::keyboard_separation::asset());
+    assets.push(crate::acoustic_alignment::asset());
+    assets
 }
 pub fn hash_file(path: &Path) -> Result<String> {
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(crate::storage::shared(path)?.as_slice())
-    ))
+    Ok(hash_shared(&crate::storage::shared(path)?))
+}
+pub fn hash_shared(bytes: &std::sync::Arc<Vec<u8>>) -> String {
+    crate::audio_identity::hash(bytes)
+}
+/// Call only after hashing these bytes or receiving their verified worker output.
+/// Weak ownership prevents allocator address reuse from confusing identities.
+pub(crate) fn remember_verified_hash(bytes: &std::sync::Arc<Vec<u8>>, hash: &str) {
+    crate::audio_identity::remember_verified(bytes, hash);
 }
 thread_local! { static PCM: std::cell::RefCell<std::collections::BTreeMap<PathBuf,(String,crate::audio_decode::Pcm)>> = std::cell::RefCell::default(); }
 thread_local! { static STEMS: std::cell::RefCell<std::collections::BTreeSet<String>> = std::cell::RefCell::default(); }

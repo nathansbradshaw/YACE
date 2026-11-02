@@ -2,25 +2,21 @@
 //! and chunk/silence conventions are MIT, Lars Nieradzik, revision below.
 //! Raw frames are evidence, not automatically accepted singing or chart notes.
 #[cfg(not(target_arch = "wasm32"))]
+use crate::{clean::StemAlignment, models};
+use anyhow::{Result, ensure};
+#[cfg(not(target_arch = "wasm32"))]
 use ort::{session::Session, value::Tensor};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
-#[cfg(not(target_arch = "wasm32"))]
-use {
-    crate::{clean::StemAlignment, models},
-    anyhow::{Result, ensure},
-};
 
 pub const MODEL_ID: &str = "swift-f0-v0.3.0";
 pub const REVISION: &str = "d1ba77fe5331310b778ebe126b6cb3656d41d24f";
 pub const MODEL_SHA256: &str = "6385e8c2ebc3872e82c9ff5946228de44cd3be77a750ea53698b7dbfe94b0a22";
 pub const MODEL_URL: &str = "https://raw.githubusercontent.com/lars76/swift-f0/d1ba77fe5331310b778ebe126b6cb3656d41d24f/swift_f0/model.onnx";
-#[cfg(not(target_arch = "wasm32"))]
-const RATE: usize = 16000;
-#[cfg(not(target_arch = "wasm32"))]
-const HOP: usize = 256;
+pub const RATE: usize = 16000;
+pub const HOP: usize = 256;
 #[cfg(not(target_arch = "wasm32"))]
 const CHUNK_FRAMES: usize = 1875;
 #[cfg(not(target_arch = "wasm32"))]
@@ -58,6 +54,7 @@ pub fn implementation_hash() -> String {
     let mut hash = Sha256::new();
     hash.update(include_bytes!("vocal_pitch.rs"));
     hash.update(include_bytes!("models.rs"));
+    hash.update(include_bytes!("models/postprocessing.rs"));
     hash.update(include_bytes!("../Cargo.lock"));
     format!("{:x}", hash.finalize())
 }
@@ -172,48 +169,79 @@ pub fn infer_pcm(pcm: &[f32], model: &Path, cancelled: &dyn Fn() -> bool) -> Res
                 && pitches.len() >= end - left,
             "Unexpected optional vocal pitch tensor contract"
         );
-        for global in start..end {
-            let local = global - left;
-            let pitch = pitches[local];
-            let mut confidence = confidences[local];
-            ensure!(
-                confidence.is_finite() && (0. ..=1.).contains(&confidence),
-                "Nonfinite or uncalibrated vocal pitch confidence"
-            );
-            let lo = (global * HOP).min(pcm.len());
-            let hi = ((global + 1) * HOP).min(pcm.len());
-            let peak = pcm[lo..hi]
-                .iter()
-                .map(|sample| sample.abs())
-                .fold(0f32, f32::max);
-            if peak < 1e-3 {
-                confidence = 0.;
-            }
-            let energy_start = global.saturating_sub(1) * HOP;
-            let power: f64 = pcm[energy_start..hi]
-                .iter()
-                .map(|sample| (*sample as f64).powi(2))
-                .sum();
-            let frequency_hz =
-                (pitch.is_finite() && (46.875..=2093.75).contains(&pitch) && confidence > 0.)
-                    .then_some(pitch);
-            frames.push(Frame {
-                time_seconds: global as f64 * HOP as f64 / RATE as f64,
-                frequency_hz,
-                confidence,
-                rms: (power / (2 * HOP) as f64).sqrt(),
-            });
-        }
+        frames.extend(decode_chunk(pcm, start, end, left, pitches, confidences)?);
     }
     ensure!(
         frames.len() == count && models::hash_file(model)? == MODEL_SHA256,
         "Vocal pitch model or frame count changed during analysis"
     );
+    finish_pcm(pcm, frames)
+}
+
+/// Shared source-clock and silence handling for actual SwiftF0 outputs.
+pub fn decode_chunk(
+    pcm: &[f32],
+    start: usize,
+    end: usize,
+    left: usize,
+    pitches: &[f64],
+    confidences: &[f32],
+) -> Result<Vec<Frame>> {
+    ensure!(
+        left <= start
+            && start <= end
+            && end - left <= pitches.len()
+            && pitches.len() == confidences.len()
+            && end <= (pcm.len() / HOP).max(1),
+        "Unexpected vocal pitch chunk contract"
+    );
+    let mut frames = Vec::with_capacity(end - start);
+    for global in start..end {
+        let local = global - left;
+        let pitch = pitches[local];
+        let mut confidence = confidences[local];
+        ensure!(
+            confidence.is_finite() && (0. ..=1.).contains(&confidence),
+            "Nonfinite or uncalibrated vocal pitch confidence"
+        );
+        let lo = (global * HOP).min(pcm.len());
+        let hi = ((global + 1) * HOP).min(pcm.len());
+        let peak = pcm[lo..hi]
+            .iter()
+            .map(|sample| sample.abs())
+            .fold(0f32, f32::max);
+        if peak < 1e-3 {
+            confidence = 0.;
+        }
+        let energy_start = global.saturating_sub(1) * HOP;
+        let power: f64 = pcm[energy_start..hi]
+            .iter()
+            .map(|sample| (*sample as f64).powi(2))
+            .sum();
+        let frequency_hz =
+            (pitch.is_finite() && (46.875..=2093.75).contains(&pitch) && confidence > 0.)
+                .then_some(pitch);
+        frames.push(Frame {
+            time_seconds: global as f64 * HOP as f64 / RATE as f64,
+            frequency_hz,
+            confidence,
+            rms: (power / (2 * HOP) as f64).sqrt(),
+        });
+    }
+    Ok(frames)
+}
+
+pub fn finish_pcm(pcm: &[f32], frames: Vec<Frame>) -> Result<Evidence> {
+    ensure!(
+        !pcm.is_empty()
+            && pcm.iter().all(|sample| sample.is_finite())
+            && frames.len() == (pcm.len() / HOP).max(1),
+        "Invalid vocal pitch PCM or frame count"
+    );
     let mut pcm_hash = Sha256::new();
     for sample in pcm {
         pcm_hash.update(sample.to_le_bytes());
     }
-    ensure!(!cancelled(), "Vocal pitch analysis cancelled");
     Ok(Evidence {
         version: 1,
         model_id: MODEL_ID.into(),

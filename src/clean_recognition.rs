@@ -2,7 +2,7 @@
 //! Whisper's word timestamps are model estimates, never a cleanliness verdict.
 pub use crate::clean_transcript::{Control, RECOGNITION_WARNING, Recognition, RecognizedSegment};
 use crate::{
-    clean::{self, AlignedWord, CleanMode, CleanPlan, CleanPolicy, StemAlignment, WordTimings},
+    clean::{self, CleanMode, CleanPlan, CleanPolicy, StemAlignment, WordTimings},
     models, pipeline,
 };
 use anyhow::{Context, Result, ensure};
@@ -17,7 +17,7 @@ use std::{
 };
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-const MIN_WORD_PROBABILITY: f32 = 0.30;
+use crate::clean_transcript::{MIN_WORD_PROBABILITY, aligned_words};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Detection {
     pub recognition: Recognition,
@@ -142,43 +142,6 @@ unsafe extern "C" fn abort(data: *mut c_void) -> bool {
 
 /// Only a single lexical word with valid model-derived bounds receives timing.
 /// Never divide a phrase duration evenly to manufacture individual word times.
-fn aligned_words(segments: &[RecognizedSegment], duration: f64) -> Vec<AlignedWord> {
-    let mut words = Vec::new();
-    let mut previous_start = 0.;
-    for segment in segments {
-        let text = segment.text.trim();
-        if text.starts_with('[') || text.starts_with('(') || text.starts_with("<|") {
-            continue;
-        }
-        let lexical = clean::tokens(text);
-        let start = segment.start_seconds;
-        let end = segment.end_seconds.min(duration);
-        let confident = segment.mean_token_probability.is_finite()
-            && segment.mean_token_probability >= MIN_WORD_PROBABILITY
-            && segment.no_speech_probability.is_finite()
-            && segment.no_speech_probability < 0.6;
-        let timed = confident
-            && lexical.len() == 1
-            && start.is_finite()
-            && end.is_finite()
-            && start >= previous_start
-            && start >= 0.
-            && start < end
-            && start < duration;
-        if timed {
-            previous_start = start;
-        }
-        for word in lexical {
-            words.push(AlignedWord {
-                text: Some(word),
-                start: timed.then_some(start),
-                end: timed.then_some(end),
-            });
-        }
-    }
-    words
-}
-
 pub fn detect(
     request: Request<'_>,
     policy: &CleanPolicy,
