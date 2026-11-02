@@ -156,6 +156,11 @@ fn preview_policy(studio: Studio, timing: &TempoMap, pro_drums: bool) -> (Policy
     (policy, unknown)
 }
 
+fn scoped_geometry(svg: &str, scope: &str) -> String {
+    svg.replace("id='game-", &format!("id='{scope}-game-"))
+        .replace("url(#game-", &format!("url(#{scope}-game-"))
+}
+
 #[component]
 pub fn Preview(studio: Studio) -> Element {
     rsx! {style { "{PREVIEW_STYLE}" }
@@ -177,7 +182,7 @@ fn BandPreview(studio: Studio) -> Element {
         div{class:if multi{"audition-surface track-preview-surface multi-track-preview"}else{"audition-surface track-preview-surface"},
             if has_vocals {div{class:"preview-vocals",
                 button{tabindex:"0",aria_label:"Select Vocals for editing",onkeydown:move|e:KeyboardEvent|e.stop_propagation(),aria_pressed:(super::track_views::active(studio)=="Vocals").to_string(),onclick:move|_|super::track_views::select(studio,"Vocals".into()),"Vocals"}
-                super::vocal_preview::VocalPreview{studio,lookahead:lookahead()}
+                super::vocal_preview::VocalPreview{studio,lookahead:lookahead(),compact:multi}
             }}
             if !bands.is_empty(){div{class:"preview-highways",role:"region",aria_label:"Visible instrument previews",tabindex:"0",onkeydown:move|e:KeyboardEvent|e.stop_propagation(),
                 for track in bands {Highway{key:"{track}",studio,track,pro_drums,lookahead}}
@@ -202,6 +207,10 @@ fn Highway(
     pro_drums: Signal<bool>,
     lookahead: Signal<f64>,
 ) -> Element {
+    let scope = use_memo(use_reactive(&track, |track| {
+        use sha2::{Digest, Sha256};
+        format!("preview-{:x}", Sha256::digest(track.as_bytes()))
+    }));
     let animation_history = use_hook(|| Rc::new(RefCell::new(Animation::default())));
     let classified = use_memo(use_reactive(
         &track,
@@ -267,6 +276,7 @@ fn Highway(
             }))
         })
         .unwrap_or_default();
+    let geometry = scoped_geometry(&geometry, &scope());
     let telemetry_audio = doc.as_ref().map_or("", |doc| doc.audio_sha256.as_str());
     let telemetry_revision = doc.as_ref().map_or(0, |doc| doc.revision);
     let telemetry_playing =
@@ -846,6 +856,43 @@ const DEFINITIONS: &str = "<defs><linearGradient id='game-board' x1='0' y1='0' x
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn concurrent_highways_keep_definitions_and_references_in_their_own_scene() {
+        let notes = [note(0., 1., 0, false)];
+        let raw = render_highway(&Scene {
+            notes: &notes,
+            beats: &[],
+            flashes: &[],
+            position: 0.,
+            lookahead: 3.6,
+            drums: false,
+            pro_piano: false,
+            pro_drums: false,
+            playing: false,
+        });
+        let first = scoped_geometry(&raw, "guitar");
+        let second = scoped_geometry(&raw, "drums");
+        let ids = |svg: &str| {
+            svg.split("id='")
+                .skip(1)
+                .map(|s| s.split('\'').next().unwrap().to_owned())
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        let first_ids = ids(&first);
+        let second_ids = ids(&second);
+        assert!(!first_ids.is_empty());
+        assert!(first_ids.is_disjoint(&second_ids));
+        for svg in [&first, &second] {
+            let ids = ids(svg);
+            for reference in svg.split("url(#").skip(1) {
+                assert!(ids.contains(reference.split(')').next().unwrap()));
+            }
+        }
+        assert_eq!(
+            first.matches("data-kind='").count(),
+            raw.matches("data-kind='").count()
+        );
+    }
     #[test]
     fn pro_piano_preview_renders_full_pitch_range_and_keeps_held_keys() {
         let notes = [note(0.0, 2.0, 48, false), note(1.5, 1.8, 72, false)];

@@ -607,6 +607,13 @@
 .preview-highway-tile{flex:1 0 230px;min-width:230px;min-height:0;position:relative;display:flex;flex-direction:column;align-items:stretch;border-right:1px solid #354352}
 .preview-highway-tile>.studio-highway{flex:1;width:100%;min-height:0;position:static}.preview-track-target{align-self:center;font-size:11px;min-height:22px;line-height:14px;margin:2px 3px;padding:2px 6px;flex-shrink:0}
 .preview-vocals{position:relative;display:flex;flex:1;min-height:0;flex-direction:column}.preview-vocals>.studio-highway{position:static;min-height:0;flex:1}.preview-vocals>button{align-self:flex-start;z-index:1;font-size:11px;padding:2px 8px}.multi-track-preview>.preview-vocals{flex:0 0 80px;border-bottom:1px solid #354352}
+.multi-track-preview>.preview-vocals>button{position:absolute;top:3px;left:5px;min-height:22px;padding:2px 5px;line-height:14px}
+.compact-vocal-preview{position:relative;flex:0 0 80px;height:80px;min-height:80px;overflow:hidden;font-size:12px;background:#0a1018}.compact-vocal-grid{position:absolute;inset:4px 8px 4px 74px}
+.compact-vocal-range,.compact-vocal-talkie,.compact-vocal-current{position:absolute;left:8px;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:14px}.compact-vocal-range{top:27px;font-size:10px;color:#9db0c3}.compact-vocal-talkie{top:44px;font-size:10px;color:#c3a4d8}.compact-vocal-current{top:59px;color:#fff4bb}
+.compact-vocal-guide{position:absolute;height:1px;width:100%;background:#29394a}.compact-vocal-cursor{position:absolute;top:0;bottom:0;width:1px;background:#f3f7fb;z-index:1}.compact-vocal-note{position:absolute;height:6px;border-radius:2px;background:#61d4ca;min-width:1px}.compact-vocal-note.talkie{background:#dbb5f7}.compact-vocal-note.active{background:#fff4bb}
+.compact-vocal-lyric{position:absolute;top:54px;line-height:16px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#deebf5;font-size:12px}.compact-vocal-lyric.active{color:#fff4bb}
+.preview-vocals>button{min-height:22px;line-height:14px}.vocal-preview-caption{position:absolute;top:5px;right:9px;color:#a8bacb;font-size:11px;pointer-events:none}
+.focused-vocal-surface{flex:1;min-height:96px;position:relative}.focused-vocal-surface>.vocal-pitch-preview{height:100%;width:100%;position:absolute;inset:0}
 @media(max-width:620px) {
   .project-bar { height:auto; min-height:54px; flex-wrap:wrap; gap:6px 10px; padding:6px 10px; }
   .project-identity { min-width:100px; }
