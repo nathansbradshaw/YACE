@@ -35,6 +35,8 @@ pub mod song_metadata;
 pub mod song_migration;
 pub mod star_power;
 pub mod storage;
+#[cfg(feature = "editor")]
+pub mod streaming_audio;
 #[cfg(feature = "studio")]
 pub mod studio;
 pub mod sync_track;

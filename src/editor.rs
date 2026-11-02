@@ -1689,7 +1689,14 @@ impl Store {
                 );
                 doc.transport.position = *seconds;
             }
-            Action::Playback { playing } => doc.transport.playing = *playing,
+            Action::Playback { playing } => {
+                // A completed recording must be replayable with Play itself,
+                // through both clients and the revision-checked CLI action.
+                if *playing && doc.transport.position >= doc.duration {
+                    doc.transport.position = 0.;
+                }
+                doc.transport.playing = *playing;
+            }
             Action::Pause { seconds } => {
                 ensure!(
                     seconds.is_finite() && (0.0..=doc.duration).contains(seconds),
@@ -1700,8 +1707,8 @@ impl Store {
             }
             Action::SetPlaybackRate { rate } => {
                 ensure!(
-                    rate.is_finite() && (0.5..=1.5).contains(rate),
-                    "Practice rate must be between 0.5 and 1.5"
+                    rate.is_finite() && (0.25..=2.0).contains(rate),
+                    "Practice rate must be between 0.25 and 2.0"
                 );
                 doc.transport.playback_rate = *rate;
             }

@@ -374,7 +374,7 @@ pub fn prepare_kit_audition(
 ) -> Result<Vec<f32>> {
     ensure!(
         rate.is_finite()
-            && (0.5..=1.5).contains(&rate)
+            && (0.25..=2.0).contains(&rate)
             && transport_samples > 0
             && transport_samples.is_multiple_of(2),
         "Invalid kit transport clock"
