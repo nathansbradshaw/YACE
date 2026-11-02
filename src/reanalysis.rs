@@ -15,6 +15,48 @@ pub struct SourceInterval {
     pub source: GuitarSource,
 }
 pub type Sources = BTreeMap<String, Vec<SourceInterval>>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    Setup,
+    Analyzing,
+    Applying,
+    Review,
+    Stopped,
+    Failed,
+    Empty,
+}
+impl Phase {
+    pub fn with_problem(self, problem: Option<&str>) -> Self {
+        if self == Self::Failed
+            && problem.is_some_and(|problem| {
+                problem.contains("No notes were detected")
+                    || problem.contains("No vocal notes were detected")
+            })
+        {
+            Self::Empty
+        } else {
+            self
+        }
+    }
+    pub fn for_job(busy: bool, state: Option<&crate::generation::State>, error: bool) -> Self {
+        use crate::generation::State;
+        if busy {
+            return if state == Some(&State::Complete) {
+                Self::Applying
+            } else {
+                Self::Analyzing
+            };
+        }
+        match state {
+            Some(State::Cancelled) => Self::Stopped,
+            _ if error => Self::Failed,
+            Some(State::Complete) => Self::Review,
+            Some(State::Failed) => Self::Failed,
+            _ => Self::Setup,
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct AuditionRoute {
     pub intervals: Vec<SourceInterval>,
@@ -321,6 +363,41 @@ pub fn changes(before: &Project, after: &Project, tracks: &[String]) -> Vec<Chan
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn workflow_has_one_phase_and_stopped_jobs_never_look_running() {
+        use crate::generation::State;
+        assert_eq!(Phase::for_job(false, None, false), Phase::Setup);
+        assert_eq!(Phase::for_job(true, None, false), Phase::Analyzing);
+        assert_eq!(
+            Phase::for_job(false, Some(&State::Cancelled), true),
+            Phase::Stopped
+        );
+        assert_eq!(
+            Phase::for_job(false, Some(&State::Failed), true),
+            Phase::Failed
+        );
+        assert_eq!(
+            Phase::for_job(false, Some(&State::Complete), false),
+            Phase::Review
+        );
+        assert_eq!(
+            Phase::for_job(true, Some(&State::Complete), false),
+            Phase::Applying
+        );
+        assert_eq!(
+            Phase::for_job(false, Some(&State::Complete), true),
+            Phase::Failed
+        );
+        assert_eq!(
+            Phase::for_job(true, Some(&State::Failed), false),
+            Phase::Analyzing
+        );
+        assert_eq!(
+            Phase::for_job(false, Some(&State::Complete), true)
+                .with_problem(Some("No notes were detected for this difficulty")),
+            Phase::Empty
+        );
+    }
     #[test]
     fn source_replacement_splits_and_coalesces() {
         let mut sources = Content::default();

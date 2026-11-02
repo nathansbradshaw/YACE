@@ -16,7 +16,7 @@ vocal phrases. Changes to linked easier difficulties are included in the review;
 their manual overrides remain in place. Notes outside the displayed repair range
 stay intact.
 
-Move **Sensitivity** from 0 (fewer detections) to 100 (more detections), then press
+Move **Sensitivity** from 0 (fewer notes) to 100 (more notes), then press
 **Analyze**. **50 · Default** preserves the existing detector settings. Changing
 the slider or another analysis option makes the previous proposal outdated;
 Apply becomes available after a successful analysis with those settings.
@@ -24,20 +24,29 @@ Sensitivity changes detector admission thresholds, not the chart difficulty.
 Experimental Synth uses duration and phrase continuity because it supplies no
 per-note confidence scores. Higher sensitivity can add incorrect detections.
 
-For a Guitar chart, **Guitar chart follows** can select Guitar, Other melody /
+For a Guitar chart, **Follow this sound** can select Guitar, Other melody /
 synth, or Piano. This selects a separated sound to arrange for five frets; it
 does not prove that separation correctly distinguished the instruments.
 
-Use **Current / Proposed** and **Play / Pause** to compare notes at the same
+Use **Current / Proposed** and **Play** to compare notes at the same
 playhead position, loop and speed. The proposal is read-only. Review the note
 changes, affected difficulties, final repair range and detection warnings, then
-choose **Apply reanalysis** or **Discard draft**. Apply is one undoable edit.
+choose **Apply draft** or **Discard**. Apply is one undoable edit.
 Cancelled, failed and empty proposals keep your chart and earlier saved drafts.
-**Review previous successful draft** returns to the preceding result after a retry.
+**Saved analyses & details → Previous successful draft** returns to the preceding
+valid result after a retry. Model options and licenses are under **Advanced**.
+
+The dialog has distinct Setup, Analyze and Review steps. While analyzing, it
+shows the active operation, elapsed time and a cancellation button. A quiet
+detector reports time since its last progress update. Cancellation and failure
+replace the running view; old progress messages are not shown as current work.
+After a stop, **Analyze again** uses the visible settings. **Saved analyses &
+details → Resume saved analysis** resumes frozen settings and completed stages;
+changing the settings disables that resume action.
 
 Applied Guitar sections retain their followed sound, including mixed-source
-tracks. Audition crossfades between the matching stems; clear **Follow section
-sound sources** to hear the original recording. Missing stems fall back to the
+tracks. Audition crossfades between the matching stems; choose **Hear original
+mix** to hear the original recording. Missing stems fall back to the
 original recording. Source choices travel with project saves, archives and undo
 history. Game exports retain the existing audio-routing policy.
 

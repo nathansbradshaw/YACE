@@ -145,7 +145,7 @@ mod tests {
             );
             assert!(studio.generation_target.peek().is_none());
             assert!(
-                texts.iter().any(|text| text == "Sensitivity: 50"),
+                texts.iter().any(|text| text == "50"),
                 "Part analysis must expose sensitivity: {texts:?}"
             );
         }
@@ -618,6 +618,7 @@ fn launch_worker(mut data: Signal<View>, root: PathBuf) -> Result<()> {
         .context("Could not start the generation worker")?;
     data.with_mut(|v| {
         v.root = Some(root);
+        v.status = None;
         v.worker = Some(Rc::new(RefCell::new(Worker {
             child,
             cancelled: false,
@@ -673,6 +674,10 @@ fn generate(mut studio: Studio, mut data: Signal<View>) {
         if v.status
             .as_ref()
             .is_some_and(|status| status.state == State::Complete)
+            && v.error.is_none()
+            && v.root
+                .as_ref()
+                .is_some_and(|root| root.join("reanalysis-review.json").is_file())
         {
             v.previous_draft = v.root.clone();
         }
@@ -747,6 +752,11 @@ fn apply_part(mut studio: Studio, mut data: Signal<View>) {
                 data.with_mut(|view| {
                     view.busy = false;
                     view.applied = true;
+                    view.root = None;
+                    view.status = None;
+                    view.error = None;
+                    view.job_settings = None;
+                    view.previous_draft = None;
                 });
                 if studio
                     .store
@@ -876,6 +886,20 @@ fn review_saved_part(studio: Studio, mut data: Signal<View>, root: PathBuf) {
 pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut data = use_signal(View::default);
     let mut now_ms = use_signal(crate::generation_progress::now_ms);
+    use_effect(move || {
+        if (studio.generation_open)() && data.peek().applied {
+            let track = data
+                .peek()
+                .target
+                .as_ref()
+                .map(|target| target.track.clone());
+            if let Some(track) = track
+                && let Ok(view) = View::for_part(studio, &track)
+            {
+                data.set(view);
+            }
+        }
+    });
     use_effect(move || {
         let Some(track) = (studio.generation_target)() else {
             return;
@@ -1037,11 +1061,6 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         .job_settings
         .as_ref()
         .is_some_and(|settings| settings != &view.signature());
-    let loop_available = studio
-        .doc
-        .read()
-        .as_ref()
-        .is_some_and(|doc| doc.transport.loop_range.is_some());
     let sheet_title: &'static str = if part_mode {
         "Reanalyze a part"
     } else {
@@ -1057,21 +1076,6 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         .as_ref()
         .map(|target| super::track_picker::title(&target.track))
         .unwrap_or_default();
-    let replaces_part = view.target.as_ref().is_some_and(|target| {
-        studio.snapshot().is_some_and(|doc| {
-            if target.track == "Vocals" {
-                doc.content
-                    .vocals
-                    .as_ref()
-                    .is_some_and(|chart| !chart.notes.is_empty())
-            } else {
-                doc.content
-                    .tracks
-                    .get(&target.track)
-                    .is_some_and(|notes| !notes.is_empty())
-            }
-        })
-    });
     let complete = view
         .status
         .as_ref()
@@ -1088,6 +1092,88 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         .as_ref()
         .map(|root| root.join("worker.log").display().to_string())
         .unwrap_or_default();
+    if let Some(target) = &view.target {
+        use super::reanalysis_panel::{Controls, Options, Panel};
+        let track = target.track.clone();
+        let recording = view
+            .audio
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let instrument = crate::parts::instrument(&track)
+            .unwrap_or("guitar")
+            .to_owned();
+        let options = Options {
+            sensitivity: view.detection.sensitivity,
+            loop_only: view.loop_only,
+            guitar_source: view.guitar_source,
+            keyboard_sound: view.keyboard_sound,
+            piano_quality: view.piano_quality,
+            language: view.vocal_language,
+            vocal_mode: view.vocal_analysis_mode,
+            standard_drums: view.standard,
+            full_mix_drums: view.full_mix,
+        };
+        let loop_label = studio
+            .doc
+            .read()
+            .as_ref()
+            .and_then(|doc| doc.transport.loop_range)
+            .map(|range| {
+                format!(
+                    "{}–{}",
+                    super::state::clock(range.start),
+                    super::state::clock(range.end)
+                )
+            });
+        let phase = crate::reanalysis::Phase::for_job(
+            busy,
+            view.status.as_ref().map(|status| &status.state),
+            view.error.is_some(),
+        )
+        .with_problem(view.error.as_deref());
+        let activity = view
+            .progress
+            .as_ref()
+            .map(|progress| progress.detail.clone())
+            .or_else(|| {
+                view.status
+                    .as_ref()
+                    .map(|status| stage_title(&status.stage).to_owned())
+            })
+            .unwrap_or_else(|| "Preparing recording…".into());
+        let elapsed = view
+            .started_ms
+            .map(|start| format!("Elapsed {}s", now_ms().saturating_sub(start) / 1000))
+            .unwrap_or_default();
+        let quiet_for = view
+            .progress
+            .as_ref()
+            .map(|progress| progress.updated_ms)
+            .or(view.started_ms)
+            .map_or(0, |updated| now_ms().saturating_sub(updated) / 1000);
+        let controls = rsx! { Controls {options,instrument,loop_label,onchange:move|next:Options|data.with_mut(|v|{v.detection.sensitivity=next.sensitivity;v.loop_only=next.loop_only;v.guitar_source=next.guitar_source;v.keyboard_sound=next.keyboard_sound;v.piano_quality=next.piano_quality;v.vocal_language=next.language;v.vocal_analysis_mode=next.vocal_mode;v.standard=next.standard_drums;v.full_mix=next.full_mix_drums;}),advanced:rsx!{
+            label{class:"ra-check",input{r#type:"checkbox",checked:view.fetch,onchange:move|event|data.write().fetch=event.checked()},"Download missing models"}
+            details{summary{"Model licenses"}for asset in crate::models::assets(){p{class:"ra-hint","{asset.id}: {asset.license}"}}}
+        }} };
+        let review = if let Some(root) = view.root.clone() {
+            rsx! {super::reanalysis_review::ReviewDraft{key:"{root:?}",studio,job:root,stale:stale||busy||view.applied,onapply:move |_|apply_part(studio,data),ondiscard:move |_|{studio.show_analysis_preview(None);data.with_mut(|v|{v.root=None;v.status=None;v.error=None;v.job_settings=None;v.applied=false;});}}}
+        } else {
+            rsx! {}
+        };
+        let diagnostics = rsx! {div{class:"ra-saved-list",
+            button{class:"action-secondary",disabled:busy,onclick:move |_|recover(data),"Open saved analysis…"}
+            if let Some(root)=view.root.clone(){
+                if !busy && view.status.as_ref().is_some_and(|status|status.state!=State::Complete){button{class:"action-secondary",disabled:stale,onclick:move |_|{if let Err(error)=launch_worker(data,root.clone()){fail(data,error);}},"Resume saved analysis"}}
+                if complete && view.error.is_some(){button{class:"action-secondary",onclick:move |_|data.write().error=None,"Review saved draft"}}
+            }
+            if let Some(previous)=view.previous_draft.clone(){button{class:"action-secondary",disabled:busy,onclick:move |_|review_saved_part(studio,data,previous.clone()),"Previous successful draft"}}
+            if let Some(root)=&view.root{p{class:"ra-hint","Saved: {root.display()}"}}
+            if !view.log_tail.is_empty(){pre{class:"ra-error-detail","{view.log_tail}"}}
+        }};
+        return rsx! { Panel {studio,track,recording,phase,activity,elapsed,quiet_for,problem:view.error.clone(),controls,review,diagnostics,can_start:!busy&&can_generate,blocked_reason:if validation.is_empty(){None}else{Some(validation)},onstart:move |_|generate(studio,data),oncancel:move |_|{if let Some(worker)=data.peek().worker.clone(){worker.borrow_mut().cancel();}}} };
+    }
     rsx! {
         style{"{CSS}"}
         super::sheet::ToolSheet {
@@ -1108,20 +1194,9 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     }
                  },
 
-                    if complete && part_mode && let Some(root) = view.root.clone() {
-                        super::reanalysis_review::ReviewDraft { key: "{root:?}", studio, job: root, stale: stale || busy || view.applied,
-                            onapply: move |_| apply_part(studio, data),
-                            ondiscard: move |_| { studio.analysis_preview.set(None); data.with_mut(|v| { v.root = None; v.status = None; v.applied = false; v.job_settings = None; }); }
-                        }
-                    }
+
                     fieldset{disabled:busy||(saved&&!part_mode),
-                        if part_mode {
-                            label { class: "generation-field", "Repair range", select { value: if view.loop_only { "loop" } else { "whole" }, onchange: move |e| data.write().loop_only = e.value() == "loop", option { value: "whole", "Whole track" } option { value: "loop", disabled: !loop_available, "Current loop" } } }
-                            label { class: "generation-field", "Sensitivity: {view.detection.sensitivity}", input { r#type: "range", min: "0", max: "100", step: "1", aria_label: "Detection sensitivity", value: "{view.detection.sensitivity}", oninput: move |e| { if let Ok(value) = e.value().parse::<u8>() { data.write().detection.sensitivity = value.min(100); } } } }
-                            p { class: "field-hint", "Fewer detections → More detections · 50 · Default" }
-                            button { class: "action-secondary", onclick: move |_| data.write().detection = Default::default(), "Reset sensitivity" }
-                            if stale { p { role: "status", "Settings changed. Analyze again before applying." } }
-                        }
+
                         h3 { class: "generation-step", if part_mode { "{part_title}" } else { "1. Choose audio" } }
                         if !part_mode { div{class:"generation-actions",button{class:"action-secondary","data-browser-pick":"file","data-browser-accept":"audio/*,.ogg,.mp3,.wav,.flac,.m4a,.aac,.opus,.webm,.mp4",onclick:move|_|local_file(data),"Choose audio file…"}} }
                         if let Some(path)=&view.audio{p{class:"generation-path",title:"{path.display()}","{path.file_name().unwrap_or_default().to_string_lossy()}"}}
@@ -1235,9 +1310,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         }
                     }
                     if !view.notice.is_empty(){p{class:"field-hint",role:"status","{view.notice}"}}
-                    if complete && part_mode && !view.applied {
-                        p { class: "field-hint", if replaces_part { "This replaces {part_title}. Undo restores the previous notes." } else { "The draft is ready to add to this chart." } }
-                    }
+
                     if let Some(status)=&view.status{
                         div{class:"generation-progress",role:"status",aria_live:"polite",
                             strong{"{stage_title(&status.stage)}"}

@@ -73,12 +73,21 @@ pub fn ReviewDraft(
     use_drop(move || studio.analysis_preview.set(None));
     let value = review.read();
     let Some(result) = value.as_ref() else {
-        return rsx! { p { role: "status", "Preparing draft comparison…" } };
+        return rsx! { div { class:"ra-status",role: "status",strong{"Checking draft…"}p{"Preparing your comparison."} } };
     };
     let review = match result {
         Ok(review) => review.clone(),
         Err(error) => {
-            return rsx! { p { role: "alert", "{error}" } button { onclick: move |_| ondiscard.call(()), "Discard draft" } };
+            let empty = error.contains("No notes were detected")
+                || error.contains("No vocal notes were detected");
+            let title = if empty {
+                "No notes found"
+            } else if error.contains("changed") {
+                "Chart changed since analysis"
+            } else {
+                "Draft needs attention"
+            };
+            return rsx! { div{class:"ra-status",role:"alert",strong{"{title}"}p{if empty{"Try another sensitivity or sound source. Your chart is unchanged."}else{"Your edits and draft are kept. Start a new analysis to continue."}}details{summary{"Details"}pre{class:"ra-error-detail","{error}"}}} button{class:"action-secondary",onclick:move |_|ondiscard.call(()),"Back to setup"} };
         }
     };
     let default_track = review
@@ -157,31 +166,56 @@ pub fn ReviewDraft(
             }
         }
     }
-    rsx! { section { class: "reanalysis-review",
-        h3 { "Review reanalysis" }
-        label { "Compare difficulty", select { value: "{review_track}", onchange: move |event| {
+    let added: usize = review.changes.iter().map(|change| change.added).sum();
+    let removed: usize = review.changes.iter().map(|change| change.removed).sum();
+    let affected = review.changes.len();
+    let playing = studio
+        .doc
+        .read()
+        .as_ref()
+        .is_some_and(|doc| doc.transport.playing);
+    let position = (studio.playhead)();
+    let cursor = ((position - range.start) / (range.end - range.start) * 600.).clamp(0., 600.);
+    let source_choice = review
+        .proposed
+        .content
+        .analysis_sources
+        .contains_key(&review_track);
+    let range_label = format!(
+        "{}–{}",
+        super::state::clock(range.start),
+        super::state::clock(range.end)
+    );
+    let position_label = super::state::clock(position);
+    rsx! { section { class: "ra-review",
+        div{class:"ra-change-summary",strong{"+{added} added"}span{"−{removed} removed"}span{"{range_label}"}}
+        if affected>1 {label { class:"ra-field", "Compare difficulty", select { aria_label:"Compare difficulty",value: "{review_track}", onchange: move |event| {
             let track = event.value(); selected_comparison.set(Some(track.clone()));
             if let Some(current) = (studio.analysis_preview)() { let mut current=(*current).clone();current.selected_track=track;studio.show_analysis_preview(Some(current)); }
-        }, for change in &review.changes { option { value: "{change.track}", "{change.track}" } } } }
-        p { "Repair range: {range.start:.2}–{range.end:.2} seconds. Crossing notes and vocal phrases are included." }
-        if stale { p { role: "status", "Settings changed. Analyze again before applying." } }
-        div { class: "generation-actions",
+        }, for change in &review.changes {option { value: "{change.track}", {super::track_picker::title(&change.track)} } } } } }
+        if stale { p { class:"ra-stale",role: "status", "Preview uses the previous settings. Analyze again before applying." } }
+        div { class: "ra-review-toolbar",
+            div{class:"ra-segments",role:"group",aria_label:"Draft comparison",
             button { aria_pressed: !showing_proposed, onclick: move |_| studio.show_analysis_preview(None), "Current" }
-            button { disabled: stale, aria_pressed: showing_proposed, onclick: move |_| studio.show_analysis_preview(Some(proposed.clone())), "Proposed" }
-            button { onclick: move |_| { let playing = studio.doc.peek().as_ref().is_some_and(|doc| doc.transport.playing); studio.dispatch(crate::editor::Action::Playback { playing: !playing }); }, "Play / Pause" }
-            button { onclick: move |_| studio.dispatch(crate::editor::Action::Seek { seconds: range.start }), "Go to repair" }
+            button { aria_pressed: showing_proposed, onclick: move |_| studio.show_analysis_preview(Some(proposed.clone())), "Proposed" }
+            }
+            button { class:"action-secondary",onclick: move |_| studio.dispatch(crate::editor::Action::Playback { playing: !playing }),if playing{"Pause"}else{"Play"} }
+            button { class:"ra-link",onclick: move |_| studio.dispatch(crate::editor::Action::Seek { seconds: range.start }), "Restart range" }
+            span{class:"ra-hint","{position_label}"}
         }
-        label { input { r#type: "checkbox", checked: (studio.follow_analysis_sources)(), onchange: move |event| studio.follow_analysis_sources.set(event.checked()) }, "Follow section sound sources (clear to hear original recording)" }
-        if missing_source { p { role: "status", "A section’s selected stem is unavailable; that section plays the original recording." } }
+        if source_choice {label {class:"ra-check", input { r#type: "checkbox", checked: !(studio.follow_analysis_sources)(), onchange: move |event| studio.follow_analysis_sources.set(!event.checked()) }, "Hear original mix" } }
+        if missing_source { p { class:"ra-hint",role: "status", "Selected stem unavailable · playing the original recording." } }
         svg { view_box: "0 0 600 80", width: "100%", height: "80", role: "img", "aria-label": if showing_proposed { "Proposed notes" } else { "Current notes" },
             rect { width: "600", height: "80", fill: "#111820" }
             for (x,y,width) in glyphs { rect { x: "{x}", y: "{y}", width: "{width}", height: "5", fill: "#66b7ff" } }
+            line{x1:"{cursor}",x2:"{cursor}",y1:"0",y2:"80",stroke:"#fff","stroke-width":"1"}
         }
-        ul { for change in review.changes { li { "{change.track}: {change.before} → {change.after} notes · +{change.added} / −{change.removed}" } } }
-        details { summary { "Detection warnings" } for warning in review.warnings { p { "{warning}" } } p { "Sensitivity controls detection strictness; instrument identity and musical accuracy require listening review." } }
-        div { class: "generation-actions",
-            button { class: "action-primary", disabled: stale, onclick: move |_| { studio.analysis_preview.set(None); onapply.call(()); }, "Apply reanalysis" }
-            button { onclick: move |_| { studio.analysis_preview.set(None); ondiscard.call(()); }, "Discard draft" }
+        details { class:"ra-advanced",summary { "{affected} affected difficulties & notes" }ul{class:"ra-change-list",for change in review.changes { li { {super::track_picker::title(&change.track)}": {change.before} → {change.after} notes" } }}
+            for warning in review.warnings { p { class:"ra-hint","{warning}" } }p{class:"ra-hint","Generated notes need listening review."}
+        }
+        div { class: "ra-review-actions",
+            button { class:"action-secondary",onclick: move |_| { studio.show_analysis_preview(None); ondiscard.call(()); }, "Discard" }
+            button { class: "action-primary", disabled: stale, onclick: move |_| { studio.analysis_preview.set(None); onapply.call(()); }, "Apply draft" }
         }
     } }
 }
