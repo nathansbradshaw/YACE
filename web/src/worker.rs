@@ -14,6 +14,12 @@ use std::{
 };
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(thread_local_v2, js_namespace = ["import", "meta"], js_name = url)]
+    static MODULE_URL: String;
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
     PrepareGameChannels {
@@ -736,8 +742,11 @@ impl Drop for Running {
 async fn exchange(input: &JsValue, progress: Rc<dyn Fn(String)>) -> Result<JsValue> {
     let options = web_sys::WorkerOptions::new();
     options.set_type(web_sys::WorkerType::Module);
+    let url = MODULE_URL
+        .with(|base| web_sys::Url::new_with_base("./worker.js", base))
+        .map_err(js_error)?;
     let worker =
-        Running(web_sys::Worker::new_with_options("./worker.js", &options).map_err(js_error)?);
+        Running(web_sys::Worker::new_with_options(&url.href(), &options).map_err(js_error)?);
     let (sender, receiver) = futures_channel::oneshot::channel();
     let sender = Rc::new(RefCell::new(Some(sender)));
     let errors = sender.clone();
