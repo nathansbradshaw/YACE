@@ -6,13 +6,14 @@ use crate::{
 };
 use dioxus::prelude::*;
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct VisibleNote {
     x: f64,
     width: f64,
     y: f64,
     active: bool,
     talkie: bool,
+    pitch: Option<u8>,
     lyric: String,
 }
 
@@ -30,9 +31,14 @@ fn visible_notes(
     let start = position - 1.0;
     let end = position + ahead;
     let x = |seconds: f64| LEFT + (seconds - start) / (end - start) * (RIGHT - LEFT);
-    chart
+    // Valid lead notes are ordered and monophonic. Skip earlier material
+    // before allocating visible geometry, including on very long songs.
+    let first = chart
         .notes
+        .partition_point(|note| timing.seconds(note.end) <= start);
+    chart.notes[first..]
         .iter()
+        .take_while(|note| timing.seconds(note.start) < end)
         .filter_map(|note| {
             let onset = timing.seconds(note.start);
             let offset = timing.seconds(note.end);
@@ -51,6 +57,10 @@ fn visible_notes(
                 y,
                 active: onset <= position && position < offset,
                 talkie,
+                pitch: match note.tone {
+                    VocalTone::Pitched { midi } => Some(midi),
+                    VocalTone::Talkie { .. } => None,
+                },
                 lyric: match &note.lyric {
                     Syllable::Text { text, join_next } => {
                         format!("{text}{}", if *join_next { "-" } else { "" })
@@ -64,8 +74,79 @@ fn visible_notes(
         .collect()
 }
 
+fn pitch_range(chart: &VocalChart) -> Option<(u8, u8)> {
+    let mut pitches = chart.notes.iter().filter_map(|n| match n.tone {
+        VocalTone::Pitched { midi } => Some(i16::from(midi)),
+        VocalTone::Talkie { .. } => None,
+    });
+    let first = pitches.next()?;
+    let (low, high) = pitches.fold((first, first), |(low, high), p| (low.min(p), high.max(p)));
+    let low = (low - 2).max(0);
+    let high = (high + 2).min(127);
+    let span = (high - low).max(12);
+    let low = ((low + high) / 2 - span / 2).clamp(0, 127 - span);
+    Some((low as u8, (low + span) as u8))
+}
+fn compact_pitch(pitch: Option<u8>, range: Option<(u8, u8)>) -> f64 {
+    match (pitch, range) {
+        (Some(pitch), Some((low, high))) if high > low => {
+            8. + f64::from(high.saturating_sub(pitch)) / f64::from(high - low) * 28.
+        }
+        _ => 44.,
+    }
+}
+fn pitch_name(midi: u8) -> String {
+    const NAMES: [&str; 12] = [
+        "C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B",
+    ];
+    format!(
+        "{}{}",
+        NAMES[usize::from(midi % 12)],
+        i16::from(midi) / 12 - 1
+    )
+}
+
 #[component]
-pub fn VocalPreview(studio: Studio, lookahead: f64) -> Element {
+fn CompactVocalPreview(
+    notes: Vec<VisibleNote>,
+    range: Option<(u8, u8)>,
+    lookahead: f64,
+    position: f64,
+) -> Element {
+    let cursor = 100. / (lookahead + 1.);
+    let range_label = range.map_or_else(
+        || "Unpitched".into(),
+        |(low, high)| format!("{}–{}", pitch_name(low), pitch_name(high)),
+    );
+    let current = notes.iter().find(|n| n.active).map(|n| n.lyric.clone());
+    rsx! {div{class:"compact-vocal-preview",role:"img",aria_label:"Vocal pitch and lyrics on the recording clock","data-preview-track":"Vocals","data-preview-position":"{position}",
+        span{class:"compact-vocal-range",title:"Displayed authored pitch range","{range_label}"}
+        span{class:"compact-vocal-talkie","Talkie"}
+        if let Some(current)=current {output{class:"compact-vocal-current",aria_label:"Current lyric",title:"{current}","{current}"}}
+        div{class:"compact-vocal-grid",
+            for y in [8.,22.,36.] {div{class:"compact-vocal-guide",style:"top:{y}px"}}
+            div{class:"compact-vocal-cursor",style:"left:{cursor}%",aria_hidden:"true"}
+            for (index,note) in notes.iter().enumerate() {{
+                let left=(note.x-LEFT)/(RIGHT-LEFT)*100.;let width=note.width/(RIGHT-LEFT)*100.;
+                let top=compact_pitch(note.pitch,range);
+                let title=note.pitch.map_or_else(||format!("Talkie · {}",note.lyric),|midi|format!("{} · {}",pitch_name(midi),note.lyric));
+                rsx!{div{key:"{index}",class:if note.active{"compact-vocal-note active"}else if note.talkie{"compact-vocal-note talkie"}else{"compact-vocal-note"},style:"left:{left}%;width:{width}%;top:{top}px",title:"{title}"}
+                    span{class:if note.active{"compact-vocal-lyric active"}else{"compact-vocal-lyric"},style:"left:{left}%;width:{width}%",title:"{note.lyric}","{note.lyric}"}
+                }
+            }}
+        }
+    }}
+}
+
+#[component]
+pub fn VocalPreview(studio: Studio, lookahead: f64, #[props(default)] compact: bool) -> Element {
+    let range = use_memo(move || {
+        studio
+            .doc
+            .read()
+            .as_ref()
+            .and_then(|doc| doc.content.vocals.as_ref().and_then(pitch_range))
+    });
     let doc = studio.doc.read();
     let Some(doc) = doc.as_ref() else {
         return rsx! {};
@@ -81,6 +162,9 @@ pub fn VocalPreview(studio: Studio, lookahead: f64) -> Element {
     };
     let position = (studio.playhead)();
     let notes = visible_notes(chart, &timing, position, lookahead);
+    if compact {
+        return rsx! {CompactVocalPreview{notes,range:range(),lookahead,position}};
+    }
     let cursor = LEFT + (RIGHT - LEFT) / (lookahead + 1.0);
     rsx! {
         svg { class: "studio-highway vocal-pitch-preview", view_box: "0 0 1000 620", preserve_aspect_ratio: "xMidYMid meet", role: "img",
@@ -116,6 +200,57 @@ mod tests {
         timing::Tempo,
         vocals::{VocalNote, VocalPhrase},
     };
+
+    fn chart(notes: Vec<VocalNote>) -> VocalChart {
+        VocalChart {
+            version: 1,
+            resolution: 480,
+            source: "Synthetic preview fixture".into(),
+            phrases: Vec::new(),
+            notes,
+        }
+    }
+    fn note(start: u64, pitch: Option<u8>) -> VocalNote {
+        VocalNote {
+            start,
+            end: start + 240,
+            tone: pitch.map_or(VocalTone::Talkie { lenient: false }, |midi| {
+                VocalTone::Pitched { midi }
+            }),
+            lyric: Syllable::Missing,
+            midi: None,
+        }
+    }
+    #[test]
+    fn compact_range_contains_authored_extremes_and_keeps_talkies_unpitched() {
+        let low = chart(vec![note(0, Some(0))]);
+        let high = chart(vec![note(0, Some(127))]);
+        assert_eq!(pitch_range(&low), Some((0, 12)));
+        assert_eq!(pitch_range(&high), Some((115, 127)));
+        let both = chart(vec![
+            note(0, Some(0)),
+            note(480, Some(127)),
+            note(960, None),
+        ]);
+        assert_eq!(pitch_range(&both), Some((0, 127)));
+        assert_eq!(compact_pitch(Some(127), pitch_range(&both)), 8.);
+        assert_eq!(compact_pitch(Some(0), pitch_range(&both)), 36.);
+        assert_eq!(compact_pitch(None, pitch_range(&both)), 44.);
+        assert!(pitch_range(&chart(vec![note(0, None)])).is_none());
+        assert_eq!(pitch_name(0), "C-1");
+        assert_eq!(pitch_name(60), "C4");
+    }
+    #[test]
+    fn long_vocal_tracks_only_allocate_notes_intersecting_the_source_window() {
+        let timing = TempoMap::new(480, 0., vec![Tempo { tick: 0, bpm: 120. }]).unwrap();
+        let chart = chart((0..100_000).map(|i| note(i * 480, Some(60))).collect());
+        let notes = visible_notes(&chart, &timing, 20_000., 3.6);
+        assert_eq!(notes.len(), 10);
+        assert_eq!(notes.first().unwrap().x, LEFT);
+        let last = notes.last().unwrap();
+        assert!((last.x + last.width - RIGHT).abs() < 0.0001);
+        assert_eq!(notes.iter().filter(|n| n.active).count(), 1);
+    }
 
     #[test]
     fn follows_recording_offset_and_tempo_changes_and_clips_long_notes() {
