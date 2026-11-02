@@ -222,6 +222,29 @@ impl Controller {
         self.worker.unpark();
         Ok(())
     }
+    /// Refill only the bounded processing window at the held source position.
+    /// The device must be paused; no audible samples or play state change.
+    pub fn set_rate_while_paused(&self, rate: f64) -> Result<()> {
+        validate_rate(rate)?;
+        let position = (self.position() * self.sample_rate as f64).floor() as u64;
+        let mut desired = self
+            .shared
+            .desired
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Audio control lock poisoned"))?;
+        if desired.rate == rate {
+            return Ok(());
+        }
+        desired.rate = rate;
+        desired.seek_frame = position.min(self.source_frames);
+        desired.epoch = desired
+            .epoch
+            .checked_add(1)
+            .context("Audio epoch overflow")?;
+        self.shared.epoch.store(desired.epoch, Ordering::Release);
+        self.worker.unpark();
+        Ok(())
+    }
     pub fn requested_rate(&self) -> f64 {
         self.shared
             .desired
@@ -243,8 +266,10 @@ impl Controller {
             .lock()
             .map_err(|_| anyhow::anyhow!("Audio control lock poisoned"))?;
         desired.seek_frame = (seconds * self.sample_rate as f64).floor() as u64;
-        if let Some((start, end)) = desired.loop_frames {
-            desired.seek_frame = desired.seek_frame.clamp(start, end - 1);
+        if let Some((start, end)) = desired.loop_frames
+            && desired.seek_frame >= end
+        {
+            desired.seek_frame = start + (desired.seek_frame - start) % (end - start);
         }
         desired.epoch = desired
             .epoch
@@ -281,7 +306,11 @@ impl Controller {
             return Ok(());
         }
         desired.loop_frames = frames;
-        desired.seek_frame = frames.map_or(position, |(start, end)| position.clamp(start, end - 1));
+        desired.seek_frame =
+            frames.map_or(
+                position,
+                |(start, end)| if position >= end { start } else { position },
+            );
         desired.epoch = desired
             .epoch
             .checked_add(1)
@@ -292,6 +321,19 @@ impl Controller {
     }
     pub fn duration(&self) -> f64 {
         self.source_frames as f64 / self.sample_rate as f64
+    }
+    pub fn loop_range(&self) -> Option<(f64, f64)> {
+        self.shared
+            .desired
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .loop_frames
+            .map(|(start, end)| {
+                (
+                    start as f64 / self.sample_rate as f64,
+                    end as f64 / self.sample_rate as f64,
+                )
+            })
     }
     pub fn position(&self) -> f64 {
         let desired = self
@@ -308,6 +350,10 @@ impl Controller {
     }
     pub fn loop_wraps(&self) -> u64 {
         self.shared.loop_wraps.load(Ordering::Acquire)
+    }
+    /// Monotonic device-consumption cursor; seeks can skip discarded spans.
+    pub fn output_sequence(&self) -> u64 {
+        self.shared.consumed_sequence.load(Ordering::Acquire)
     }
     pub fn ready(&self) -> bool {
         self.shared.ready_epoch.load(Ordering::Acquire) == self.shared.epoch.load(Ordering::Acquire)
@@ -732,6 +778,36 @@ mod tests {
         control.wait_ready(Duration::from_secs(5)).unwrap();
         assert_eq!(control.position(), 1.);
         assert!(consume(&mut source));
+        drop(source);
+        until(&control, || control.worker_exited());
+    }
+    #[test]
+    fn paused_retarget_refills_at_held_position_and_loops_allow_a_lead_in() {
+        let (control, mut source) = tone(48_000, 1.);
+        control.seek(0.5).unwrap();
+        control.wait_ready(Duration::from_secs(5)).unwrap();
+        for i in 0..1000 {
+            control
+                .set_rate_while_paused(if i % 2 == 0 { 0.25 } else { 2. })
+                .unwrap();
+        }
+        control.set_rate_while_paused(0.83).unwrap();
+        control.wait_ready(Duration::from_secs(5)).unwrap();
+        assert_eq!(control.position(), 0.5);
+        assert!((control.achieved_rate() - 0.83).abs() < 0.002);
+        control.set_loop(Some((0.5, 1.5))).unwrap();
+        control.seek(0.).unwrap();
+        control.wait_ready(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            control.position(),
+            0.,
+            "Loop incorrectly discarded its lead-in"
+        );
+        until(&control, || {
+            consume(&mut source);
+            control.loop_wraps() >= 1
+        });
+        assert!((0.5..1.5).contains(&control.position()));
         drop(source);
         until(&control, || control.worker_exited());
     }

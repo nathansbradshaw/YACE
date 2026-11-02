@@ -287,13 +287,20 @@ pub fn decode(path: &Path, rate: u32, channels: u32) -> Result<Vec<f32>> {
 /// recording time divided by tempo; all chart coordinates remain source time.
 pub fn decode_at_tempo(path: &Path, rate: u32, channels: u32, tempo: f64) -> Result<Vec<f32>> {
     ensure!(
-        tempo.is_finite() && (0.5..=1.5).contains(&tempo),
+        tempo.is_finite() && (0.25..=2.0).contains(&tempo),
         "Invalid audio tempo"
     );
     let mut command = Command::new("ffmpeg");
     command.args(["-v", "error", "-nostdin", "-i"]).arg(path);
     if tempo != 1.0 {
-        command.args(["-af", &format!("atempo={tempo:.8}")]);
+        // FFmpeg's atempo minimum is 0.5. Native streaming audition does not
+        // use this offline path; keep legacy/export callers valid at quarter speed.
+        let filter = if tempo < 0.5 {
+            format!("atempo=0.5,atempo={:.8}", tempo * 2.)
+        } else {
+            format!("atempo={tempo:.8}")
+        };
+        command.args(["-af", &filter]);
     }
     let output = command
         .args([

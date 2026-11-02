@@ -15,6 +15,8 @@ use anyhow::{Context, Result};
 #[cfg(feature = "browser")]
 use browser_audio::Audio;
 use dioxus::prelude::*;
+#[cfg(not(feature = "browser"))]
+use std::cell::Cell;
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -40,8 +42,7 @@ fn cancels_kit_autoplay(action: &Action) -> bool {
             | Action::AttachKeyboardStems { .. }
             | Action::Playback { playing: false }
             | Action::Pause { .. }
-            | Action::SetPlaybackRate { .. }
-    )
+    ) || (cfg!(feature = "browser") && matches!(action, Action::SetPlaybackRate { .. }))
 }
 
 /// Peak amplitudes in original recording seconds, independent of audition gain.
@@ -157,7 +158,9 @@ pub struct Audio {
     _device: Option<rodio::MixerDeviceSink>,
     player: super::timeline_player::Player,
     buffer: Option<ReviewSource>,
-    rate: f64,
+    rate: Cell<f64>,
+    stream: RefCell<Option<crate::streaming_audio::Controller>>,
+    output_observation: Cell<(u64, Instant)>,
     assets_key: String,
     source_hash: String,
     kit_audition: Option<crate::part_analysis::KitAudition>,
@@ -200,7 +203,9 @@ impl Audio {
             _device: None,
             player: super::timeline_player::Player::timeline(duration, rate)?,
             buffer: None,
-            rate,
+            rate: Cell::new(rate),
+            stream: RefCell::new(None),
+            output_observation: Cell::new((0, Instant::now())),
             assets_key,
             source_hash: String::new(),
             kit_audition: None,
@@ -275,12 +280,15 @@ impl Audio {
             sample: 0,
             frame: [0.0; 2],
         };
-        player.append(buffer.clone());
+        let (stream, source) = buffer.stream(rate)?;
+        player.append(source);
         Ok(Self {
             _device: Some(device),
             player: super::timeline_player::Player::recorded(player),
             buffer: Some(buffer),
-            rate,
+            rate: Cell::new(rate),
+            stream: RefCell::new(Some(stream)),
+            output_observation: Cell::new((0, Instant::now())),
             assets_key,
             source_hash,
             kit_audition,
@@ -313,26 +321,191 @@ impl Audio {
         Ok(())
     }
     fn seek(&self, seconds: f64) -> Result<()> {
-        if self.player.empty()
-            && let Some(buffer) = &self.buffer
-        {
-            self.player.append(buffer.clone());
+        if let Some(buffer) = &self.buffer {
+            let restart = self
+                .stream
+                .borrow()
+                .as_ref()
+                .is_none_or(|s| s.worker_exited());
+            if self.player.empty() || restart {
+                let loop_range = self
+                    .stream
+                    .borrow()
+                    .as_ref()
+                    .and_then(crate::streaming_audio::Controller::loop_range);
+                let (stream, source) = buffer.stream(self.rate.get())?;
+                stream.set_loop(loop_range)?;
+                stream.seek(seconds.clamp(0., stream.duration()))?;
+                self.output_observation.set((0, Instant::now()));
+                self.stream.replace(Some(stream));
+                self.player.append(source);
+            } else if let Some(stream) = self.stream.borrow().as_ref() {
+                stream.seek(seconds.clamp(0., stream.duration()))?;
+            }
+        } else {
+            self.player
+                .try_seek(Duration::from_secs_f64(seconds.max(0.0) / self.rate.get()))?;
         }
-        self.player
-            .try_seek(Duration::from_secs_f64(seconds.max(0.0) / self.rate))?;
         self.clock
             .borrow_mut()
             .reset(self.epoch.elapsed().as_secs_f64(), seconds.max(0.0));
+        if let Some(stream) = self.stream.borrow().as_ref() {
+            self.output_observation
+                .set((stream.output_sequence(), Instant::now()));
+        }
         Ok(())
     }
     fn position(&self) -> f64 {
-        let raw = self.player.get_pos().as_secs_f64() * self.rate;
+        let raw = self.raw_position();
         if self.player.is_paused() {
+            return raw;
+        }
+        // The streaming ledger is observed every 2 ms. Its consumed source
+        // position is already fine-grained, including variable rates and loops;
+        // multiplying or extrapolating using a future DSP rate would lead audio.
+        if self.stream.borrow().is_some() {
             return raw;
         }
         self.clock
             .borrow_mut()
-            .sample(self.epoch.elapsed().as_secs_f64(), raw, self.rate)
+            .sample(self.epoch.elapsed().as_secs_f64(), raw, self.rate.get())
+    }
+    fn raw_position(&self) -> f64 {
+        self.stream.borrow().as_ref().map_or_else(
+            || self.player.get_pos().as_secs_f64() * self.rate.get(),
+            crate::streaming_audio::Controller::position,
+        )
+    }
+    fn playback_rate(&self) -> f64 {
+        self.rate.get()
+    }
+    fn is_stalled(&self) -> bool {
+        if let Some(stream) = self.stream.borrow().as_ref() {
+            let sequence = stream.output_sequence();
+            let (previous, observed) = self.output_observation.get();
+            if sequence != previous {
+                self.output_observation.set((sequence, Instant::now()));
+                false
+            } else {
+                observed.elapsed() >= Duration::from_millis(250)
+            }
+        } else {
+            self.clock.borrow().is_stale()
+        }
+    }
+    fn set_rate(&self, rate: f64) -> Result<()> {
+        if self.rate.get() == rate {
+            return Ok(());
+        }
+        let position = self.raw_position();
+        if let Some(stream) = self.stream.borrow().as_ref() {
+            if self.player.is_paused() {
+                stream.set_rate_while_paused(rate)?;
+            } else {
+                stream.set_rate(rate)?;
+            }
+        } else {
+            self.player.set_timeline_rate(rate)?;
+        }
+        self.rate.set(rate);
+        self.clock
+            .borrow_mut()
+            .reset(self.epoch.elapsed().as_secs_f64(), position);
+        Ok(())
+    }
+    fn set_loop(&self, range: Option<crate::editor::TimeRange>, playing: bool) -> Result<()> {
+        if let Some(stream) = self.stream.borrow().as_ref() {
+            // A paused seek can be anywhere in the recording. Activate the loop
+            // only while playing, retaining ordinary Stop/rewind semantics.
+            stream.set_loop(
+                range
+                    .filter(|_| playing)
+                    .map(|r| (r.start.min(stream.duration()), r.end.min(stream.duration()))),
+            )?;
+        }
+        Ok(())
+    }
+    fn ready_for_playback(&self) -> bool {
+        self.stream
+            .borrow()
+            .as_ref()
+            .is_none_or(crate::streaming_audio::Controller::ready)
+    }
+    fn mark_playback_started(&self) {
+        if self.player.is_paused() {
+            if let Some(stream) = self.stream.borrow().as_ref() {
+                self.output_observation
+                    .set((stream.output_sequence(), Instant::now()));
+            }
+            self.clock
+                .borrow_mut()
+                .reset(self.epoch.elapsed().as_secs_f64(), self.raw_position());
+        }
+    }
+    fn processing_error(&self) -> Option<String> {
+        self.stream
+            .borrow()
+            .as_ref()
+            .and_then(crate::streaming_audio::Controller::error)
+    }
+    fn processing_diagnostics(&self) -> serde_json::Value {
+        self.stream.borrow().as_ref().map_or(serde_json::Value::Null, |stream| serde_json::json!({
+            "source_seconds":stream.position(), "requested_rate":stream.requested_rate(),
+            "achieved_rate":stream.achieved_rate(), "priming_frames":stream.priming_frames(),
+            "underflow_frames":stream.underflow_frames(), "observed_loop_wraps":stream.loop_wraps(),
+            "ready":stream.ready(), "worker_exited":stream.worker_exited(),
+            "buffers":stream.diagnostics(), "error":stream.error(),
+        }))
+    }
+}
+#[cfg(not(feature = "browser"))]
+impl ReviewSource {
+    fn stream(
+        &self,
+        rate: f64,
+    ) -> Result<(
+        crate::streaming_audio::Controller,
+        crate::streaming_audio::AudioSource,
+    )> {
+        let loaded = self.loaded.clone();
+        let kit = self.kit_audio.clone();
+        let mix = self.mix.clone();
+        crate::streaming_audio::start(
+            loaded.sample_rate,
+            loaded.frame_count() as u64,
+            rate,
+            Box::new(move |start, output| {
+                let frame = usize::try_from(start).context("Audition source offset overflow")?;
+                let offset = frame
+                    .checked_mul(2)
+                    .context("Audition source offset overflow")?;
+                let end = offset
+                    .checked_add(output.len())
+                    .context("Audition source range overflow")?;
+                if let Some(kit) = &kit {
+                    output.copy_from_slice(
+                        kit.get(offset..end)
+                            .context("Kit source range outside recording")?,
+                    );
+                } else if let Ok(mix) = mix.read() {
+                    anyhow::ensure!(
+                        end <= loaded.original.len(),
+                        "Audition source outside recording"
+                    );
+                    for (index, destination) in output.chunks_exact_mut(2).enumerate() {
+                        destination.copy_from_slice(&loaded.frame_with_mix(frame + index, &mix));
+                    }
+                } else {
+                    output.copy_from_slice(
+                        loaded
+                            .original
+                            .get(offset..end)
+                            .context("Original source range outside recording")?,
+                    );
+                }
+                Ok(())
+            }),
+        )
     }
 }
 struct WindowLock(std::fs::File);
@@ -455,7 +628,10 @@ impl Studio {
     pub fn snapshot(self) -> Option<Arc<Project>> {
         self.doc.read().clone()
     }
-    pub fn dispatch(mut self, action: Action) {
+    pub fn dispatch(self, action: Action) {
+        self.dispatch_with_transport(action, true);
+    }
+    fn dispatch_with_transport(mut self, action: Action, apply_audio_transport: bool) -> bool {
         // Stop sound before reading, validating or saving a project. Large charts
         // and a busy disk must never delay a musician's pause command.
         let action = if matches!(
@@ -498,9 +674,11 @@ impl Studio {
             self.group.set(Default::default());
         }
         let Some(store) = self.store.read().clone() else {
-            return;
+            return false;
         };
-        let Some(doc) = self.snapshot() else { return };
+        let Some(doc) = self.snapshot() else {
+            return false;
+        };
         let actor = Actor {
             kind: ActorKind::Human,
             name: self.reviewer.read().clone(),
@@ -543,7 +721,8 @@ impl Studio {
                         rfd::download(&path).await;
                     });
                 }
-                self.reload(transport);
+                self.reload(transport && apply_audio_transport);
+                true
             }
             Err(error) => {
                 self.error.set(Some(format!("{error:#}")));
@@ -560,6 +739,7 @@ impl Studio {
                     self.playhead.set(doc.transport.position);
                     self.doc.set(Some(Arc::new(doc)));
                 }
+                false
             }
         }
     }
@@ -695,13 +875,18 @@ impl Studio {
                     .is_some_and(|old| old.revision != doc.revision);
                 let replace_audio = reattached
                     || self.audio.read().as_ref().is_none_or(|audio| {
-                        (audio.rate - doc.transport.playback_rate).abs() > 1e-9
+                        (cfg!(feature = "browser")
+                            && (audio.playback_rate() - doc.transport.playback_rate).abs() > 1e-9)
                             || audio.assets_key != assets_key
                             || audio.source_hash != doc.audio_sha256
                     });
                 let target = (
                     doc.audio_sha256.clone(),
-                    doc.transport.playback_rate,
+                    if cfg!(feature = "browser") {
+                        doc.transport.playback_rate
+                    } else {
+                        1.
+                    },
                     assets_key,
                 );
                 let need_prepare =
@@ -730,9 +915,26 @@ impl Studio {
                 }
                 if !replace_audio {
                     self.audio_ready.set(self.audio.read().is_some());
+                    #[cfg(not(feature = "browser"))]
+                    if let Some(audio) = self.audio.read().as_ref()
+                        && let Err(error) =
+                            audio.set_rate(doc.transport.playback_rate).and_then(|_| {
+                                audio.set_loop(doc.transport.loop_range, doc.transport.playing)
+                            })
+                    {
+                        self.error
+                            .set(Some(format!("Audio transport unavailable: {error:#}")));
+                    }
                 }
                 if transport || cancelled_preparation {
-                    let seconds = if transport {
+                    let keep_source_clock = cfg!(not(feature = "browser"))
+                        && doc
+                            .audit
+                            .last()
+                            .is_some_and(|a| matches!(a.action, Action::SetPlaybackRate { .. }));
+                    let seconds = if keep_source_clock {
+                        self.current_audio_position().min(doc.duration)
+                    } else if transport {
                         doc.transport.current_position(doc.duration)
                     } else {
                         (self.playhead)()
@@ -744,10 +946,14 @@ impl Studio {
                             .min((doc.duration - (self.span)()).max(0.0)),
                     );
                     if let Some(audio) = self.audio.read().as_ref().filter(|_| !replace_audio) {
-                        if let Err(error) = audio.seek(seconds) {
+                        if !keep_source_clock && let Err(error) = audio.seek(seconds) {
                             self.error.set(Some(error.to_string()));
                         }
-                        if doc.transport.playing {
+                        let ready = audio.ready_for_playback();
+                        self.audio_ready.set(ready);
+                        if doc.transport.playing && ready {
+                            #[cfg(not(feature = "browser"))]
+                            audio.mark_playback_started();
                             audio.player.play();
                         } else {
                             audio.player.pause();
@@ -789,7 +995,21 @@ impl Studio {
             .map_or((self.playhead)(), |audio| audio.position())
     }
     pub fn set_playback_rate(self, rate: f64) {
+        #[cfg(feature = "browser")]
         self.seek(self.current_audio_position());
+        #[cfg(not(feature = "browser"))]
+        if !self.dispatch_with_transport(
+            Action::Seek {
+                seconds: self
+                    .audio
+                    .read()
+                    .as_ref()
+                    .map_or((self.playhead)(), |audio| audio.raw_position()),
+            },
+            false,
+        ) {
+            return;
+        }
         self.dispatch(Action::SetPlaybackRate { rate });
     }
     /// The same saved selection as editor/AI actions, with validation on a
@@ -931,6 +1151,7 @@ impl Studio {
             return;
         };
         let rate = doc.transport.playback_rate;
+        let preparation_rate = if cfg!(feature = "browser") { rate } else { 1. };
         let key = stem_assets_key(&doc, self.is_vocal_track());
         let expected = doc.audio_sha256.clone();
         let manifest = review_manifest(&doc, self.is_vocal_track()).cloned();
@@ -938,7 +1159,7 @@ impl Studio {
         self.audio_epoch.set(epoch);
         self.audio_ready.set(false);
         self.audio_target
-            .set(Some((expected.clone(), rate, key.clone())));
+            .set(Some((expected.clone(), preparation_rate, key.clone())));
         if let Some(audio) = self.audio.read().as_ref() {
             audio.player.pause();
         }
@@ -956,7 +1177,7 @@ impl Studio {
                 &path,
                 &expected,
                 manifest.as_ref(),
-                rate,
+                preparation_rate,
                 cache_root.as_deref(),
             )?;
             if let Some(selected) = &project.kit_audition {
@@ -964,7 +1185,7 @@ impl Studio {
                     store.as_ref().context("No project for kit audition")?,
                     &project,
                     selected,
-                    rate,
+                    preparation_rate,
                     prepared.loaded.original.len(),
                 )?;
                 prepared.kit_audio = Some(Arc::new(pcm));
@@ -976,13 +1197,12 @@ impl Studio {
         if (self.audio_epoch)() != epoch
             || self.source_audio.read().as_ref() != Some(&source)
             || current.as_ref().is_none_or(|doc| {
-                doc.transport.playback_rate != rate
+                (cfg!(feature = "browser") && doc.transport.playback_rate != rate)
                     || stem_assets_key(doc, self.is_vocal_track()) != key
             })
         {
             return;
         }
-        self.audio_target.set(None);
         match result {
             Ok(Ok(PreparedReviewAudio {
                 loaded,
@@ -1004,7 +1224,7 @@ impl Studio {
                     loaded,
                     kit_audio,
                     current.kit_audition.clone(),
-                    rate,
+                    current.transport.playback_rate,
                     key,
                     current.audio_sha256.clone(),
                     &mix,
@@ -1013,15 +1233,48 @@ impl Studio {
                 if (self.audio_epoch)() != epoch {
                     return;
                 }
+                self.audio_target.set(None);
+                let current = self.snapshot().unwrap_or(current);
                 match audio {
                     Ok(audio) => {
-                        let _ = audio.seek((self.playhead)());
+                        #[cfg(not(feature = "browser"))]
+                        if let Err(error) = audio
+                            .set_rate(current.transport.playback_rate)
+                            .and_then(|_| {
+                                audio.set_loop(
+                                    current.transport.loop_range,
+                                    current.transport.playing,
+                                )
+                            })
+                        {
+                            self.error
+                                .set(Some(format!("Audio transport unavailable: {error:#}")));
+                            return;
+                        }
+                        let latest_mix = if has_stems {
+                            current.content.stem_mix.clone()
+                        } else {
+                            StemMix::default()
+                        };
+                        if let Err(error) = audio
+                            .set_mix(&latest_mix)
+                            .and_then(|_| audio.seek((self.playhead)()))
+                        {
+                            self.error
+                                .set(Some(format!("Audio transport unavailable: {error:#}")));
+                            return;
+                        }
                         audio.player.set_volume((self.volume)());
                         self.audio.set(Some(Rc::new(audio)));
                         self.waveforms.set(Some(waveforms));
                         self.stem_waveforms.set(stem_waveforms);
                         self.stem_waveform_path.set(stem_waveform_path);
-                        self.audio_ready.set(true);
+                        let ready = self
+                            .audio
+                            .read()
+                            .as_ref()
+                            .is_some_and(|audio| audio.ready_for_playback());
+                        self.audio_ready.set(ready);
                         self.stem_status.set(if let Some(label) = kit_label {
                             if let Some(warning) = warning {
                                 self.error.set(Some(warning));
@@ -1035,10 +1288,13 @@ impl Studio {
                         } else {
                             "Original recording".into()
                         });
-                        self.status.set(if rate == 1.0 {
+                        self.status.set(if current.transport.playback_rate == 1.0 {
                             "Ready to play".into()
                         } else {
-                            format!("Ready at {:.0}% speed", rate * 100.0)
+                            format!(
+                                "Ready at {:.0}% speed",
+                                current.transport.playback_rate * 100.0
+                            )
                         });
                         let autoplay =
                             self.kit_autoplay
@@ -1064,12 +1320,14 @@ impl Studio {
                 }
             }
             Ok(Err(error)) => {
+                self.audio_target.set(None);
                 self.kit_autoplay.set(None);
                 self.kit_audition_busy.set(None);
                 self.stem_status.set("Audio unavailable".into());
                 self.error.set(Some(format!("{error:#}")));
             }
             Err(error) => {
+                self.audio_target.set(None);
                 self.kit_autoplay.set(None);
                 self.kit_audition_busy.set(None);
                 self.error.set(Some(error.to_string()));
@@ -1901,6 +2159,28 @@ impl Studio {
         }
     }
     pub fn tick(mut self, publish: bool) {
+        #[cfg(not(feature = "browser"))]
+        if let Some(audio) = self.audio.read().as_ref() {
+            if let Some(error) = audio.processing_error() {
+                audio.player.pause();
+                self.audio_ready.set(false);
+                self.error
+                    .set(Some(format!("Audio processing stopped: {error}")));
+                return;
+            }
+            if !audio.ready_for_playback() {
+                self.audio_ready.set(false);
+                audio.player.pause();
+                return;
+            }
+            if !(self.audio_ready)() {
+                self.audio_ready.set(true);
+                if self.snapshot().is_some_and(|doc| doc.transport.playing) {
+                    audio.mark_playback_started();
+                    audio.player.play();
+                }
+            }
+        }
         if !(self.audio_ready)() {
             return;
         }
@@ -1915,7 +2195,7 @@ impl Studio {
         let mut ended = false;
         if let Some(audio) = self.audio.read().as_ref() {
             let mut position = audio.position().min(duration);
-            let stalled = transport.playing && audio.clock.borrow().is_stale();
+            let stalled = transport.playing && audio.is_stalled();
             if *self.audio_stalled.peek() != stalled {
                 self.audio_stalled.set(stalled);
             }
@@ -1923,8 +2203,15 @@ impl Studio {
                 if let Some(range) = transport.loop_range {
                     // A visual interpolation must never cut the recording's
                     // loop short. Only the actual audio counter wraps transport.
-                    let raw = audio.player.get_pos().as_secs_f64() * audio.rate;
-                    if raw >= range.end {
+                    #[cfg(feature = "browser")]
+                    let raw = audio.player.get_pos().as_secs_f64() * audio.playback_rate();
+                    #[cfg(not(feature = "browser"))]
+                    let raw = audio.raw_position();
+                    #[cfg(feature = "browser")]
+                    let streamed_loop = false;
+                    #[cfg(not(feature = "browser"))]
+                    let streamed_loop = audio.stream.borrow().is_some();
+                    if !streamed_loop && raw >= range.end {
                         position =
                             range.start + (raw - range.end).rem_euclid(range.end - range.start);
                         let _ = audio.seek(position);
@@ -2001,23 +2288,28 @@ impl Studio {
         let ready = (self.audio_ready)();
         let actual = audio.as_ref().and_then(|audio| {
             #[cfg(not(feature="browser"))]
-            let Some(buffer)=audio.buffer.as_ref() else {return Some(serde_json::json!({"mode":"timeline","active_gains":{},"source_audio_sha256":null,"playback_rate":audio.rate,"player_paused":audio.player.is_paused(),"stems_ready":false,"sample_rate":null,"shared_cursor":true,"output_config":audio.output_config}));};
+            let Some(buffer)=audio.buffer.as_ref() else {return Some(serde_json::json!({"mode":"timeline","active_gains":{},"source_audio_sha256":null,"playback_rate":audio.playback_rate(),"player_paused":audio.player.is_paused(),"stems_ready":false,"sample_rate":null,"shared_cursor":true,"output_config":audio.output_config}));};
             #[cfg(feature="browser")]
             let buffer=&audio.buffer;
             buffer.mix.read().ok().map(|mix| {
                 let identity = serde_json::to_vec(&(
                     audio.source_hash.as_str(),
                     audio.assets_key.as_str(),
-                    audio.rate,
+                    if cfg!(feature="browser") {audio.playback_rate()} else {1.},
                 ))
                 .unwrap_or_default();
+                #[cfg(not(feature="browser"))]
+                let processing = audio.processing_diagnostics();
+                #[cfg(feature="browser")]
+                let processing = serde_json::Value::Null;
                 serde_json::json!({
                     "mode":if audio.kit_audition.is_some(){"kit"}else if mix.original{"original"}else{"stems"},
                     "active_gains":if mix.original || audio.kit_audition.is_some(){BTreeMap::new()}else{mix.gains.clone()},
                     "kit_audition":audio.kit_audition,
                     "source_audio_sha256":audio.source_hash,
                     "assets_identity_sha256":format!("{:x}",Sha256::digest(identity)),
-                    "playback_rate":audio.rate,
+                    "playback_rate":audio.playback_rate(),
+                    "processing":processing,
                     "player_paused":audio.player.is_paused(),
                     "stems_ready":ready && !buffer.loaded.stems.is_empty(),
                     "sample_rate":buffer.loaded.sample_rate,
@@ -2234,7 +2526,7 @@ fn load_review_audio(
         .as_ref()
         .zip(cache_root)
         .and_then(|(cache, root)| persist_stem_waveforms(root, cache).ok());
-    if rate == 1.0 {
+    if rate == 1.0 || cfg!(not(feature = "browser")) {
         return Ok(PreparedReviewAudio {
             loaded,
             kit_audio: None,
@@ -2379,6 +2671,127 @@ mod tests {
     }
     #[test]
     #[cfg(not(feature = "browser"))]
+    fn streaming_rate_and_end_restart_keep_cached_pcm_device_and_play_state() {
+        let loaded = Arc::new(
+            LoadedStems::from_pcm(44100, Arc::new(vec![0.1; 44100 * 4]), BTreeMap::new()).unwrap(),
+        );
+        let buffer = ReviewSource {
+            loaded: loaded.clone(),
+            kit_audio: None,
+            mix: Arc::new(RwLock::new(StemMix::default().prepare([]).unwrap())),
+            sample: 0,
+            frame: [0.; 2],
+        };
+        let (stream, source) = buffer.stream(1.).unwrap();
+        stream.wait_ready(Duration::from_secs(5)).unwrap();
+        let (player, mut output) = rodio::Player::new();
+        player.pause();
+        player.append(source);
+        let audio = Audio {
+            _device: None,
+            player: super::super::timeline_player::Player::recorded(player),
+            buffer: Some(buffer),
+            rate: Cell::new(1.),
+            stream: RefCell::new(Some(stream)),
+            output_observation: Cell::new((0, Instant::now())),
+            assets_key: "retained-assets".into(),
+            source_hash: "a".repeat(64),
+            kit_audition: None,
+            output_config: AudioOutputConfig {
+                requested_buffer_frames: 512,
+                configured_buffer_frames: None,
+                sample_rate: 44100,
+                nominal_buffer_ms: None,
+                fallback_reason: None,
+                hardware_output_latency_known: false,
+            },
+            clock: RefCell::new(PresentationClock::default()),
+            epoch: Instant::now(),
+        };
+        audio.set_rate(0.25).unwrap();
+        assert!(audio.player.is_paused());
+        audio
+            .stream
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .wait_ready(Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(audio.position(), 0.);
+        audio.mark_playback_started();
+        audio.player.play();
+        audio.set_rate(0.83).unwrap();
+        assert!(!audio.player.is_paused());
+        assert!(
+            audio.ready_for_playback(),
+            "Playing rate change discarded buffered audio"
+        );
+        assert!(Arc::ptr_eq(&loaded, &audio.buffer.as_ref().unwrap().loaded));
+        assert_eq!(audio.assets_key, "retained-assets");
+        assert_eq!(audio.source_hash, "a".repeat(64));
+        assert_eq!(
+            audio.position(),
+            0.,
+            "Rendering changed consumed source position"
+        );
+        for _ in 0..1024 {
+            output.next().unwrap();
+        }
+        audio.player.pause();
+        audio
+            .set_loop(
+                Some(crate::editor::TimeRange {
+                    start: 0.5,
+                    end: 1.5,
+                }),
+                false,
+            )
+            .unwrap();
+        audio.seek(0.).unwrap();
+        audio
+            .stream
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .wait_ready(Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(
+            audio.position(),
+            0.,
+            "Paused rewind was trapped inside the loop"
+        );
+        audio.seek(2.).unwrap();
+        audio
+            .stream
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .wait_ready(Duration::from_secs(5))
+            .unwrap();
+        audio.player.play();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !audio.player.empty() {
+            for _ in 0..512 {
+                output.next();
+            }
+            std::thread::sleep(Duration::from_millis(1));
+            assert!(Instant::now() < deadline, "End failed to drain");
+        }
+        assert_eq!(audio.position(), 2.);
+        audio.seek(0.).unwrap();
+        audio
+            .stream
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .wait_ready(Duration::from_secs(5))
+            .unwrap();
+        assert_eq!(audio.position(), 0.);
+        assert!(Arc::ptr_eq(&loaded, &audio.buffer.as_ref().unwrap().loaded));
+        drop(output);
+    }
+    #[test]
+    #[cfg(not(feature = "browser"))]
     fn one_cursor_switches_mix_only_between_stereo_frames_and_seeks_together() {
         let loaded = Arc::new(
             LoadedStems::from_pcm(
@@ -2446,7 +2859,10 @@ mod tests {
     fn explicit_pause_or_normal_audio_choice_cancels_pending_kit_autoplay() {
         assert!(cancels_kit_autoplay(&Action::Playback { playing: false }));
         assert!(cancels_kit_autoplay(&Action::Pause { seconds: 1.25 }));
-        assert!(cancels_kit_autoplay(&Action::SetPlaybackRate { rate: 0.5 }));
+        assert_eq!(
+            cancels_kit_autoplay(&Action::SetPlaybackRate { rate: 0.5 }),
+            cfg!(feature = "browser")
+        );
         assert!(cancels_kit_autoplay(&Action::SetStemMix {
             mix: Default::default()
         }));

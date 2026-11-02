@@ -1696,8 +1696,8 @@ impl Store {
             }
             Action::SetPlaybackRate { rate } => {
                 ensure!(
-                    rate.is_finite() && (0.5..=1.5).contains(rate),
-                    "Practice rate must be between 0.5 and 1.5"
+                    rate.is_finite() && (0.25..=2.0).contains(rate),
+                    "Practice rate must be between 0.25 and 2.0"
                 );
                 doc.transport.playback_rate = *rate;
             }

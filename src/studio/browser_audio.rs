@@ -104,6 +104,15 @@ fn write_pcm(path: &Path, pcm: &[f32], sample_rate: u32) -> Result<()> {
     Ok(())
 }
 impl Audio {
+    pub(super) fn ready_for_playback(&self) -> bool {
+        true
+    }
+    pub(super) fn is_stalled(&self) -> bool {
+        self.clock.borrow().is_stale()
+    }
+    pub(super) fn playback_rate(&self) -> f64 {
+        self.rate
+    }
     pub(super) async fn new(
         loaded: LoadedStems,
         kit_audio: Option<Arc<Vec<f32>>>,
