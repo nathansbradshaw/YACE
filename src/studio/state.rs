@@ -1620,17 +1620,9 @@ impl Studio {
                         name: (self.reviewer)(),
                     };
                     let download = output.clone();
-                    let receipt = crate::export_state::Receipt::capture(
-                        &store,
-                        &doc,
-                        &options,
-                        output.display().to_string(),
-                        crate::export_state::Delivery::PublishedFolder,
-                    )?;
                     self.status.set("Preparing song export…".into());
                     let receipt_error = tokio::task::spawn_blocking(move || {
-                        store.export_with_options(&doc, &output, &actor, &options)?;
-                        Ok::<_, anyhow::Error>(receipt.save(&store).err().map(|e| format!("{e:#}")))
+                        store.export_with_status(&doc, &output, &actor, &options)
                     })
                     .await??;
                     if self.store.peek().as_ref().is_some_and(|s| s.root == root) {

@@ -172,3 +172,56 @@ fn source_metadata_and_recording_identity_are_part_of_the_export_snapshot() {
     changed.audio_sha256 = "b".repeat(64);
     assert_ne!(fingerprint(&store, &changed).unwrap(), changed_metadata);
 }
+
+#[test]
+fn native_publication_records_its_snapshot_and_a_refused_export_cannot_promote_it() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let output = root.path().join("song-copy");
+    action(
+        &store,
+        Action::Export {
+            output: output.clone(),
+        },
+    );
+    let before = Receipt::load(&store, &store.load().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(before.delivery, Delivery::PublishedFolder);
+    assert_eq!(
+        before.fingerprint,
+        fingerprint(&store, &store.load().unwrap()).unwrap()
+    );
+    let exported = fs::read(output.join("notes.chart")).unwrap();
+    action(
+        &store,
+        Action::AddNote {
+            track: "ExpertSingle".into(),
+            tick: 960,
+            lane: 1,
+            sustain: 0,
+            cymbal: false,
+        },
+    );
+    let result = store.apply(Request {
+        expected_revision: store.load().unwrap().revision,
+        actor: Actor {
+            kind: ActorKind::Human,
+            name: "Export fixture".into(),
+        },
+        action: Action::Export {
+            output: output.clone(),
+        },
+    });
+    assert!(result.is_err());
+    assert_eq!(
+        Receipt::load(&store, &store.load().unwrap()).unwrap(),
+        Some(before)
+    );
+    assert_eq!(fs::read(output.join("notes.chart")).unwrap(), exported);
+    assert!(
+        State::load(&store, &store.load().unwrap())
+            .summary()
+            .contains("project changed")
+    );
+}
