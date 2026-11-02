@@ -282,6 +282,114 @@ fn omitting_conventional_audio_still_produces_a_reopenable_chart_only_song() {
 }
 
 #[test]
+fn chart_only_generated_vocals_reopen_without_attaching_checks_for_omitted_audio() {
+    use chart_engine::{vocal_generation as vg, vocal_review, vocals::*};
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path(), true, false);
+    let doc = store.load().unwrap();
+    let vocals = VocalChart {
+        version: 1,
+        resolution: 480,
+        source: "Synthetic export fixture".into(),
+        phrases: vec![VocalPhrase {
+            start: 480,
+            end: 960,
+            player: 1,
+        }],
+        notes: vec![VocalNote {
+            start: 480,
+            end: 600,
+            tone: VocalTone::Pitched { midi: 60 },
+            lyric: Syllable::Missing,
+            midi: None,
+        }],
+    };
+    let report = vg::Generation {
+        version: 1,
+        audio_sha256: doc.audio_sha256.clone(),
+        vocal_stem_sha256: "b".repeat(64),
+        duration_seconds: doc.duration,
+        algorithm: "synthetic-export-regression".into(),
+        timing: Some(doc.timing(&store).unwrap()),
+        policy: Default::default(),
+        status: vg::Status::ReviewRequired,
+        chart: Some(vocals.clone()),
+        pitch_candidates: vec![],
+        pitch_frames: vec![],
+        words: None,
+        lyrics: None,
+        issues: vec![],
+        warnings: vec![],
+        neural_pitch: None,
+        vocal_pitch: None,
+        rmvpe_pitch: None,
+        note_evidence: vec![],
+    };
+    let report_bytes = serde_json::to_vec(&report).unwrap();
+    let source = store.root.join("source");
+    let report_path = song_layout::path(&source, "chart-engine-vocal-generation.json");
+    fs::write(&report_path, &report_bytes).unwrap();
+    store
+        .apply(chart_engine::editor::Request {
+            expected_revision: doc.revision,
+            actor: actor(),
+            action: chart_engine::editor::Action::SetVocals {
+                document: vocals.clone(),
+            },
+        })
+        .unwrap();
+    let doc = store.load().unwrap();
+    let output = root.path().join("no-audio-export");
+    store
+        .export_with_options(
+            &doc,
+            &output,
+            &actor(),
+            &Options {
+                include_audio: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    let doc = reopened.load().unwrap();
+    // The same post-import diagnostic hook used by both clients must succeed.
+    let active = song_layout::resolve(&output, "chart-engine-vocal-generation.json");
+    let doc = if active.is_file() {
+        let report = serde_json::from_slice(&fs::read(active).unwrap()).unwrap();
+        vocal_review::attach_generation(&reopened, doc, &report).unwrap()
+    } else {
+        doc
+    };
+    assert!(!doc.has_recording());
+    assert_eq!(doc.content.vocals.as_ref(), Some(&vocals));
+    assert!(doc.content.vocal_review.is_none());
+    assert_eq!(
+        fs::read(output.join(".yace/history/editor-source/chart-engine-vocal-generation.json"))
+            .unwrap(),
+        report_bytes
+    );
+    assert_eq!(fs::read(report_path).unwrap(), report_bytes);
+    let with_audio = root.path().join("with-audio-export");
+    store
+        .export_with_options(
+            &store.load().unwrap(),
+            &with_audio,
+            &actor(),
+            &Options::default(),
+        )
+        .unwrap();
+    let reopened =
+        Store::create(&with_audio, None, &root.path().join("with-audio-project")).unwrap();
+    let retained = song_layout::resolve(&with_audio, "chart-engine-vocal-generation.json");
+    assert_eq!(fs::read(retained).unwrap(), report_bytes);
+    let checked =
+        vocal_review::attach_generation(&reopened, reopened.load().unwrap(), &report).unwrap();
+    assert!(checked.has_recording());
+    assert!(checked.content.vocal_review.is_some());
+}
+
+#[test]
 fn deselected_vocals_and_pro_keys_do_not_return_when_a_chart_export_is_reopened() {
     use chart_engine::vocals::{Syllable, VocalChart, VocalNote, VocalPhrase, VocalTone};
     let root = tempfile::tempdir().unwrap();

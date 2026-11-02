@@ -2444,10 +2444,13 @@ impl Store {
         fs::create_dir(&archive)?;
         let mut archived = vec!["chart-engine-vocals.json"];
         if !options.include_audio {
+            // These witnesses describe omitted audio. Keep them as history so
+            // reopening the chart does not attach checks to a new empty clock.
             archived.extend([
                 "chart-engine-conventional-audio.json",
                 "yace-audio.json",
                 "chart-engine-melody-source.json",
+                "chart-engine-vocal-generation.json",
             ]);
         }
         for name in archived {
