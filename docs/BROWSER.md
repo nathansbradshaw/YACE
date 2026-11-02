@@ -8,11 +8,13 @@ server, account, WebSocket, FFmpeg process or generation service is needed.
 
 ## Build and run
 
-Install the Rust target and matching official binding generator once:
+Install the Rust target, matching official binding generator and Binaryen 132
+(`wasm-opt`) once:
 
 ```sh
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.127 --locked
+wasm-opt --version # wasm-opt version 132
 ```
 
 From the repository root:
@@ -27,6 +29,10 @@ testing; any static host with `application/wasm` support can replace it. Keep th
 generated `snippets` directory with the JS/WASM files. Relative asset URLs also
 support hosting the app below a directory. HTTPS or loopback is required for
 browser storage and clipboard APIs. A desktop shell is not required.
+
+The Rust build tool optimizes the generated module with the pinned Binaryen
+release and rejects an artifact above the static host's 25 MiB per-file limit.
+No additional JavaScript loader or application service is required.
 
 The hand-written JavaScript imports and starts the WASM module, displays startup
 failures and starts the module worker. Dioxus and wasm-bindgen generate

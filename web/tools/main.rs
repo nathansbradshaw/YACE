@@ -7,7 +7,6 @@ use std::{
     process::Command,
 };
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-mod recognition_build;
 #[cfg(test)]
 #[path = "../../src/archive_codec.rs"]
 mod archive_codec;
@@ -15,11 +14,12 @@ mod archive_codec;
 #[path = "../src/audio_decode.rs"]
 mod audio_decode;
 #[cfg(test)]
-#[path = "../src/audio_resample.rs"]
-mod audio_resample;
-#[cfg(test)]
 #[path = "../src/audio_identity.rs"]
 mod audio_identity;
+#[cfg(test)]
+#[path = "../src/audio_resample.rs"]
+mod audio_resample;
+mod recognition_build;
 #[cfg(test)]
 #[path = "../../src/recording_metadata.rs"]
 mod recording_metadata;
@@ -72,10 +72,41 @@ fn build(root: &Path) -> Result<()> {
         .arg(target.join("wasm32-unknown-unknown/release/yace_web.wasm"))
         .args(["--target", "web", "--no-typescript", "--out-dir"])
         .arg(&dist))?;
+    let optimizer = Command::new("wasm-opt").arg("--version").output()?;
+    if !optimizer.status.success()
+        || String::from_utf8_lossy(&optimizer.stdout).trim() != "wasm-opt version 132"
+    {
+        return Err("Static builds require Binaryen wasm-opt 132".into());
+    }
+    let wasm = dist.join("yace_web_bg.wasm");
+    let optimized = dist.join("yace_web_bg.optimized.wasm");
+    run(Command::new("wasm-opt")
+        .arg(&wasm)
+        .args([
+            "-Oz",
+            "--enable-bulk-memory",
+            "--enable-multivalue",
+            "--enable-mutable-globals",
+            "--enable-nontrapping-float-to-int",
+            "--enable-reference-types",
+            "--enable-sign-ext",
+            "--strip-debug",
+            "-o",
+        ])
+        .arg(&optimized))?;
+    if fs::metadata(&optimized)?.len() > 25 * 1024 * 1024 {
+        return Err("Optimized WebAssembly exceeds the static host's 25 MiB asset limit".into());
+    }
+    fs::rename(optimized, wasm)?;
     fs::copy(root.join("web/index.html"), dist.join("index.html"))?;
     fs::copy(root.join("web/worker.js"), dist.join("worker.js"))?;
     copy_source(&root.join("web/runtime"), &dist.join("runtime"))?;
-    for package in ["symphonia-codec-vorbis", "symphonia-bundle-mp3", "practice-acoustic", "candle-core"] {
+    for package in [
+        "symphonia-codec-vorbis",
+        "symphonia-bundle-mp3",
+        "practice-acoustic",
+        "candle-core",
+    ] {
         copy_source(
             &root.join("vendor").join(package),
             &dist.join("sources").join(package),
@@ -231,6 +262,8 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        _ => Err("Use: yace-static-web build | serve [port] | recognition-build SDK CRATE WORK".into()),
+        _ => Err(
+            "Use: yace-static-web build | serve [port] | recognition-build SDK CRATE WORK".into(),
+        ),
     }
 }
