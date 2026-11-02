@@ -416,6 +416,7 @@ fn source_bound_stem_paths_are_checksum_checked_before_action() {
     fs::write(&stem, b"opaque bound stem").unwrap();
     let mut doc = s.load().unwrap();
     doc.content.stems = Some(StemManifest {
+        conventional: None,
         version: 1,
         source_audio_sha256: doc.audio_sha256.clone(),
         sample_rate: 44100,
@@ -489,6 +490,7 @@ fn split_audio_fixture(root: &Path) -> Store {
     )
     .unwrap();
     let manifest = |prefix: &str, ids: &[StemId]| StemManifest {
+        conventional: None,
         version: 1,
         source_audio_sha256: doc.audio_sha256.clone(),
         sample_rate: 44100,

@@ -149,7 +149,7 @@ pub async fn run(
         output.join(RECEIPT_FILENAME),
         serde_json::to_vec_pretty(&receipt)?,
     )?;
-    let manifest=StemManifest{version:1,source_audio_sha256:source_hash,sample_rate:SAMPLE_RATE,channels:2,frames:plan.source_frames as u64,alignment:AlignmentEvidence{method:"Native Rust HQ spectral reconstruction on browser WASM".into(),details:"Shared desktop STFT, complex masks, inverse transform, reflected chunk plan and overlap; all six full-source clocks and hashes verified".into()},stems:assets,generation:Some(generation)};
+    let manifest=StemManifest{version:1,source_audio_sha256:source_hash,sample_rate:SAMPLE_RATE,channels:2,frames:plan.source_frames as u64,alignment:AlignmentEvidence{method:"Native Rust HQ spectral reconstruction on browser WASM".into(),details:"Shared desktop STFT, complex masks, inverse transform, reflected chunk plan and overlap; all six full-source clocks and hashes verified".into()},stems:assets,generation:Some(generation),conventional:None};
     let mut portable = manifest.clone();
     for stem in &mut portable.stems {
         stem.path = stem.path.strip_prefix(output)?.into();

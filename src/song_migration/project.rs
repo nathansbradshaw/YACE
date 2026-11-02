@@ -393,6 +393,7 @@ mod tests {
         )
         .unwrap();
         doc.content.stems = Some(StemManifest {
+            conventional: None,
             version: 1,
             source_audio_sha256: doc.audio_sha256.clone(),
             sample_rate: 44100,

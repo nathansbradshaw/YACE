@@ -36,7 +36,7 @@ pub fn validate_sources<B: Bytes>(files: &BTreeMap<String, B>, doc: &Project) ->
         "Project source chart checksum differs"
     );
     ensure!(
-        Path::new(&doc.audio_filename).components().count() == 1,
+        crate::stem_review::conventional::valid_audio_filename(&doc.audio_filename),
         "Invalid project recording filename"
     );
     ensure!(
@@ -54,7 +54,7 @@ fn relocate_content(
     content: &mut Content,
     root: &Path,
     audio: &str,
-    index: &BTreeMap<String, String>,
+    index: &BTreeMap<String, Vec<String>>,
     keys: &mut BTreeMap<String, String>,
 ) -> Result<()> {
     let old = key(audio, &content.stems)?;
@@ -63,12 +63,25 @@ fn relocate_content(
         .iter_mut()
         .chain(content.keyboard_stems.iter_mut())
     {
+        let mut claimed = BTreeSet::new();
         for asset in &mut manifest.stems {
-            asset.path = if let Some(name) = index.get(&asset.sha256.to_ascii_lowercase()) {
+            let candidates = index.get(&asset.sha256.to_ascii_lowercase());
+            let available = || {
+                candidates
+                    .into_iter()
+                    .flatten()
+                    .filter(|name| !claimed.contains(name.as_str()))
+            };
+            let name = available()
+                .filter(|name| asset.path.ends_with(Path::new(name.as_str())))
+                .max_by_key(|name| name.len())
+                .or_else(|| available().next());
+            asset.path = if let Some(name) = name {
+                claimed.insert(name.clone());
                 root.join(name)
             } else {
                 root.join("unavailable")
-                    .join(format!("{}.wav", asset.sha256))
+                    .join(format!("{}-{}.wav", asset.id.as_str(), asset.sha256))
             };
         }
     }
@@ -87,7 +100,8 @@ pub fn relocate<B: Bytes>(files: &mut BTreeMap<String, B>, root: &Path) -> Resul
             .bytes(),
     )?;
     validate_sources(files, &doc)?;
-    let mut index = BTreeMap::new();
+    let mut index = BTreeMap::<String, Vec<String>>::new();
+    let recording = format!("source/{}", doc.audio_filename);
     for (name, bytes) in files.iter() {
         ensure!(
             Path::new(name)
@@ -95,17 +109,19 @@ pub fn relocate<B: Bytes>(files: &mut BTreeMap<String, B>, root: &Path) -> Resul
                 .all(|c| matches!(c, std::path::Component::Normal(_))),
             "Archive path leaves the project"
         );
-        if Path::new(name)
-            .extension()
-            .and_then(|s| s.to_str())
-            .is_some_and(|s| {
-                ["wav", "flac", "ogg", "opus", "mp3", "m4a"]
-                    .contains(&s.to_ascii_lowercase().as_str())
-            })
+        if name != &recording
+            && Path::new(name)
+                .extension()
+                .and_then(|s| s.to_str())
+                .is_some_and(|s| {
+                    ["wav", "flac", "ogg", "opus", "mp3", "m4a", "aiff", "aac"]
+                        .contains(&s.to_ascii_lowercase().as_str())
+                })
         {
             index
                 .entry(digest(bytes.bytes()))
-                .or_insert_with(|| name.clone());
+                .or_default()
+                .push(name.clone());
         }
     }
     let mut keys = BTreeMap::new();

@@ -60,6 +60,7 @@ pub fn bound_fixture() -> (StemManifest, audio::Receipt) {
         })
         .collect();
     let manifest = StemManifest {
+        conventional: None,
         version: 1,
         source_audio_sha256: "a".repeat(64),
         sample_rate: 44100,

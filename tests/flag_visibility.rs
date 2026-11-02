@@ -890,6 +890,7 @@ fn vocal_stale_stem_blocks_approval_but_keeps_visibility_and_jump_independent() 
         .id
         .clone();
     doc.content.stems = Some(StemManifest {
+        conventional: None,
         version: 1,
         source_audio_sha256: doc.audio_sha256.clone(),
         sample_rate: 44100,

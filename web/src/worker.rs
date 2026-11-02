@@ -16,6 +16,9 @@ use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    PrepareGameChannels {
+        root: PathBuf,
+    },
     GenerationStage {
         root: PathBuf,
         stage: crate::generation::Stage,
@@ -30,9 +33,9 @@ pub enum Task {
         path: PathBuf,
     },
     RecognizeWords {
-        audio:PathBuf,
-        stem:Option<(PathBuf,StemAlignment)>,
-        language:crate::lyric_language::Language,
+        audio: PathBuf,
+        stem: Option<(PathBuf, StemAlignment)>,
+        language: crate::lyric_language::Language,
     },
     BuildDraft {
         audio: PathBuf,
@@ -112,7 +115,12 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
-            Self::RecognizeWords{audio,stem,..}=>std::iter::once(audio.clone()).chain(stem.iter().map(|(path,_)|path.clone())).collect(),
+            Self::PrepareGameChannels { root } => {
+                crate::stem_review::conventional::decode_inputs(root).unwrap_or_default()
+            }
+            Self::RecognizeWords { audio, stem, .. } => std::iter::once(audio.clone())
+                .chain(stem.iter().map(|(path, _)| path.clone()))
+                .collect(),
             Self::GenerationStage { root, stage } => {
                 crate::generation::audio_paths(root, *stage).unwrap_or_default()
             }
@@ -185,6 +193,9 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
+            Self::PrepareGameChannels { root } => Ok(serde_json::to_value(
+                crate::stem_review::conventional::prepare(root)?,
+            )?),
             Self::BuildDraft {
                 audio,
                 events,
@@ -248,7 +259,9 @@ impl Task {
             | Self::Vocals { .. } => {
                 anyhow::bail!("Separation requires the asynchronous GPU worker")
             }
-            Self::RecognizeWords{..}=>anyhow::bail!("Recognition requires the asynchronous local worker"),
+            Self::RecognizeWords { .. } => {
+                anyhow::bail!("Recognition requires the asynchronous local worker")
+            }
             Self::Archive { .. } => Ok(serde_json::Value::Null),
             Self::InspectRecording { audio, output } => Ok(serde_json::to_value(
                 crate::song_import::local(audio, output)?,
@@ -392,6 +405,12 @@ fn pcm_message(path: &Path, pcm: &Pcm) -> js_sys::Array {
     row
 }
 async fn process(input: JsValue) -> Result<JsValue> {
+    let task: Task = serde_json::from_str(
+        &field(&input, "task")?
+            .as_string()
+            .context("Missing worker task")?,
+    )?;
+    let bounded = matches!(task, Task::PrepareGameChannels { .. });
     for row in js_sys::Array::from(&field(&input, "files")?).iter() {
         let row = js_sys::Array::from(&row);
         let path = row.get(0).as_string().context("Missing worker path")?;
@@ -404,6 +423,14 @@ async fn process(input: JsValue) -> Result<JsValue> {
     for row in js_sys::Array::from(&field(&input, "decoded")?).iter() {
         let row = js_sys::Array::from(&row);
         let path = PathBuf::from(row.get(0).as_string().context("Missing decoded path")?);
+        if bounded {
+            ensure!(
+                crate::models::decoded_bytes()
+                    .saturating_add(js_sys::Float32Array::new(&row.get(1)).length() as usize * 4)
+                    <= 1024 * 1024 * 1024,
+                "Game channels exceed the browser decoded-audio budget"
+            );
+        }
         crate::models::remember(
             &path,
             Pcm {
@@ -413,11 +440,6 @@ async fn process(input: JsValue) -> Result<JsValue> {
             },
         )?;
     }
-    let task: Task = serde_json::from_str(
-        &field(&input, "task")?
-            .as_string()
-            .context("Missing worker task")?,
-    )?;
     if let Task::GenerationStage { root, stage } = &task {
         crate::generation::audio_paths(root, *stage)?;
     }
@@ -460,7 +482,16 @@ async fn process(input: JsValue) -> Result<JsValue> {
             continue;
         }
         match crate::audio_decode::decode(crate::storage::shared(&path)?.as_slice()).await {
-            Ok(pcm) => crate::models::remember(&path, pcm)?,
+            Ok(pcm) => {
+                if bounded {
+                    ensure!(
+                        crate::models::decoded_bytes().saturating_add(pcm.stereo.len() * 4)
+                            <= 1024 * 1024 * 1024,
+                        "Game channels exceed the browser decoded-audio budget"
+                    );
+                }
+                crate::models::remember(&path, pcm)?;
+            }
             Err(_) => {
                 let response = message("decode")?;
                 set(&response, "path", &path.to_string_lossy().as_ref().into())?;
@@ -489,12 +520,16 @@ async fn process(input: JsValue) -> Result<JsValue> {
                 // unchanged, so retaining six decoded PCM copies is unnecessary.
                 let pcm =
                     crate::audio_decode::decode(&crate::storage::shared(&asset.path)?).await?;
-                ensure!(
-                    pcm.rate == 44100
-                        && pcm.channels == 2
-                        && pcm.stereo.len() as u64 == manifest.frames * 2,
-                    "Separated audio format or source clock changed"
-                );
+                if manifest.conventional.is_some() {
+                    manifest.prepare_channel(pcm.samples(44100, 2)?)?;
+                } else {
+                    ensure!(
+                        pcm.rate == 44100
+                            && pcm.channels == 2
+                            && pcm.stereo.len() as u64 == manifest.frames * 2,
+                        "Separated audio format or source clock changed"
+                    );
+                }
             }
             crate::models::remember_stems(manifest)?;
         }
@@ -538,8 +573,22 @@ async fn process(input: JsValue) -> Result<JsValue> {
             serde_json::to_vec_pretty(&result)?,
         )?;
         serde_json::to_value(result)?
-    } else if let Task::RecognizeWords{audio,stem,language}=&task {
-        serde_json::to_value(crate::recognition::analyze(audio,stem.as_ref().map(|(path,binding)|(path.as_path(),binding)),*language,&mut progress).await?)?
+    } else if let Task::RecognizeWords {
+        audio,
+        stem,
+        language,
+    } = &task
+    {
+        serde_json::to_value(
+            crate::recognition::analyze(
+                audio,
+                stem.as_ref()
+                    .map(|(path, binding)| (path.as_path(), binding)),
+                *language,
+                &mut progress,
+            )
+            .await?,
+        )?
     } else if let Task::CacheModel { path } = &task {
         progress("Verifying the selected model checkpoint…".into());
         serde_json::to_value(crate::model_assets::import(crate::storage::read(path)?).await?)?
@@ -579,6 +628,7 @@ async fn process(input: JsValue) -> Result<JsValue> {
         }
     }
     if let Task::GenerationStage { root: output, .. }
+    | Task::PrepareGameChannels { root: output }
     | Task::Vocals { output, .. }
     | Task::BuildDraft { output, .. }
     | Task::InspectRecording { output, .. }
@@ -594,7 +644,10 @@ async fn process(input: JsValue) -> Result<JsValue> {
                 )
             })
             .collect();
-        let changed = if matches!(task, Task::GenerationStage { .. }) {
+        let changed = if matches!(
+            task,
+            Task::GenerationStage { .. } | Task::PrepareGameChannels { .. }
+        ) {
             crate::storage::pending(output)?
         } else {
             crate::storage::list(output)?

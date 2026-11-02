@@ -45,6 +45,7 @@ fn candidate(seconds: f64, bass: bool) -> Candidate {
 }
 fn report() -> CoverageReport {
     let manifest = StemManifest {
+        conventional: None,
         version: 1,
         source_audio_sha256: "11".repeat(32),
         sample_rate: 44100,

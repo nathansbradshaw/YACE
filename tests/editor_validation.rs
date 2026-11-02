@@ -111,6 +111,7 @@ fn keyboard_review_keeps_separate_sources_and_rejects_foreign_recordings() {
     use chart_engine::stem_review::{AlignmentEvidence, StemAsset, StemId, StemManifest};
     let (mut project, chart) = fixture();
     let manifest = |id, label: &str| StemManifest {
+        conventional: None,
         version: 1,
         source_audio_sha256: project.audio_sha256.clone(),
         sample_rate: 44100,
