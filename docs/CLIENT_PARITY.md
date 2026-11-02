@@ -37,6 +37,35 @@ Keep private recordings, transcripts and generated receipts outside Git.
 
 ## Current integration gate (2026-11-02)
 
+Native practice playback now processes a bounded window on a Rust worker,
+mixing aligned original-rate stems before pitch-preserving stretching. Playing
+rate changes retain the decoded audio, waveform and output device; paused rate
+changes prime at the held position. The device callback only consumes pooled
+blocks. Position follows acknowledged original-source frames, including rate
+transitions and continuous loops. The shared accepted range is 25–200 percent;
+saved custom values such as 83 percent retain the existing project/action format.
+
+Actual native checks exercised original recording, isolated stems and a restored
+Kick audition; rate changes retained the source identity and play/pause state.
+A complete 243.880-second recording played from beginning to end at 200 percent.
+A 130–132-second loop wrapped continuously at 150 percent. The observed runs had
+zero post-readiness underflow frames; discontinuous seek priming is counted
+separately. A sampled producer receipt observed a 200-to-50-percent change
+within 183 ms of the saved command. This is not an audible response or hardware
+latency measurement. Buffer ownership is fixed independently of song length;
+FFT-plan memory and DAC latency remain unknown.
+
+The static browser repeated paused/playing 25–200-percent changes with seven
+full-song media channels, looped at 200 percent, and reached their exact
+243.880-second end while preparing a complete song export. The downloaded
+package passed every ZIP CRC check. Preparing that large package exceeded the
+UI-control observation timeout, so this does not establish smooth packaging
+responsiveness. Both actual clients now restart a completed recording with Play
+alone; a shared command regression covers rate, source and chart preservation.
+Independent listening for clicks, vocal artifacts and transient quality remains
+open. The legacy Rust-hosted LiveView client's rate-specific preparation still
+needs replacement; it is distinct from the public static WASM client.
+
 The ledger above is acceptance evidence for the exercised workflows, not a
 claim that later desktop changes are automatically verified on the web. The
 current published browser engine includes desktop work through `6e70367`.
