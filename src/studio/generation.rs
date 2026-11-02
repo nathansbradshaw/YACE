@@ -1204,7 +1204,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         let diagnostics = rsx! {div{class:"ra-saved-list",
             button{class:"action-secondary",disabled:busy,onclick:move |_|recover(data),"Open saved analysis…"}
             if let Some(root)=view.root.clone(){
-                if !busy && view.status.as_ref().is_some_and(|status|status.state!=State::Complete){button{class:"action-secondary",disabled:stale,onclick:move |_|{if data.peek().busy{return;}if let Err(error)=launch_worker(data,root.clone()){fail(data,error);}},"Resume saved analysis"}}
+                if !busy && view.status.as_ref().is_some_and(|status|status.state!=State::Complete){button{class:"action-secondary",disabled:stale,onclick:move |_|{if !data.peek().busy && let Err(error)=launch_worker(data,root.clone()){fail(data,error);}},"Resume saved analysis"}}
                 if complete && view.error.is_some(){button{class:"action-secondary",onclick:move |_|data.write().error=None,"Review saved draft"}}
             }
             if let Some(previous)=view.previous_draft.clone(){button{class:"action-secondary",disabled:busy,onclick:move |_|review_saved_part(studio,data,previous.clone()),"Previous successful draft"}}
