@@ -933,6 +933,15 @@ pub fn save_status() -> Option<&'static str> {
         "Saving locally…"
     })
 }
+/// Hidden linked parts may still be saving when the band editor is visible.
+#[cfg(target_arch = "wasm32")]
+pub fn has_unsaved_changes() -> bool {
+    try_consume_context::<DanceStudio>().is_some_and(|s| {
+        s.project.read().as_ref().is_some_and(|project| {
+            (s.saving)() || (s.blocked)() || (s.saved)() != Some(project.revision)
+        })
+    })
+}
 pub fn identity() -> Option<(String, String)> {
     let s = try_consume_context::<DanceStudio>()?;
     if !(s.open)() {

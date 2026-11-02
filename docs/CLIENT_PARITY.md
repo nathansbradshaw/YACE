@@ -99,6 +99,14 @@ actual anonymous read/rejection, rather than an authenticated live write.
 
 ## Platform boundaries
 
+Browser reload/close protection watches unsaved band and Dance/4-key projects,
+including hidden linked parts, pending save metadata and in-flight writes. A
+failed save keeps protection active even after automatic retries stop. The
+listener is removed after persistence catches up and when the app unmounts.
+The browser controls whether and how a leave-page confirmation is presented;
+this does not protect against process termination, device failure or storage
+eviction. Keep an independent downloaded project backup for recovery.
+
 Native filesystem operations use the OS picker. Browser imports use the OS
 picker and local browser storage; exports use downloads. A folder snapshot is
 not an ongoing sync connection. Git subprocesses, SSH and arbitrary disk writes
