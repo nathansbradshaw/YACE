@@ -69,6 +69,17 @@ backslashes or invalid UTF-8, rather than silently renaming them. The project an
 source stay available after a refusal. ZIP imports also refuse backslash entry
 names instead of treating them as a different directory structure.
 
+The status bar names the saved editing revision separately from the last song
+export. A later content edit marks the song copy as older; seeking or changing
+practice speed does not. Undo can restore the editing content that was exported.
+Selected-part exports and copies without audio remain labeled as such.
+
+On desktop, a song export is recorded after its separate folder is published.
+In the browser, preparing a ZIP and requesting its download are distinct states;
+the editor cannot confirm that the browser finished saving a file to disk. A
+project backup keeps undo history and this export record. Export status describes
+the editing snapshot, not a continuing check that an external copy still exists.
+
 ## Edit notes
 
 Use **Add part** beside **Track** to add guitar, bass, drums, Keys, Pro Keys or

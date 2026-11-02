@@ -3,6 +3,28 @@ use super::{brand::BrandMark, icons::Icon, shortcuts::keep_space_local, state::S
 use dioxus::prelude::*;
 
 #[component]
+pub(super) fn ExportSummary(studio: Studio) -> Element {
+    if super::dance::active() || studio.snapshot().is_none() {
+        return rsx! {};
+    }
+    let state = (studio.export_state)();
+    let text = state.summary();
+    let title = state
+        .error
+        .clone()
+        .or_else(|| {
+            state
+                .receipt
+                .as_ref()
+                .map(|r| format!("{} · {}", text, r.destination))
+        })
+        .unwrap_or_else(|| {
+            "Project autosave keeps editing state. Export a song copy separately.".into()
+        });
+    rsx! {span{role:"status",aria_label:"Song export status",title,style:"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%","{text}"}}
+}
+
+#[component]
 pub fn ProjectBar(mut studio: Studio) -> Element {
     let document = studio.snapshot();
     let loaded = document.is_some() || super::dance::active();

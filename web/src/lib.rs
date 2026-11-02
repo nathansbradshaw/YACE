@@ -33,6 +33,8 @@ pub mod editor;
 pub mod editor_validation;
 #[path = "../../src/export_options.rs"]
 pub mod export_options;
+#[path = "../../src/export_state.rs"]
+pub mod export_state;
 pub mod files;
 #[path = "../../src/game_export.rs"]
 pub mod game_export;

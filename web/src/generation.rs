@@ -79,6 +79,7 @@ pub fn implementation_hash() -> String {
         include_bytes!("../../src/models/postprocessing.rs"),
         include_bytes!("../../src/generation_build.rs"),
         include_bytes!("../../src/vocal_generation.rs"),
+        include_bytes!("../../src/vocal_acoustics.rs"),
         include_bytes!("../../src/vocal_pitch.rs"),
         include_bytes!("../../src/piano_model.rs"),
         include_bytes!("../../src/keyboard_detection.rs"),

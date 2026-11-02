@@ -38,6 +38,8 @@ pub struct Studio {
     pub export_ready: Signal<Option<(PathBuf, String, DownloadKind)>>,
     pub export_busy: Signal<bool>,
     pub export_open: Signal<bool>,
+    pub export_state: Signal<crate::export_state::State>,
+    pub song_download_receipt: Signal<Option<(PathBuf, crate::export_state::Receipt)>>,
     pub doc: Signal<Option<Arc<Project>>>,
     pub store: Signal<Option<Store>>,
     pub timing: Signal<Option<TempoMap>>,
@@ -101,6 +103,8 @@ pub fn use_studio() -> Studio {
         library_files: use_signal(|| None),
         saved_projects: use_signal(|| None),
         export_ready: use_signal(|| None),
+        export_state: use_signal(Default::default),
+        song_download_receipt: use_signal(|| None),
         export_busy: use_signal(|| false),
         export_open: use_signal(|| false),
         doc: use_signal(|| None),
@@ -220,7 +224,7 @@ impl Studio {
         self.snapshot()
             .is_some_and(|doc| doc.selected_track == "Vocals")
     }
-    pub fn reload(mut self, _transport: bool) {
+    pub fn reload(mut self, transport: bool) {
         let Some(store) = self.store.read().clone() else {
             return;
         };
@@ -257,6 +261,10 @@ impl Studio {
                 self.timing.set(doc.timing(&store).ok());
                 self.chart_hash
                     .set(doc.chart_hash(&store).unwrap_or_default());
+                if !transport {
+                    self.export_state
+                        .set(crate::export_state::State::load(&store, &doc));
+                }
                 self.doc.set(Some(doc));
             }
             Err(error) => self.error.set(Some(format!("{error:#}"))),
@@ -275,6 +283,17 @@ impl Studio {
             action,
             Action::SelectTrack { .. } | Action::SelectNote { .. } | Action::Undo | Action::Redo
         );
+        let session = matches!(
+            action,
+            Action::Seek { .. }
+                | Action::Playback { .. }
+                | Action::Pause { .. }
+                | Action::SetPlaybackRate { .. }
+                | Action::SetLoop { .. }
+                | Action::SelectRegion { .. }
+                | Action::SelectTrack { .. }
+                | Action::SelectNote { .. }
+        );
         match store.apply(Request {
             expected_revision: doc.revision,
             actor: Actor {
@@ -286,7 +305,7 @@ impl Studio {
             Ok(_) => {
                 self.error.set(None);
                 self.dirty.set(true);
-                self.reload(false);
+                self.reload(session);
                 if selected {
                     self.group.set(Default::default());
                     self.vocal_note.set(None);
@@ -641,7 +660,11 @@ impl Studio {
                 self.status.set("Retaining recording locally…".into());
                 let prepared:crate::project_recording::PreparedRecording=crate::worker::run(crate::worker::Task::PrepareRecording{source:input,root:store.root.clone()},std::slice::from_ref(&store.root)).await?;
                 ensure!(self.store.read().as_ref().is_some_and(|current|current.root==store.root)&&self.snapshot().is_some_and(|current|current.revision==doc.revision),"The chart changed while choosing audio; attach it again to the current revision");
-                self.dispatch(Action::AttachRecording{prepared});Ok::<_,anyhow::Error>(())
+                self.dispatch(Action::AttachRecording{prepared});
+                if self.error.peek().is_some() {
+                    self.status.set("Recording not attached · chart preserved".into());
+                }
+                Ok::<_,anyhow::Error>(())
             }.await;
             if let Err(error) = result {
                 self.error.set(Some(error.to_string()));
@@ -1174,6 +1197,9 @@ impl Studio {
         }
         self.media.set(None);
         self.store.set(Some(store.clone()));
+        self.song_download_receipt.set(None);
+        self.export_state
+            .set(crate::export_state::State::load(&store, &doc));
         self.saved_revision.set(saved_revision);
         self.metadata.set(metadata);
         self.timing.set(Some(timing));
@@ -1232,6 +1258,13 @@ impl Studio {
                 );
                 options.selected(&store, &doc)?;
                 let name = format!("{} reviewed.zip", self.metadata_value("name"));
+                let receipt = crate::export_state::Receipt::capture(
+                    &store,
+                    &doc,
+                    &options,
+                    name.clone(),
+                    crate::export_state::Delivery::PreparedZip,
+                )?;
                 let output = PathBuf::from(format!("/exports/{}", js_sys::Date::now() as u64));
                 self.status
                     .set("Preparing playable song ZIP locally…".into());
@@ -1267,6 +1300,19 @@ impl Studio {
                 )
                 .await?;
                 let archive = output.with_extension("zip");
+                if self.store.peek().as_ref().is_some_and(|s| s.root == root) {
+                    if let Err(error) = receipt.save(&store) {
+                        self.error.set(Some(format!(
+                            "Song ZIP prepared, but its history could not be saved: {error:#}"
+                        )));
+                    }
+                    let current = self.snapshot().context("Project closed")?;
+                    self.export_state
+                        .set(crate::export_state::State::load(&store, &current));
+                    self.dirty.set(true);
+                }
+                self.song_download_receipt
+                    .set(Some((root.clone(), receipt)));
                 self.export_open.set(false);
                 if let Some((previous, _, _)) =
                     self.export_ready
@@ -1285,6 +1331,7 @@ impl Studio {
         });
     }
     pub fn close_export(mut self) {
+        self.song_download_receipt.set(None);
         if let Some((path, _, _)) = self.export_ready.take() {
             crate::storage::clear(&path);
         }
@@ -1317,6 +1364,7 @@ impl Studio {
                 {
                     crate::storage::clear(&previous);
                 }
+                self.song_download_receipt.set(None);
                 Ok::<_, anyhow::Error>(())
             }
             .await;
@@ -1327,6 +1375,28 @@ impl Studio {
             }
             self.export_busy.set(false);
         });
+    }
+    pub fn song_download_requested(mut self) {
+        let Some((root, mut receipt)) = (self.song_download_receipt)() else {
+            return;
+        };
+        let Some(store) = self.store.peek().clone().filter(|s| s.root == root) else {
+            return;
+        };
+        let result = receipt
+            .request_download()
+            .and_then(|()| receipt.save(&store));
+        if let Err(error) = result {
+            self.error.set(Some(format!(
+                "Download requested, but its history could not be saved: {error:#}"
+            )));
+        }
+        if let Some(doc) = self.snapshot() {
+            self.export_state
+                .set(crate::export_state::State::load(&store, &doc));
+        }
+        self.song_download_receipt.set(Some((root, receipt)));
+        self.dirty.set(true);
     }
     pub fn attach_stems_dialog(mut self) {
         let expected_root = self.store.read().as_ref().map(|store| store.root.clone());

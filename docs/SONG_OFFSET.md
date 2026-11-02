@@ -23,3 +23,10 @@ events. Existing source files and retained originals stay unchanged.
 
 Earlier vocal review evidence is archived when the chart clock changes; Undo
 restores it. Recheck the changed timing against the recording before approving it.
+
+Browser verification exercised a +250 ms chart offset: an authored note moved
+from 2.500 to 2.750 seconds, Undo restored it, and Redo/reload kept the shift.
+The downloaded chart retained tick 2400 and stored `Offset = 0.25` without an
+additional INI delay. An untouched game-MIDI import was also shifted by -250 ms;
+its exported MIDI remained byte-for-byte identical, with `delay = -250` in INI.
+Actual downloads and the private source recording remain outside Git.
