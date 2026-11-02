@@ -99,6 +99,7 @@ pub fn seek(seconds: f64) {
 }
 pub fn playback(playing: bool) {
     let mut s = consume_context::<DanceStudio>();
+    s.playback_intent.set((s.playback_intent)().wrapping_add(1));
     if !playing {
         s.playing.set(false);
     }

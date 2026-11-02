@@ -2,7 +2,7 @@
 use super::{
     icons::Icon,
     note_canvas::{Ruler, TrackRoll, VocalRoll, Waveform},
-    state::{EditTool, Studio, clock},
+    state::{EditTool, Studio},
     track_picker::TrackPicker,
 };
 use dioxus::prelude::*;
@@ -24,7 +24,7 @@ pub fn ChartDesk(mut studio: Studio) -> Element {
             super::dance::view_epoch(),
             super::dance::selected_track().unwrap_or_default()
         );
-        return rsx! {section{class:"chart-desk",aria_label:"Note editor",tabindex:"-1",onmounted:move |event|studio.editor_focus.set(Some(event.data())),EditingToolbar{studio,hidden_flags}for key in [source]{super::dance::Roll{key:"{key}",studio}}}};
+        return rsx! {section{class:"chart-desk",aria_label:"Note editor",tabindex:"-1",onmounted:move |event|studio.editor_focus.set(Some(event.data())),EditingToolbar{studio,hidden_flags}for key in [source]{super::dance::Roll{key:"{key}",studio}}super::song_overview::SongOverview{studio}}};
     }
     let Some(document) = studio.snapshot() else {
         return rsx! {};
@@ -45,7 +45,7 @@ pub fn ChartDesk(mut studio: Studio) -> Element {
     rsx! {
         section { class: "chart-desk", aria_label: "Note editor", tabindex: "-1", onmounted: move |event| studio.editor_focus.set(Some(event.data())),
             EditingToolbar { studio,hidden_flags }
-            div { class: "chart-desk-scroll",
+            div { class: "chart-desk-scroll", onwheel: move |event| super::song_overview::pan(studio,event),
                 div { class: "chart-desk-ruler", super::sections::SectionStrip { studio } super::timing_editor::TimingStrip { studio } Ruler { studio }
                     div { class: "midi-waveform-strip", div { class: "midi-waveform-label", style: "width:140px;flex-shrink:0", "Recording" } Waveform { studio } }
                 }
@@ -55,11 +55,7 @@ pub fn ChartDesk(mut studio: Studio) -> Element {
                     }
                 }
             }
-            label { class: "chart-desk-navigation", aria_label: "Timeline navigation",
-                span { "{clock((studio.view_start)())}" }
-                input { r#type: "range", min: "0", max: "{(document.duration - (studio.span)()).max(0.0)}", step: "0.01", value: "{studio.view_start}", aria_label: "Timeline position", onkeydown: move |event| event.stop_propagation(), oninput: move |event| { if let Ok(value) = event.value().parse() { studio.view_start.set(value); } } }
-                span { "{clock(((studio.view_start)() + (studio.span)()).min(document.duration))}" }
-            }
+            super::song_overview::SongOverview {studio}
         }
     }
 }

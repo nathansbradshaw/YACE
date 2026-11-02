@@ -34,6 +34,7 @@ mod selection_desk;
 mod session;
 mod sheet;
 mod shortcuts;
+mod song_overview;
 mod source_choice;
 mod star_power;
 pub mod state;
