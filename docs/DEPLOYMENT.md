@@ -1,12 +1,16 @@
 # Public static hosting
 
-The production hostname is `yace.n8bradshaw.com`. Sites hosts the compiled static
-application with public access and no sign-in. The GitHub source repository is
-public at <https://github.com/nathansbradshaw/YACE>.
+The production hostname is `yace.n8bradshaw.com`. GitHub Pages hosts the compiled
+static application with public access and no sign-in, from the root of the
+`codex/yace-public-assets` branch in the existing public repository
+<https://github.com/nathansbradshaw/YACE>. The asset branch contains deployable
+files; `main` contains the Rust sources. Pages uses branch deployment with
+`.nojekyll` and `CNAME` at the asset root.
 
-The stable Sites identity is tracked in `.openai/hosting.json`. Reuse that project
-ID; do not create another Site for an update. Its generated origin is
-<https://yace-n8bradshaw.aurorasheep.chatgpt.site>.
+The previous Sites deployment is retained as a rollback, with its stable identity
+in `.openai/hosting.json` and origin
+<https://yace-n8bradshaw.aurorasheep.chatgpt.site>. Do not create another Site or
+delete the retained deployment during routine Pages updates.
 
 ## Build and update
 
@@ -19,13 +23,11 @@ the custom-domain application and the feature's actual browser workflow.
    build with `cargo run --locked --manifest-path web/tools/Cargo.toml -- build`.
 2. The application build emits `web/dist`. Do not include recordings, projects,
    models, local credentials or runtime data in a deployment.
-3. Open the existing Site's deployment repository in a separate, empty checkout
-   using its native Sites source credential and source workflow. This repository
-   contains the compiled assets, not the native application's source history.
-   Preserve its `.openai/hosting.json` and project ID. Stage the new bundle with
-   the Rust static tool: `yace-static-web stage /path/to/hosting/dist SOURCE_SHA`.
+3. Reuse a clean worktree of `codex/yace-public-assets` in the existing repository.
+   Stage the new bundle with the Rust static tool:
+   `yace-static-web stage /path/to/pages-worktree SOURCE_SHA`.
    Use the complete verified Git source revision. This creates an immutable
-   `dist/releases/SOURCE_SHA/` and updates the root entry point and build info.
+   `releases/SOURCE_SHA/` and updates the root entry point and build info.
    Preserve earlier release directories and the original root assets; do not
    replace the hosting directory with a flat `rsync --delete` copy.
    If the retained root `runtime/` is byte-identical to the new bundle, add
@@ -33,10 +35,10 @@ the custom-domain application and the feature's actual browser workflow.
    Staging verifies every runtime file before changing the new generated
    module's relative import; earlier modules and runtime bytes stay untouched.
    A changed runtime is rejected in this mode and needs a complete release.
-4. Use the Sites source workflow to commit/push that exact state and package it.
-   Save the returned commit/archive as a Site version, then deploy that version
-   with the public deployment operation. Keep credentials in memory and pass
-   them only through the helper's hidden stdin.
+4. Preserve `.nojekyll` and `CNAME` containing `yace.n8bradshaw.com`. Commit/push
+   the staged files to `codex/yace-public-assets` without rewriting its history.
+   Wait for the Pages deployment to succeed. Do not merge compiled assets into
+   `main`, and do not publish recordings, model weights or local project data.
 5. Verify the deployment result and the app on the custom domain. Opening files,
    editing, audio, recovery and exports run locally in the browser; no charting
    API or model service is configured.
@@ -54,19 +56,28 @@ The first published artifact was built from Rust source commit
 
 ## DNS
 
-Cloudflare hosts the `n8bradshaw.com` zone. The custom-domain configuration is
-managed through Sites. Keep its CNAME and verification TXT records in DNS:
+Cloudflare hosts the `n8bradshaw.com` zone. GitHub Pages manages the custom domain
+and its HTTPS certificate. Keep this DNS-only CNAME:
 
 | Type | Name | Value |
 | --- | --- | --- |
-| CNAME | `yace` | `custom-domains.chatgpt.site` |
+| CNAME | `yace` | `nathansbradshaw.github.io` |
+
+Keep the previous Sites verification records while retaining its rollback:
+
+| Type | Name | Value |
+| --- | --- | --- |
 | TXT | `_openai-site-verification.yace` | `openai-site-verification=x4Qz9eSRzkB1KW1wh4qcEoMm1d8m5dOtbXChM5Xz2Yw` |
 | TXT | `_cf-custom-hostname.yace` | `17977612-e241-4f62-ae5e-0746f61e88ba` |
 
-Use DNS-only routing for the CNAME while Sites provisions and validates the
-custom hostname and HTTPS certificate. These TXT values are public domain
-ownership challenges, not application secrets. If the custom domain is ever
-recreated, use the fresh records returned by Sites rather than reusing this list.
+Configure the custom domain in Pages before changing DNS. Wait for its DNS check
+and certificate provisioning; validate ordinary HTTPS before enabling Enforce
+HTTPS. If provisioning stalls after DNS is correct, follow GitHub's documented
+remove/re-add custom-domain procedure. Never bypass TLS warnings or weaken the
+zone's TLS settings. The TXT values above are public ownership challenges.
+
+Changing the host behind the same HTTPS hostname preserves that origin's browser
+saves. GitHub's default `github.io` address has a separate browser storage origin.
 
 Browser recovery data belongs to an origin. Projects saved on loopback or the
 generated Sites origin do not automatically appear on the custom hostname;
