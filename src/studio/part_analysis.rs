@@ -452,14 +452,67 @@ fn save_report(
     });
 }
 
+#[derive(Clone, Copy)]
+struct AnalysisUi {
+    open: Signal<bool>,
+    selected: Signal<StemId>,
+}
+
+pub(super) fn provide_panel() {
+    let open = use_signal(|| false);
+    let selected = use_signal(|| StemId::Guitar);
+    use_context_provider(|| AnalysisUi { open, selected });
+}
+
 #[component]
 pub fn PartAnalysisButton(studio: Studio) -> Element {
-    let mut open = use_signal(|| false);
+    let AnalysisUi {
+        mut open,
+        mut selected,
+    } = use_context();
+    let disabled = studio.store.read().is_none() || studio.doc.read().is_none();
+    rsx! {
+        button {class:if open(){"studio-tool active"}else{"studio-tool"},disabled,
+            title:"Find where source attacks, saved detections and chart notes differ",aria_expanded:open().to_string(),aria_controls:"part-analysis-panel",
+            onclick:move |_|{
+                if !open() && let Some(project)=studio.snapshot(){
+                    let instrument=if project.selected_track.ends_with("Drums"){Some(StemId::Drums)}else if project.selected_track.ends_with("DoubleBass"){Some(StemId::Bass)}else if project.selected_track.ends_with("Single"){Some(StemId::Guitar)}else{None};
+                    if let Some(instrument)=instrument{selected.set(instrument);}
+                }
+                open.set(!open());
+            },
+            Icon{name:"search",size:13} "Part analysis"
+        }
+    }
+}
+
+#[component]
+pub fn PartAnalysisPanel(studio: Studio) -> Element {
+    let AnalysisUi {
+        mut open,
+        mut selected,
+    } = use_context();
     let busy = use_signal(|| false);
     let cached = use_signal(|| None::<Cached>);
     let error = use_signal(|| None::<String>);
-    let mut selected = use_signal(|| StemId::Guitar);
     let mut section_id = use_signal(|| None::<String>);
+    use_effect(move || {
+        if !open() {
+            return;
+        }
+        // Opening is the trigger, not edits or a failed worker completing.
+        // Reads inside this task do not subscribe the effect to worker state.
+        spawn(async move {
+            section_id.set(None);
+            let valid = cached
+                .peek()
+                .as_ref()
+                .is_some_and(|c| snapshot(studio).is_some_and(|(_, _, key)| key == c.key));
+            if !valid {
+                start(studio, busy, cached, error);
+            }
+        });
+    });
     let kit = KitUi {
         cached: use_signal(|| None),
         busy: use_signal(|| false),
@@ -525,32 +578,21 @@ pub fn PartAnalysisButton(studio: Studio) -> Element {
                 .find(|s| Some(&s.id) == section_id.read().as_ref())
         })
         .cloned();
-    let button_disabled = studio.store.read().is_none() || studio.doc.read().is_none();
     let playback_icon = if studio.snapshot().is_some_and(|p| p.transport.playing) {
         "pause"
     } else {
         "play"
     };
     rsx! {
-        button {class:if open(){"studio-tool active"}else{"studio-tool"},disabled:button_disabled,
-            title:"Find where source attacks, saved detections and chart notes differ",aria_expanded:open().to_string(),
-            onclick:move |_|{open.set(!open());if open(){
-                if let Some(project)=studio.snapshot(){
-                    let instrument=if project.selected_track.ends_with("Drums"){Some(StemId::Drums)}else if project.selected_track.ends_with("DoubleBass"){Some(StemId::Bass)}else if project.selected_track.ends_with("Single"){Some(StemId::Guitar)}else{None};
-                    if let Some(instrument)=instrument && instrument!=selected(){selected.set(instrument);section_id.set(None);}
-                }
-                let valid=cached.read().as_ref().is_some_and(|c|snapshot(studio).is_some_and(|(_,_,key)|key==c.key));if !valid{start(studio,busy,cached,error);}
-            }},
-            Icon{name:"search",size:13} "Part analysis"
-        }
         if open() {
-            aside {class:"part-analysis-drawer",role:"dialog",aria_label:"Part analysis",
-                onkeydown:move|event:KeyboardEvent|{if event.key()==Key::Escape{open.set(false);}event.stop_propagation();},
+            aside {id:"part-analysis-panel",class:"part-analysis-drawer",role:"dialog",aria_label:"Part analysis",tabindex:"-1",
+                onmounted:move |event| async move {let _=event.set_focus(true).await;},
+                onkeydown:move|event:KeyboardEvent|{if event.key()==Key::Escape{event.prevent_default();open.set(false);studio.focus_editor();}event.stop_propagation();},
                 div {class:"part-analysis-header",
                     div {class:"part-analysis-heading",Icon{name:"search",size:16}"Part analysis"}
                     button {class:"studio-tool",disabled:busy(),title:"Recheck the current saved chart and bound source",onclick:move |_|start(studio,busy,cached,error),if busy(){"Checking…"}else{"Recheck"}}
                     button {class:"part-analysis-icon-button",disabled:!fresh,aria_label:"Save analysis JSON",title:"Save the same source-bound report available to AI and CLI tools",onclick:move |_|{if let Some(c)=cached.read().as_ref(){save_report(studio,c.key.clone(),c.report.clone(),error);}},Icon{name:"export",size:16}}
-                    button {class:"part-analysis-icon-button",aria_label:"Close part analysis",title:"Close",onclick:move |_|open.set(false),Icon{name:"close",size:16}}
+                    button {class:"part-analysis-icon-button",aria_label:"Close part analysis",title:"Close",onclick:move |_|{open.set(false);studio.focus_editor();},Icon{name:"close",size:16}}
                 }
                 if let Some(message)=error(){div{class:"part-analysis-notice error",role:"alert",span{"{message}"}}}
                 if cache.is_some() && !fresh {div{class:"part-analysis-notice",span{"Chart or source changed."}}}
