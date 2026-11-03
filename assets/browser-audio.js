@@ -5,7 +5,7 @@ window.__yaceAudio?.pause();
 const context = new AudioContext();
 const output = context.createGain();
 output.connect(context.destination);
-let disposed = false, intent = 0, error = null, baseRate = config.rate;
+let disposed = false, intent = 0, error = null, baseRate = config.rate, epoch = 0;
 const channels = [], gains = [], nodes = [];
 const position = () => channels[0]?.currentTime || 0;
 function pause() { intent++; for (const element of channels) element.pause(); }
@@ -19,7 +19,8 @@ async function play() {
     if (disposed || ticket !== intent) for (const element of channels) element.pause();
   } catch (failure) { if (ticket === intent && !disposed) { pause(); error = String(failure); } }
 }
-function seek(seconds) {
+function seek(seconds, nextEpoch) {
+  epoch = nextEpoch;
   const target = Math.max(0, Math.min(seconds, channels[0]?.duration || 0));
   for (const element of channels) { element.currentTime = target; element.playbackRate = baseRate; }
 }
@@ -51,7 +52,7 @@ function dispose() {
 }
 const timer = setInterval(() => {
   if (disposed) return;
-  dioxus.send({position:position(), paused:channels[0]?.paused ?? true,
+  dioxus.send({epoch, position:position(), paused:channels[0]?.paused ?? true,
     ended:channels[0]?.ended ?? false, context:context.state, error,
     channels:channels.map(element => ({position:element.currentTime,
       ready:!element.paused && !element.seeking && element.readyState >= 3}))});

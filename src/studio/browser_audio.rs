@@ -10,6 +10,8 @@ use std::{
 #[derive(Default, serde::Deserialize)]
 struct Position {
     #[serde(default)]
+    epoch: u64,
+    #[serde(default)]
     position: f64,
     #[serde(default)]
     paused: bool,
@@ -30,6 +32,7 @@ struct ChannelPosition {
 #[derive(Clone)]
 pub(super) struct Player {
     state: Rc<RefCell<Position>>,
+    seek_epoch: Rc<Cell<u64>>,
     id: String,
 }
 impl Player {
@@ -46,7 +49,32 @@ impl Player {
     }
     pub(super) fn play(&self) {
         self.command("play", None);
-        self.state.borrow_mut().paused = false;
+        let mut state = self.state.borrow_mut();
+        state.paused = false;
+        state.ended = false;
+    }
+    fn begin_seek(&self, seconds: f64) -> u64 {
+        let epoch = self.seek_epoch.get().wrapping_add(1);
+        self.seek_epoch.set(epoch);
+        let mut state = self.state.borrow_mut();
+        state.position = seconds;
+        state.ended = false;
+        state.epoch = epoch;
+        epoch
+    }
+    fn seek(&self, seconds: f64) {
+        let epoch = self.begin_seek(seconds);
+        let id = serde_json::to_string(&self.id).unwrap();
+        let _ = dioxus_document::eval(&format!(
+            "if(window.__yaceAudio?.id==={id})window.__yaceAudio.seek({seconds},{epoch});"
+        ));
+    }
+    fn receive(&self, next: Position) {
+        // A timer receipt sent before a seek must not resurrect its old EOF
+        // flag or source position while the browser applies the command.
+        if next.epoch == self.seek_epoch.get() {
+            *self.state.borrow_mut() = next;
+        }
     }
     pub(super) fn set_volume(&self, volume: f32) {
         self.command("volume", Some(volume as f64));
@@ -288,9 +316,10 @@ impl Audio {
                 paused: true,
                 ..Default::default()
             })),
+            seek_epoch: Rc::new(Cell::new(0)),
             id,
         };
-        let player_state = player.state.clone();
+        let receiver = player.clone();
         let disposed = Rc::new(Cell::new(false));
         let stop = disposed.clone();
         spawn(async move {
@@ -298,7 +327,7 @@ impl Audio {
                 let Ok(next) = probe.recv::<Position>().await else {
                     break;
                 };
-                *player_state.borrow_mut() = next;
+                receiver.receive(next);
             }
         });
         let output_config = AudioOutputConfig {
@@ -335,8 +364,7 @@ impl Audio {
         self.set_routed_mix(mix, None)
     }
     pub(super) fn seek(&self, seconds: f64) -> Result<()> {
-        self.player.command("seek", Some(seconds.max(0.0)));
-        self.player.state.borrow_mut().position = seconds.max(0.0);
+        self.player.seek(seconds.max(0.0));
         for follower in self.followers.borrow_mut().iter_mut() {
             follower.reset();
         }
@@ -397,6 +425,41 @@ impl Drop for Audio {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn delayed_eof_receipts_cannot_cancel_replay_or_a_newer_seek() {
+        let player = Player {
+            state: Rc::new(RefCell::new(Position {
+                position: 243.88,
+                ended: true,
+                paused: true,
+                ..Default::default()
+            })),
+            seek_epoch: Rc::new(Cell::new(0)),
+            id: "offline".into(),
+        };
+        let first = player.begin_seek(0.);
+        player.receive(Position {
+            epoch: 0,
+            position: 243.88,
+            ended: true,
+            ..Default::default()
+        });
+        assert!(!player.empty());
+        assert_eq!(player.state.borrow().position, 0.);
+        let second = player.begin_seek(80.);
+        player.receive(Position {
+            epoch: first,
+            position: 1.,
+            ..Default::default()
+        });
+        assert_eq!(player.state.borrow().position, 80.);
+        player.receive(Position {
+            epoch: second,
+            position: 80.25,
+            ..Default::default()
+        });
+        assert_eq!(player.state.borrow().position, 80.25);
+    }
     #[test]
     fn routed_missing_stem_crossfade_weights_the_original_without_doubling_it() {
         let mut mix = StemMix::default().prepare([StemId::Guitar]).unwrap();
