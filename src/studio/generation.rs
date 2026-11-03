@@ -71,6 +71,12 @@ fn worker_log_tail(root: &Path) -> String {
 mod tests {
     use super::*;
     use dioxus::core::Mutation;
+    mod browser_actions {
+        include!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/web/src/studio/generation_actions.rs"
+        ));
+    }
     #[test]
     fn activity_preview_is_bounded_and_keeps_the_latest_worker_output() {
         let root = tempfile::tempdir().unwrap();
@@ -92,6 +98,44 @@ mod tests {
         ));
     }
     type Slot = Rc<RefCell<Option<Studio>>>;
+    #[test]
+    fn reopening_the_same_part_retains_saved_or_running_work() {
+        let root = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let store = fixture::fixture(root.path());
+        let target =
+            crate::parts::Target::capture(&store, &store.load().unwrap(), "ExpertSingle").unwrap();
+        for state in [
+            State::Running,
+            State::Complete,
+            State::Cancelled,
+            State::Failed,
+        ] {
+            let view = View {
+                target: Some(target.clone()),
+                root: Some(root.path().join("saved-draft")),
+                status: Some(Status {
+                    version: 1,
+                    state,
+                    stage: "editor".into(),
+                    detail: String::new(),
+                    request_sha256: String::new(),
+                    error: None,
+                }),
+                ..View::default()
+            };
+            assert!(view.retains_part(&store.root, "ExpertSingle"));
+            assert!(!view.retains_part(&store.root, "ExpertDrums"));
+            assert!(!view.retains_part(other.path(), "ExpertSingle"));
+            assert!(
+                !View {
+                    applied: true,
+                    ..view
+                }
+                .retains_part(&store.root, "ExpertSingle")
+            );
+        }
+    }
     fn loaded() -> Element {
         let mut studio = super::super::state::use_studio();
         let (store, slot) = use_context::<(crate::editor::Store, Slot)>();
@@ -268,7 +312,15 @@ impl Default for View {
         }
     }
 }
+
 impl View {
+    fn retains_part(&self, project: &Path, track: &str) -> bool {
+        !self.applied
+            && self.target.as_ref().is_some_and(|target| {
+                target.track == track
+                    && fs::canonicalize(project).is_ok_and(|project| target.project == project)
+            })
+    }
     fn signature(&self) -> String {
         serde_json::to_string(&(
             self.detection,
@@ -935,6 +987,11 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             return;
         };
         studio.generation_target.set(None);
+        if let Some(store) = studio.store.peek().as_ref()
+            && data.peek().retains_part(&store.root, &track)
+        {
+            return;
+        }
         if data.peek().busy || data.peek().worker.is_some() {
             studio.error.set(Some(
                 "A generation job is already running. Let it finish or cancel it first.".into(),
