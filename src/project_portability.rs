@@ -141,16 +141,15 @@ fn relocate_content(
             {
                 manifest.alignment.details.push_str(detail);
             }
-            if let Some(identity) = &mut manifest.generation {
-                if identity.parameters.len() < 100
-                    || identity.parameters.contains_key("portable_audio")
-                {
-                    identity
-                        .parameters
-                        .insert("portable_audio".into(), "peak-scaled-pcm24-v1".into());
-                    identity.cache_key =
-                        identity.calculated_cache_key(&manifest.source_audio_sha256)?;
-                }
+            if let Some(identity) = &mut manifest.generation
+                && (identity.parameters.len() < 100
+                    || identity.parameters.contains_key("portable_audio"))
+            {
+                identity
+                    .parameters
+                    .insert("portable_audio".into(), "peak-scaled-pcm24-v1".into());
+                identity.cache_key =
+                    identity.calculated_cache_key(&manifest.source_audio_sha256)?;
             }
         }
     }
