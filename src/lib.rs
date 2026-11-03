@@ -54,6 +54,7 @@ pub mod gameplay_view;
 pub mod generated_rules;
 pub mod generation;
 pub mod generation_build;
+pub mod generation_feedback;
 pub mod generation_progress;
 pub mod generation_protocol;
 pub mod guitar_attacks;

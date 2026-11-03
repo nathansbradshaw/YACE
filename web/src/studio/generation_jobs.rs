@@ -44,6 +44,9 @@ fn view(root: &std::path::Path) -> Result<View> {
 type Stop = Rc<Cell<bool>>;
 #[derive(Clone, Copy)]
 struct Runner {
+    rate: Signal<crate::generation_feedback::Tracker>,
+    step: Signal<String>,
+    started: Signal<Option<u64>>,
     updated: Signal<u64>,
     job: Signal<Option<Job>>,
     view: Signal<Option<View>>,
@@ -60,6 +63,8 @@ impl Runner {
         }
     }
     fn start(mut self, mut studio: Studio, mut job: Job) {
+        self.rate.set(Default::default());
+        self.started.set(Some(js_sys::Date::now() as u64));
         self.updated.set(js_sys::Date::now() as u64);
         let stop = Rc::new(Cell::new(false));
         self.stop.set(Some(stop.clone()));
@@ -89,6 +94,8 @@ impl Runner {
                         stage.label().into(),
                         None,
                     )?;
+                    self.step.set(stage.label().into());
+                    self.rate.set(Default::default());
                     self.status.set(format!(
                         "Saving job before {}…",
                         stage.label().to_ascii_lowercase()
@@ -98,7 +105,11 @@ impl Runner {
                     let roots = [job.root.clone()];
                     let progress = Rc::new(move |label: String| {
                         let mut runner = self;
-                        runner.updated.set(js_sys::Date::now() as u64);
+                        let now = js_sys::Date::now() as u64;
+                        runner.updated.set(now);
+                        runner
+                            .rate
+                            .with_mut(|rate| rate.observe(stage.label(), &label, None, now));
                         runner.status.set(label.clone());
                         let mut studio = studio;
                         studio.status.set(label);
@@ -128,6 +139,7 @@ impl Runner {
                     }
                     self.status
                         .set("Saving the completed stage locally…".into());
+                    self.rate.set(Default::default());
                     if generation::status(&job.root)?.state == State::Complete
                         && crate::parts::target(&job.root)?.is_some()
                         && let Err(error) = crate::parts::save_review(&job.root)
@@ -202,6 +214,8 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut model_busy = use_signal(|| false);
     let mut model_error = use_signal(|| None::<String>);
     let mut started = use_signal(|| None::<u64>);
+    let rate = use_signal(crate::generation_feedback::Tracker::default);
+    let step = use_signal(|| "Preparing recording".to_owned());
     let mut now = use_signal(|| js_sys::Date::now() as u64);
     let updated = use_signal(|| js_sys::Date::now() as u64);
     let mut status = use_signal(String::new);
@@ -299,6 +313,9 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         }
     });
     let runner = Runner {
+        rate,
+        step,
+        started,
         updated,
         job,
         view: current,
@@ -541,6 +558,13 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             });
         },"{title}"}}}}}
     };
+    let progress_card = rsx! {super::generation_status::GenerationStatus{
+        parts:current.read().as_ref().map(|view|view.settings.instruments.clone()).unwrap_or_else(&*requested),
+        recording:current.read().as_ref().map(|view|view.title.clone()).unwrap_or_else(||studio.metadata_value("name")),
+        step:step(),activity:status(),elapsed_ms:started().map_or(0,|start|now().saturating_sub(start)),
+        feedback:rate.read().feedback(now()),quiet_for:now().saturating_sub(updated())/1000,
+        stopping:stop.read().as_ref().is_some_and(|control|control.get())
+    }};
     if let Some(track) = (studio.generation_target)()
         .or_else(|| current.peek().as_ref().and_then(|view| view.part.clone()))
     {
@@ -622,7 +646,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 p{class:"ra-hint","Analysis stages are saved in this browser."}
             }
         }};
-        return rsx! {Panel{studio,track,recording,phase,activity,elapsed,quiet_for,problem:error(),controls,review,diagnostics,stop_after_step:true,stopping:stop.read().as_ref().is_some_and(|control|control.get()),can_start:!busy()&&!model_busy(),blocked_reason:if model_busy(){Some("Verifying the selected model…".into())}else{None},onstart:move |_|start_analysis.call(()),oncancel:move |_|{if let Some(control)=stop.read().as_ref(){control.set(true);status.set("Finishing this step before stopping…".into());}}}};
+        return rsx! {Panel{studio,track,recording,phase,activity,elapsed,quiet_for,problem:error(),controls,review,diagnostics,progress:if stop.read().is_some(){Some(progress_card)}else{None},stop_after_step:true,stopping:stop.read().as_ref().is_some_and(|control|control.get()),can_start:!busy()&&!model_busy(),blocked_reason:if model_busy(){Some("Verifying the selected model…".into())}else{None},onstart:move |_|start_analysis.call(()),oncancel:move |_|{if let Some(control)=stop.read().as_ref(){control.set(true);status.set("Finishing this step before stopping…".into());}}}};
     }
     let complete = current
         .read()
@@ -702,6 +726,8 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             if job().is_none() && !busy(){
                 {setup.clone()}
                 p{class:"generation-footnote","Choose what YACE should create from your recording."}
+            }else if busy() && stop.read().is_some(){
+                {progress_card}
             }else if busy(){
                 div{class:"generation-progress",role:"status",strong{if stop.read().is_some(){"Generating your draft"}else{"Preparing your draft"}}p{"{status}"}progress{aria_label:"Generation in progress"}p{class:"generation-footnote",if stop.read().as_ref().is_some_and(|control|control.get()){"This step will finish and save before stopping."}else{"You can close this window while YACE finishes."}}}
             }else{
