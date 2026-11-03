@@ -1872,6 +1872,9 @@ impl Studio {
         if (self.library_busy)() {
             return;
         }
+        let previous_library = (self.library)();
+        let previous_selected = (self.library_selected)();
+        let previous_status = (self.status)();
         self.library_busy.set(true);
         self.status
             .set("Finding charts (up to 3 folders deep)…".into());
@@ -1889,10 +1892,23 @@ impl Studio {
                 self.library_selected.set(None);
                 if single {
                     self.open_library_chart(0).await;
+                    // A cancelled or invalid single-project open must leave
+                    // the previous document's navigation and status intact.
+                    if (self.library_selected)() != Some(0) {
+                        self.library.set(previous_library);
+                        self.library_selected.set(previous_selected);
+                        self.status.set(previous_status);
+                    }
                 }
             }
-            Ok(Err(error)) => self.error.set(Some(format!("{error:#}"))),
-            Err(error) => self.error.set(Some(error.to_string())),
+            Ok(Err(error)) => {
+                self.status.set(previous_status);
+                self.error.set(Some(format!("{error:#}")));
+            }
+            Err(error) => {
+                self.status.set(previous_status);
+                self.error.set(Some(error.to_string()));
+            }
         }
     }
     #[cfg(not(feature = "browser"))]
@@ -2115,6 +2131,17 @@ impl Studio {
             }
         });
     }
+    fn update_library_for_project(mut self, root: &std::path::Path) {
+        let selected = self
+            .library
+            .read()
+            .as_ref()
+            .and_then(|library| library.index_for_project(root));
+        if selected.is_none() {
+            self.library.set(None);
+        }
+        self.library_selected.set(selected);
+    }
     pub async fn open_project(mut self, path: PathBuf) {
         self.analysis_preview.set(None);
         if let Err(error) = super::dance::flush().await {
@@ -2123,6 +2150,9 @@ impl Studio {
         }
         match super::dance::try_open_path(&path) {
             Ok(true) => {
+                if let Some((root, _)) = super::dance::overview_source() {
+                    self.update_library_for_project(&root);
+                }
                 super::dance::remember_recent(self);
                 if self.snapshot().is_some() {
                     self.dispatch(Action::Playback { playing: false });
@@ -2135,7 +2165,6 @@ impl Studio {
                 return;
             }
         }
-        self.library_selected.set(None);
         // Command-line opens and generation recovery may point to a containing
         // folder rather than the saved project itself.
         #[cfg(not(feature = "browser"))]
@@ -2285,8 +2314,8 @@ impl Studio {
         );
         let history_error = history.save().err();
         self.recent_projects.set(history);
+        self.update_library_for_project(&store.root);
         self.store.set(Some(store));
-        self.library_selected.set(None);
         self.timing.set(Some(timing));
         self.view_start
             .set((doc.transport.current_position(doc.duration) - 0.5).max(0.0));
