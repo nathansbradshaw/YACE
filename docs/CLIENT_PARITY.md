@@ -349,6 +349,16 @@ preserved the complete original MIDI bytes, and edited export retained injected
 opaque program/controller/SysEx/text events. Explicit chart/MIDI source choice
 is integrated; its browser recovery identity also includes alternate-source
 provenance so a pre-choice editing copy cannot discard a newly supplied source.
+Actual hosted checks exercised Cancel and both source choices using divergent
+chart and MIDI content. Chart edits, an exact downloaded backup and restored
+Undo/Redo retained the selected source and both original files. Choosing MIDI
+separately exposed its own parts; reload and an unrelated Pro Keys edit kept
+that choice. Downloads retained unknown chart headers, events and sections,
+custom INI fields, source `.lock` companions and a Unicode binary asset. The
+Unicode ZIP filename and payload were independently checked. An unsupported
+chart-to-MIDI conversion and an archive containing a literal backslash filename
+were explicitly refused with the accepted editing project intact. Native UI,
+other-platform filename behavior and target-game acceptance remain open.
 
 See [the dated acceptance evidence](BROWSER_ACCEPTANCE.md) for revisions, private
 artifacts, test coverage and limits. This gate concerns the supported YACE
