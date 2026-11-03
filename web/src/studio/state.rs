@@ -1479,6 +1479,61 @@ impl Studio {
     pub fn save_project(self) {
         self.save_project_with_options(crate::compact_backup::Options::default());
     }
+    pub fn recover_open_project(mut self) {
+        let Some(store) = self.store.peek().clone() else {
+            return;
+        };
+        // Use the committed document, even while a proposed analysis is shown.
+        let Some(doc) = self.doc.peek().clone() else {
+            return;
+        };
+        let Some(guard) = super::activity::BusyGuard::start(self.export_busy) else {
+            return;
+        };
+        let name = format!("{} recovery.zip", self.metadata_value("name"));
+        dioxus::core::spawn_forever(async move {
+            let _guard = guard;
+            let staging = PathBuf::from(format!("/recovery/{}", crate::storage::unique_id()));
+            let output = PathBuf::from(format!(
+                "/exports/recovery-{}.zip",
+                crate::storage::unique_id()
+            ));
+            self.status
+                .set("Recovering open project and available files…".into());
+            let result = async {
+                let report = crate::project_recovery::prepare(&store.root, &doc, &staging)?;
+                let _: () = crate::worker::run(
+                    crate::worker::Task::Archive {
+                        root: staging.clone(),
+                        output: output.clone(),
+                    },
+                    std::slice::from_ref(&staging),
+                )
+                .await?;
+                Ok::<_, anyhow::Error>(report)
+            }
+            .await;
+            crate::storage::clear(&staging);
+            match result {
+                Ok(report) => {
+                    if let Some((previous, _, _)) =
+                        self.export_ready
+                            .replace(Some((output, name, DownloadKind::Project)))
+                    {
+                        crate::storage::clear(&previous);
+                    }
+                    self.song_download_receipt.set(None);
+                    self.status.set(if report.source_error.is_some() || !report.missing_checkpoints.is_empty() || !report.checkpoint_errors.is_empty() || !report.missing_stems.is_empty() {
+                        "Recovery copy ready. Some source or history files need attention; see the report inside the ZIP."
+                    } else { "Recovery copy ready to download from the open editor" }.into());
+                }
+                Err(error) => {
+                    crate::storage::clear(&output);
+                    self.error.set(Some(format!("Could not prepare recovery copy: {error:#}. Keep this tab open; your editor state is still in memory.")));
+                }
+            }
+        });
+    }
     pub fn save_project_with_options(mut self, options: crate::compact_backup::Options) {
         if (self.export_busy)() {
             return;
