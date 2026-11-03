@@ -7,7 +7,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const ENTRY: &str = "import init from './yace_web.js';";
+const ENTRY: &str = "import('./yace_web.js')";
+const LEGACY_ENTRY: &str = "import init from './yace_web.js';";
 fn snapshot(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>> {
     fn visit(root: &Path, directory: &Path, output: &mut BTreeMap<PathBuf, Vec<u8>>) -> Result<()> {
         for entry in fs::read_dir(directory)? {
@@ -60,9 +61,20 @@ fn stage_bundle(
         return Err("Use the full lowercase Git source revision for a static release".into());
     }
     let entry = fs::read_to_string(source.join("index.html"))?;
-    if entry.matches(ENTRY).count() != 1 {
+    if entry.matches(ENTRY).count() + entry.matches(LEGACY_ENTRY).count() != 1 {
         return Err("Static entry point must import the generated application exactly once".into());
     }
+    let (entry_import, release_import) = if entry.contains(ENTRY) {
+        (
+            ENTRY,
+            format!("import('./releases/{revision}/yace_web.js')"),
+        )
+    } else {
+        (
+            LEGACY_ENTRY,
+            format!("import init from './releases/{revision}/yace_web.js';"),
+        )
+    };
     let original = snapshot(source)?;
     if original.get(Path::new("index.html")) != Some(&Sha256::digest(entry.as_bytes()).to_vec()) {
         return Err("Static entry changed during release staging".into());
@@ -144,10 +156,7 @@ fn stage_bundle(
     }
     // Preserve root assets from the first flat deployment, as well as every
     // immutable release. Open tabs may still need their next worker or model.
-    let index = entry.replace(
-        ENTRY,
-        &format!("import init from './releases/{revision}/yace_web.js';"),
-    );
+    let index = entry.replace(entry_import, &release_import);
     let temporary = target.join(format!(".index-{}", std::process::id()));
     fs::write(&temporary, index)?;
     fs::rename(temporary, target.join("index.html"))?;
@@ -214,6 +223,27 @@ mod tests {
         assert_eq!(snapshot(&host).unwrap(), before);
         fs::write(source.join("worker.js"), b"changed").unwrap();
         assert!(stage(&source, &host, &revision).is_err());
+        assert_eq!(snapshot(&host).unwrap(), before);
+    }
+    #[test]
+    fn legacy_startup_can_still_be_staged_but_mixed_entrypoints_are_rejected() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let host = temp.path().join("host");
+        let revision = "d".repeat(40);
+        bundle(&source, "legacy engine");
+        fs::write(source.join("index.html"), LEGACY_ENTRY).unwrap();
+        stage(&source, &host, &revision).unwrap();
+        assert!(
+            fs::read_to_string(host.join("index.html"))
+                .unwrap()
+                .contains(&format!(
+                    "import init from './releases/{revision}/yace_web.js';"
+                ))
+        );
+        let before = snapshot(&host).unwrap();
+        fs::write(source.join("index.html"), format!("{ENTRY};{LEGACY_ENTRY}")).unwrap();
+        assert!(stage(&source, &host, &"e".repeat(40)).is_err());
         assert_eq!(snapshot(&host).unwrap(), before);
     }
     #[test]

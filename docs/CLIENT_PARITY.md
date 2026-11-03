@@ -415,3 +415,13 @@ long-file memory and target-game acceptance remain separate gates.
 The static entry point stays small. Application rules, audio processing and
 browser API calls remain Rust. CPU-heavy work must allow editing and playback
 to continue; an enabled button that freezes the editor does not close a gap.
+Before the engine is ready, the static page displays a loading message with no
+animation or progress estimate. Dioxus mounting hides it; module-download and
+initialization failures use an alert with reload guidance. Actual browser checks
+held back the built module, returned a download failure, and then reloaded the
+complete editor successfully. Immutable release staging supports this startup
+import and older entrypoints while retaining engines needed by open tabs. This
+improves feedback without establishing a faster download or startup time.
+The resulting browser build also completed a real 243.880-second song at
+200 percent, retained a final-note edit through Undo/Redo, and reimported its
+downloaded song ZIP with the original chart and recording bytes intact.
