@@ -50,9 +50,12 @@ stretching; the proposed-review guard continues to save only canonical transport
 Actual native checks exercised original recording, isolated stems and a restored
 Kick audition; rate changes retained the source identity and play/pause state.
 A complete 243.880-second recording played from beginning to end at 200 percent.
-A 130–132-second loop wrapped continuously at 150 percent. The observed runs had
-zero post-readiness underflow frames; discontinuous seek priming is counted
-separately. A sampled producer receipt observed a 200-to-50-percent change
+A 130–132-second loop wrapped continuously at 150 percent. Earlier observed runs
+had zero post-readiness underflow frames. A later full-song run under concurrent
+build and media load observed 663 underflow frames (about 15 ms at 44.1 kHz);
+end-of-song priming resets that counter, so its final zero is not a zero-stall
+claim. Controlled stress and listening acceptance remain open. Discontinuous
+seek priming is counted separately. A sampled producer receipt observed a 200-to-50-percent change
 within 183 ms of the saved command. This is not an audible response or hardware
 latency measurement. Buffer ownership is fixed independently of song length;
 FFT-plan memory and DAC latency remain unknown.
@@ -64,13 +67,25 @@ package passed every ZIP CRC check. Preparing that large package exceeded the
 UI-control observation timeout, so this does not establish smooth packaging
 responsiveness. Both actual clients now restart a completed recording with Play
 alone; a shared command regression covers rate, source and chart preservation.
+Shared controls now provide a whole-percent slider, exact percentage input and
+100-percent reset. Transient previews preserve canonical history until commit;
+invalid drafts restore the saved rate. Actual native, static and optional hosted
+clients exercised 25, 50, 83, 100, 150 and 200 percent while paused and playing,
+including cached kit audition. The final static build completed separate kit and
+original-recording full-song runs at 200 percent with eight media channels, then
+saved and recovered 83 percent with selected note timing and duration intact.
+
+The optional Rust-hosted LiveView client now uses original-rate local media and
+the shared Rust drift policy. Local Blob media avoids an observed seventh-stem
+range-loading stall at loop boundaries; seek epochs reject delayed EOF receipts.
+Actual seven-channel loops and full-song playback passed after those fixes.
 Independent listening for clicks, vocal artifacts and transient quality remains
-open. The legacy Rust-hosted LiveView client's rate-specific preparation still
-needs replacement; it is distinct from the public static WASM client.
+open; media clock agreement does not establish acoustic synchronization.
 
 The ledger above is acceptance evidence for the exercised workflows, not a
 claim that later desktop changes are automatically verified on the web. The
-current published browser engine is `54abd143`, merged into main by PR 73.
+current practice-speed implementation is `2e0cbb89`, merged into main by PR 76
+at `cd03655e`. All four normal CI jobs passed on that exact feature head.
 GitHub Pages now serves that engine on `yace.n8bradshaw.com`; its approved
 certificate and HTTPS redirect were verified. The served WASM matches the
 staged artifact. Actual hosted overview seeking, local vocal pitch analysis and
