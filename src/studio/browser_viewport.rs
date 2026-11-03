@@ -105,27 +105,30 @@ fn use_viewport() -> (Signal<bool>, Signal<bool>) {
     }
     let mut small = use_signal(|| false);
     let mut dismissed = use_signal(|| false);
-    let mut bridge = use_signal(|| None::<dioxus_document::Eval>);
     use_future(move || async move {
         // Hosted Rust cannot access the browser's window or sessionStorage.
         // This bridge reports dimensions only; Rust owns thresholds and UI.
         let mut eval = dioxus_document::eval(&format!(
             r#"
             const key={key};
-            let closed;
-            const stop=new Promise(resolve=>{{closed=()=>resolve('stop');}});
+            window.__yaceDesktopViewportDispose?.();
+            let finish;
+            const stopped=new Promise(resolve=>{{finish=resolve;}});
             const report=()=>{{let dismissed=false;try{{dismissed=sessionStorage.getItem(key)==='1';}}catch(_){{}}
                 dioxus.send({{width:innerWidth,height:innerHeight,dismissed}});}};
             const socket=window.ipc?.ws;
+            const dispose=()=>{{window.removeEventListener('resize',report);
+                socket?.removeEventListener('close',dispose);window.removeEventListener('beforeunload',dispose);
+                if(window.__yaceDesktopViewportDispose===dispose)delete window.__yaceDesktopViewportDispose;
+                finish();}};
+            window.__yaceDesktopViewportDispose=dispose;
             window.addEventListener('resize',report);
-            socket?.addEventListener('close',closed,{{once:true}});
-            try{{report();for(;;){{const message=await Promise.race([dioxus.recv(),stop]);
-                if(message==='stop')break;
-            }}}}finally{{window.removeEventListener('resize',report);socket?.removeEventListener('close',closed);}}
+            socket?.addEventListener('close',dispose,{{once:true}});
+            window.addEventListener('beforeunload',dispose,{{once:true}});
+            report();await stopped;
         "#,
             key = serde_json::to_string(DISMISSED).unwrap()
         ));
-        bridge.set(Some(eval));
         while let Ok(view) = eval.recv::<Viewport>().await {
             let value = policy::cramped(view.width, view.height);
             if *small.peek() != value {
@@ -137,9 +140,7 @@ fn use_viewport() -> (Signal<bool>, Signal<bool>) {
         }
     });
     use_drop(move || {
-        if let Some(eval) = *bridge.peek() {
-            let _ = eval.send("stop");
-        }
+        let _ = dioxus_document::eval("window.__yaceDesktopViewportDispose?.();");
     });
     (small, dismissed)
 }
