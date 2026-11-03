@@ -128,10 +128,3 @@
 .generation-summary-open > span { overflow-wrap:anywhere; }
 .generation-summary-dismiss { flex:none; border:0; padding:0 3px; color:inherit; background:transparent; font-size:18px; }
 .generation-log { max-height:180px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:11px var(--font-mono); }
-
-@media(max-width:650px) {
-  .generation-modal .generation-grid {
-    grid-template-columns:1fr
-  }
-
-}

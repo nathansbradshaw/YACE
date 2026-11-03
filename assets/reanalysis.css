@@ -28,4 +28,3 @@
 .ra-stale{padding:9px 12px;border-radius:6px;background:var(--bg-tertiary);font-size:12px;color:var(--text-secondary)}
 .ra-review-actions{display:flex;gap:10px;justify-content:flex-end}.ra-review-actions button{padding:9px 14px}
 .ra-change-list{padding-left:20px;font-size:12px;line-height:1.8}.ra-saved-list{display:grid;gap:6px;margin-top:10px}
-@media(max-width:520px){.reanalysis-sheet .tool-sheet-content{padding:16px;gap:16px}.ra-target{display:grid;gap:4px}.ra-review-toolbar{align-items:stretch}.ra-review-toolbar .ra-segments{flex-basis:100%}}

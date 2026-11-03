@@ -2,6 +2,8 @@
 mod activity;
 #[path = "../../../src/studio/brand.rs"]
 mod brand;
+#[path = "../../../src/studio/browser_viewport.rs"]
+mod browser_viewport;
 #[path = "../../../src/studio/chart_desk.rs"]
 mod chart_desk;
 #[path = "../../../src/studio/clean.rs"]
@@ -200,7 +202,7 @@ pub fn App() -> Element {
             studio.tick();
         }
     });
-    rsx! {style{"{CSS}"}div{class:"studio-app",tabindex:"-1",onkeydown:move|event|{shortcuts::handle(studio,event);},
+    rsx! {style{"{CSS}"}browser_viewport::BrowserViewport{div{class:"studio-app",tabindex:"-1",onkeydown:move|event|{shortcuts::handle(studio,event);},
         project_bar::ProjectBar{studio}
         if dance::active()||studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
     div{class:"studio-status",activity::Status{studio,title:"Local browser activity"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{role:"status",title:"Browser saves stay in this browser profile. Download a project backup to keep an independent copy.",if let Some(status)=dance::save_status(){"{status}"}else if let Some(doc)=studio.snapshot(){if (studio.dirty)()||(studio.persistence_busy)(){"Project r{doc.revision} · saving in this browser…"}else if (studio.saved_revision)()!=Some(doc.revision){"Project r{doc.revision} not saved · download backup"}else{"Project saved in this browser · r{doc.revision}"}}else{"Projects save automatically in this browser"}} project_bar::ExportSummary{studio}}
@@ -230,5 +232,5 @@ pub fn App() -> Element {
         dance::Controller{studio}
         if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
         if (studio.blank_chart)(){new_blank::Setup{studio}}
-        }}
+        }}}
 }

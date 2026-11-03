@@ -1,0 +1,6 @@
+.browser-viewport { height:100%; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+.browser-desktop-scroll { flex:1; min-height:0; overflow:auto; }
+.browser-desktop-scroll > .studio-app { min-width:1024px; min-height:600px; height:100%; }
+.desktop-space-notice { flex:none; display:flex; align-items:center; flex-wrap:wrap; gap:4px 12px; padding:6px 12px; border-bottom:1px solid var(--border-color); background:var(--bg-secondary); color:var(--text-secondary); font-size:12px; line-height:1.4; }
+.desktop-space-notice > span { flex:1 1 240px; min-width:0; }
+.desktop-space-notice > button { flex:none; min-height:24px; padding:2px 8px; font-size:12px; }

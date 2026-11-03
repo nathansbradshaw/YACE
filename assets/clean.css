@@ -139,14 +139,3 @@
   cursor:pointer;
   margin:8px 0
 }
-
-@media(max-width:700px) {
-  .clean-modal .clean-columns {
-    grid-template-columns:1fr
-  }
-
-  .clean-modal .field-row {
-    flex-wrap:wrap
-  }
-
-}
