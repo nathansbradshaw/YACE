@@ -23,6 +23,7 @@ pub fn VocalPitchAnalyzer(mut studio: Studio, range: Option<TimeRange>) -> Eleme
     let include_pitch = use_signal(|| false);
     let mut selection_start = use_signal(|| "0".to_string());
     let mut selection_end = use_signal(String::new);
+    let mut range_open = use_signal(|| false);
     use_drop(move || {
         if let Some(stop) = stop.read().as_ref() {
             cancel(stop);
@@ -76,12 +77,13 @@ pub fn VocalPitchAnalyzer(mut studio: Studio, range: Option<TimeRange>) -> Eleme
             button{class:"studio-tool",disabled:busy()||!ready,onclick:move |_|start(studio,None,busy,status,stop),"Analyze all vocals"}
             if busy(){button{class:"studio-tool",onclick:move |_|{if let Some(s)=stop.read().as_ref(){cancel(s);}status.set("Cancelling comparison…".into());},"Cancel"}}
         }
-        details{class:"review-evidence",summary{"Choose time range"}
+        button{class:"studio-tool",aria_expanded:range_open(),onclick:move |_|range_open.set(!range_open()),"Choose time range"}
+        if range_open(){div{class:"review-evidence",onkeydown:move|e|e.stop_propagation(),
             label{span{"Start (seconds)"}input{r#type:"number",min:"0",step:"0.01",aria_label:"Vocal analysis start seconds",value:selection_start(),oninput:move|e|selection_start.set(e.value())}}
             label{span{"End (seconds)"}input{r#type:"number",min:"0",step:"0.01",aria_label:"Vocal analysis end seconds",placeholder:"{doc.duration:.2}",value:selection_end(),oninput:move|e|selection_end.set(e.value())}}
             button{class:"studio-tool",disabled:busy()||!ready||custom_range.is_none(),onclick:move |_|start(studio,custom_range,busy,status,stop),"Analyze time range"}
             if custom_range.is_none(){p{class:"field-hint","Choose a start before the end, within the recording."}}
-        }
+        }}
         if !ready{p{class:"field-hint","Attach a vocal stem to compare these notes with the recording."}}
         if busy(){p{role:"status","{status}"}}
         if let Some(a)=analysis {
