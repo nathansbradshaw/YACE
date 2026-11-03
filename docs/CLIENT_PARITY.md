@@ -101,6 +101,16 @@ instrument. Unknown source identifiers remain visible. These parts retain
 their interchange support; dedicated rhythm/co-op and six-fret editing controls
 remain open.
 
+Actual browser checks used 34 chart choices across four difficulties, including
+rhythm/co-op, five six-fret families, Keys, Pro Keys and vocals. Deselecting only
+Expert six-fret bass removed exactly that difficulty's notes and techniques;
+selecting all restored byte-identical MIDI. An ordinary MIDI-only reopen,
+Pro Keys edit and Undo/Redo retained the other instrument parts and markers.
+Final Undo again restored byte-identical MIDI. The current static build also
+completed the original 243.880-second recording in a separate band project.
+Fresh native controls, hosted release and target-game acceptance remain open;
+retaining six-fret Keys does not establish target-game support for that part.
+
 Native practice playback now processes a bounded window on a Rust worker,
 mixing aligned original-rate stems before pitch-preserving stretching. Playing
 rate changes retain the decoded audio, waveform and output device; paused rate
