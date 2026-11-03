@@ -304,8 +304,7 @@ pub fn ReviewDraft(
     let previous = passages
         .iter()
         .copied()
-        .filter(|s| *s < view.start - 0.01)
-        .next_back();
+        .rfind(|s| *s < view.start - 0.01);
     let next = passages.iter().copied().find(|s| *s >= view.end - 0.01);
     let added = comparison
         .events
