@@ -4,12 +4,27 @@ use anyhow::{Context, Result, ensure};
 use dioxus::prelude::*;
 use std::path::PathBuf;
 
+fn now_ms() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now() as u64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        crate::generation_progress::now_ms()
+    }
+}
+
 #[component]
 pub fn StemGeneration(mut studio: Studio) -> Element {
     let mut detail = use_signal(String::new);
     let mut error = use_signal(|| None::<String>);
     let mut complete = use_signal(|| false);
-    let mut elapsed = use_signal(|| 0u64);
+    let mut now = use_signal(now_ms);
+    let mut started = use_signal(now_ms);
+    let mut updated = use_signal(now_ms);
+    let mut rate = use_signal(crate::generation_feedback::Tracker::default);
+    let mut recording = use_signal(String::new);
     use_future(move || async move {
         loop {
             #[cfg(not(target_arch = "wasm32"))]
@@ -17,7 +32,7 @@ pub fn StemGeneration(mut studio: Studio) -> Element {
             #[cfg(target_arch = "wasm32")]
             gloo_timers::future::TimeoutFuture::new(1000).await;
             if (studio.stem_generation_busy)() {
-                elapsed += 1;
+                now.set(now_ms());
             }
         }
     });
@@ -27,16 +42,21 @@ pub fn StemGeneration(mut studio: Studio) -> Element {
         }
         studio.stem_generation_busy.set(true);
         complete.set(false);
-        elapsed.set(0);
+        let stamp = now_ms();
+        now.set(stamp);
+        started.set(stamp);
+        updated.set(stamp);
+        rate.set(Default::default());
         error.set(None);
         detail.set("Preparing stem separation…".into());
         spawn(async move {
             let result = async {
                 let store = (studio.store)().context("Open a chart first")?;
                 let doc = studio.snapshot().context("Open a chart first")?;
+                recording.set(doc.title.clone());
                 ensure!(doc.has_recording(), "Attach a recording first");
                 let audio = store.audio_path(&doc)?;
-                let path = separate(audio, store.root.clone(), detail).await?;
+                let path = separate(audio, store.root.clone(), detail,rate,updated).await?;
                 let current = studio.snapshot().context("Reopen the original chart to attach the generated stems")?;
                 ensure!(studio.store.read().as_ref().is_some_and(|active| active.root == store.root)
                     && current.audio_sha256 == doc.audio_sha256
@@ -88,7 +108,7 @@ pub fn StemGeneration(mut studio: Studio) -> Element {
         actions:rsx!{button{class:"action-primary",disabled:!can_start,onclick:start,if busy{"Generating stems…"}else if complete(){"Generate again"}else{"Generate stems"}}},
         p{class:"field-hint","Generates audio only. Your chart notes and tempo map stay in place. Missing separation models are downloaded locally."}
         if has_stems && !complete(){p{class:"field-hint","The new stems replace the current primary stems only after successful generation. Undo restores the previous attachment."}}
-        if busy {div{role:"status",aria_live:"polite",p{"{detail}"}progress{aria_label:"Stem generation in progress"}p{class:"field-hint","Elapsed {elapsed}s · You can close this panel while generation continues."}}}
+        if busy {super::generation_status::GenerationStatus{title:"Generating audio stems",parts:vec!["Guitar".into(),"Bass".into(),"Drums".into(),"Vocals".into(),"Piano".into(),"Other audio".into()],recording:recording(),step:"Separating audio",activity:detail(),elapsed_ms:now().saturating_sub(started()),feedback:rate.read().feedback(now()),quiet_for:now().saturating_sub(updated())/1000}}
         else if complete(){p{role:"status","{detail}"}}
         if (studio.generation_busy)(){p{class:"field-hint","Wait for the current part analysis to finish."}}
         if let Some(problem)=error(){p{role:"alert","{problem}"}}
@@ -96,9 +116,19 @@ pub fn StemGeneration(mut studio: Studio) -> Element {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn separate(audio: PathBuf, project: PathBuf, mut detail: Signal<String>) -> Result<PathBuf> {
+async fn separate(
+    audio: PathBuf,
+    project: PathBuf,
+    mut detail: Signal<String>,
+    mut rate: Signal<crate::generation_feedback::Tracker>,
+    mut updated: Signal<u64>,
+) -> Result<PathBuf> {
     detail.set("Separating instrument audio · this can take several minutes…".into());
-    tokio::task::spawn_blocking(move || {
+    let reports = tempfile::tempdir()?;
+    let report_root = reports.path().to_owned();
+    let task = tokio::task::spawn_blocking(move || {
+        let _scope = crate::generation_progress::begin(&report_root);
+        crate::generation_progress::stage("separation", "Preparing stem separation…");
         let models = crate::generation::default_model_dir();
         crate::models::fetch_required(&models, &["separation"])?;
         let manifest = crate::pipeline::cached_separation(
@@ -111,17 +141,49 @@ async fn separate(audio: PathBuf, project: PathBuf, mut detail: Signal<String>) 
         let path = folder.join(format!("{}.json", crate::generation_progress::now_ms()));
         crate::generation::write_json(&path, &manifest)?;
         Ok(path)
-    })
-    .await?
+    });
+    loop {
+        if let Ok(bytes) = tokio::fs::read(reports.path().join("progress.json")).await
+            && let Ok(progress) =
+                serde_json::from_slice::<crate::generation_progress::Progress>(&bytes)
+        {
+            rate.with_mut(|rate| {
+                rate.observe(
+                    "stems",
+                    &progress.detail,
+                    progress.completed.zip(progress.total),
+                    progress.updated_ms,
+                )
+            });
+            updated.set(progress.updated_ms);
+            detail.set(progress.detail);
+        }
+        if task.is_finished() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+    }
+    task.await?
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn separate(audio: PathBuf, project: PathBuf, detail: Signal<String>) -> Result<PathBuf> {
+async fn separate(
+    audio: PathBuf,
+    project: PathBuf,
+    detail: Signal<String>,
+    rate: Signal<crate::generation_feedback::Tracker>,
+    updated: Signal<u64>,
+) -> Result<PathBuf> {
     let output = project
         .join("assets/stems")
         .join(crate::storage::unique_id());
-    let progress = std::rc::Rc::new(move |message| {
+    let progress = std::rc::Rc::new(move |message: String| {
         let mut detail = detail;
+        let mut rate = rate;
+        let mut updated = updated;
+        let stamp = now_ms();
+        rate.with_mut(|rate| rate.observe("stems", &message, None, stamp));
+        updated.set(stamp);
         detail.set(message)
     });
     let result = crate::worker::run_with_progress::<crate::stem_review::StemManifest>(

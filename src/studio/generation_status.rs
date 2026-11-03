@@ -4,6 +4,7 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn GenerationStatus(
+    #[props(default = "Generating your draft".to_owned())] title: String,
     parts: Vec<String>,
     recording: String,
     step: String,
@@ -18,7 +19,7 @@ pub fn GenerationStatus(
     rsx! {
         style{{include_str!("../../assets/generation-status.css")}}
         section{class:"generation-status",aria_label:"Generation progress",
-            div{class:"generation-status-heading",strong{"Generating your draft"}span{"Elapsed {elapsed}"}}
+            div{class:"generation-status-heading",strong{"{title}"}span{"Elapsed {elapsed}"}}
             if !recording.is_empty(){p{class:"generation-status-recording","{recording}"}}
             ul{class:"generation-status-parts",aria_label:"Parts being generated",for part in parts{li{"{generation_feedback::part_label(&part)}"}}}
             div{class:"generation-status-heading",strong{"{step}"}if let Some(percent)=feedback.percent{span{"{percent}% of this step"}}}
