@@ -196,6 +196,21 @@ fn scan(root: &Path, remaining: usize, out: &mut Vec<Entry>) -> Result<()> {
 }
 
 impl Library {
+    /// Match an opened source or editing copy to this folder's catalogue.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn index_for_project(&self, project: &Path) -> Option<usize> {
+        let project = project.canonicalize().ok()?;
+        self.entries.iter().position(|entry| {
+            entry.path.canonicalize().ok().as_ref() == Some(&project)
+                || self
+                    .project_path(entry)
+                    .ok()
+                    .and_then(|path| path.canonicalize().ok())
+                    .as_ref()
+                    == Some(&project)
+        })
+    }
+
     /// Keep each song's editing state with that song. Earlier collection workspaces
     /// remain authoritative when they already contain saved edits.
     #[cfg(not(target_arch = "wasm32"))]
@@ -299,6 +314,35 @@ mod tests {
     fn touch(path: &Path) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, b"{}").unwrap();
+    }
+    #[test]
+    fn matches_editing_copies_without_claiming_unrelated_imports() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("charts");
+        let song = folder.join("song");
+        let saved = folder.join("saved");
+        let unrelated = dir.path().join("imported/saved");
+        touch(&song.join("notes.chart"));
+        touch(&saved.join("project.json"));
+        touch(&unrelated.join("project.json"));
+        let library = discover(&folder).unwrap();
+        let song_index = library
+            .entries
+            .iter()
+            .position(|e| e.path.ends_with("song"))
+            .unwrap();
+        let saved_index = library
+            .entries
+            .iter()
+            .position(|e| e.path.ends_with("saved"))
+            .unwrap();
+        let editing = library.project_path(&library.entries[song_index]).unwrap();
+        touch(&editing.join("project.json"));
+        assert_eq!(library.index_for_project(&song), Some(song_index));
+        assert_eq!(library.index_for_project(&editing), Some(song_index));
+        assert_eq!(library.index_for_project(&saved), Some(saved_index));
+        assert_eq!(library.index_for_project(&unrelated), None);
+        assert_eq!(library.index_for_project(&dir.path().join("missing")), None);
     }
     #[test]
     fn scans_three_levels_and_stops_at_project_and_song_boundaries() {
