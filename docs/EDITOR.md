@@ -64,6 +64,18 @@ change; it does not edit the original song folder.
 
 Project ZIP backups retain unknown companion files, including source filenames
 ending in `.lock`. Only YACE's known session locks at the project root are omitted.
+
+If the browser reports a missing project file while your chart is still open,
+keep the tab open and choose **Download recovery copy…** in the error banner or
+YACE project menu. This preserves the committed editor state and every available
+workspace file without requiring a successful autosave or normal backup. It
+excludes unapplied analysis previews and leaves the original workspace intact.
+Download the prepared ZIP before closing the tab. A `yace-recovery/report.json`
+inside the ZIP identifies missing source files, checkpoints and stems. A complete
+copy opens through **Open saved project…** with its undo history; a partial copy
+preserves your edits but needs the missing files from an earlier backup before
+it can reopen. Recovery cannot recreate missing audio from a waveform display.
+
 ZIP export refuses filenames it cannot represent faithfully, including literal
 backslashes or invalid UTF-8, rather than silently renaming them. The project and
 source stay available after a refusal. ZIP imports also refuse backslash entry

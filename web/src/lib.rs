@@ -115,6 +115,7 @@ pub mod pro_keys;
 pub mod project_portability;
 #[path = "../../src/project_recording.rs"]
 pub mod project_recording;
+pub mod project_recovery;
 #[path = "../../src/reanalysis.rs"]
 pub mod reanalysis;
 #[path = "../../src/recent_projects.rs"]
