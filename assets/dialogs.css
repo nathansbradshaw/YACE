@@ -102,6 +102,9 @@
   font-size:12px;
 }
 
+.generation-saved-list { display:grid; gap:8px; margin-top:12px; }
+.generation-saved-list > button { text-align:left; }
+
 .collaboration-modal {
   border:1px solid var(--border-color-hover);
   border-radius:3px;

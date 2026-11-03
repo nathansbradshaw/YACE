@@ -221,6 +221,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut guitar_source = use_signal(crate::mapping::GuitarSource::default);
     let mut supplied_lyrics = use_signal(|| None::<crate::vocal_generation::LyricSource>);
     let mut opened_target = use_signal(|| None::<(PathBuf, String)>);
+    let mut saved_expanded = use_signal(|| false);
     use_future(move || async move {
         loop {
             gloo_timers::future::TimeoutFuture::new(1000).await;
@@ -477,9 +478,9 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             || view.settings.full_mix_drums != full_mix_drums()
     });
     let saved_drafts = rsx! {
-        if !saved.is_empty(){details{class:"generation-options",summary{"Saved drafts"}for(root,title)in saved{button{disabled:busy(),onclick:move |_|{
+        if !saved.is_empty(){details{class:"generation-options",open:saved_expanded(),summary{onclick:move |event|{event.prevent_default();saved_expanded.set(!saved_expanded());},"Saved drafts"}div{class:"generation-saved-list",for(root,title)in saved{button{disabled:busy(),onclick:move |_|{
             if *busy.peek(){return;}
-            let root=root.clone();busy.set(true);error.set(None);
+            let root=root.clone();busy.set(true);error.set(None);status.set("Opening saved draft…".into());
             spawn(async move{
                 let result=async{
                     let(_,revision)=crate::persistence::load(&root).await?.context("Saved job is missing")?;
@@ -493,13 +494,13 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         requested.set(view.settings.instruments.clone());
                         sensitivity.set(view.settings.detection.sensitivity);loop_only.set(view.loop_only);guitar_source.set(view.settings.guitar_source);keyboard_sound.set(view.settings.keyboard_sound);piano_quality.set(view.settings.piano_quality);language.set(view.settings.vocal_language);vocal_mode.set(view.settings.vocal_analysis_mode);standard_drums.set(view.settings.standard_drums);full_mix_drums.set(view.settings.full_mix_drums);
                         studio.generation_target.set(None);opened_target.set(target);
-                        current.set(Some(view));job.set(Some(loaded));status.set("Saved draft opened".into());
+                        current.set(Some(view));job.set(Some(loaded));saved_expanded.set(false);status.set("Saved draft opened".into());
                     },
                     Err(failure)=>error.set(Some(format!("{failure:#}")))
                 }
                 busy.set(false);
             });
-        },"{title}"}}}}
+        },"{title}"}}}}}
     };
     if let Some(track) = (studio.generation_target)()
         .or_else(|| current.peek().as_ref().and_then(|view| view.part.clone()))
@@ -649,7 +650,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     onclose:move |_|{studio.generation_open.set(false);studio.generation_target.set(None);},
                     onstop:move |_|{if let Some(control)=stop.read().as_ref(){control.set(true);status.set("Finishing this step before stopping…".into());}},
                     onopen:move |_|{if *busy.peek(){return;}
-                        if let Some(handle)=job(){let root=handle.root;busy.set(true);spawn(async move{
+                        if let Some(handle)=job(){let root=handle.root;busy.set(true);status.set("Opening generated chart…".into());spawn(async move{
                             let result=async{studio.persist_current().await?;let copy=crate::files::unique_root();crate::pipeline::copy_folder(&generation::project_path(&root),&copy)?;studio.open_project(copy).await}.await;
                             match result{Ok(())=>{studio.detach_library();studio.generation_open.set(false);studio.generation_target.set(None);},Err(failure)=>error.set(Some(format!("{failure:#}")))}busy.set(false);
                         });}},
@@ -662,7 +663,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 {setup.clone()}
                 p{class:"generation-footnote","Choose what YACE should create from your recording."}
             }else if busy(){
-                div{class:"generation-progress",role:"status",strong{"Generating your draft"}p{"{status}"}progress{aria_label:"Generation in progress"}p{class:"generation-footnote",if stop.read().as_ref().is_some_and(|control|control.get()){"This step will finish and save before stopping."}else{"You can close this window. Generation will continue."}}}
+                div{class:"generation-progress",role:"status",strong{if stop.read().is_some(){"Generating your draft"}else{"Preparing your draft"}}p{"{status}"}progress{aria_label:"Generation in progress"}p{class:"generation-footnote",if stop.read().as_ref().is_some_and(|control|control.get()){"This step will finish and save before stopping."}else{"You can close this window while YACE finishes."}}}
             }else{
                 div{class:"generation-result",role:"status",h3{if complete{"Your draft is ready"}else{"Progress saved"}}p{if complete{"Open it to review and edit the notes."}else{"Resume from your last completed step."}}}
             }
