@@ -374,6 +374,10 @@ pub enum Action {
         analysis: crate::vocal_pitch_analysis::Analysis,
     },
     ApplyVocalPitchCorrections,
+    ApplyVocalSectionRepairs {
+        indices: Vec<usize>,
+        include_pitch: bool,
+    },
     Undo,
     Redo,
     Export {
@@ -1572,6 +1576,7 @@ impl Store {
                 | Action::SetVocalReview { .. }
                 | Action::SetVocalPitchAnalysis { .. }
                 | Action::ApplyVocalPitchCorrections
+                | Action::ApplyVocalSectionRepairs { .. }
         );
         // load() has already validated all content. These actions only change
         // fields checked by their own handlers; do not revalidate every note,
@@ -2036,7 +2041,7 @@ impl Store {
                 crate::vocal_pitch_analysis::retain_prior_evidence(&doc, &mut analysis)?;
                 doc.content.vocal_pitch_analysis = Some(analysis);
             }
-            Action::ApplyVocalPitchCorrections => {
+            Action::ApplyVocalPitchCorrections | Action::ApplyVocalSectionRepairs { .. } => {
                 let analysis = doc
                     .content
                     .vocal_pitch_analysis
@@ -2062,12 +2067,49 @@ impl Store {
                     crate::models::hash_file(&stem.path)? == analysis.stem_sha256,
                     "Vocal stem changed after comparison"
                 );
-                let chart = doc.content.vocals.as_mut().context("No vocal notes")?;
-                for c in &analysis.corrections {
-                    chart.notes[c.index].tone = crate::vocals::VocalTone::Pitched { midi: c.after };
+                let (indices, include_pitch) = match &request.action {
+                    Action::ApplyVocalSectionRepairs {
+                        indices,
+                        include_pitch,
+                    } => (indices.clone(), *include_pitch),
+                    _ => (vec![], true),
+                };
+                let unique: std::collections::BTreeSet<_> = indices.iter().copied().collect();
+                ensure!(
+                    unique.len() == indices.len(),
+                    "Duplicate section repair selection"
+                );
+                let repairs = indices
+                    .iter()
+                    .map(|i| {
+                        analysis
+                            .section
+                            .repairs
+                            .get(*i)
+                            .cloned()
+                            .context("Unknown section repair")
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let original = doc.content.vocals.as_ref().context("No vocal notes")?;
+                let mut chart = original.clone();
+                if include_pitch {
+                    for c in &analysis.corrections {
+                        if !repairs
+                            .iter()
+                            .any(|r| r.before.iter().any(|n| n == &original.notes[c.index]))
+                        {
+                            chart.notes[c.index].tone =
+                                crate::vocals::VocalTone::Pitched { midi: c.after };
+                        }
+                    }
                 }
-                chart.validate()?;
-                doc.content.vocal_pitch_analysis.as_mut().unwrap().applied = true;
+                chart = crate::vocal_section_analysis::apply(&chart, &repairs)?;
+                ensure!(&chart != original, "No selected vocal changes to apply");
+                doc.content.vocals = Some(chart);
+                let report = doc.content.vocal_pitch_analysis.as_mut().unwrap();
+                report.applied = true;
+                report.section.applied_repairs = indices;
+                report.section.applied_pitch = include_pitch;
             }
             Action::SetVocalReview { review } => {
                 review.validate()?;

@@ -43,6 +43,28 @@ the inspector. Unsupported notes remain unresolved. This check preserves lyrics,
 timing, phrases and talkies. Changing the recording, stem, tempo, notes or lyrics
 invalidates pending proposals. Analysis can be cancelled without changing notes.
 Both desktop and browser use the same model, preprocessing and correction rules.
+The section checker compares in both directions: it also searches for supported
+singing outside charted notes. Choose a phrase, an existing loop, an explicit
+time range in seconds, or all vocals. The blue pitch contour overlays current
+gray notes; selecting a proposed repair previews its orange note boundaries.
+
+Section repairs can extend a short note, split two stable pitches or a repeated
+sound inside one note, and recover a missing note of at least about 80 ms.
+Each proposal requires stable RMVPE support plus agreement from both independent
+acoustic detectors, with local energy and clarity checks. This agreement is not
+a correctness probability or proof of which singer is present. New segments
+have unknown lyrics. Existing talkies, note attributes and words are preserved.
+Supported singing outside authored scoring phrases receives a separate phrase;
+authored phrase markers are not moved.
+
+Check individual repairs, optionally include supported pitch corrections, and
+choose **Apply selected repairs** for one Undo batch. **Loop and inspect** jumps
+to a proposal for vocal-stem/MIDI audition. Weak short sounds, possible extra
+notes and possible overlong notes are review findings. They never trigger
+automatic shortening or deletion, which could sacrifice quiet or missed voices.
+All repairs remain flagged drafts after saving and subsequent checks. There is
+no claim of complete or near-perfect transcription from an empty findings list.
+
 Checking another section retains review flags and previous-pitch alternatives
 for earlier corrections while their source, timing and note bounds still match.
 In the browser, **Generate vocals… → Use a downloaded model…** can import an

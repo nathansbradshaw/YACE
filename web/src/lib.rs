@@ -172,6 +172,8 @@ pub mod vocal_inference;
 pub mod vocal_pitch;
 #[path = "../../src/vocal_pitch_analysis.rs"]
 pub mod vocal_pitch_analysis;
+#[path = "../../src/vocal_section_analysis.rs"]
+pub mod vocal_section_analysis;
 #[path = "../../src/vocal_pitch_tracking.rs"]
 pub mod vocal_pitch_tracking;
 #[path = "../../src/vocal_review.rs"]
