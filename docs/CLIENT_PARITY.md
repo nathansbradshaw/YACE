@@ -402,6 +402,16 @@ MIDI song or editable backup returned to Ready; the backup's Undo/Redo history
 and the song's parts and playback remained available. This correction changes
 browser feedback only; native file handling is unchanged.
 
+Actual hosted conventional-channel checks exercised gain and mute Undo/Redo,
+solo playback to the ten-second endpoint and downloaded-backup restoration of
+the audition settings and history. A playable export retained all ten original
+WAV files byte for byte, including split drums/vocals, mono inputs and shorter
+tails; its chart, source metadata and timing changes survived reimport. The
+reimported game files start with ordinary audition defaults, while the editable
+backup retains the previous mix settings. These checks establish browser state
+and file preservation; native controls, acoustic balance, phase alignment,
+long-file memory and target-game acceptance remain separate gates.
+
 The static entry point stays small. Application rules, audio processing and
 browser API calls remain Rust. CPU-heavy work must allow editing and playback
 to continue; an enabled button that freezes the editor does not close a gap.
