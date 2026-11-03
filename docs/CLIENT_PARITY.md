@@ -82,6 +82,13 @@ all seven hits and completed its ten-second recording. The latest integrated
 native build still needs a full-song workflow and restart. Eleven articulation regressions
 cover the core rules, including unrelated marker preservation.
 
+Native vocal previews now carry the recording and revision metadata expected by
+the display clock. A preview without that identity can still deliver clock ticks;
+its timing samples are excluded from recording-specific measurements. Previously,
+the first vocal batch in an all-parts view could stop the refresh task and leave
+the preview on its fallback timer. The integrated native workflow must verify
+that the display link remains active through vocal and combined previews.
+
 MIDI represents double kicks on Expert only. Other difficulties require `.chart`
 export. Imported MIDI songs continue to refuse `.chart` conversion when it could
 discard original events; the inspector explains that boundary. Actual static

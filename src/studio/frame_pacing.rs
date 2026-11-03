@@ -12,8 +12,8 @@ use std::{
 struct Batch {
     frames: Vec<f64>,
     updates: Vec<f64>,
-    audio: String,
-    revision: u64,
+    audio: Option<String>,
+    revision: Option<u64>,
     update_age_ms: f64,
 }
 #[derive(Deserialize)]
@@ -56,6 +56,10 @@ fn percentile(values: &[f64], fraction: f64) -> f64 {
     ordered[((ordered.len() - 1) as f64 * fraction).round() as usize]
 }
 fn summarize(batch: Batch) -> Option<Summary> {
+    // Some preview surfaces have a clock but no band-project identity. They
+    // still drive presentation ticks; they cannot produce source-bound metrics.
+    let audio = batch.audio?;
+    let revision = batch.revision?;
     if batch.frames.len() < 30
         || !batch.update_age_ms.is_finite()
         || batch.update_age_ms < 0.0
@@ -73,8 +77,8 @@ fn summarize(batch: Batch) -> Option<Summary> {
             .duration_since(UNIX_EPOCH)
             .ok()?
             .as_millis() as u64,
-        audio_sha256: batch.audio,
-        revision: batch.revision,
+        audio_sha256: audio,
+        revision,
         samples: batch.frames.len(),
         chart_updates: batch.updates.len(),
         last_chart_update_age_ms: batch.update_age_ms,
@@ -140,8 +144,8 @@ pub fn use_frame_pacing(mut studio: Studio) -> Signal<Instant> {
             };
             let current = studio.doc.read().as_ref().is_some_and(|doc| {
                 doc.transport.playing
-                    && doc.audio_sha256 == batch.audio
-                    && doc.revision == batch.revision
+                    && batch.audio.as_deref() == Some(doc.audio_sha256.as_str())
+                    && batch.revision == Some(doc.revision)
             });
             if !current || !(studio.audio_ready)() {
                 continue;
@@ -167,14 +171,34 @@ pub fn use_frame_pacing(mut studio: Studio) -> Signal<Instant> {
 mod tests {
     use super::*;
     #[test]
+    fn anonymous_preview_batches_are_unmeasured_not_transport_faults() {
+        let event: FrameEvent = serde_json::from_value(serde_json::json!({
+            "type": "batch", "frames": vec![16.666; 120],
+            "updates": vec![16.666; 120], "audio": null, "revision": 0,
+            "update_age_ms": 0.0
+        }))
+        .expect("a preview without source attributes must not break the display link");
+        let FrameEvent::Batch { batch } = event else {
+            panic!("expected frame batch")
+        };
+        assert!(
+            summarize(batch).is_none(),
+            "anonymous samples have no source authority"
+        );
+        assert!(matches!(
+            serde_json::from_value::<FrameEvent>(serde_json::json!({"type": "tick"})).unwrap(),
+            FrameEvent::Tick
+        ));
+    }
+    #[test]
     fn reports_tail_stalls_and_rejects_invalid_samples() {
         let mut frames = vec![16.666; 120];
         frames[119] = 80.0;
         let report = summarize(Batch {
             frames,
             updates: vec![16.666; 100],
-            audio: "a".repeat(64),
-            revision: 2,
+            audio: Some("a".repeat(64)),
+            revision: Some(2),
             update_age_ms: 0.,
         })
         .unwrap();
@@ -185,8 +209,8 @@ mod tests {
             summarize(Batch {
                 frames: vec![f64::NAN; 120],
                 updates: vec![16.; 100],
-                audio: String::new(),
-                revision: 0,
+                audio: Some(String::new()),
+                revision: Some(0),
                 update_age_ms: 0.
             })
             .is_none()
@@ -194,8 +218,8 @@ mod tests {
         let stalled = summarize(Batch {
             frames: vec![16.666; 120],
             updates: Vec::new(),
-            audio: "a".repeat(64),
-            revision: 2,
+            audio: Some("a".repeat(64)),
+            revision: Some(2),
             update_age_ms: 2000.,
         })
         .unwrap();

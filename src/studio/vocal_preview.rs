@@ -126,6 +126,8 @@ fn CompactVocalPreview(
     lookahead: f64,
     position: f64,
     playing: bool,
+    audio: String,
+    revision: u64,
 ) -> Element {
     let cursor = 100. / (lookahead + 1.);
     let range_label = range.map_or_else(
@@ -133,7 +135,7 @@ fn CompactVocalPreview(
         |(low, high)| format!("{}–{}", pitch_name(low), pitch_name(high)),
     );
     let current = notes.iter().find(|n| n.active).map(|n| n.lyric.clone());
-    rsx! {div{class:"compact-vocal-preview",role:"img",aria_label:"Vocal pitch and lyrics on the recording clock","data-preview-track":"Vocals","data-preview-position":"{position}","data-preview-playing":"{playing}",
+    rsx! {div{class:"compact-vocal-preview",role:"img",aria_label:"Vocal pitch and lyrics on the recording clock","data-preview-track":"Vocals","data-preview-position":"{position}","data-preview-playing":"{playing}","data-preview-audio":"{audio}","data-preview-revision":"{revision}",
         span{class:"compact-vocal-range",title:"Displayed authored pitch range","{range_label}"}
         span{class:"compact-vocal-talkie","Talkie"}
         if let Some(current)=current {output{class:"compact-vocal-current",aria_label:"Current lyric",title:"{current}","{current}"}}
@@ -178,14 +180,16 @@ pub fn VocalPreview(studio: Studio, lookahead: f64, #[props(default)] compact: b
     let position = (studio.playhead)();
     let notes = visible_notes(chart, &timing, position, lookahead);
     let playing = doc.transport.playing && (studio.audio_ready)();
+    let audio = doc.audio_sha256.clone();
+    let revision = doc.revision;
     if compact {
-        return rsx! {CompactVocalPreview{notes,range:range(),lookahead,position,playing}};
+        return rsx! {CompactVocalPreview{notes,range:range(),lookahead,position,playing,audio,revision}};
     }
     let (width, height) = viewport();
     let plot = FocusedPlot::new(width, height);
     let cursor = 64. + (plot.width - 76.) / (lookahead + 1.);
     rsx! {
-        div { class:"focused-vocal-surface","data-preview-track":"Vocals","data-preview-position":"{position}","data-preview-playing":"{playing}",
+        div { class:"focused-vocal-surface","data-preview-track":"Vocals","data-preview-position":"{position}","data-preview-playing":"{playing}","data-preview-audio":"{audio}","data-preview-revision":"{revision}",
             onresize:move |event| if let Ok(size)=event.get_content_box_size() {
                 let next=(size.width,size.height);
                 if next.0>0. && next.1>0. && viewport()!=next { viewport.set(next); }
