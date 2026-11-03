@@ -122,6 +122,279 @@ fn apply(store: &Store, action: Action) -> anyhow::Result<chart_engine::editor::
         action,
     })
 }
+
+fn observations(g: &mut vg::Generation, spans: &[(f64, f64, f64)], acoustic: bool) {
+    let raw = g.rmvpe_pitch.as_mut().unwrap();
+    for f in &mut raw.frames {
+        let midi = spans
+            .iter()
+            .find(|(a, b, _)| *a <= f.time_seconds && f.time_seconds < *b)
+            .map(|(_, _, p)| *p);
+        f.frequency_hz = midi.map(|p| 440. * 2_f64.powf((p - 69.) / 12.));
+        f.confidence = if midi.is_some() { 0.9 } else { 0. };
+        f.rms = if midi.is_some() { 0.1 } else { 0. };
+    }
+    g.pitch_frames = raw
+        .frames
+        .iter()
+        .map(|f| {
+            let midi = f.frequency_hz.map(|hz| 69. + 12. * (hz / 440.).log2());
+            PitchFrame {
+                time_seconds: f.time_seconds,
+                midi,
+                yin_midi: midi.filter(|_| acoustic),
+                mcleod_midi: midi.filter(|_| acoustic),
+                // Production High caps this displayed value after refinement.
+                clarity: if acoustic { 0.59 } else { 0. },
+                rms: f.rms,
+                local_rms: Some(f.rms),
+                local_energy_active: Some(f.rms > 0.),
+                support: PitchSupport::Consensus,
+            }
+        })
+        .collect();
+}
+
+#[test]
+fn section_repairs_recover_short_gaps_extend_split_and_preserve_talkies_with_one_undo() {
+    use chart_engine::vocal_section_analysis::RepairKind;
+    let temp = tempfile::tempdir().unwrap();
+    let (store, mut generation) = setup(temp.path());
+    let before = store.load().unwrap();
+    let timing = before.timing(&store).unwrap();
+    observations(
+        &mut generation,
+        &[
+            (0.4, 1.1, 60.),
+            (1.5, 1.75, 64.),
+            (1.75, 2., 67.),
+            (2.1, 2.2, 69.),
+            (2.6, 2.8, 72.),
+        ],
+        true,
+    );
+    let result = analysis::propose(&before, &timing, &generation, None).unwrap();
+    assert_eq!(result.section.repairs.len(), 3);
+    assert_eq!(result.section.repairs[0].kind, RepairKind::Boundary);
+    assert_eq!(result.section.repairs[1].kind, RepairKind::Split);
+    assert_eq!(result.section.repairs[2].kind, RepairKind::Missing);
+    assert!(result.section.uncharted_seconds > 0.3);
+    apply(&store, Action::SetVocalPitchAnalysis { analysis: result }).unwrap();
+    apply(
+        &store,
+        Action::ApplyVocalSectionRepairs {
+            indices: vec![0, 1, 2],
+            include_pitch: false,
+        },
+    )
+    .unwrap();
+    let doc = store.load().unwrap();
+    let chart = doc.content.vocals.as_ref().unwrap();
+    assert_eq!(chart.notes.len(), 5);
+    assert_eq!(
+        chart.notes[0].lyric,
+        before.content.vocals.as_ref().unwrap().notes[0].lyric
+    );
+    assert_eq!(
+        chart.notes.last().unwrap(),
+        before
+            .content
+            .vocals
+            .as_ref()
+            .unwrap()
+            .notes
+            .last()
+            .unwrap()
+    );
+    assert_eq!(chart.notes[3].lyric, Syllable::Missing);
+    let original_midi = chart_engine::midi::new_midi(&timing, &Default::default()).unwrap();
+    let exported = chart_engine::vocals::append_midi(&original_midi, chart).unwrap();
+    let mut imported = chart_engine::vocals::import_midi(&exported).unwrap();
+    imported.source = chart.source.clone();
+    assert_eq!(&imported, chart);
+    assert!(chart.notes[..4].iter().all(|n| {
+        analysis::current_evidence(&doc, &timing, n)
+            .unwrap()
+            .uncertain
+    }));
+    assert!(
+        apply(
+            &store,
+            Action::ApplyVocalSectionRepairs {
+                indices: vec![2],
+                include_pitch: false
+            }
+        )
+        .is_err()
+    );
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(store.load().unwrap().content.vocals, before.content.vocals);
+    apply(&store, Action::Redo).unwrap();
+    assert_eq!(store.load().unwrap().content.vocals, doc.content.vocals);
+    // A later check retains structural review flags just as it retains retuning.
+    let next = analysis::propose(
+        &doc,
+        &timing,
+        &generation,
+        Some(TimeRange {
+            start: 0.,
+            end: 0.2,
+        }),
+    )
+    .unwrap();
+    apply(&store, Action::SetVocalPitchAnalysis { analysis: next }).unwrap();
+    let reopened = Store::new(temp.path()).load().unwrap();
+    assert!(
+        analysis::current_evidence(&reopened, &timing, &chart.notes[3])
+            .unwrap()
+            .uncertain
+    );
+}
+
+#[test]
+fn section_repairs_need_independent_evidence_and_cannot_remove_silent_notes_or_cross_selection() {
+    let temp = tempfile::tempdir().unwrap();
+    let (store, mut g) = setup(temp.path());
+    let doc = store.load().unwrap();
+    let timing = doc.timing(&store).unwrap();
+    observations(&mut g, &[(0.4, 1.1, 60.), (2.1, 2.2, 69.)], false);
+    let result = analysis::propose(&doc, &timing, &g, None).unwrap();
+    assert!(result.section.repairs.is_empty());
+    assert!(!result.section.findings.is_empty());
+    observations(&mut g, &[], true);
+    let result = analysis::propose(&doc, &timing, &g, None).unwrap();
+    assert!(result.section.repairs.is_empty());
+    assert!(
+        result
+            .section
+            .findings
+            .iter()
+            .any(|f| f.detail.contains("extra note"))
+    );
+    observations(&mut g, &[(0.4, 1.1, 60.), (2.1, 2.2, 69.)], true);
+    let result = analysis::propose(
+        &doc,
+        &timing,
+        &g,
+        Some(TimeRange {
+            start: 0.6,
+            end: 2.05,
+        }),
+    )
+    .unwrap();
+    assert!(result.section.repairs.is_empty());
+    let mut result = analysis::propose(&doc, &timing, &g, None).unwrap();
+    result.section.repairs[0].after[0].lyric = Syllable::Missing;
+    assert!(apply(&store, Action::SetVocalPitchAnalysis { analysis: result }).is_err());
+}
+
+#[test]
+fn section_subset_selection_bounds_phrase_creation_and_stale_batch_are_guarded() {
+    let temp = tempfile::tempdir().unwrap();
+    let (store, mut g) = setup(temp.path());
+    let mut doc = store.load().unwrap();
+    doc.content.vocals.as_mut().unwrap().phrases[0].end = 2880;
+    fixture::save(&store, &doc);
+    let timing = doc.timing(&store).unwrap();
+    observations(&mut g, &[(0.4, 1.1, 60.), (3.2, 3.35, 69.)], true);
+    let result = analysis::propose(&doc, &timing, &g, None).unwrap();
+    assert_eq!(result.section.repairs.len(), 2);
+    apply(&store, Action::SetVocalPitchAnalysis { analysis: result }).unwrap();
+    assert!(
+        apply(
+            &store,
+            Action::ApplyVocalSectionRepairs {
+                indices: vec![1, 1],
+                include_pitch: false
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        apply(
+            &store,
+            Action::ApplyVocalSectionRepairs {
+                indices: vec![999],
+                include_pitch: false
+            }
+        )
+        .is_err()
+    );
+    apply(
+        &store,
+        Action::ApplyVocalSectionRepairs {
+            indices: vec![1],
+            include_pitch: false,
+        },
+    )
+    .unwrap();
+    let doc = store.load().unwrap();
+    let chart = doc.content.vocals.as_ref().unwrap();
+    assert_eq!(chart.phrases.len(), 2);
+    assert_eq!(chart.notes[0].start, 480);
+    assert_eq!(chart.notes.last().unwrap().lyric, Syllable::Missing);
+    // Legacy reports did not contain the optional section object.
+    let mut old = serde_json::to_value(doc.content.vocal_pitch_analysis.as_ref().unwrap()).unwrap();
+    old.as_object_mut().unwrap().remove("section");
+    let old: analysis::Analysis = serde_json::from_value(old).unwrap();
+    assert!(old.section.applied_pitch);
+}
+
+#[test]
+fn raw_slide_is_reviewed_without_inventing_steps_and_tempo_changes_keep_audio_clock() {
+    let temp = tempfile::tempdir().unwrap();
+    let (store, mut g) = setup(temp.path());
+    let doc = store.load().unwrap();
+    let timing = doc.timing(&store).unwrap();
+    observations(&mut g, &[(2.05, 2.45, 65.)], true);
+    for (f, dsp) in g
+        .rmvpe_pitch
+        .as_mut()
+        .unwrap()
+        .frames
+        .iter_mut()
+        .zip(&mut g.pitch_frames)
+    {
+        if f.frequency_hz.is_some() {
+            let p = 65. + (f.time_seconds - 2.05) * 7.5;
+            f.frequency_hz = Some(440. * 2_f64.powf((p - 69.) / 12.));
+            dsp.midi = Some(p);
+            dsp.yin_midi = Some(p);
+            dsp.mcleod_midi = Some(p);
+        }
+    }
+    let result = analysis::propose(&doc, &timing, &g, None).unwrap();
+    assert!(result.section.repairs.is_empty());
+    assert!(!result.section.findings.is_empty());
+    let timing = TempoMap::new(
+        480,
+        0.,
+        vec![
+            chart_engine::timing::Tempo { tick: 0, bpm: 120. },
+            chart_engine::timing::Tempo {
+                tick: 960,
+                bpm: 240.,
+            },
+        ],
+    )
+    .unwrap();
+    g.timing = Some(timing.clone());
+    observations(&mut g, &[(3.1, 3.25, 69.)], true);
+    let result = analysis::propose(
+        &doc,
+        &timing,
+        &g,
+        Some(TimeRange {
+            start: 3.05,
+            end: 3.3,
+        }),
+    )
+    .unwrap();
+    assert_eq!(result.section.repairs.len(), 1);
+    let note = &result.section.repairs[0].after[0];
+    assert!((timing.seconds(note.start) - 3.1).abs() < 0.001);
+    assert!((timing.seconds(note.end) - 3.25).abs() < 0.001);
+}
 #[test]
 fn independent_dense_contour_retunes_only_supported_intervals_and_bulk_undo_persists() {
     let temp = tempfile::tempdir().unwrap();

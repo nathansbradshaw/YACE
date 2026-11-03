@@ -45,6 +45,8 @@ pub struct Analysis {
     /// Applied note witnesses carried across later checks with identical inputs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub retained_evidence: Vec<crate::vocal_generation::NoteEvidence>,
+    #[serde(default)]
+    pub section: crate::vocal_section_analysis::Section,
 }
 pub fn chart_hash(chart: &VocalChart) -> Result<String> {
     Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(chart)?)))
@@ -133,6 +135,8 @@ pub fn propose(
         .map(|f| (f.confidence as f64).max(0.1))
         .collect();
     crate::vocal_pitch_tracking::weighted_note_path(&mut frames, 3.2, &weights, &|| false)?;
+    let section =
+        crate::vocal_section_analysis::compare(chart, timing, generation, &frames, range)?;
     for (index, note) in chart.notes.iter().enumerate() {
         let VocalTone::Pitched { midi: before } = note.tone else {
             continue;
@@ -210,6 +214,7 @@ pub fn propose(
         corrections,
         applied: false,
         retained_evidence: vec![],
+        section,
     })
 }
 impl Analysis {
@@ -287,6 +292,76 @@ impl Analysis {
                 "Compared note moved or changed"
             );
         }
+        ensure!(
+            self.section.applied_repairs.is_empty(),
+            "Section report is already applied"
+        );
+        ensure!(
+            self.section.repairs.len() <= 200_000
+                && self.section.findings.len() <= 2000
+                && self.section.contour.len() <= 2000,
+            "Section report exceeds budget"
+        );
+        if !self.section.algorithm.is_empty() {
+            ensure!(
+                self.section.algorithm == crate::vocal_section_analysis::ALGORITHM,
+                "Unknown section comparison algorithm"
+            );
+        } else {
+            ensure!(
+                self.section.repairs.is_empty()
+                    && self.section.findings.is_empty()
+                    && self.section.contour.is_empty(),
+                "Missing section algorithm"
+            );
+        }
+        ensure!(
+            self.section.voiced_seconds.is_finite()
+                && self.section.uncharted_seconds.is_finite()
+                && self.section.voiced_seconds >= 0.
+                && self.section.uncharted_seconds >= 0.
+                && self.section.uncharted_seconds <= self.section.voiced_seconds + 0.01
+                && self.section.voiced_seconds <= self.range.end - self.range.start + 0.01,
+            "Invalid section coverage"
+        );
+        for r in &self.section.repairs {
+            ensure!(!r.after.is_empty(), "Empty section repair");
+            let (a, b) = r.bounds();
+            ensure!(
+                timing.seconds(a) >= self.range.start - 0.002
+                    && timing.seconds(b) <= self.range.end + 0.002,
+                "Section repair exceeds selected range"
+            );
+        }
+        crate::vocal_section_analysis::apply(chart, &self.section.repairs)?;
+        ensure!(
+            self.section
+                .contour
+                .windows(2)
+                .all(|w| w[0].seconds < w[1].seconds),
+            "Unordered section contour"
+        );
+        for p in &self.section.contour {
+            ensure!(
+                p.seconds.is_finite()
+                    && p.seconds >= self.range.start
+                    && p.seconds < self.range.end
+                    && p.midi
+                        .is_none_or(|m| m.is_finite() && (0. ..=127.).contains(&m)),
+                "Invalid section contour"
+            );
+        }
+        for f in &self.section.findings {
+            ensure!(
+                f.start.is_finite()
+                    && f.end.is_finite()
+                    && f.start >= self.range.start
+                    && f.start < f.end
+                    && f.end <= self.range.end + 0.001
+                    && f.detail.len() <= 2000,
+                "Invalid section finding"
+            );
+        }
         Ok(())
     }
 }
@@ -320,13 +395,27 @@ pub(crate) fn retain_prior_evidence(project: &Project, next: &mut Analysis) -> R
         })
         .collect();
     let mut retained = std::collections::BTreeMap::new();
-    for e in prior.retained_evidence.iter().cloned().chain(
-        prior
-            .corrections
-            .iter()
-            .filter(|_| prior.applied)
-            .map(correction_evidence),
-    ) {
+    for e in prior
+        .retained_evidence
+        .iter()
+        .cloned()
+        .chain(
+            prior
+                .corrections
+                .iter()
+                .filter(|_| prior.applied && prior.section.applied_pitch)
+                .map(correction_evidence),
+        )
+        .chain(
+            prior
+                .section
+                .applied_repairs
+                .iter()
+                .filter(|_| prior.applied)
+                .filter_map(|i| prior.section.repairs.get(*i))
+                .flat_map(|r| r.evidence()),
+        )
+    {
         let key = (e.start, e.end, e.selected_midi);
         if keys.contains(&key) {
             retained.insert(key, e);
@@ -374,12 +463,36 @@ pub fn current_evidence(
                 })
             })
     }) {
-        if let Some(c) = a.corrections.iter().filter(|_| a.applied).find(|c| {
-            c.start == note.start
-                && c.end == note.end
-                && note.tone == VocalTone::Pitched { midi: c.after }
-        }) {
+        if let Some(c) = a
+            .corrections
+            .iter()
+            .filter(|_| a.applied && a.section.applied_pitch)
+            .find(|c| {
+                c.start == note.start
+                    && c.end == note.end
+                    && note.tone == VocalTone::Pitched { midi: c.after }
+            })
+        {
             return Some(correction_evidence(c));
+        }
+        if a.applied {
+            for r in a
+                .section
+                .applied_repairs
+                .iter()
+                .filter_map(|i| a.section.repairs.get(*i))
+            {
+                if let Some(e) = r.evidence().into_iter().find(|e| {
+                    e.start == note.start
+                        && e.end == note.end
+                        && note.tone
+                            == VocalTone::Pitched {
+                                midi: e.selected_midi,
+                            }
+                }) {
+                    return Some(e);
+                }
+            }
         }
         if let VocalTone::Pitched { midi } = note.tone
             && let Ok(index) = a

@@ -44,6 +44,10 @@ enum Task {
         output: PathBuf,
         #[arg(long)]
         held_out: bool,
+        /// Compare current High notes, including all proposed structural repairs.
+        /// Reports are diagnostic; previously exposed material is not fresh held-out.
+        #[arg(long)]
+        sections: bool,
     },
     Weighted {
         #[arg(long)]
@@ -344,7 +348,7 @@ fn generate(corpus: &Path, model: &Path, output: &Path, held: bool, replay: bool
     }
     write(&output.join("corpus.json"), &c)
 }
-fn repair(corpus: &Path, template: &Path, output: &Path, held: bool) -> Result<()> {
+fn repair(corpus: &Path, template: &Path, output: &Path, held: bool, sections: bool) -> Result<()> {
     let c: Corpus = read(corpus)?;
     let base = corpus.parent().unwrap();
     let template: chart_engine::editor::Project = read(template)?;
@@ -362,7 +366,11 @@ fn repair(corpus: &Path, template: &Path, output: &Path, held: bool) -> Result<(
             ),
         )?;
         let baseline_path = base.join(r.baseline.as_ref().context("Missing baseline")?);
-        let old: Generation = read(&baseline_path.parent().unwrap().join("high_accuracy.json"))?;
+        let old: Generation = if sections {
+            generation.clone()
+        } else {
+            read(&baseline_path.parent().unwrap().join("high_accuracy.json"))?
+        };
         let Some(chart) = old.chart.as_ref() else {
             continue;
         };
@@ -386,9 +394,22 @@ fn repair(corpus: &Path, template: &Path, output: &Path, held: bool) -> Result<(
             chart_engine::vocal_pitch_analysis::propose(&project, timing, &generation, None)?;
         let mut corrected = chart.clone();
         for correction in &proposal.corrections {
+            if sections
+                && proposal
+                    .section
+                    .repairs
+                    .iter()
+                    .any(|r| r.before.contains(&chart.notes[correction.index]))
+            {
+                continue;
+            }
             corrected.notes[correction.index].tone = chart_engine::vocals::VocalTone::Pitched {
                 midi: correction.after,
             };
+        }
+        if sections {
+            corrected =
+                chart_engine::vocal_section_analysis::apply(&corrected, &proposal.section.repairs)?;
         }
         let view = |chart: &chart_engine::vocals::VocalChart| {
             let mut report = old.clone();
@@ -429,11 +450,31 @@ fn repair(corpus: &Path, template: &Path, output: &Path, held: bool) -> Result<(
             }
             json!({"index":c.index,"reference_voiced_frames":reference_voiced,"correct_frames_gained":gained,"correct_frames_lost":lost})
         }).collect();
-        rows.push(json!({"id":r.id,"split":r.split,"proposal":proposal,"posthoc_correction_checks":checks,"baseline_generated_note_view":score(&reference,&view(chart))?,"corrected_note_view":score(&reference,&view(&corrected))?}));
+        let structural_only = if sections {
+            Some(score(
+                &reference,
+                &view(&chart_engine::vocal_section_analysis::apply(
+                    chart,
+                    &proposal.section.repairs,
+                )?),
+            )?)
+        } else {
+            None
+        };
+        let standard_note_view = if sections {
+            let standard: Generation = read(&baseline_path)?;
+            Some(score(
+                &reference,
+                &view(standard.chart.as_ref().context("Missing Standard chart")?),
+            )?)
+        } else {
+            None
+        };
+        rows.push(json!({"id":r.id,"split":r.split,"proposal":proposal,"posthoc_correction_checks":checks,"standard_generated_note_view":standard_note_view,"baseline_generated_note_view":score(&reference,&view(chart))?,"structural_only_note_view":structural_only,"corrected_note_view":score(&reference,&view(&corrected))?}));
     }
     write(
         output,
-        &json!({"algorithm":chart_engine::vocal_pitch_analysis::ANALYSIS_ALGORITHM,"input":"legacy High generated notes; no authored intervals or lyrics enter comparison","rows":rows}),
+        &json!({"algorithm":chart_engine::vocal_pitch_analysis::ANALYSIS_ALGORITHM,"section_algorithm":if sections{Some(chart_engine::vocal_section_analysis::ALGORITHM)}else{None},"input":if sections{"current High generated notes; all repair proposals selected; previously exposed diagnostic corpus"}else{"legacy High generated notes; no authored intervals or lyrics enter comparison"},"rows":rows}),
     )
 }
 fn assemble(
@@ -924,7 +965,8 @@ fn main() -> Result<()> {
             project_template,
             output,
             held_out,
-        } => repair(&corpus, &project_template, &output, held_out),
+            sections,
+        } => repair(&corpus, &project_template, &output, held_out, sections),
         Task::Weighted {
             corpus,
             evidence,
