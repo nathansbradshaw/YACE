@@ -26,7 +26,7 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 | Manual clean audio | Both actual panels rendered the same bound plan; native output matched shared DSP exactly; 10,755,108 browser stereo frames, zero lag, maximum decoder delta 0.00000054 | Verified functional render; musical acceptance remains with the listener |
 | Review and flags | Shared rules, actual browser queue/decisions and portable source-bound review history | Verified |
 | Team proposals | Actual browser proposal → native import/independent approval/merge → browser conflict resolution → fresh native approval → browser merge; new parts preserved | Verified file exchange and protocol tests. Authenticated GitHub writes remain untested at the user's request |
-| Recovery, undo and backups | IndexedDB restore/stale-tab guard; same-name library switching with separate histories; full project/kit roundtrips; imported first checkpoint and native/browser Undo/Redo | Verified |
+| Recovery, undo and backups | IndexedDB restore/stale-tab guard; independent browser-tab projects and standalone Dance recovery; same-name library switching with separate histories; full project/kit roundtrips; imported first checkpoint and native/browser Undo/Redo | Verified exercised paths; quota, eviction and hard browser termination remain unqualified |
 | Playable export | Actual client exports had byte-identical MIDI, editable master, vocal JSON, INI and original Ogg; partial-stem game receipt avoids duplicate mix playback | Verified export equivalence; game/controller acceptance is separate |
 | Navigation and errors | Shared controls and OS pickers; actual narrow browser layout; lazy folder discovery; explicit downloads; native dialogs expose their accessibility role | Verified exercised paths |
 | Browser desktop workspace | Static and hosted thresholds, per-tab dismissal/reload, keyboard overflow and uninterrupted playback; actual Firefox zoom at 140%; native layout retained | Verified exercised paths; assistive technology and broader platforms remain open |
@@ -91,6 +91,9 @@ The `b5432874` release combined that playback work, generation/draft review,
 the browser workspace notice from PR 82 and native project-navigation recovery
 from PR 86. Release `59f32a7b`, merged through PR 89 at `b1edfa87`, also includes
 whole-value Dance timing edits and the synchronized vocal comparison work.
+Release `cc342c3f` also includes linked chart workspace recovery and the vocal
+time-range mouse-control correction. All four normal merged-main checks passed;
+actual production reloads restored both linked 4-key and Dance selections.
 Later desktop additions still need their own browser acceptance.
 GitHub Pages serves that engine on `yace.n8bradshaw.com`; its approved
 certificate and HTTPS redirect were verified. The served WASM matches the
@@ -128,7 +131,8 @@ Production HTTPS served the matching WASM bytes and independently completed
 the same song, retaining the Bass edit and matching export-content receipt.
 These muted checks establish continuity and persistence; listening acceptance
 remains open. The compact fixture intentionally omitted generated stems, so it
-does not replace the separate multi-stem acceptance. Root reload returns to the
+does not replace the separate multi-stem acceptance. On that older artifact,
+root reload returns to the
 saved band track; reselecting Dance recovers its hidden-preview layout and saved
 hold. Individual Dance note SVGs lack accessible note roles; that accessibility
 gap remains open.
@@ -154,8 +158,27 @@ remain in that browser profile.
 Six focused regressions cover old preferences, separate view choices, atomic
 history-preserving saves, project isolation, removed chart IDs and damaged
 preference files. Removed or unknown linked charts fall back to band editing;
-damaged preferences are retained rather than overwritten. Standalone Dance
-selection recovery and assistive-technology acceptance remain unqualified.
+damaged preferences are retained rather than overwritten. Standalone selection
+among multiple charts and assistive-technology acceptance remain unqualified.
+
+Browser workspace recovery also keeps a separate project identity for each tab.
+Previously, saving a different project in another tab changed what the first
+tab reopened. The documents remained saved, but reload returned to the wrong
+song. Rust now stores the current durable root and chart family in session
+storage; a fresh tab uses the last opened durable workspace. Recovery chooses
+one family before opening it, eliminating competing band and standalone Dance
+restore operations. Background saves do not choose the tab's workspace.
+
+Actual static checks opened a full-length mixed project and a separate saved
+instrument fixture in two tabs. Both retained their own song, selected chart
+and saved revision through reload. Opening a standalone Dance recording in the
+second tab, reloading it and opening a fresh tab all restored Dance while the
+first tab continued its independent band recording. Five focused regressions
+cover per-tab priority, independent defaults, legacy virtual paths and rejected
+targets. An invalid or unavailable bound target reports recovery failure rather
+than silently substituting another song. Workspace preference failures have a
+separate warning and do not change chart-save acknowledgments or stale-write
+protection. Actual storage eviction/failure-injection acceptance remains open.
 
 The browser keeps a desktop workspace at least 1024×600 CSS pixels. A smaller
 window shows an inline notice with per-tab dismissal, without moving focus or
