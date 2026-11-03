@@ -330,14 +330,16 @@ mod tests {
             lyric: Syllable::Missing,
             midi: None,
         };
-        let mut before = Content::default();
-        before.vocals = Some(VocalChart {
-            version: 1,
-            resolution: 480,
-            source: "Fixture".into(),
-            phrases: vec![],
-            notes: vec![vocal(48), vocal(60)],
-        });
+        let before = Content {
+            vocals: Some(VocalChart {
+                version: 1,
+                resolution: 480,
+                source: "Fixture".into(),
+                phrases: vec![],
+                notes: vec![vocal(48), vocal(60)],
+            }),
+            ..Content::default()
+        };
         let mut after = before.clone();
         after.vocals.as_mut().unwrap().notes[0].lyric = Syllable::Text {
             text: "Word".into(),

@@ -4,6 +4,7 @@ mod assistant;
 mod brand;
 #[cfg(feature = "browser")]
 mod browser_clipboard;
+mod browser_viewport;
 mod chart_desk;
 mod clean;
 mod collaboration;
@@ -161,6 +162,7 @@ pub(crate) fn App() -> Element {
     let doc = studio.snapshot();
     rsx! {
         style { "{CSS}" }
+        browser_viewport::BrowserViewport {
         div { class: "studio-app", tabindex: "-1",
             onkeydown: move |event| { shortcuts::handle(studio,event); },
             project_bar::ProjectBar { studio }
@@ -171,6 +173,7 @@ pub(crate) fn App() -> Element {
             if (studio.export_open)(){export::ExportDialog{studio}}
             if (studio.parts_open)(){parts::PartsPanel{studio}}
             clean::CleanPanel{studio}
+        }
         }
         generation::GenerationPanel{studio}
         stem_generation::StemGeneration{studio}

@@ -301,11 +301,7 @@ pub fn ReviewDraft(
     let transport = studio.doc.read().as_ref().map(|doc| doc.transport.clone());
     let playing = transport.as_ref().is_some_and(|t| t.playing);
     let rate = transport.as_ref().map_or(1., |t| t.playback_rate);
-    let previous = passages
-        .iter()
-        .copied()
-        .filter(|s| *s < view.start - 0.01)
-        .next_back();
+    let previous = passages.iter().copied().rfind(|s| *s < view.start - 0.01);
     let next = passages.iter().copied().find(|s| *s >= view.end - 0.01);
     let added = comparison
         .events
