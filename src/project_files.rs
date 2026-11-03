@@ -6,11 +6,16 @@ use crate::{
     project_portability::{self, Files},
 };
 use anyhow::{Context, Result, ensure};
-use std::{fs, io::Write, path::Path};
+use std::{fs, path::Path};
 #[cfg(test)]
 #[path = "project_files/tests.rs"]
 mod tests;
-fn collect(root: &Path, folder: &Path, files: &mut Files) -> Result<()> {
+fn collect(
+    root: &Path,
+    folder: &Path,
+    files: &mut Files,
+    options: crate::compact_backup::Options,
+) -> Result<()> {
     for entry in fs::read_dir(folder)? {
         let entry = entry?;
         let path = entry.path();
@@ -20,9 +25,12 @@ fn collect(root: &Path, folder: &Path, files: &mut Files) -> Result<()> {
             "Project backups cannot include symbolic links"
         );
         if kind.is_dir() {
-            collect(root, &path, files)?;
+            collect(root, &path, files, options)?;
         } else if kind.is_file() {
             let name = archive_codec::relative_name(path.strip_prefix(root)?)?;
+            if !options.include_generated_stems && crate::compact_backup::generated(&name) {
+                continue;
+            }
             // Only YACE's own root session locks are disposable. A source or
             // unknown companion file ending in .lock is still authored data.
             if matches!(
@@ -37,17 +45,23 @@ fn collect(root: &Path, folder: &Path, files: &mut Files) -> Result<()> {
     Ok(())
 }
 pub fn backup(store: &Store, output: &Path) -> Result<()> {
+    backup_with_options(store, output, crate::compact_backup::Options::default())
+}
+pub fn snapshot(store: &Store, options: crate::compact_backup::Options) -> Result<Files> {
     let before = models::hash_file(&store.root.join("project.json"))?;
     let doc = store.load()?;
     let mut files = Files::new();
-    collect(&store.root, &store.root, &mut files)?;
+    collect(&store.root, &store.root, &mut files, options)?;
     project_portability::validate_sources(&files, &doc)?;
     use sha2::{Digest, Sha256};
     let mut present: std::collections::BTreeSet<_> = files
         .values()
         .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
         .collect();
-    for (path, hash) in project_portability::referenced_stems(&files)? {
+    for (path, hash) in project_portability::referenced_stems(&files)?
+        .into_iter()
+        .filter(|_| options.include_generated_stems)
+    {
         if path.is_file() {
             ensure!(
                 models::hash_file(&path)?.eq_ignore_ascii_case(&hash),
@@ -66,14 +80,23 @@ pub fn backup(store: &Store, output: &Path) -> Result<()> {
         models::hash_file(&store.root.join("project.json"))? == before,
         "Project changed during backup; try again"
     );
-    let bytes = archive_codec::encode(
+    Ok(files)
+}
+pub fn backup_with_options(
+    store: &Store,
+    output: &Path,
+    options: crate::compact_backup::Options,
+) -> Result<()> {
+    let files = snapshot(store, options)?;
+    let parent = output.parent().context("Choose a backup location")?;
+    let mut stage = tempfile::NamedTempFile::new_in(parent)?;
+    crate::compact_backup::encode_into(
         files
             .iter()
             .map(|(name, bytes)| (name.as_str(), bytes.as_slice())),
+        &mut stage,
+        options,
     )?;
-    let parent = output.parent().context("Choose a backup location")?;
-    let mut stage = tempfile::NamedTempFile::new_in(parent)?;
-    stage.write_all(&bytes)?;
     stage.as_file().sync_all()?;
     stage
         .persist_noclobber(output)
@@ -88,9 +111,11 @@ pub fn import(path: &Path, output: &Path) -> Result<Store> {
         .context("Choose a project location")?
         .canonicalize()?;
     let output = parent.join(output.file_name().context("Invalid project name")?);
-    let files =
-        archive_codec::strip_wrapper(archive_codec::decode(&fs::read(path)?)?, "project.json")?;
-    let mut files: Files = files.into_iter().collect();
+    let files = archive_codec::strip_wrapper_shared(
+        archive_codec::decode_reader(fs::File::open(path)?)?,
+        "project.json",
+    )?;
+    let mut files: std::collections::BTreeMap<_, _> = files.into_iter().collect();
     project_portability::relocate(&mut files, &output)?;
     let stage = tempfile::tempdir_in(parent)?;
     for (name, bytes) in files {
@@ -108,7 +133,7 @@ pub fn import_song(path: &Path, output: &Path) -> Result<Store> {
 }
 /// Keep the staged ZIP alive while the UI asks which chart source to edit.
 pub fn unpack_song(path: &Path) -> Result<tempfile::TempDir> {
-    let files = archive_codec::decode(&fs::read(path)?)?;
+    let files = archive_codec::decode_reader(fs::File::open(path)?)?;
     let marker = if files
         .iter()
         .any(|(name, _)| name == "notes.chart" || name.ends_with("/notes.chart"))
@@ -117,7 +142,7 @@ pub fn unpack_song(path: &Path) -> Result<tempfile::TempDir> {
     } else {
         "notes.mid"
     };
-    let files = archive_codec::strip_wrapper(files, marker)?;
+    let files = archive_codec::strip_wrapper_shared(files, marker)?;
     let source = tempfile::tempdir()?;
     for (name, bytes) in files {
         let path = source.path().join(name);

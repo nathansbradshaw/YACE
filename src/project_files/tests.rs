@@ -35,6 +35,65 @@ fn action(store: &Store, action: Action) -> Result<()> {
 }
 
 #[test]
+fn compact_backups_can_omit_generated_audio_without_losing_undo_history() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    action(
+        &store,
+        Action::AddNote {
+            track: "ExpertSingle".into(),
+            tick: 960,
+            lane: 1,
+            sustain: 120,
+            cymbal: false,
+        },
+    )
+    .unwrap();
+    let generated = store.root.join("source/.yace/audio/stems/key/guitar.wav");
+    fs::create_dir_all(generated.parent().unwrap()).unwrap();
+    fs::write(&generated, b"generated stem").unwrap();
+    for include_generated_stems in [true, false] {
+        let output = root
+            .path()
+            .join(format!("backup-{include_generated_stems}.zip"));
+        backup_with_options(
+            &store,
+            &output,
+            crate::compact_backup::Options {
+                include_generated_stems,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let destination = root
+            .path()
+            .join(format!("restored-{include_generated_stems}"));
+        let restored = import(&output, &destination).unwrap();
+        assert_eq!(
+            destination
+                .join("source/.yace/audio/stems/key/guitar.wav")
+                .exists(),
+            include_generated_stems
+        );
+        action(&restored, Action::Undo).unwrap();
+        assert_eq!(
+            restored.load().unwrap().chart_text(&restored).unwrap(),
+            CHART
+        );
+        action(&restored, Action::Redo).unwrap();
+        assert!(
+            restored
+                .load()
+                .unwrap()
+                .chart_text(&restored)
+                .unwrap()
+                .contains("960 = N 1 120")
+        );
+    }
+    assert!(generated.exists());
+}
+
+#[test]
 fn backup_and_recovery_preserve_source_lock_suffixes_unknown_assets_and_edit_history() {
     let root = tempfile::tempdir().unwrap();
     let store = fixture(root.path());

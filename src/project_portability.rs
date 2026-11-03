@@ -76,11 +76,31 @@ fn validate_recording<B: Bytes>(
 fn key(audio: &str, manifest: &Option<StemManifest>) -> Result<String> {
     Ok(digest(&serde_json::to_vec(&(audio, manifest))?))
 }
+fn translated(
+    hash: &str,
+    index: &BTreeMap<String, Vec<String>>,
+    transcodes: &BTreeMap<String, String>,
+) -> Result<String> {
+    let mut hash = hash.to_ascii_lowercase();
+    let mut seen = BTreeSet::new();
+    while !index.contains_key(&hash) {
+        let Some(next) = transcodes.get(&hash) else {
+            break;
+        };
+        ensure!(
+            seen.insert(hash.clone()) && seen.len() <= 64,
+            "Cyclic portable audio identity map"
+        );
+        hash = next.clone();
+    }
+    Ok(hash)
+}
 fn relocate_content(
     content: &mut Content,
     root: &Path,
     audio: &str,
     index: &BTreeMap<String, Vec<String>>,
+    transcodes: &BTreeMap<String, String>,
     keys: &mut BTreeMap<String, String>,
 ) -> Result<()> {
     let old = key(audio, &content.stems)?;
@@ -90,7 +110,11 @@ fn relocate_content(
         .chain(content.keyboard_stems.iter_mut())
     {
         let mut claimed = BTreeSet::new();
+        let mut converted = false;
         for asset in &mut manifest.stems {
+            let next = translated(&asset.sha256, index, transcodes)?;
+            converted |= !next.eq_ignore_ascii_case(&asset.sha256);
+            asset.sha256 = next;
             let candidates = index.get(&asset.sha256.to_ascii_lowercase());
             let available = || {
                 candidates
@@ -110,6 +134,24 @@ fn relocate_content(
                     .join(format!("{}-{}.wav", asset.id.as_str(), asset.sha256))
             };
         }
+        if converted {
+            let detail = " Portable 24-bit listening copy; original audio identities are retained in yace-portable-audio.json.";
+            if !manifest.alignment.details.contains(detail)
+                && manifest.alignment.details.len() + detail.len() <= 10000
+            {
+                manifest.alignment.details.push_str(detail);
+            }
+            if let Some(identity) = &mut manifest.generation
+                && (identity.parameters.len() < 100
+                    || identity.parameters.contains_key("portable_audio"))
+            {
+                identity
+                    .parameters
+                    .insert("portable_audio".into(), "peak-scaled-pcm24-v1".into());
+                identity.cache_key =
+                    identity.calculated_cache_key(&manifest.source_audio_sha256)?;
+            }
+        }
     }
     keys.insert(old, key(audio, &content.stems)?);
     Ok(())
@@ -126,6 +168,24 @@ pub fn relocate<B: Bytes>(files: &mut BTreeMap<String, B>, root: &Path) -> Resul
             .bytes(),
     )?;
     validate_sources(files, &doc)?;
+    let transcodes: BTreeMap<String, String> = files
+        .get("yace-portable-audio.json")
+        .map(|bytes| {
+            ensure!(
+                bytes.bytes().len() <= 16 * 1024 * 1024,
+                "Portable audio map is too large"
+            );
+            Ok::<_, anyhow::Error>(serde_json::from_slice(bytes.bytes())?)
+        })
+        .transpose()?
+        .unwrap_or_default();
+    ensure!(
+        transcodes.len() <= 16384
+            && transcodes.iter().all(|(old, new)| [old, new]
+                .iter()
+                .all(|hash| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))),
+        "Invalid portable audio identity map"
+    );
     let mut index = BTreeMap::<String, Vec<String>>::new();
     let recording = format!("source/{}", doc.audio_filename);
     for (name, bytes) in files.iter() {
@@ -173,7 +233,14 @@ pub fn relocate<B: Bytes>(files: &mut BTreeMap<String, B>, root: &Path) -> Resul
             .recording
             .as_ref()
             .map_or(doc.audio_sha256.as_str(), |basis| basis.audio_hash());
-        relocate_content(&mut checkpoint.content, root, audio, &index, &mut keys)?;
+        relocate_content(
+            &mut checkpoint.content,
+            root,
+            audio,
+            &index,
+            &transcodes,
+            &mut keys,
+        )?;
         let bytes = checkpoint.encode()?;
         let next = digest(&bytes);
         files
@@ -181,7 +248,14 @@ pub fn relocate<B: Bytes>(files: &mut BTreeMap<String, B>, root: &Path) -> Resul
             .or_insert(bytes.into());
         checkpoints.insert(id, next);
     }
-    relocate_content(&mut doc.content, root, &doc.audio_sha256, &index, &mut keys)?;
+    relocate_content(
+        &mut doc.content,
+        root,
+        &doc.audio_sha256,
+        &index,
+        &transcodes,
+        &mut keys,
+    )?;
     for id in doc.undo.iter_mut().chain(doc.redo.iter_mut()) {
         *id = checkpoints
             .get(id)
@@ -206,10 +280,29 @@ pub fn relocate<B: Bytes>(files: &mut BTreeMap<String, B>, root: &Path) -> Resul
             set.directory = root
                 .join(Path::new(&name).parent().context("Invalid kit folder")?)
                 .join("parts");
+            let source = translated(&set.drum_audio_sha256, &index, &transcodes)?;
+            if source != set.drum_audio_sha256 {
+                let original = set.original_hash(&set.drum_audio_sha256).to_owned();
+                set.portable_audio.insert(source.clone(), original);
+                set.drum_audio_sha256 = source;
+            }
+            for part in &mut set.parts {
+                let next = translated(&part.sha256, &index, &transcodes)?;
+                if next != part.sha256 {
+                    let original = set
+                        .portable_audio
+                        .get(&part.sha256)
+                        .cloned()
+                        .unwrap_or_else(|| part.sha256.clone());
+                    set.portable_audio.insert(next.clone(), original);
+                    part.sha256 = next;
+                }
+            }
             files.insert(name, serde_json::to_vec_pretty(&set)?.into());
         }
     }
     if let Some(selected) = &mut doc.kit_audition {
+        selected.audio_sha256 = translated(&selected.audio_sha256, &index, &transcodes)?;
         if let Some(next) = keys.get(&selected.source_key) {
             selected.source_key = next.clone();
         }
@@ -225,16 +318,22 @@ pub fn relocate<B: Bytes>(files: &mut BTreeMap<String, B>, root: &Path) -> Resul
 
 /// Assets referenced by current and undo/redo snapshots are eligible for a
 /// portable backup. Missing external assets remain explicitly unavailable.
-pub fn referenced_stems(files: &Files) -> Result<BTreeMap<PathBuf, String>> {
-    let doc: Project =
-        serde_json::from_slice(files.get("project.json").context("Missing project")?)?;
+pub fn referenced_stems<B: Bytes>(
+    files: &BTreeMap<String, B>,
+) -> Result<BTreeMap<PathBuf, String>> {
+    let doc: Project = serde_json::from_slice(
+        files
+            .get("project.json")
+            .context("Missing project")?
+            .bytes(),
+    )?;
     let mut contents = vec![doc.content];
     for id in doc.undo.iter().chain(&doc.redo) {
         let bytes = files
             .get(&format!("checkpoints/{id}.json"))
             .context("Missing checkpoint")?;
-        ensure!(digest(bytes) == *id, "Checkpoint checksum differs");
-        let checkpoint = crate::project_recording::Checkpoint::decode(bytes)?;
+        ensure!(digest(bytes.bytes()) == *id, "Checkpoint checksum differs");
+        let checkpoint = crate::project_recording::Checkpoint::decode(bytes.bytes())?;
         if let Some(basis) = &checkpoint.recording {
             validate_recording(files, basis, &doc.source_chart_sha256)?;
         }

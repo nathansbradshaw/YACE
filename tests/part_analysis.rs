@@ -403,6 +403,7 @@ fn kit_audition_is_bounded_source_bound_and_survives_note_edits() {
         },
     };
     let mut set = DrumPartSet {
+        portable_audio: BTreeMap::new(),
         source_key: part_analysis::kit_source_key(&doc).unwrap(),
         original_audio_sha256: doc.audio_sha256.clone(),
         drum_audio_sha256: drum_hash.clone(),
@@ -524,6 +525,7 @@ fn save_controlled_kit_cache(
         });
     }
     let set = DrumPartSet {
+        portable_audio: BTreeMap::new(),
         source_key: part_analysis::kit_source_key(doc).unwrap(),
         original_audio_sha256: doc.audio_sha256.clone(),
         drum_audio_sha256: hash.clone(),
@@ -690,6 +692,66 @@ fn kit_transport_fixture() -> (tempfile::TempDir, tempfile::TempDir, Store) {
     .unwrap();
     save_controlled_kit_cache(&store, &doc, &drums, "transport", 50);
     (source, destination, store)
+}
+
+#[test]
+#[cfg(any(feature = "editor", feature = "browser"))]
+fn listening_backup_keeps_saved_kit_audition_and_original_inference_receipt() {
+    use chart_engine::{
+        compact_backup::{Options, StemQuality},
+        project_files,
+    };
+    let source = fixture();
+    let destination = tempfile::tempdir().unwrap();
+    let store = Store::create(source.path(), None, &destination.path().join("project")).unwrap();
+    let mut doc = store.load().unwrap();
+    let drums = destination.path().join("drums.wav");
+    let mut bytes = fs::read(source.path().join("guitar-component.wav")).unwrap();
+    for sample in bytes[44..].chunks_exact_mut(4) {
+        let value = f32::from_le_bytes(sample.try_into().unwrap()) * 0.731;
+        sample.copy_from_slice(&value.to_le_bytes());
+    }
+    fs::write(&drums, bytes).unwrap();
+    doc.content.stems = Some(
+        StemManifest::build(
+            &store.audio_path(&doc).unwrap(),
+            BTreeMap::from([(StemId::Drums, drums.clone())]),
+            AlignmentEvidence {
+                method: "controlled-portable-kit".into(),
+                details: "Synthetic clock fixture, not musical quality evidence".into(),
+            },
+        )
+        .unwrap(),
+    );
+    let set = save_controlled_kit_cache(&store, &doc, &drums, "portable", 50);
+    let receipt = serde_json::to_vec(&set.receipt).unwrap();
+    doc.kit_audition = Some(part_analysis::kit_descriptor(&set, "kick").unwrap());
+    fs::write(
+        store.root.join("project.json"),
+        serde_json::to_vec(&doc).unwrap(),
+    )
+    .unwrap();
+    let backup = destination.path().join("listening.zip");
+    project_files::backup_with_options(
+        &store,
+        &backup,
+        Options {
+            stem_quality: StemQuality::Listening,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let restored = project_files::import(&backup, &destination.path().join("restored")).unwrap();
+    let doc = restored.load().unwrap();
+    let kit = part_analysis::load_project_drum_parts(&restored, &doc)
+        .unwrap()
+        .expect("Converted saved kit must remain available");
+    assert!(!kit.portable_audio.is_empty());
+    assert_eq!(serde_json::to_vec(&kit.receipt).unwrap(), receipt);
+    part_analysis::validated_kit_audition_path(&restored, &doc, doc.kit_audition.as_ref().unwrap())
+        .unwrap();
+    let clip = part_analysis::audition_clip(&restored, &doc, &kit, "kick", 0.95, 1.05).unwrap();
+    assert!(!clip.wav.is_empty());
 }
 
 #[test]

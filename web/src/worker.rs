@@ -98,6 +98,13 @@ pub enum Task {
     Backup {
         root: PathBuf,
         output: PathBuf,
+        #[serde(default)]
+        options: crate::compact_backup::Options,
+    },
+    CompactArchive {
+        root: PathBuf,
+        output: PathBuf,
+        options: crate::compact_backup::Options,
     },
     Tempo {
         audio: PathBuf,
@@ -214,7 +221,7 @@ impl Task {
                 .collect(),
             Self::Archive { .. } | Self::CacheModel { .. } => Vec::new(),
             Self::Separate { audio, .. } => vec![audio.clone()],
-            Self::Backup { .. } => Vec::new(),
+            Self::Backup { .. } | Self::CompactArchive { .. } => Vec::new(),
             Self::Tempo { audio } | Self::InspectRecording { audio, .. } => vec![audio.clone()],
             Self::Relocate { .. } | Self::LoadKit { .. } | Self::SelectKit { .. } => Vec::new(),
             Self::Clean { audio, stem, .. } => {
@@ -357,7 +364,7 @@ impl Task {
             Self::RecognizeWords { .. } => {
                 anyhow::bail!("Recognition requires the asynchronous local worker")
             }
-            Self::Archive { .. } => Ok(serde_json::Value::Null),
+            Self::Archive { .. } | Self::CompactArchive { .. } => Ok(serde_json::Value::Null),
             Self::InspectRecording { audio, output } => Ok(serde_json::to_value(
                 crate::song_import::local(audio, output)?,
             )?),
@@ -744,14 +751,19 @@ async fn process(input: JsValue) -> Result<JsValue> {
         | Task::ExportChartOnly { output, .. } => {
             Some((output.clone(), output.with_extension("zip")))
         }
-        Task::Backup { root, output } | Task::Archive { root, output } => {
-            Some((root.clone(), output.clone()))
-        }
+        Task::Backup { root, output, .. }
+        | Task::CompactArchive { root, output, .. }
+        | Task::Archive { root, output } => Some((root.clone(), output.clone())),
         _ => None,
     };
     if let Some((folder, output)) = archive {
         progress("Preparing archive download in bounded chunks…".into());
-        let blob = crate::files::archive_blob(&folder)?;
+        let blob =
+            if let Task::Backup { options, .. } | Task::CompactArchive { options, .. } = &task {
+                crate::files::compact_archive_blob(&folder, *options)?
+            } else {
+                crate::files::archive_blob(&folder)?
+            };
         let row = js_sys::Array::new();
         row.push(&output.to_string_lossy().as_ref().into());
         row.push(&blob);
@@ -854,7 +866,17 @@ pub fn start_worker() {
         Closure::<dyn FnMut(web_sys::MessageEvent)>::new(move |event: web_sys::MessageEvent| {
             let target = target.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let response = match process(event.data()).await {
+                let result = if field(&event.data(), "kind")
+                    .ok()
+                    .and_then(|v| v.as_string())
+                    .as_deref()
+                    == Some("import-archive")
+                {
+                    crate::archive_import::process(&event.data(), &target)
+                } else {
+                    process(event.data()).await
+                };
+                let response = match result {
                     Ok(value) => value,
                     Err(error) => {
                         let value = message("error").unwrap();
@@ -880,6 +902,14 @@ impl Drop for Running {
     }
 }
 async fn exchange(input: &JsValue, progress: Rc<dyn Fn(String)>) -> Result<JsValue> {
+    exchange_with_entries(input, progress, None).await
+}
+type EntrySink = Rc<dyn Fn(JsValue) -> Result<()>>;
+pub(crate) async fn exchange_with_entries(
+    input: &JsValue,
+    progress: Rc<dyn Fn(String)>,
+    entries: Option<EntrySink>,
+) -> Result<JsValue> {
     let options = web_sys::WorkerOptions::new();
     options.set_type(web_sys::WorkerType::Module);
     let url = MODULE_URL
@@ -921,6 +951,21 @@ async fn exchange(input: &JsValue, progress: Rc<dyn Fn(String)>) -> Result<JsVal
                     && let Some(label) = label.as_string()
                 {
                     progress(label);
+                }
+            } else if field(&event.data(), "kind")
+                .ok()
+                .and_then(|v| v.as_string())
+                .as_deref()
+                == Some("archive-entry")
+            {
+                let result = entries
+                    .as_ref()
+                    .context("Unexpected archive entry")
+                    .and_then(|sink| sink(event.data()));
+                if let Err(error) = result
+                    && let Some(sender) = sender.borrow_mut().take()
+                {
+                    let _ = sender.send(Err(error));
                 }
             } else if let Some(sender) = sender.borrow_mut().take() {
                 let _ = sender.send(Ok(event.data()));
@@ -974,6 +1019,14 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
     let mut selected = BTreeMap::new();
     for root in roots {
         for (path, bytes) in crate::storage::list(root)? {
+            if let Task::Backup { root, options, .. } | Task::CompactArchive { root, options, .. } =
+                &task
+            {
+                let name = crate::archive_codec::relative_name(path.strip_prefix(root)?)?;
+                if !options.include_generated_stems && crate::compact_backup::generated(&name) {
+                    continue;
+                }
+            }
             if matches!(task, Task::GenerationStage { .. } | Task::RecognizeWords { .. } | Task::CompareVocalPitch { .. })
                 && path
                     .extension()
@@ -990,6 +1043,33 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
                 continue;
             }
             selected.insert(path, bytes);
+        }
+    }
+    if let Task::Backup { root, options, .. } = &task {
+        let files = selected
+            .iter()
+            .map(|(path, bytes)| {
+                Ok((
+                    crate::archive_codec::relative_name(path.strip_prefix(root)?)?,
+                    bytes.clone(),
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        let doc = crate::editor::Store::new(root).load()?;
+        crate::project_portability::validate_sources(&files, &doc)?;
+        for (path, hash) in crate::project_portability::referenced_stems(&files)? {
+            if options.include_generated_stems
+                && let Ok(bytes) = crate::storage::shared(&path)
+            {
+                ensure!(
+                    crate::models::hash_shared(&bytes).eq_ignore_ascii_case(&hash),
+                    "Attached stem checksum differs during backup"
+                );
+                if !path.starts_with(root) {
+                    let ext = path.extension().unwrap_or_default().to_string_lossy();
+                    selected.insert(root.join(format!("assets/stems/{hash}.{ext}")), bytes);
+                }
+            }
         }
     }
     for path in &bound_audio {

@@ -55,15 +55,23 @@ impl FolderSelection {
             .filter(|(name, _)| Path::new(name).starts_with(selected))
             .collect();
         ensure!(
-            files.len() <= 4096,
-            "The selected song contains more than 4096 files"
+            files.len() <= crate::compact_backup::MAX_FILES,
+            "The selected song contains more than 16,384 files"
         );
         let total: f64 = files.iter().map(|(_, file)| file.size()).sum();
         ensure!(
-            total <= 1024. * 1024. * 1024.,
-            "The selected song exceeds 1 GiB"
+            total <= crate::archive_import::MAX_RESIDENT as f64,
+            "The selected song exceeds the browser's 2 GiB expanded-data budget"
+        );
+        ensure!(
+            total <= crate::archive_import::available_budget() as f64,
+            "The selected song and currently open files exceed the browser's memory budget. Open it on desktop or choose a backup without generated stems."
         );
         for (name, file) in files {
+            ensure!(
+                file.size() <= crate::archive_import::MAX_ENTRY as f64,
+                "A selected file exceeds the browser's 1 GiB per-file budget"
+            );
             crate::storage::write_owned(root.join(name), read_file(file).await?)?;
         }
         Ok(())
@@ -92,6 +100,10 @@ pub async fn pick(folder: bool, accept: &str) -> Result<Option<Files>> {
         return Ok(None);
     };
     ensure!(files.0.len() <= 4096, "Choose at most 4096 files");
+    if files.0.len() == 1 && files.0[0].0.to_ascii_lowercase().ends_with(".zip") {
+        let (_, file) = files.0.into_iter().next().context("Missing selected ZIP")?;
+        return Ok(Some(crate::archive_import::read(file.into()).await?));
+    }
     let total: f64 = files.0.iter().map(|(_, file)| file.size()).sum();
     ensure!(
         total <= 1024. * 1024. * 1024.,
@@ -237,6 +249,25 @@ pub fn archive_blob(root: &Path) -> Result<web_sys::Blob> {
             .zip(&files)
             .map(|(name, (_, bytes))| (name.as_str(), bytes.as_slice())),
         crate::archive_blob::Writer::default(),
+    )?
+    .finish()
+}
+pub fn compact_archive_blob(
+    root: &Path,
+    options: crate::compact_backup::Options,
+) -> Result<web_sys::Blob> {
+    let files = crate::storage::list(root)?;
+    let names = files
+        .iter()
+        .map(|(path, _)| crate::archive_codec::relative_name(path.strip_prefix(root)?))
+        .collect::<Result<Vec<_>>>()?;
+    crate::compact_backup::encode_into(
+        names
+            .iter()
+            .zip(&files)
+            .map(|(name, (_, bytes))| (name.as_str(), bytes.as_slice())),
+        crate::archive_blob::Writer::default(),
+        options,
     )?
     .finish()
 }

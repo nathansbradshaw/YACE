@@ -34,16 +34,47 @@ mod path_tests;
 /// Retain repeated immutable media once when a game ZIP also carries its
 /// editable recovery copy. Limits apply to both logical and unique bytes.
 pub fn decode_shared(bytes: &[u8]) -> Result<SharedFiles> {
-    use sha2::{Digest, Sha256};
-    use std::{collections::BTreeMap, sync::Arc};
-    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))?;
+    decode_reader(Cursor::new(bytes))
+}
+pub enum Decoded {
+    Bytes(Vec<u8>),
+    Alias(String),
+}
+/// Read just one entry at a time. A sink can transfer each allocation out of a
+/// worker before the next entry is inflated; no complete encoded ZIP is needed.
+pub fn decode_into<R: Read + Seek>(
+    reader: R,
+    mut sink: impl FnMut(String, Decoded) -> Result<()>,
+) -> Result<()> {
+    decode_into_limited(
+        reader,
+        crate::compact_backup::MAX_FILE,
+        crate::compact_backup::MAX_TOTAL,
+        &mut sink,
+    )
+}
+pub fn decode_into_limited<R: Read + Seek>(
+    reader: R,
+    max_entry: u64,
+    max_unique: u64,
+    mut sink: impl FnMut(String, Decoded) -> Result<()>,
+) -> Result<()> {
+    use crate::compact_backup as backup;
+    use std::collections::BTreeMap;
+    let mut archive = zip::ZipArchive::new(reader)?;
     ensure!(
-        !archive.is_empty() && archive.len() <= 4096,
+        !archive.is_empty() && archive.len() <= backup::MAX_FILES + 1,
         "Invalid archive entry count"
     );
-    let mut files = Vec::new();
+    let manifest = backup::manifest(&mut archive)?;
+    let mut pending = BTreeMap::<String, Vec<&backup::Entry>>::new();
+    if let Some(manifest) = &manifest {
+        for entry in &manifest.files {
+            pending.entry(entry.blob.clone()).or_default().push(entry);
+        }
+    }
     let mut names = BTreeSet::new();
-    let mut blocks = BTreeMap::<String, Arc<Vec<u8>>>::new();
+    let mut blocks = BTreeMap::<String, String>::new();
     let (mut total, mut unique) = (0u64, 0u64);
     for index in 0..archive.len() {
         let entry = archive.by_index(index)?;
@@ -64,13 +95,31 @@ pub fn decode_shared(bytes: &[u8]) -> Result<SharedFiles> {
             .checked_add(entry.size())
             .context("Archive size overflow")?;
         ensure!(
-            total <= 3 * 1024 * 1024 * 1024 && entry.size() <= 1024 * 1024 * 1024,
-            "Expanded archive exceeds browser limits"
+            total <= backup::MAX_TOTAL && entry.size() <= max_entry.min(backup::MAX_FILE),
+            "Expanded archive exceeds supported limits"
         );
         if name.starts_with("__MACOSX/") {
             continue;
         }
+        if manifest.is_some() && name == backup::MANIFEST {
+            continue;
+        }
+        let descriptions = if manifest.is_some() {
+            Some(pending.remove(&name).context("Unexpected backup asset")?)
+        } else {
+            None
+        };
         let size = entry.size();
+        if let Some(descriptions) = &descriptions {
+            ensure!(
+                descriptions[0].bytes <= max_entry
+                    && descriptions[0]
+                        .packed_bytes
+                        .unwrap_or(descriptions[0].bytes)
+                        == size,
+                "Backup asset length exceeds limits or differs"
+            );
+        }
         let mut bytes = Vec::with_capacity(size as usize);
         let mut limited = entry.take(size);
         limited.read_to_end(&mut bytes)?;
@@ -80,25 +129,74 @@ pub fn decode_shared(bytes: &[u8]) -> Result<SharedFiles> {
             bytes.len() as u64 == size && entry.read(&mut extra)? == 0,
             "Archive entry size differs from its directory"
         );
-        let hash = format!("{:x}", Sha256::digest(&bytes));
-        let bytes = if let Some(existing) = blocks.get(&hash) {
-            existing.clone()
+        if let Some(descriptions) = &descriptions {
+            bytes = backup::restore_entry(bytes, descriptions[0])?;
+        }
+        let hash = backup::digest(&bytes);
+        let destination = descriptions
+            .as_ref()
+            .map_or(name.as_str(), |entries| entries[0].path.as_str())
+            .to_owned();
+        if let Some(descriptions) = &descriptions {
+            ensure!(
+                descriptions[0]
+                    .restored_sha256
+                    .as_ref()
+                    .unwrap_or(&descriptions[0].sha256)
+                    == &hash,
+                "Backup asset checksum differs"
+            );
+        }
+        if let Some(existing) = blocks.get(&hash) {
+            sink(destination.clone(), Decoded::Alias(existing.clone()))?;
         } else {
             unique = unique
                 .checked_add(bytes.len() as u64)
                 .context("Archive size overflow")?;
             ensure!(
-                unique <= 1024 * 1024 * 1024,
-                "Unique archive data exceeds 1 GiB"
+                unique <= max_unique.min(backup::MAX_TOTAL),
+                "Unique archive data exceeds supported limits"
             );
-            let bytes = Arc::new(bytes);
-            blocks.insert(hash, bytes.clone());
-            bytes
-        };
-        files.push((name, bytes));
+            blocks.insert(hash, destination.clone());
+            sink(destination.clone(), Decoded::Bytes(bytes))?;
+        }
+        if let Some(descriptions) = descriptions {
+            for entry in descriptions.into_iter().skip(1) {
+                sink(entry.path.clone(), Decoded::Alias(destination.clone()))?;
+            }
+        }
     }
-    ensure!(!files.is_empty(), "Archive contains no files");
-    Ok(files)
+    ensure!(
+        !blocks.is_empty() && pending.is_empty(),
+        "Archive has no files or is missing backup assets"
+    );
+    if let Some(manifest) = manifest
+        && !manifest.transcodes.is_empty()
+    {
+        sink(
+            backup::TRANSCODES.into(),
+            Decoded::Bytes(serde_json::to_vec(&manifest.transcodes)?),
+        )?;
+    }
+    Ok(())
+}
+pub fn decode_reader<R: Read + Seek>(reader: R) -> Result<SharedFiles> {
+    use std::{collections::BTreeMap, sync::Arc};
+    let mut files = BTreeMap::<String, Arc<Vec<u8>>>::new();
+    let mut ordered = Vec::new();
+    decode_into(reader, |name, data| {
+        let bytes = match data {
+            Decoded::Bytes(bytes) => Arc::new(bytes),
+            Decoded::Alias(source) => files.get(&source).context("Missing archive alias")?.clone(),
+        };
+        ensure!(
+            files.insert(name.clone(), bytes.clone()).is_none(),
+            "Duplicate restored archive path"
+        );
+        ordered.push((name, bytes));
+        Ok(())
+    })?;
+    Ok(ordered)
 }
 pub fn decode(bytes: &[u8]) -> Result<Files> {
     Ok(decode_shared(bytes)?
@@ -151,7 +249,13 @@ pub fn encode_into<'a, W: Write + Seek>(
     ensure!(!names.is_empty(), "No files to export");
     Ok(zip.finish()?)
 }
-pub fn strip_wrapper(mut files: Files, marker: &str) -> Result<Files> {
+pub fn strip_wrapper(files: Files, marker: &str) -> Result<Files> {
+    strip_wrapper_data(files, marker)
+}
+pub fn strip_wrapper_shared(files: SharedFiles, marker: &str) -> Result<SharedFiles> {
+    strip_wrapper_data(files, marker)
+}
+fn strip_wrapper_data<B>(mut files: Vec<(String, B)>, marker: &str) -> Result<Vec<(String, B)>> {
     for _ in 0..32 {
         if files.iter().any(|(name, _)| name == marker) {
             return Ok(files);
