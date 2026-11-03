@@ -335,6 +335,12 @@ browser checks exercised a refused conversion followed by a preserving chart
 export, plus a separate rejected edit whose error survived a successful MIDI
 export. Both downloads retained the original chart or MIDI bytes.
 
+Native generation now explicitly releases its worker lock when a run or recovery
+operation returns. A decoder that briefly inherits an open file description must
+not keep a finished job locked and prevent immediate resume. A native OS-lock
+regression retains a cloned description, checks that an active worker excludes a
+second owner, and verifies that the next worker can acquire after completion.
+
 The static entry point stays small. Application rules, audio processing and
 browser API calls remain Rust. CPU-heavy work must allow editing and playback
 to continue; an enabled button that freezes the editor does not close a gap.
