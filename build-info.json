@@ -1,7 +1,7 @@
 {
   "application": "YACE",
   "platform": "static-dioxus-web-wasm",
-  "source_commit": "339dd415338375a8e705bebfeedcd1410045652c",
-  "asset_directory": "releases/339dd415338375a8e705bebfeedcd1410045652c",
+  "source_commit": "6753fe7a7ef19524179e71d980c64d89cd57b3c8",
+  "asset_directory": "releases/6753fe7a7ef19524179e71d980c64d89cd57b3c8",
   "repository": "https://github.com/nathansbradshaw/YACE"
 }
