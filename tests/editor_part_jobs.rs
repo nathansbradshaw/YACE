@@ -25,6 +25,7 @@ fn request(store: &Store, instrument: &str) -> Request {
         source: Source::Audio {
             path: store.audio_path(&store.load().unwrap()).unwrap(),
         },
+        existing_stems: None,
         bpm: 120.,
         title: "Job fixture".into(),
         artist: "Test".into(),

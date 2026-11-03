@@ -945,7 +945,11 @@ pub fn detect_configured(
     drop(baseline_manifest.load(audio)?);
     let mut transcriber = piano_model::Transcriber::load(&model)?;
     let baseline = transcriber.transcribe(&baseline_manifest.stems[0].path, settings.piano())?;
-    let residual = if baseline.notes.iter().any(|note| note.confidence >= 0.65) {
+    let residual = if baseline.notes.iter().any(|note| note.confidence >= 0.65)
+        && [StemId::Drums, StemId::Bass, StemId::Vocals]
+            .iter()
+            .all(|id| manifest.stems.iter().any(|stem| stem.id == *id))
+    {
         let prepared = keyboard_audio::prepare(audio, manifest)?;
         let output = piano_model::decode(
             &transcriber.infer_samples(&prepared.samples)?,

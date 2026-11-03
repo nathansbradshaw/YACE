@@ -5,6 +5,7 @@ use dioxus::prelude::*;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Options {
+    pub existing_stems: bool,
     pub sensitivity: u8,
     pub loop_only: bool,
     pub guitar_source: crate::mapping::GuitarSource,
@@ -27,6 +28,13 @@ pub fn Controls(
     let loop_available = loop_label.is_some();
     let loop_label = loop_label.unwrap_or_else(|| "Set a loop in the editor".into());
     rsx! { div { class: "ra-config",
+        label { class: "ra-field", span { class: "ra-label", "Audio source" }
+            select { aria_label: "Part generation audio source", value: if options.existing_stems {"existing"} else {"automatic"}, onchange: move |event| {let mut next=options;next.existing_stems=event.value()=="existing";if next.existing_stems {next.full_mix_drums=false;next.keyboard_sound=crate::keyboard_detection::KeyboardSound::Piano;next.piano_quality=Default::default();}onchange.call(next);},
+                option { value: "existing", "Use existing stems · skip separation" }
+                option { value: "automatic", "Separate as needed" }
+            }
+            if options.existing_stems { span { class: "ra-hint", "Uses attached audio only. Missing or invalid stems stop analysis; separation will not run." } }
+        }
         div { class: "ra-field",
             span { class: "ra-label", "Repair" }
             div { class: "ra-segments", role: "group", aria_label: "Repair range",
@@ -45,16 +53,16 @@ pub fn Controls(
         if instrument == "guitar" { label { class: "ra-field", span { class: "ra-label", "Follow this sound" }
             select { aria_label: "Guitar sound source", value: options.guitar_source.stem().as_str(), onchange: move |event| { let mut next=options;next.guitar_source=match event.value().as_str(){"other"=>crate::mapping::GuitarSource::Other,"piano"=>crate::mapping::GuitarSource::Piano,_=>crate::mapping::GuitarSource::Guitar};onchange.call(next); }, option { value:"guitar", "Guitar" } option { value:"other", "Other melody / synth" } option { value:"piano", "Piano" } }
         } }
-        if matches!(instrument.as_str(),"piano"|"pro_piano") { label { class: "ra-field", span { class:"ra-label", "Sound" }
+        if !options.existing_stems && matches!(instrument.as_str(),"piano"|"pro_piano") { label { class: "ra-field", span { class:"ra-label", "Sound" }
             select { aria_label:"Keyboard sound", value:if options.keyboard_sound==crate::keyboard_detection::KeyboardSound::Synth{"synth"}else{"piano"},onchange:move|event|{let mut next=options;next.keyboard_sound=if event.value()=="synth"{crate::keyboard_detection::KeyboardSound::Synth}else{crate::keyboard_detection::KeyboardSound::Piano};onchange.call(next);},option{value:"piano","Piano"}option{value:"synth","Synth (experimental)"} }
         } }
         details { class: "ra-advanced", summary { "Advanced" }, div { class:"ra-advanced-fields",
             if instrument=="drums" {
                 label { class:"ra-field", "Drum mapping",select{aria_label:"Drum mapping",value:if options.standard_drums{"standard"}else{"pro"},onchange:move|event|{let mut next=options;next.standard_drums=event.value()=="standard";onchange.call(next);},option{value:"pro","Pro Drums"}option{value:"standard","Standard drums"}} }
-                label { class:"ra-check",input{r#type:"checkbox",checked:options.full_mix_drums,onchange:move|event|{let mut next=options;next.full_mix_drums=event.checked();onchange.call(next);}},"Use the full recording" }
-                p { class:"ra-hint", "Full-recording detection is faster, but can pick up other instruments." }
+                if !options.existing_stems {label { class:"ra-check",input{r#type:"checkbox",checked:options.full_mix_drums,onchange:move|event|{let mut next=options;next.full_mix_drums=event.checked();onchange.call(next);}},"Use the full recording" }
+                p { class:"ra-hint", "Full-recording detection is faster, but can pick up other instruments." }}
             }
-            if matches!(instrument.as_str(),"piano"|"pro_piano") && options.keyboard_sound==crate::keyboard_detection::KeyboardSound::Piano { label { class:"ra-field","Piano analysis",select{aria_label:"Piano analysis",value:if options.piano_quality==crate::keyboard_detection::PianoQuality::HighQuality{"high"}else{"standard"},onchange:move|event|{let mut next=options;next.piano_quality=if event.value()=="high"{crate::keyboard_detection::PianoQuality::HighQuality}else{crate::keyboard_detection::PianoQuality::Standard};onchange.call(next);},option{value:"standard","Standard"}option{value:"high",disabled:cfg!(target_arch="wasm32"),"Higher quality · desktop"}}} }
+            if !options.existing_stems && matches!(instrument.as_str(),"piano"|"pro_piano") && options.keyboard_sound==crate::keyboard_detection::KeyboardSound::Piano { label { class:"ra-field","Piano analysis",select{aria_label:"Piano analysis",value:if options.piano_quality==crate::keyboard_detection::PianoQuality::HighQuality{"high"}else{"standard"},onchange:move|event|{let mut next=options;next.piano_quality=if event.value()=="high"{crate::keyboard_detection::PianoQuality::HighQuality}else{crate::keyboard_detection::PianoQuality::Standard};onchange.call(next);},option{value:"standard","Standard"}option{value:"high",disabled:cfg!(target_arch="wasm32"),"Higher quality · desktop"}}} }
             if instrument=="vocals" {
                 label { class:"ra-field","Lyric language",select{aria_label:"Lyric language",value:match options.language{crate::lyric_language::Language::English=>"en",crate::lyric_language::Language::Spanish=>"es",crate::lyric_language::Language::Auto=>"auto"},onchange:move|event|{let mut next=options;next.language=match event.value().as_str(){"es"=>crate::lyric_language::Language::Spanish,"auto"=>crate::lyric_language::Language::Auto,_=>crate::lyric_language::Language::English};onchange.call(next);},option{value:"en","English"}option{value:"es","Spanish"}option{value:"auto","Detect language"}} }
                 label { class:"ra-field","Vocal analysis",select{aria_label:"Vocal analysis",value:if options.vocal_mode==crate::vocal_generation::AnalysisMode::Standard{"standard"}else{"high"},onchange:move|event|{let mut next=options;next.vocal_mode=if event.value()=="high"{crate::vocal_generation::AnalysisMode::HighAccuracy}else{crate::vocal_generation::AnalysisMode::Standard};onchange.call(next);},option{value:"standard","Standard"}option{value:"high","High accuracy (experimental)"}} }

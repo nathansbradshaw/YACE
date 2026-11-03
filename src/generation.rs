@@ -338,7 +338,11 @@ pub fn read_request(selected: &Path) -> Result<Request> {
             path: path.canonicalize()?,
         })?;
     }
-    Ok(serde_json::from_value(value)?)
+    let mut request: Request = serde_json::from_value(value)?;
+    if let Some(manifest) = &mut request.existing_stems {
+        resolve_manifest(&root, manifest)?;
+    }
+    Ok(request)
 }
 
 /// Accept both the standard song folder and an explicit saved job directory.
@@ -395,6 +399,20 @@ pub fn create_job(mut request: Request, output: &Path) -> Result<PathBuf> {
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
     let stage = tempfile::tempdir_in(parent)?;
+    if let Some(manifest) = &request.existing_stems {
+        let Source::Audio { path } = &request.source;
+        manifest.validate_source(
+            path,
+            &models::hash_file(path)?,
+            pipeline::metadata(path)?.duration,
+        )?;
+        let mut retained = crate::stem_review::game_audio::retain_in(stage.path(), manifest)?;
+        let retained_root = stage.path().canonicalize()?;
+        for stem in &mut retained.stems {
+            stem.path = stem.path.strip_prefix(&retained_root)?.to_owned();
+        }
+        request.existing_stems = Some(retained);
+    }
     write_json(&stage.path().join("request.json"), &request)?;
     write_json(
         &stage.path().join("job.json"),
@@ -447,6 +465,67 @@ fn separation_cache(root: &Path) -> Result<PathBuf> {
         || root.join(".yace/cache/separation"),
         |song| song.join(".yace/cache/separation"),
     ))
+}
+
+fn isolation_for_job(
+    request: &Request,
+    audio: &Path,
+    automatic: impl FnOnce() -> Result<pipeline::IsolationPlan>,
+) -> Result<pipeline::IsolationPlan> {
+    if let Some(manifest) = &request.existing_stems {
+        request.validate_existing_stems()?;
+        manifest.validate_source(
+            audio,
+            &models::hash_file(audio)?,
+            pipeline::metadata(audio)?.duration,
+        )?;
+        Ok(pipeline::IsolationPlan {
+            primary: manifest.clone(),
+            keyboard_analysis: None,
+        })
+    } else {
+        automatic()
+    }
+}
+
+#[cfg(test)]
+mod existing_stem_tests {
+    use super::*;
+    use crate::stem_review::{AlignmentEvidence, StemId, StemManifest};
+
+    #[test]
+    fn supplied_audio_never_calls_either_separator_even_when_invalid() {
+        let root = tempfile::tempdir().unwrap();
+        let audio = root.path().join("source.wav");
+        models::write_audio(&audio, &vec![0.; 4410], &vec![0.; 4410]).unwrap();
+        let drums = root.path().join("drums.wav");
+        models::write_audio(&drums, &vec![0.01; 4410], &vec![0.01; 4410]).unwrap();
+        let manifest = StemManifest::build(
+            &audio,
+            std::collections::BTreeMap::from([(StemId::Drums, drums)]),
+            AlignmentEvidence {
+                method: "fixture".into(),
+                details: "Identical source bytes; no inference".into(),
+            },
+        )
+        .unwrap();
+        let mut request: Request = serde_json::from_value(serde_json::json!({
+            "source":{"type":"audio","path":audio},"bpm":120.,"title":"Fixture","artist":"Fixture",
+            "instruments":["drums"],"model_dir":root.path().join("absent-models"),"existing_stems":manifest
+        })).unwrap();
+        let never_separate = || -> Result<pipeline::IsolationPlan> {
+            panic!("Supplied-stem jobs must not run a separator")
+        };
+        let selected = isolation_for_job(&request, &audio, never_separate).unwrap();
+        assert_eq!(selected.primary, manifest);
+        assert!(selected.keyboard_analysis.is_none());
+        request.instruments = vec!["bass".into()];
+        assert!(isolation_for_job(&request, &audio, never_separate).is_err());
+        request.instruments = vec!["drums".into()];
+        request.existing_stems.as_mut().unwrap().stems[0].sha256 = "ab".repeat(32);
+        assert!(isolation_for_job(&request, &audio, never_separate).is_err());
+        assert!(!request.model_dir.exists());
+    }
 }
 
 fn portable_manifest(
@@ -948,6 +1027,10 @@ fn run_inner(root: &Path) -> Result<()> {
         models::hash_file(&audio)? == input.sha256,
         "Imported source changed. Start a new job with the new recording."
     );
+    if let Some(manifest) = &request.existing_stems {
+        request.validate_existing_stems()?;
+        manifest.validate_source(&audio, &input.sha256, input.metadata.duration)?;
+    }
     let events_path = root.join("events.json");
     if !events_path.exists() && !root.join("song").exists() {
         update(
@@ -963,6 +1046,9 @@ fn run_inner(root: &Path) -> Result<()> {
             request.piano_quality,
             request.full_mix_drums,
         );
+        if request.existing_stems.is_some() {
+            wanted.retain(|id| !matches!(*id, "separation" | crate::keyboard_separation::MODEL_ID));
+        }
         if request.fetch_models
             && request
                 .instruments
@@ -1002,18 +1088,28 @@ fn run_inner(root: &Path) -> Result<()> {
             update(
                 root,
                 State::Running,
-                "separation",
-                "Separating instruments · existing matching stems are reused",
+                if request.existing_stems.is_some() {
+                    "stems"
+                } else {
+                    "separation"
+                },
+                if request.existing_stems.is_some() {
+                    "Using existing stems · separation skipped"
+                } else {
+                    "Separating instruments · existing matching stems are reused"
+                },
                 None,
             )?;
-            let plan = pipeline::prepare_keyboard_isolation(
-                &audio,
-                &request.model_dir,
-                &separation_cache(root)?,
-                &request.instruments,
-                request.keyboard_sound,
-                request.piano_quality,
-            )?;
+            let plan = isolation_for_job(&request, &audio, || {
+                pipeline::prepare_keyboard_isolation(
+                    &audio,
+                    &request.model_dir,
+                    &separation_cache(root)?,
+                    &request.instruments,
+                    request.keyboard_sound,
+                    request.piano_quality,
+                )
+            })?;
             if let Some(analysis) = &plan.keyboard_analysis {
                 write_job_manifest(root, "keyboard-analysis-isolation.json", analysis)?;
             }
@@ -1052,6 +1148,7 @@ fn run_inner(root: &Path) -> Result<()> {
                     detection: request.detection,
                     guitar_source: request.guitar_source,
                     manifest: manifest.as_deref(),
+                    skip_separation: request.existing_stems.is_some(),
                     full_mix_drums: request.full_mix_drums,
                     keyboard_sound: request.keyboard_sound,
                     piano_quality: request.piano_quality,
