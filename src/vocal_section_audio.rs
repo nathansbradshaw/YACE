@@ -26,7 +26,12 @@ pub fn binding(project: &Project, timing: &TempoMap, range: TimeRange) -> Result
             &stem.sha256,
             chart,
             timing,
-            range
+            range,
+            project.content.vocal_pitch_analysis.as_ref().map(|a| (
+                &a.generation_sha256,
+                &a.section.algorithm,
+                &a.section.repairs
+            ))
         ))?)
     ))
 }
