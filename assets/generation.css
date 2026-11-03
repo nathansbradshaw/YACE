@@ -129,6 +129,21 @@
 .generation-summary-dismiss { flex:none; border:0; padding:0 3px; color:inherit; background:transparent; font-size:18px; }
 .generation-log { max-height:180px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font:11px var(--font-mono); }
 
+.browser-generation { width:min(600px,calc(100vw - 32px)); }
+.browser-generation .generation-parts { grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.browser-generation .generation-parts legend { margin-bottom:12px; font-weight:600; }
+.browser-generation .generation-parts label { display:flex; align-items:center; gap:8px; }
+.browser-generation .generation-options { border-top:1px solid var(--border-color); padding-top:12px; }
+.browser-generation .generation-options > label { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.browser-generation .generation-options > button { align-self:flex-start; }
+.browser-generation .generation-options > button,
+.browser-generation .generation-options > label { margin-top:10px; }
+.browser-generation p { margin:0; }
+.browser-generation h3 { margin:0; font-size:16px; }
+.browser-generation .generation-result { display:grid; gap:8px; }
+.browser-generation .generation-recording { font-size:13px; }
+.browser-generation .generation-counts { margin:0; padding-left:20px; font-size:13px; }
+
 @media(max-width:650px) {
   .generation-modal .generation-grid {
     grid-template-columns:1fr
