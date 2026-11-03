@@ -53,13 +53,14 @@ fn NoteSelection(studio: Studio, track: String, item: EditorNote) -> Element {
                     input { aria_label: "Note duration in ticks", r#type: "number", min: "0", value: "{item.note.sustain}", disabled: drums, onkeydown: move |event| event.stop_propagation(), onchange: move |event| { if let Ok(value) = event.value().parse() { update(studio, &length_id, |note, _| note.sustain = value); } } }
                 }
             }
-            div { class: if crate::note_types::supported(&track) {"selection-properties"} else {""},
+            div { class: if crate::note_types::supported(&track) || drums {"selection-properties"} else {""},
               label { class: "selection-lane", "Lane"
                 select { aria_label: "Note lane", value: "{item.note.lane}", onkeydown: move |event| event.stop_propagation(), onchange: move |event| { if let Ok(value) = event.value().parse() { update(studio, &lane_id, |note, _| note.lane = value); } },
                     for lane in crate::timeline::lane_rows(&track) { option { value: "{lane}", selected: lane == item.note.lane, "{super::note_canvas::lane_name(&track, lane)}" } }
                 }
               }
               super::note_types::NoteTypes {studio}
+              super::drum_dynamics::DrumDynamics {studio}
             }
             div { class: "selection-actions",
                 if drums && (2..=4).contains(&item.note.lane) { label { class: "form-check",
@@ -143,6 +144,7 @@ pub fn SelectionDesk(studio: Studio) -> Element {
                         p { class: "selection-caption", "{count} notes selected" }
                         p { class: "field-hint", "Drag to move. Shift-click to add or remove." }
                         super::note_types::NoteTypes {studio}
+                        super::drum_dynamics::DrumDynamics {studio}
                         div { class: "selection-actions",
                             button { onclick: move |_| studio.copy_selection(false), "Copy" }
                             button { onclick: move |_| studio.delete_selection(), "Delete" }

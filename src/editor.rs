@@ -259,6 +259,10 @@ pub enum Action {
         selection: crate::note_groups::Snapshot,
         kind: crate::note_types::Kind,
     },
+    SetDrumDynamics {
+        selection: crate::note_groups::Snapshot,
+        kind: crate::drum_dynamics::Kind,
+    },
     EditStarPower {
         edit: crate::star_power::Edit,
     },
@@ -1563,6 +1567,7 @@ impl Store {
                 | Action::DeleteNote { .. }
                 | Action::EditNoteGroup { .. }
                 | Action::SetNoteType { .. }
+                | Action::SetDrumDynamics { .. }
                 | Action::EnableDifficultyLink { .. }
                 | Action::ClearDifficultyOverrides { .. }
                 | Action::Decide { .. }
@@ -1647,6 +1652,9 @@ impl Store {
             }
             Action::SetNoteType { selection, kind } => {
                 crate::note_types::apply(&mut doc, selection, *kind)?
+            }
+            Action::SetDrumDynamics { selection, kind } => {
+                crate::drum_dynamics::apply(&mut doc, selection, *kind)?
             }
             Action::EditStarPower { edit } => {
                 let source = self.source_chart(&doc)?;
@@ -2193,6 +2201,7 @@ impl Store {
             request.action,
             Action::AddNote { .. }
                 | Action::SetNoteType { .. }
+                | Action::SetDrumDynamics { .. }
                 | Action::ApplyGeneratedPart { .. }
                 | Action::UpdateNote { .. }
                 | Action::DeleteNote { .. }

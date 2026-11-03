@@ -31,6 +31,8 @@ pub mod detection_settings;
 pub mod difficulty_links;
 #[path = "../../src/drum_articulation.rs"]
 pub mod drum_articulation;
+#[path = "../../src/drum_dynamics.rs"]
+pub mod drum_dynamics;
 #[path = "../../src/drum_parts.rs"]
 pub mod drum_parts;
 #[path = "../../src/editor.rs"]

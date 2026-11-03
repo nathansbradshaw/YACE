@@ -15,6 +15,7 @@ pub mod compact_backup;
 pub mod detection_settings;
 pub mod difficulty_links;
 pub mod drum_articulation;
+pub mod drum_dynamics;
 pub mod drum_parts;
 pub mod editor;
 pub mod export_options;
