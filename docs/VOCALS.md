@@ -65,6 +65,13 @@ automatic shortening or deletion, which could sacrifice quiet or missed voices.
 All repairs remain flagged drafts after saving and subsequent checks. There is
 no claim of complete or near-perfect transcription from an empty findings list.
 
+**Prepare current-note comparison** and **Prepare selected-repair comparison**
+create a temporary stereo listening clip: the vocal stem is on the left and
+tones from the notes are on the right, on the same sample clock. The clip follows
+a loop of at most 30 seconds or the first 30 seconds of the analyzed interval.
+Use headphones to compare channels; comparison playback pauses the main player.
+Previews play at original speed and do not apply edits or enter project backups.
+
 Checking another section retains review flags and previous-pitch alternatives
 for earlier corrections while their source, timing and note bounds still match.
 In the browser, **Generate vocals… → Use a downloaded model…** can import an

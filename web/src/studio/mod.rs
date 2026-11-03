@@ -90,6 +90,8 @@ mod vocal_editor;
 mod vocal_pitch_analysis;
 #[path = "../../../src/studio/vocal_preview.rs"]
 mod vocal_preview;
+#[path = "../../../src/studio/vocal_section_audio.rs"]
+mod vocal_section_audio;
 #[path = "../../../src/studio/welcome.rs"]
 mod welcome;
 #[path = "../../../src/studio/workspace.rs"]
