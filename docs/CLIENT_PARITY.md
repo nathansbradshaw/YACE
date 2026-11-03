@@ -327,6 +327,14 @@ MIDI song or editable backup returned to Ready; the backup's Undo/Redo history
 and the song's parts and playback remained available. This correction changes
 browser feedback only; native file handling is unchanged.
 
+Failed browser song exports also show a terminal failure instead of retaining
+preparation text. The failure appears inside the export dialog beside its retry
+controls. An accepted retry clears that export's earlier error while retaining
+unrelated editing, playback and persistence errors. Actual
+browser checks exercised a refused conversion followed by a preserving chart
+export, plus a separate rejected edit whose error survived a successful MIDI
+export. Both downloads retained the original chart or MIDI bytes.
+
 The static entry point stays small. Application rules, audio processing and
 browser API calls remain Rust. CPU-heavy work must allow editing and playback
 to continue; an enabled button that freezes the editor does not close a gap.
