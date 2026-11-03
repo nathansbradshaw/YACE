@@ -44,6 +44,8 @@ Use **Current / Proposed** and **Play** to compare notes at the same
 playhead position, loop and speed. The proposal is read-only. Review the note
 changes, affected difficulties, final repair range and detection warnings, then
 choose **Apply draft** or **Discard**. Apply is one undoable edit.
+Review totals count playable notes, matching the editor; chart modifier events
+such as cymbal and forced-note markers do not inflate these totals.
 Cancelled, failed and empty proposals keep your chart and earlier saved drafts.
 **Saved analyses & details → Previous successful draft** returns to the preceding
 valid result after a retry. Model options and licenses are under **Advanced**.

@@ -327,6 +327,7 @@ pub fn changes(before: &Project, after: &Project, tracks: &[String]) -> Vec<Chan
                         .get(track)
                         .into_iter()
                         .flatten()
+                        .filter(|n| crate::editor::playable(track, n.note.lane))
                         .map(|n| serde_json::to_string(&n.note).unwrap())
                         .collect()
                 }
