@@ -29,6 +29,7 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 | Recovery, undo and backups | IndexedDB restore/stale-tab guard; same-name library switching with separate histories; full project/kit roundtrips; imported first checkpoint and native/browser Undo/Redo | Verified |
 | Playable export | Actual client exports had byte-identical MIDI, editable master, vocal JSON, INI and original Ogg; partial-stem game receipt avoids duplicate mix playback | Verified export equivalence; game/controller acceptance is separate |
 | Navigation and errors | Shared controls and OS pickers; actual narrow browser layout; lazy folder discovery; explicit downloads; native dialogs expose their accessibility role | Verified exercised paths |
+| Browser desktop workspace | Static and hosted thresholds, per-tab dismissal/reload, keyboard overflow and uninterrupted playback; actual Firefox zoom at 140%; native layout retained | Verified exercised paths; assistive technology and broader platforms remain open |
 | Release | Public static origin/custom domain and canonical native identity configured | Final publication verification is recorded in DEPLOYMENT.md |
 
 Do not mark a row passed from compilation alone. Record the revision, fixture,
@@ -84,9 +85,12 @@ open; media clock agreement does not establish acoustic synchronization.
 
 The ledger above is acceptance evidence for the exercised workflows, not a
 claim that later desktop changes are automatically verified on the web. The
-current practice-speed implementation is `2e0cbb89`, merged into main by PR 76
+practice-speed implementation is `2e0cbb89`, merged into main by PR 76
 at `cd03655e`. All four normal CI jobs passed on that exact feature head.
-GitHub Pages now serves that engine on `yace.n8bradshaw.com`; its approved
+The current published engine is `6753fe7a`, containing that playback work,
+the latest generation/draft review, and the browser workspace notice from PR 82.
+Remote main `8df19ec4` contains this production source plus a test-only lint fix.
+GitHub Pages serves that engine on `yace.n8bradshaw.com`; its approved
 certificate and HTTPS redirect were verified. The served WASM matches the
 staged artifact. Actual hosted overview seeking, local vocal pitch analysis and
 chart-only export/reimport retain the three-second duration, two vocal notes,
@@ -102,6 +106,30 @@ All with roll Focused, separate Selected preview choices with roll All, and
 collapse/reload persistence kept the existing chart revision and selected note's
 240-tick sustain unchanged. A hosted mixed-part project repeated All/All and
 collapse/reload at the same revision. View hotkeys left the note tool unchanged.
+
+The browser keeps a desktop workspace at least 1024×600 CSS pixels. A smaller
+window shows an inline notice with per-tab dismissal, without moving focus or
+changing playback. Actual static and hosted checks exercised 1024×600,
+1023×600, 1024×599, 1280×720 and 400×360; the narrow notice remained readable
+and keyboard navigation scrolled to the Export control. Dismissal survived
+same-tab reload and a fresh tab displayed its own notice. Real Firefox zoom at
+140 percent also triggered it; zoom and the original tabs were restored after
+verification. Resizing and dismissing the notice preserved playback and a
+background full-song analysis. The native application retained its layout and
+canonical identity. Native and exact static `6753fe7a` builds separately
+completed the 243.880-second recording at 200 percent; static revision 118 kept
+the selected note's 240-tick duration and matching export status. A native
+140-receipt tail window observed zero underflows, which does not negate the
+earlier stress underrun or establish acoustic acceptance.
+
+For this integration, CI passed static WASM, dependency audit and performance;
+the Mac job passed core tests, desktop build, 320 browser tests and HTTP
+integration before reporting a test-fixture initialization lint. The final
+test-only correction passed the same strict core all-target lint, the affected
+vocal comparison regression, formatting and archive-converter tests locally.
+Production artifacts remained unchanged. The supported skip-CI marker avoided
+repeating those builds for the test-only correction; the normal merge did not
+bypass any required branch check.
 
 - Local RMVPE pitch comparison ran on the real three-second vocal excerpt.
   Deliberately moving MIDI 52 to 64 produced one supported 64-to-52 correction;
