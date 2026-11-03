@@ -1,8 +1,19 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>YACE</title></head>
-<body style="margin:0"><div id="main"></div><script type="module">
-import init from './releases/dc1a4b28977e164ec59e4a2baa58cf5b2d517baa/yace_web.js';
-init().catch(error => { document.getElementById('main').textContent = `YACE could not start: ${error}`; });
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>YACE</title>
+<style>
+body { margin: 0; background: #151a1e; color: #eee9dc; font: 16px system-ui, sans-serif; }
+#startup, #main[role="alert"] { padding: 2rem; }
+#startup h1 { font-size: 1.5rem; }
+#main:not(:empty) + #startup { display: none; }
+</style></head>
+<body><div id="main"></div><section id="startup" role="status" aria-live="polite">
+<h1>YACE</h1><p>Loading YACE…</p><p>Preparing the chart editor. The first visit may take longer.</p>
+</section><noscript><style>#startup { display: none; }</style><p>YACE needs JavaScript enabled to start the browser chart editor.</p></noscript><script type="module">
+import('./releases/8f909a0c1cc565a3539513d5b32c2a6bee67b8ac/yace_web.js').then(({ default: init }) => init()).catch(error => {
+    const root = document.getElementById('main');
+    root.setAttribute('role', 'alert');
+    root.textContent = `YACE could not start. Check your connection and reload this page. Details: ${error}`;
+});
 </script></body>
 </html>
