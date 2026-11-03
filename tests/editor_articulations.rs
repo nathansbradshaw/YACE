@@ -768,3 +768,92 @@ fn authored_double_kick_roundtrips_as_midi95_and_lower_tier_midi_refuses_loss() 
         source
     );
 }
+
+#[test]
+fn moving_imported_drum_hits_preserves_note_off_intervals_and_midi_attributes() {
+    for lane in [2, 32] {
+        let source = if lane == 2 {
+            SOURCE.replace("480 = N 2 0", "480 = N 2 1")
+        } else {
+            SOURCE.replace("480 = N 2 0", "480 = N 32 1\n 480 = N 96 9\n 480 = N 2 0")
+        };
+        let root = tempfile::tempdir().unwrap();
+        let store = fixture_with(root.path(), &source);
+        let id = format!("n-{lane}-480");
+        let attributes = chart_engine::song_files::game_midi::NoteAttributes {
+            channel: 3,
+            velocity: 29,
+            off_velocity: 7,
+            off_as_note_on: false,
+            zero_length: false,
+            talkie_pitch: None,
+        };
+        let mut doc = store.load().unwrap();
+        doc.content
+            .tracks
+            .get_mut("ExpertDrums")
+            .unwrap()
+            .iter_mut()
+            .find(|n| n.id == id)
+            .unwrap()
+            .midi = Some(attributes.clone());
+        fs::write(
+            root.path().join("project.json"),
+            serde_json::to_vec(&doc).unwrap(),
+        )
+        .unwrap();
+        store
+            .apply(request(
+                &store,
+                Action::UpdateNote {
+                    note_id: id.clone(),
+                    tick: 720,
+                    lane,
+                    sustain: 1,
+                    cymbal: lane == 2,
+                },
+            ))
+            .unwrap();
+        let doc = store.load().unwrap();
+        let (_, note) = doc.find_note(&id).unwrap();
+        assert_eq!(
+            note.note,
+            Note {
+                tick: 720,
+                lane,
+                sustain: 1
+            }
+        );
+        assert_eq!(note.midi, Some(attributes.clone()));
+        assert_eq!(doc.is_cymbal("ExpertDrums", &note.note), lane == 2);
+        let before = fs::read(root.path().join("project.json")).unwrap();
+        assert!(
+            store
+                .apply(request(
+                    &store,
+                    Action::UpdateNote {
+                        note_id: id.clone(),
+                        tick: 960,
+                        lane,
+                        sustain: 2,
+                        cymbal: false
+                    }
+                ))
+                .is_err()
+        );
+        assert_eq!(fs::read(root.path().join("project.json")).unwrap(), before);
+        store.apply(request(&store, Action::Undo)).unwrap();
+        let doc = store.load().unwrap();
+        let (_, note) = doc.find_note(&id).unwrap();
+        assert_eq!(note.note.tick, 480);
+        assert_eq!(note.note.sustain, 1);
+        assert_eq!(note.midi, Some(attributes));
+        if lane == 32 {
+            assert!(doc.find_note("n-96-480").is_some());
+        }
+        assert_eq!(
+            fs::read_to_string(root.path().join("source/notes.chart")).unwrap(),
+            source
+        );
+    }
+}

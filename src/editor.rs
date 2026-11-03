@@ -719,7 +719,11 @@ impl Project {
                 "Cymbals require drum lane 2, 3 or 4"
             );
             ensure!(
-                !track.ends_with("Drums") || note.sustain == 0,
+                !track.ends_with("Drums")
+                    || note.sustain == 0
+                    // Imported MIDI retains its note-off interval. Moving or
+                    // changing the pad must not require discarding that data.
+                    || old.as_ref().is_some_and(|old| old.sustain == note.sustain),
                 "Drums cannot sustain"
             );
         }
