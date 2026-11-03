@@ -48,5 +48,5 @@ pub fn DrumDynamics(studio: Studio) -> Element {
             option{value:"ghost",selected:value=="ghost","Ghost"}
         }
     }
-    if skipped>0{p{class:"field-hint","Applies to {selected.len()} selected drum pads. {skipped} kick notes stay unchanged."}}}
+    if skipped>0{p{class:"field-hint","Drum pads affected: {selected.len()}. Kick notes unchanged: {skipped}."}}}
 }

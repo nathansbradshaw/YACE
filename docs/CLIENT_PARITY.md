@@ -18,6 +18,7 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 | Start from recording or existing chart | Both OS-picker/manual starts exercised; native setup now reaches Ready after save; identical chart/INI settings and unchanged encoded source | Verified |
 | Blank charts and recording attachment | Actual browser blank creation, note placement, silent timeline playback, short-recording rejection, attachment/Undo/Redo, export, backup and restored Undo; source WAV unchanged and post-Undo export has no playable root recording | Verified; fixed browser open/source-state handling after the chart-only rebase |
 | Instrument/difficulty editing | Shared command tests plus actual guitar timing/Tap, Keys, Pro Keys, vocal editing, and native edit/Undo; paired full-song MIDI/master/vocal export matches | Verified supported workflows |
+| Drum accents and ghost notes | Actual native/static single and batch authoring, kick exclusion, cymbal retention, move, clipboard, delete, Undo/Redo, restart/reload and mixed-part MIDI export/reimport | Verified controlled fixture; in-game dynamics judgment remains unqualified |
 | Independent preview and piano-roll tracks | Native and browser Focused/Selected/All choices, stable order, collapse and reopen; actual hosted reload preserves separate choices without changing chart revision | Verified exercised paths; browser preferences stay in that profile/project |
 | Timing, sections and Star Power | Browser edits/Undo and native tempo, section and phrase Add/Undo exercised through their actual dialogs | Verified |
 | Playback, seek, loop, speed and waveform | Full 243.880 s browser playthrough; native whole-song playback; browser loop/speed; all five saved kit components at 75%; native kit backup opened at saved speed/selection | Verified; acoustic synchronization is unmeasured |
@@ -36,7 +37,26 @@ Do not mark a row passed from compilation alone. Record the revision, fixture,
 actual application actions, downloaded/exported results, and any limitations.
 Keep private recordings, transcripts and generated receipts outside Git.
 
-## Current integration gate (2026-11-02)
+## Current integration gate (2026-11-03)
+
+The shared drum inspector now authors Normal, Accent and Ghost dynamics for
+selected pad hits and mixed selections. Kick hits stay unchanged. Piano-roll
+labels and styling expose the chosen dynamics, while cymbal state remains
+independent. Atomic edits retain imported MIDI attributes and unrelated flags.
+
+Actual native and static checks created a ghost cymbal, moved it, copied and
+pasted it, deleted the copy and restored it with Undo. Batch changes skipped
+the kick and preserved cymbals through Normal/Accent/Ghost and Undo/Redo.
+Both clients exported the same four-hit, three-part fixture: their MIDI,
+editable chart and original recording were byte-identical. An ordinary MIDI
+package without YACE history or a master chart reimported with both ghost
+cymbals and the snare accent intact. The browser changed that imported ghost
+to Normal, exercised Undo/Redo, restored Ghost and recovered it after reload.
+Native restart retained the original four hits and selected snare accent.
+Seven articulation regressions cover these operations and mixed-feature MIDI
+roundtrip. These controlled checks do not establish musical quality or game
+controller/velocity judgment. Prepared audio is checked separately; matching
+original recordings do not imply byte-identical client-prepared PCM.
 
 Native practice playback now processes a bounded window on a Rust worker,
 mixing aligned original-rate stems before pitch-preserving stretching. Playing
@@ -94,6 +114,9 @@ whole-value Dance timing edits and the synchronized vocal comparison work.
 Release `cc342c3f` also includes linked chart workspace recovery and the vocal
 time-range mouse-control correction. All four normal merged-main checks passed;
 actual production reloads restored both linked 4-key and Dance selections.
+Release `80203e0b`, merged through PR 92 at `3c21644f`, additionally keeps each
+browser tab's own project and chart family through reload. Actual hosted
+independent band and standalone Dance recovery passed.
 Later desktop additions still need their own browser acceptance.
 GitHub Pages serves that engine on `yace.n8bradshaw.com`; its approved
 certificate and HTTPS redirect were verified. The served WASM matches the
