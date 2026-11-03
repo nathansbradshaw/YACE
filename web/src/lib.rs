@@ -111,6 +111,7 @@ pub mod persistence;
 #[path = "../../src/piano_model.rs"]
 pub mod piano_model;
 pub mod pipeline;
+mod playback_activity;
 #[path = "../../src/pro_keys.rs"]
 pub mod pro_keys;
 #[path = "../../src/project_portability.rs"]

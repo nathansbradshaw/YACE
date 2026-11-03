@@ -25,6 +25,9 @@ mod compact_backup;
 #[cfg(test)]
 #[path = "../../src/media_clock.rs"]
 mod media_clock;
+#[cfg(test)]
+#[path = "../src/playback_activity.rs"]
+mod playback_activity;
 #[path = "../../src/preview_ports.rs"]
 mod preview_ports;
 mod recognition_build;
