@@ -209,14 +209,7 @@ impl Audio {
         mix: &StemMix,
         route: Option<crate::reanalysis::AuditionRoute>,
     ) -> Result<()> {
-        let mut mix = if self.buffer.loaded.stems.is_empty() {
-            StemMix::default()
-        } else {
-            mix.clone()
-        };
-        mix.channels
-            .retain(|id, _| self.buffer.loaded.stems.contains_key(id));
-        let mut prepared = mix.prepare(self.buffer.loaded.stems.keys().copied())?;
+        let mut prepared = mix.prepare_playback(self.buffer.loaded.stems.keys().copied())?;
         if let Some(route) = &route {
             prepared.original = false;
             for gain in prepared.gains.values_mut() {

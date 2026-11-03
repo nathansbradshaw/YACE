@@ -16,9 +16,11 @@ use web_sys::{AudioContext, GainNode, HtmlAudioElement, MediaElementAudioSourceN
 pub struct Channel {
     pub element: HtmlAudioElement,
     pub gain: GainNode,
-    _node: MediaElementAudioSourceNode,
+    node: MediaElementAudioSourceNode,
     _url: ObjectUrl,
     clock: RefCell<crate::media_clock::Follower>,
+    activity: RefCell<crate::playback_activity::Gain>,
+    play_intent: Rc<Cell<u64>>,
 }
 struct ObjectUrl(String);
 impl Drop for ObjectUrl {
@@ -32,6 +34,23 @@ impl Drop for PendingContext {
         if let Some(context) = &self.0 {
             let _ = context.close();
         }
+    }
+}
+fn ramp_gain(node: &GainNode, value: f32, now: f64) {
+    let param = node.gain();
+    let _ = param.cancel_scheduled_values(now);
+    let _ = param.set_value_at_time(param.value(), now);
+    let _ = param.linear_ramp_to_value_at_time(value, now + crate::playback_activity::FADE_SECONDS);
+}
+impl Channel {
+    fn set_gain(&self, value: f32, now: f64) {
+        if self.activity.borrow_mut().update(value, now) {
+            ramp_gain(&self.gain, value, now);
+        }
+    }
+    fn pause(&self) {
+        self.play_intent.set(self.play_intent.get().wrapping_add(1));
+        let _ = self.element.pause();
     }
 }
 struct RecordingMedia {
@@ -202,7 +221,7 @@ impl Media {
     }
 }
 /// Content identity survives portable asset relocation. Track selection and
-/// mix settings reuse the same graph; undoing an attachment must rebuild it.
+/// mix settings reuse the same graph; attachment or availability changes rebuild it.
 #[derive(PartialEq, Eq)]
 struct MediaIdentity {
     audio: String,
@@ -214,7 +233,7 @@ struct ManifestIdentity {
     rate: u32,
     channels: u16,
     frames: u64,
-    assets: Vec<(StemId, String)>,
+    assets: Vec<(StemId, String, bool)>,
 }
 impl MediaIdentity {
     fn new(doc: &crate::editor::Project) -> Self {
@@ -233,7 +252,13 @@ impl MediaIdentity {
                     assets: manifest
                         .stems
                         .iter()
-                        .map(|asset| (asset.id, asset.sha256.to_ascii_lowercase()))
+                        .map(|asset| {
+                            (
+                                asset.id,
+                                asset.sha256.to_ascii_lowercase(),
+                                crate::storage::is_file(&asset.path),
+                            )
+                        })
                         .collect(),
                 })
             }),
@@ -336,6 +361,7 @@ fn channel(
     element.set_hidden(true);
     let node = context.create_media_element_source(&element).map_err(err)?;
     let gain = context.create_gain().map_err(err)?;
+    gain.gain().set_value(0.);
     node.connect_with_audio_node(&gain).map_err(err)?;
     gain.connect_with_audio_node(master).map_err(err)?;
     web_sys::window()
@@ -350,9 +376,11 @@ fn channel(
     Ok(Channel {
         element,
         gain,
-        _node: node,
+        node,
         _url: url,
         clock: RefCell::new(Default::default()),
+        activity: RefCell::new(Default::default()),
+        play_intent: Rc::new(Cell::new(0)),
     })
 }
 impl RecordingMedia {
@@ -387,14 +415,8 @@ impl RecordingMedia {
                 original += gain;
             }
         }
-        let smooth = |node: &GainNode, value: f32| {
-            let param = node.gain();
-            let _ = param.cancel_scheduled_values(now);
-            let _ = param.set_value_at_time(param.value(), now);
-            let _ = param.linear_ramp_to_value_at_time(value, now + 0.010);
-        };
-        self.master.gain().set_value(volume);
-        smooth(&self.original.gain, original);
+        self.set_volume(volume);
+        self.original.set_gain(original, now);
         for ((keyboard, id), channel) in &self.stems {
             let gain = if *keyboard {
                 0.
@@ -405,11 +427,12 @@ impl RecordingMedia {
                     .map(|(_, gain)| *gain)
                     .sum()
             };
-            smooth(&channel.gain, gain);
+            channel.set_gain(gain, now);
         }
         if let Some(channel) = self.kit.borrow().as_ref() {
-            smooth(&channel.gain, 0.);
+            channel.set_gain(0., now);
         }
+        self.update_activity();
     }
     pub async fn load(
         store: &crate::editor::Store,
@@ -516,7 +539,9 @@ impl RecordingMedia {
             error: Rc::new(RefCell::new(None)),
             kit: RefCell::new(kit),
             master,
-            rate: Cell::new(doc.transport.playback_rate),
+            // New media elements begin at 1×; set_rate applies a saved custom
+            // rate exactly once before an unchanged request can be skipped.
+            rate: Cell::new(1.),
         };
         pending_context.0.take();
         media.set_rate(doc.transport.playback_rate);
@@ -587,24 +612,64 @@ impl RecordingMedia {
     pub fn play(&self) -> Result<()> {
         let epoch = self.play_epoch.get().wrapping_add(1);
         self.play_epoch.set(epoch);
-        let promises = std::iter::once(self.context.resume().map_err(err)?);
-        let mut promises: Vec<_> = promises.collect();
-        for channel in std::iter::once(&self.original)
-            .chain(self.stems.values())
-            .chain(self.kit.borrow().iter())
-        {
-            promises.push(channel.element.play().map_err(err)?);
-        }
-        for promise in promises {
-            let generation = self.play_epoch.clone();
-            let error = self.error.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                if JsFuture::from(promise).await.is_err() && generation.get() == epoch {
-                    *error.borrow_mut()=Some("Browser playback could not start. Press Play again and check audio output permissions; the chart and recording are retained.".into());
-                }
-            });
-        }
+        self.watch_play(self.context.resume().map_err(err)?, None);
+        self.play_channel(&self.original)?;
+        self.update_activity();
         Ok(())
+    }
+    fn play_channel(&self, channel: &Channel) -> Result<()> {
+        channel
+            .play_intent
+            .set(channel.play_intent.get().wrapping_add(1));
+        self.watch_play(channel.element.play().map_err(err)?, Some(channel));
+        Ok(())
+    }
+    fn watch_play(&self, promise: js_sys::Promise, channel: Option<&Channel>) {
+        let epoch = self.play_epoch.get();
+        let generation = self.play_epoch.clone();
+        let error = self.error.clone();
+        let intent =
+            channel.map(|channel| (channel.play_intent.clone(), channel.play_intent.get()));
+        wasm_bindgen_futures::spawn_local(async move {
+            if JsFuture::from(promise).await.is_err()
+                && generation.get() == epoch
+                && intent.is_none_or(|(intent, ticket)| intent.get() == ticket)
+            {
+                *error.borrow_mut() = Some("Browser playback could not start. Press Play again and check audio output permissions; the chart and recording are retained.".into());
+            }
+        });
+    }
+    fn update_activity(&self) {
+        use crate::playback_activity::Activity;
+        // The original remains the transport clock even when its gain is zero.
+        // Other decoders run only while they contribute to the audible mix.
+        let playing = !self.original.element.paused() && !self.original.element.ended();
+        let now = self.context.current_time();
+        let position = self.position();
+        for channel in self.stems.values().chain(self.kit.borrow().iter()) {
+            let element = &channel.element;
+            let activity = channel
+                .activity
+                .borrow()
+                .activity(playing, element.paused(), now);
+            match activity {
+                Activity::Play => {
+                    channel.clock.borrow_mut().reset();
+                    element.set_playback_rate(self.rate.get());
+                    if (element.current_time() - position).abs() > 0.001 {
+                        element.set_current_time(position);
+                    }
+                    if let Err(error) = self.play_channel(channel) {
+                        *self.error.borrow_mut() = Some(format!("{error:#}"));
+                    }
+                }
+                Activity::Pause => {
+                    channel.pause();
+                    channel.clock.borrow_mut().reset();
+                }
+                Activity::Keep => {}
+            }
+        }
     }
     pub fn pause(&self) {
         self.play_epoch.set(self.play_epoch.get().wrapping_add(1));
@@ -612,7 +677,7 @@ impl RecordingMedia {
             .chain(self.stems.values())
             .chain(self.kit.borrow().iter())
         {
-            let _ = channel.element.pause();
+            channel.pause();
             channel.clock.borrow_mut().reset();
             channel.element.set_playback_rate(self.rate.get());
         }
@@ -628,7 +693,9 @@ impl RecordingMedia {
         }
     }
     pub fn set_rate(&self, rate: f64) {
-        self.rate.set(rate);
+        if self.rate.replace(rate) == rate {
+            return;
+        }
         for channel in std::iter::once(&self.original)
             .chain(self.stems.values())
             .chain(self.kit.borrow().iter())
@@ -644,22 +711,26 @@ impl RecordingMedia {
         self.error.borrow_mut().take()
     }
     pub fn mix(&self, mix: &StemMix, volume: f32, kit: bool, keyboard: bool) {
-        self.master.gain().set_value(volume);
+        self.set_volume(volume);
+        let now = self.context.current_time();
         let ids: Vec<_> = self
             .stems
             .keys()
             .filter_map(|(k, id)| (*k == keyboard).then_some(*id))
             .collect();
-        let prepared = mix.prepare(ids.iter().copied()).ok();
-        self.original.gain.gain().set_value(if kit {
-            0.
-        } else if mix.mode == MixMode::Original || ids.is_empty() {
-            1.
-        } else {
-            0.
-        });
+        let prepared = mix.prepare_playback(ids.iter().copied()).ok();
+        self.original.set_gain(
+            if kit {
+                0.
+            } else if mix.mode == MixMode::Original || ids.is_empty() {
+                1.
+            } else {
+                0.
+            },
+            now,
+        );
         for ((channel_keyboard, id), channel) in &self.stems {
-            channel.gain.gain().set_value(
+            channel.set_gain(
                 if *channel_keyboard != keyboard || kit || mix.mode == MixMode::Original {
                     0.
                 } else {
@@ -669,10 +740,17 @@ impl RecordingMedia {
                         .copied()
                         .unwrap_or(0.)
                 },
+                now,
             );
         }
         if let Some(channel) = self.kit.borrow().as_ref() {
-            channel.gain.gain().set_value(if kit { 1. } else { 0. });
+            channel.set_gain(if kit { 1. } else { 0. }, now);
+        }
+        self.update_activity();
+    }
+    fn set_volume(&self, volume: f32) {
+        if self.master.gain().value() != volume {
+            ramp_gain(&self.master, volume, self.context.current_time());
         }
     }
     pub fn synchronize(&self) {
@@ -683,6 +761,9 @@ impl RecordingMedia {
         let rate = self.rate.get();
         for channel in self.stems.values().chain(self.kit.borrow().iter()) {
             let element = &channel.element;
+            if element.paused() {
+                continue;
+            }
             let ready =
                 running && !element.paused() && !element.seeking() && element.ready_state() >= 3;
             match channel.clock.borrow_mut().update(
@@ -704,7 +785,11 @@ impl RecordingMedia {
 }
 impl Drop for Channel {
     fn drop(&mut self) {
-        let _ = self.element.pause();
+        self.pause();
+        let _ = self.node.disconnect();
+        let _ = self.gain.disconnect();
+        let _ = self.element.remove_attribute("src");
+        self.element.load();
         self.element.remove();
     }
 }
