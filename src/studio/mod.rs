@@ -12,6 +12,7 @@ mod dance;
 mod diagnostics;
 mod dialogs;
 mod difficulty;
+mod drum_dynamics;
 mod export;
 mod frame_pacing;
 mod game_preview;

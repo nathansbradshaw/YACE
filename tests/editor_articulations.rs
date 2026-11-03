@@ -1,6 +1,8 @@
 use chart_engine::{
     chart::{Chart, Note},
+    drum_dynamics::{self, Kind},
     editor::{Action, Actor, ActorKind, Content, EditorNote, Project, Request, Store, Transport},
+    note_groups::{self, Selection, Snapshot},
     review_regions::{Policy, ReviewMap},
 };
 use sha2::{Digest, Sha256};
@@ -9,14 +11,17 @@ use std::{collections::BTreeMap, fs, path::Path};
 const SOURCE: &str = "[Song]\n{\n Resolution = 480\n}\n[SyncTrack]\n{\n 0 = B 120000\n}\n[Events]\n{\n 0 = E \"lyric Preserved\"\n}\n[ExpertDrums]\n{\n 480 = N 2 0\n 480 = N 66 0\n 480 = N 35 0\n 480 = N 41 0\n 960 = N 1 0\n 960 = N 34 0\n 1200 = N 12 17\n 0 = S 2 480\n}\n";
 
 fn fixture(root: &Path) -> Store {
+    fixture_with(root, SOURCE)
+}
+fn fixture_with(root: &Path, source: &str) -> Store {
     fs::create_dir(root.join("source")).unwrap();
     fs::create_dir(root.join("checkpoints")).unwrap();
-    fs::write(root.join("source/notes.chart"), SOURCE).unwrap();
+    fs::write(root.join("source/notes.chart"), source).unwrap();
     let audio = b"opaque audio bytes; note editing requires no decoder";
     fs::write(root.join("source/song.ogg"), audio).unwrap();
-    let source_hash = format!("{:x}", Sha256::digest(SOURCE.as_bytes()));
+    let source_hash = format!("{:x}", Sha256::digest(source.as_bytes()));
     let audio_hash = format!("{:x}", Sha256::digest(audio));
-    let chart = Chart::parse(SOURCE.into()).unwrap();
+    let chart = Chart::parse(source.into()).unwrap();
     let notes = chart
         .notes("ExpertDrums")
         .unwrap()
@@ -27,6 +32,26 @@ fn fixture(root: &Path) -> Store {
             note,
         })
         .collect();
+    let mut tracks = BTreeMap::from([("ExpertDrums".into(), notes)]);
+    if chart
+        .sections
+        .iter()
+        .any(|section| section.name == "ExpertSingle")
+    {
+        tracks.insert(
+            "ExpertSingle".into(),
+            chart
+                .notes("ExpertSingle")
+                .unwrap()
+                .into_iter()
+                .map(|note| EditorNote {
+                    midi: None,
+                    id: format!("guitar-{}-{}", note.lane, note.tick),
+                    note,
+                })
+                .collect(),
+        );
+    }
     let project = Project {
         recording: None,
         version: 1,
@@ -59,7 +84,7 @@ fn fixture(root: &Path) -> Store {
             vocals: None,
             vocal_review: None,
             vocal_pitch_analysis: None,
-            tracks: BTreeMap::from([("ExpertDrums".into(), notes)]),
+            tracks,
             decisions: vec![],
             hidden_flags: Default::default(),
             stems: None,
@@ -109,6 +134,263 @@ fn update(tick: u64, lane: u8, cymbal: bool) -> Action {
         sustain: 0,
         cymbal,
     }
+}
+
+fn selected(store: &Store, ids: &[&str]) -> Snapshot {
+    Snapshot::capture(
+        &store.load().unwrap(),
+        &Selection {
+            track: "ExpertDrums".into(),
+            ids: ids.iter().map(|id| (*id).into()).collect(),
+            vocals: Default::default(),
+        },
+    )
+    .unwrap()
+}
+fn set_dynamics(store: &Store, ids: &[&str], kind: Kind) {
+    store
+        .apply(request(
+            store,
+            Action::SetDrumDynamics {
+                selection: selected(store, ids),
+                kind,
+            },
+        ))
+        .unwrap();
+}
+
+#[test]
+fn authored_ghost_preserves_cymbal_movement_deletion_history_and_source() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    set_dynamics(&store, &["n-2-480"], Kind::Ghost);
+    let doc = store.load().unwrap();
+    assert!(doc.find_note("n-35-480").is_none());
+    assert_eq!(doc.find_note("n-41-480").unwrap().1.note.lane, 41);
+    assert_eq!(doc.find_note("n-66-480").unwrap().1.note.lane, 66);
+    assert_eq!(doc.undo.len(), 1);
+    store.apply(request(&store, Action::Undo)).unwrap();
+    assert_eq!(store.load().unwrap().chart_text(&store).unwrap(), SOURCE);
+    store.apply(request(&store, Action::Redo)).unwrap();
+    store.apply(request(&store, update(720, 3, true))).unwrap();
+    let moved = store.load().unwrap();
+    assert_eq!(
+        moved.find_note("n-41-480").unwrap().1.note,
+        Note {
+            tick: 720,
+            lane: 42,
+            sustain: 0
+        }
+    );
+    assert!(moved.is_cymbal("ExpertDrums", &moved.find_note("n-2-480").unwrap().1.note));
+    store
+        .apply(request(
+            &store,
+            Action::DeleteNote {
+                note_id: "n-2-480".into(),
+            },
+        ))
+        .unwrap();
+    assert!(store.load().unwrap().find_note("n-41-480").is_none());
+    store.apply(request(&store, Action::Undo)).unwrap();
+    assert_eq!(
+        Store::new(root.path())
+            .load()
+            .unwrap()
+            .find_note("n-41-480")
+            .unwrap()
+            .1
+            .note
+            .lane,
+        42
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("source/notes.chart")).unwrap(),
+        SOURCE
+    );
+}
+
+#[test]
+fn batch_dynamics_skip_kick_preserve_other_flags_and_refuse_stale_selection() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    store
+        .apply(request(
+            &store,
+            Action::AddNote {
+                track: "ExpertDrums".into(),
+                tick: 0,
+                lane: 0,
+                sustain: 0,
+                cymbal: false,
+            },
+        ))
+        .unwrap();
+    let kick = store.load().unwrap().selected_note.unwrap();
+    let ids = ["n-2-480", "n-1-960", kick.as_str()];
+    let old = selected(&store, &ids);
+    let before = store.load().unwrap().chart_text(&store).unwrap();
+    set_dynamics(&store, &ids, Kind::Ghost);
+    let ghost = store.load().unwrap();
+    let markers = drum_dynamics::markers(&ghost.content.tracks["ExpertDrums"]);
+    assert_eq!(markers.get(&(480, 2)), Some(&Some(Kind::Ghost)));
+    assert_eq!(markers.get(&(960, 1)), Some(&Some(Kind::Ghost)));
+    assert!(ghost.find_note(&kick).is_some());
+    assert!(ghost.find_note("n-66-480").is_some());
+    assert!(ghost.find_note("n-12-1200").is_some());
+    let accepted = fs::read(root.path().join("project.json")).unwrap();
+    let error = store
+        .apply(request(
+            &store,
+            Action::SetDrumDynamics {
+                selection: old,
+                kind: Kind::Accent,
+            },
+        ))
+        .unwrap_err();
+    assert!(error.to_string().contains("Notes changed"));
+    assert_eq!(
+        fs::read(root.path().join("project.json")).unwrap(),
+        accepted
+    );
+    store.apply(request(&store, Action::Undo)).unwrap();
+    assert_eq!(store.load().unwrap().chart_text(&store).unwrap(), before);
+    store.apply(request(&store, Action::Redo)).unwrap();
+    set_dynamics(&store, &ids, Kind::Normal);
+    let normal = store.load().unwrap();
+    assert!(drum_dynamics::markers(&normal.content.tracks["ExpertDrums"]).is_empty());
+    assert!(normal.find_note("n-66-480").is_some());
+    let accepted = fs::read(root.path().join("project.json")).unwrap();
+    assert!(
+        store
+            .apply(request(
+                &store,
+                Action::SetDrumDynamics {
+                    selection: selected(&store, &[&kick]),
+                    kind: Kind::Accent
+                }
+            ))
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(root.path().join("project.json")).unwrap(),
+        accepted
+    );
+}
+
+#[test]
+fn authored_dynamics_survive_group_move_and_typed_clipboard_paste() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    set_dynamics(&store, &["n-2-480"], Kind::Ghost);
+    store
+        .apply(request(
+            &store,
+            Action::EditNoteGroup {
+                edit: note_groups::Edit::Move {
+                    selection: selected(&store, &["n-2-480"]),
+                    ticks: 240,
+                    rows: 1,
+                },
+            },
+        ))
+        .unwrap();
+    let doc = store.load().unwrap();
+    let selection = Selection {
+        track: "ExpertDrums".into(),
+        ids: ["n-2-480".into()].into(),
+        vocals: Default::default(),
+    };
+    let clipboard = note_groups::copy(&doc, &doc.timing(&store).unwrap(), &selection).unwrap();
+    let clipboard = note_groups::Clipboard::decode(&clipboard.encode().unwrap()).unwrap();
+    store
+        .apply(request(
+            &store,
+            Action::EditNoteGroup {
+                edit: note_groups::Edit::Paste {
+                    track: "ExpertDrums".into(),
+                    tick: 2400,
+                    clipboard,
+                },
+            },
+        ))
+        .unwrap();
+    let doc = store.load().unwrap();
+    let notes = &doc.content.tracks["ExpertDrums"];
+    for (tick, lane) in [(720, 3), (2400, 3)] {
+        assert_eq!(
+            drum_dynamics::markers(notes).get(&(tick, lane)),
+            Some(&Some(Kind::Ghost))
+        );
+        let note = notes
+            .iter()
+            .find(|n| n.note.tick == tick && n.note.lane == lane)
+            .unwrap();
+        assert!(doc.is_cymbal("ExpertDrums", &note.note));
+    }
+    assert!(doc.find_note("n-34-960").is_some());
+    store.apply(request(&store, Action::Undo)).unwrap();
+    assert!(
+        !store.load().unwrap().content.tracks["ExpertDrums"]
+            .iter()
+            .any(|n| n.note.tick == 2400)
+    );
+}
+
+#[test]
+fn mixed_dynamics_export_to_game_midi_without_losing_cymbal_kick_or_other_parts() {
+    let source = format!(
+        "{}[ExpertSingle]\n{{\n 480 = N 0 120\n 480 = N 6 0\n}}\n",
+        SOURCE.replace(" 1200 = N 12 17\n", " 720 = N 32 0\n")
+    );
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture_with(root.path(), &source);
+    set_dynamics(&store, &["n-2-480"], Kind::Ghost);
+    let doc = store.load().unwrap();
+    let chart = Chart::parse(doc.chart_text(&store).unwrap()).unwrap();
+    let bytes = chart_engine::game_export::song(&chart, None).unwrap().0;
+    let inventory = chart_engine::midi::inventory(&bytes).unwrap();
+    assert!(inventory.iter().any(|(name, _)| name == "PART GUITAR"));
+    assert!(inventory.iter().any(|(name, _)| name == "PART DRUMS"));
+    let midi = midly::Smf::parse(&bytes).unwrap();
+    let velocities: Vec<_> = midi
+        .tracks
+        .iter()
+        .flatten()
+        .filter_map(|e| match e.kind {
+            midly::TrackEventKind::Midi {
+                message: midly::MidiMessage::NoteOn { vel, .. },
+                ..
+            } if matches!(vel.as_int(), 1 | 127) => Some(vel.as_int()),
+            _ => None,
+        })
+        .collect();
+    assert!(velocities.contains(&1) && velocities.contains(&127));
+    let reopened = root.path().join("reimport");
+    fs::create_dir(&reopened).unwrap();
+    fs::write(reopened.join("notes.mid"), bytes).unwrap();
+    fs::write(reopened.join("song.ini"), "[song]\npro_drums = true\n").unwrap();
+    chart_engine::song_layout::prepare(&reopened).unwrap();
+    chart_engine::song_files::game_midi::prepare(&reopened).unwrap();
+    let restored = Chart::parse(fs::read_to_string(reopened.join("notes.chart")).unwrap()).unwrap();
+    let notes = restored.notes("ExpertDrums").unwrap();
+    for (tick, lane) in [
+        (480, 2),
+        (480, 66),
+        (480, 41),
+        (720, 32),
+        (960, 1),
+        (960, 34),
+    ] {
+        assert!(
+            notes.iter().any(|n| n.tick == tick && n.lane == lane),
+            "missing {tick}/{lane}"
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(root.path().join("source/notes.chart")).unwrap(),
+        source
+    );
 }
 
 #[test]

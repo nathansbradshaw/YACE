@@ -503,6 +503,11 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
     } else {
         Default::default()
     };
+    let drum_markers = if crate::drum_dynamics::supported(&track) {
+        crate::drum_dynamics::markers(&doc.content.tracks[&track])
+    } else {
+        Default::default()
+    };
     let selected = studio.selection();
     let plot_track = track.clone();
     let double_track = track.clone();
@@ -553,12 +558,18 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
                     for item in notes{
                         {let overridden=links.as_ref().is_some_and(|snapshot|super::difficulty::is_override(snapshot,&track,&item.id));
                         {let row=rows.iter().position(|l|*l==item.note.lane).unwrap();let x=(timing.seconds(item.note.tick)-start)/span*width();let end=(timing.seconds(item.note.tick+item.note.sustain)-start)/span*width();let y=row as f64*20.0+3.0;let fill=color(&track,item.note.lane);let id=item.id.clone();let down_id=item.id.clone();let click_track=track.clone();let down_track=track.clone();let id2=item.id.clone();let note_tick=item.note.tick;let origin=Drag{id:item.id.clone(),tick:item.note.tick,lane:item.note.lane,sustain:item.note.sustain,cymbal:doc.is_cymbal(&track,&item.note),start_x:0.0,start_y:0.0,resize:false};let origin2=origin.clone();let is_selected=active&&selected.ids.contains(&item.id);let stroke=if is_selected{"#fff"}else{"#090b0d"};
+                        let dynamics=drum_markers.get(&(item.note.tick,item.note.lane)).copied().unwrap_or(Some(crate::drum_dynamics::Kind::Normal));
+                        let accent=dynamics.is_none()||dynamics==Some(crate::drum_dynamics::Kind::Accent);
+                        let ghost=dynamics==Some(crate::drum_dynamics::Kind::Ghost);
+                        let dynamics_label=match dynamics {Some(crate::drum_dynamics::Kind::Normal)=>"",Some(crate::drum_dynamics::Kind::Accent)=>" accent",Some(crate::drum_dynamics::Kind::Ghost)=>" ghost",None=>" accent and ghost"};
                         rsx!{g{
                             ondoubleclick:move|e|e.stop_propagation(),
                             onclick:move|e:MouseEvent|{e.stop_propagation();if gestures.consume_click(){return;}studio.select_gem(&click_track,&id,e.modifiers().shift(),false);if (studio.tool)()==EditTool::Erase{studio.delete_selection();}},
                             onmousedown:move|e:MouseEvent|{e.stop_propagation();gestures.note(&down_track,Some(&down_id),0,note_tick,&e);},
                             if item.note.sustain>0{rect{x:"{x.max(0.0)}",y:"{y+4.0}",width:"{(end.min(width())-x.max(0.0)).max(0.0)}",height:"6",rx:"2",fill,opacity:".55"}}
-                            rect{x:"{x}",y:"{y}",width:"14",height:"14",rx:if doc.is_cymbal(&track,&item.note){"1"}else{"3"},fill,stroke,stroke_width:"1.5",role:"button","aria-pressed":is_selected.to_string(),"aria-label":"{lane_name(&track,item.note.lane)} note at {timing.seconds(item.note.tick):.3} seconds",title{"{lane_name(&track,item.note.lane)} · {timing.seconds(item.note.tick):.4}s · {item.id}"}}
+                            rect{x:"{x}",y:"{y}",width:"14",height:"14",rx:if doc.is_cymbal(&track,&item.note){"1"}else{"3"},fill,fill_opacity:if ghost{"0.45"}else{"1"},stroke,stroke_width:"1.5",role:"button","aria-pressed":is_selected.to_string(),"aria-label":"{lane_name(&track,item.note.lane)}{dynamics_label} note at {timing.seconds(item.note.tick):.3} seconds",title{"{lane_name(&track,item.note.lane)}{dynamics_label} · {timing.seconds(item.note.tick):.4}s · {item.id}"}}
+                            if accent{rect{"data-dynamics":"accent",x:"{x-2.}",y:"{y-2.}",width:"18",height:"18",rx:"4",fill:"none",stroke:"#fff",stroke_width:"1.5",pointer_events:"none"}}
+                            if ghost{rect{"data-dynamics":"ghost",x:"{x-1.}",y:"{y-1.}",width:"16",height:"16",rx:"4",fill:"none",stroke:fill,stroke_dasharray:"2 2",pointer_events:"none"}}
                             path{d:"M{x+3.} {y+2.5}H{x+11.}",stroke:"#fff",stroke_opacity:".55",stroke_width:"1",pointer_events:"none"}
                             path{d:"M{x+3.} {y+11.5}H{x+11.}",stroke:"#061019",stroke_opacity:".55",stroke_width:"1",pointer_events:"none"}
                             if doc.is_cymbal(&track,&item.note){path{d:"M{x+7.} {y+3.}L{x+11.5} {y+10.5}H{x+2.5}Z",fill:"none",stroke:"#07121b",stroke_width:"1",pointer_events:"none"}}

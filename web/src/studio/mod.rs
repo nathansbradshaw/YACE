@@ -15,6 +15,8 @@ mod dance;
 mod dialogs;
 #[path = "../../../src/studio/difficulty.rs"]
 mod difficulty;
+#[path = "../../../src/studio/drum_dynamics.rs"]
+mod drum_dynamics;
 #[path = "../../../src/studio/export.rs"]
 mod export;
 #[path = "../../../src/studio/game_preview.rs"]
