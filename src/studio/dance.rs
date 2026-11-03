@@ -287,11 +287,9 @@ impl DanceStudio {
             }
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
     async fn restore(self) {
         let result = async {
-            #[cfg(target_arch = "wasm32")]
-            let recovered = crate::persistence::restore_stepmania().await?;
-            #[cfg(not(target_arch = "wasm32"))]
             let recovered = {
                 let last = recovery_root().join("last");
                 if last.exists() {
@@ -305,19 +303,6 @@ impl DanceStudio {
             if let Some((root, revision)) = recovered {
                 let bytes = crate::storage::read(root.join(MANIFEST))?;
                 let project = Project::decode(&bytes)?;
-                #[cfg(target_arch = "wasm32")]
-                let assets = crate::storage::list(&root.join("source"))?
-                    .into_iter()
-                    .map(|(p, b)| {
-                        Ok((
-                            p.strip_prefix(root.join("source"))?
-                                .to_string_lossy()
-                                .into_owned(),
-                            b.as_ref().clone(),
-                        ))
-                    })
-                    .collect::<Result<Files>>()?;
-                #[cfg(not(target_arch = "wasm32"))]
                 let assets = crate::stepmania_files::read(&root.join("source"))?;
                 if self.project.read().is_none() {
                     self.load(project, assets, Some(root), Some(revision))?;
@@ -515,9 +500,12 @@ fn audio_url(name: &str, bytes: &[u8]) -> Result<String> {
 pub fn Controller(studio: super::state::Studio) -> Element {
     let mut s = use_context::<DanceStudio>();
     use_future(move || async move {
-        s.restore().await;
-        if studio.snapshot().is_some() {
-            s.open.set(false);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            s.restore().await;
+            if studio.snapshot().is_some() {
+                s.open.set(false);
+            }
         }
         loop {
             #[cfg(target_arch = "wasm32")]
@@ -1096,6 +1084,26 @@ mod tests {
 
 pub fn active() -> bool {
     try_consume_context::<DanceStudio>().is_some_and(|s| (s.open)() && s.project.read().is_some())
+}
+/// Observe the current durable workspace, not a background save's captured
+/// root. A linked chart belongs to its band workspace even while visible.
+#[cfg(target_arch = "wasm32")]
+pub fn browser_workspace_target(
+    studio: super::state::Studio,
+) -> Option<crate::workspace_recovery::Target> {
+    use crate::workspace_recovery::{Family, Target};
+    let s = try_consume_context::<DanceStudio>()?;
+    if (s.open)() && s.parent.read().is_none() {
+        return (s.saved)()
+            .and_then(|_| (s.root)())
+            .map(|root| Target::new(Family::Stepmania, root));
+    }
+    (studio.saved_revision)()?;
+    studio
+        .store
+        .read()
+        .as_ref()
+        .map(|store| Target::new(Family::Band, store.root.clone()))
 }
 pub fn view_epoch() -> u64 {
     try_consume_context::<DanceStudio>().map_or(0, |s| (s.epoch)())

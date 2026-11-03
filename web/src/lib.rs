@@ -187,6 +187,8 @@ pub mod vocals;
 #[path = "../../src/waveform.rs"]
 pub mod waveform;
 pub mod worker;
+pub mod workspace_recovery;
+mod workspace_target;
 
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn start() {
