@@ -95,6 +95,16 @@ pub fn Panel(
 ) -> Element {
     let title = super::track_picker::title(&track);
     let review_phase = phase == Phase::Review;
+    let sheet_title = if review_phase {
+        "Review draft"
+    } else {
+        "Reanalyze"
+    };
+    let sheet_class = if review_phase {
+        "reanalysis-sheet ra-review-sheet"
+    } else {
+        "reanalysis-sheet"
+    };
     let problem_short = problem
         .as_deref()
         .unwrap_or("The analysis could not finish.")
@@ -105,15 +115,17 @@ pub fn Panel(
         .take(220)
         .collect::<String>();
     rsx! { style { {include_str!("../../assets/reanalysis.css")} }
-        super::sheet::ToolSheet { id:"part-reanalysis",title:"Reanalyze",description:"",close_label:"Close reanalysis",class:"reanalysis-sheet",onclose:move |_|{studio.show_analysis_preview(None);studio.generation_open.set(false);},
+        super::sheet::ToolSheet { id:"part-reanalysis",title:sheet_title,description:"",close_label:"Close reanalysis",class:sheet_class,onclose:move |_|{studio.show_analysis_preview(None);studio.generation_open.set(false);},
             actions:rsx!{
                 if phase==Phase::Analyzing { button{class:"action-secondary",disabled:stopping,onclick:move |_|oncancel.call(()),if stopping{"Finishing this step…"}else if stop_after_step{"Stop after this step"}else{"Cancel analysis"}} }
                 else if phase==Phase::Applying { button{class:"action-primary",disabled:true,"Applying…"} }
                 else if !review_phase { button{class:"action-primary",disabled:!can_start,onclick:move |_|onstart.call(()),if phase==Phase::Setup{"Analyze"}else{"Analyze again"}} }
                 else { button{class:"action-secondary",onclick:move |_|{studio.show_analysis_preview(None);studio.generation_open.set(false);},"Keep draft & close"} }
             },
-            div { class:"ra-target",strong{"{title}"}span{class:"ra-hint","{recording}"} }
-            ol { class:"ra-steps",aria_label:"Analysis steps",li{class:if matches!(phase,Phase::Setup|Phase::Stopped|Phase::Failed|Phase::Empty){"active"}else{""},"1  Setup"}li{class:if phase==Phase::Analyzing{"active"}else{""},"2  Analyze"}li{class:if review_phase||phase==Phase::Applying{"active"}else{""},"3  Review"} }
+            if !review_phase {
+                div { class:"ra-target",strong{"{title}"}span{class:"ra-hint","{recording}"} }
+                ol { class:"ra-steps",aria_label:"Analysis steps",li{class:if matches!(phase,Phase::Setup|Phase::Stopped|Phase::Failed|Phase::Empty){"active"}else{""},"1  Setup"}li{class:if phase==Phase::Analyzing{"active"}else{""},"2  Analyze"}li{class:if phase==Phase::Applying{"active"}else{""},"3  Review"} }
+            }
             if matches!(phase,Phase::Analyzing|Phase::Applying) {
                 if phase==Phase::Analyzing && let Some(progress)=progress { {progress} }
                 else {div{class:"ra-status ra-working",role:"status",aria_live:"polite",span{class:"ra-spinner"}strong{if phase==Phase::Applying{"Applying your draft"}else{"Analyzing recording"}}p{if phase==Phase::Applying{"Saving one undoable edit…"}else{"{activity}"}}span{class:"ra-hint","{elapsed}"}if quiet_for>=20{span{class:"ra-hint","Waiting for the detector · last update {quiet_for}s ago"}}progress{aria_label:"Analysis in progress"}}}

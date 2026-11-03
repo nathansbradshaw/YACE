@@ -40,12 +40,26 @@ For a Guitar chart, **Follow this sound** can select Guitar, Other melody /
 synth, or Piano. This selects a separated sound to arrange for five frets; it
 does not prove that separation correctly distinguished the instruments.
 
-Use **Current / Proposed** and **Play** to compare notes at the same
-playhead position, loop and speed. The proposal is read-only. Review the note
-changes, affected difficulties, final repair range and detection warnings, then
-choose **Apply draft** or **Discard**. Apply is one undoable edit.
-Review totals count playable notes, matching the editor; chart modifier events
-such as cymbal and forced-note markers do not inflate these totals.
+Review starts with an eight-second passage around the first change. **Changes**
+shows added notes with a green plus, removed notes with a pink minus, and unchanged
+notes dimmed on labeled instrument lanes. Overlapping additions and removals occupy
+separate halves of the lane. Square drum notes are cymbals; rounded notes are pads.
+Choose four, eight or sixteen seconds, use **Previous / Next change** to skip
+unchanged stretches, or move the passage slider anywhere in the repair range.
+Select a note or use **Seek within passage** to move playback precisely.
+
+Use **Current / Proposed** to compare at the same playhead position and speed.
+**Play passage** stops at the visible passage end unless **Loop passage** is on.
+Changing passages updates that loop; closing review restores the previous editor
+loop. Audio is the recording or selected stem, rather than synthesized chart notes.
+The proposal is read-only. **Apply draft** applies the entire draft, including
+affected difficulties, as one undoable edit; passage navigation does not limit Apply.
+**Discard draft** leaves the current chart unchanged.
+
+The comparison counts playable note additions/removals, including changes to their
+cymbal or forced/tap articulation and MIDI attributes. Control markers do not appear
+as extra notes. **Affected difficulties** lists before/after totals; **Analysis
+evidence & limitations** keeps detector caveats available without obscuring the chart.
 Cancelled, failed and empty proposals keep your chart and earlier saved drafts.
 **Saved analyses & details → Previous successful draft** returns to the preceding
 valid result after a retry. Model options and licenses are under **Advanced**.
