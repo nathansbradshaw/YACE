@@ -17,6 +17,7 @@ mod difficulty;
 mod export;
 #[path = "../../../src/studio/game_preview.rs"]
 mod game_preview;
+mod generation_actions;
 mod generation_jobs;
 pub mod github;
 #[path = "../../../src/studio/icons.rs"]

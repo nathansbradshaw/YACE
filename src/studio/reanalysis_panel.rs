@@ -81,6 +81,8 @@ pub fn Panel(
     blocked_reason: Option<String>,
     onstart: EventHandler,
     oncancel: EventHandler,
+    #[props(default = false)] stop_after_step: bool,
+    #[props(default = false)] stopping: bool,
 ) -> Element {
     let title = super::track_picker::title(&track);
     let review_phase = phase == Phase::Review;
@@ -96,10 +98,10 @@ pub fn Panel(
     rsx! { style { {include_str!("../../assets/reanalysis.css")} }
         super::sheet::ToolSheet { id:"part-reanalysis",title:"Reanalyze",description:"",close_label:"Close reanalysis",class:"reanalysis-sheet",onclose:move |_|{studio.show_analysis_preview(None);studio.generation_open.set(false);},
             actions:rsx!{
-                if phase==Phase::Analyzing { button{class:"action-secondary",onclick:move |_|oncancel.call(()),"Cancel analysis"} }
+                if phase==Phase::Analyzing { button{class:"action-secondary",disabled:stopping,onclick:move |_|oncancel.call(()),if stopping{"Finishing this step…"}else if stop_after_step{"Stop after this step"}else{"Cancel analysis"}} }
                 else if phase==Phase::Applying { button{class:"action-primary",disabled:true,"Applying…"} }
                 else if !review_phase { button{class:"action-primary",disabled:!can_start,onclick:move |_|onstart.call(()),if phase==Phase::Setup{"Analyze"}else{"Analyze again"}} }
-                else { button{class:"action-secondary",onclick:move |_|{studio.show_analysis_preview(None);studio.generation_open.set(false);},"Close"} }
+                else { button{class:"action-secondary",onclick:move |_|{studio.show_analysis_preview(None);studio.generation_open.set(false);},"Keep draft & close"} }
             },
             div { class:"ra-target",strong{"{title}"}span{class:"ra-hint","{recording}"} }
             ol { class:"ra-steps",aria_label:"Analysis steps",li{class:if matches!(phase,Phase::Setup|Phase::Stopped|Phase::Failed|Phase::Empty){"active"}else{""},"1  Setup"}li{class:if phase==Phase::Analyzing{"active"}else{""},"2  Analyze"}li{class:if review_phase||phase==Phase::Applying{"active"}else{""},"3  Review"} }
