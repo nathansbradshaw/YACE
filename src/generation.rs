@@ -17,6 +17,47 @@ use std::{
 
 pub use crate::generation_protocol::{Request, Source, State, Status};
 
+struct WorkerLock(fs::File);
+
+impl WorkerLock {
+    fn acquire(root: &Path) -> std::io::Result<Self> {
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(root.join("worker.lock"))?;
+        file.try_lock().map_err(std::io::Error::from)?;
+        Ok(Self(file))
+    }
+}
+
+// A decoder spawned by another thread can briefly inherit this description.
+// Closing our file alone would then keep a finished job locked until it exits.
+impl Drop for WorkerLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+#[cfg(test)]
+mod worker_lock_tests {
+    use super::*;
+
+    #[test]
+    fn completed_worker_releases_lock_while_an_inherited_description_remains_open() {
+        let root = tempfile::tempdir().unwrap();
+        let worker = WorkerLock::acquire(root.path()).unwrap();
+        let inherited = worker.0.try_clone().unwrap();
+        assert!(WorkerLock::acquire(root.path()).is_err());
+        drop(worker);
+        let resumed = WorkerLock::acquire(root.path())
+            .expect("a finished worker must allow immediate recovery");
+        assert!(WorkerLock::acquire(root.path()).is_err());
+        drop(resumed);
+        drop(inherited);
+    }
+}
+
 pub fn default_model_dir() -> PathBuf {
     model_dir_for(
         std::env::current_exe().ok().as_deref(),
@@ -829,12 +870,7 @@ fn update(
 pub fn mark_interrupted(root: &Path, cancelled: bool) -> Result<()> {
     let root = resolve_job(root)?;
     let root = root.as_path();
-    let lock = fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(root.join("worker.lock"))?;
-    lock.try_lock().context("Generation is still running")?;
+    let _lock = WorkerLock::acquire(root).context("Generation is still running")?;
     let current = status(root)?;
     if current.state != State::Complete {
         update(
@@ -857,13 +893,7 @@ pub fn mark_interrupted(root: &Path, cancelled: bool) -> Result<()> {
 pub fn run(root: &Path) -> Result<()> {
     let root = resolve_job(root)?;
     let root = root.as_path();
-    let lock = fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(root.join("worker.lock"))?;
-    lock.try_lock()
-        .context("This generation job is already running")?;
+    let _lock = WorkerLock::acquire(root).context("This generation job is already running")?;
     let current = status(root)?;
     ensure!(current.version == 1, "Unsupported job version");
     ensure!(

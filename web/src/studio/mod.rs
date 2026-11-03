@@ -232,12 +232,12 @@ pub fn App() -> Element {
         project_bar::ProjectBar{studio}
         if dance::active()||studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
     div{class:"studio-status",activity::Status{studio,title:"Local browser activity"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{role:"status",title:"Browser saves stay in this browser profile. Download a project backup to keep an independent copy.",if let Some(status)=dance::save_status(){"{status}"}else if let Some(doc)=studio.snapshot(){if (studio.dirty)()||(studio.persistence_busy)(){"Project r{doc.revision} · saving in this browser…"}else if (studio.saved_revision)()!=Some(doc.revision){"Project r{doc.revision} not saved · download backup"}else{"Project saved in this browser · r{doc.revision}"}}else{"Projects save automatically in this browser"}} project_bar::ExportSummary{studio}}
-        if let Some(error)=(studio.error)(){div{class:"studio-error",role:"alert",span{"{error}"}
+        if let Some(error)=(studio.error)().filter(|message| !(studio.export_open)() || !message.starts_with("Song export failed: ")){div{class:"studio-error",role:"alert",span{"{error}"}
             if studio.doc.read().is_some(){button{disabled:(studio.export_busy)(),title:"Recover the open editor without reloading missing files",onclick:move |_|studio.recover_open_project(),"Download recovery copy…"}}
             button{onclick:move |_|{let mut studio=studio;studio.error.set(None);},"Dismiss"}}}
         if let Some(warning)=recovery_warning(){div{class:"studio-error",role:"alert",span{"{warning}"}button{onclick:move |_|recovery_warning.set(None),"Dismiss workspace warning"}}}
         if (studio.review_open)(){review::ReviewPanel{studio}}
-        if (studio.export_open)(){export::ExportDialog{studio}}
+        if (studio.export_open)(){export::ExportDialog{studio,failure:(studio.error)().filter(|message|message.starts_with("Song export failed: ")).unwrap_or_default()}}
         if (studio.parts_open)(){parts::PartsPanel{studio}}
         if (studio.collaboration_open)(){collaboration::Collaboration{studio}}
         generation_jobs::GenerationPanel{studio}

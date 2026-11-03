@@ -1395,6 +1395,16 @@ impl Studio {
         if (self.export_busy)() {
             return;
         }
+        // Retrying this operation dismisses its previous failure, while keeping
+        // unrelated editing, persistence and playback errors visible.
+        let retrying_failed_export = self
+            .error
+            .peek()
+            .as_ref()
+            .is_some_and(|message| message.starts_with("Song export failed: "));
+        if retrying_failed_export {
+            self.error.set(None);
+        }
         self.export_busy.set(true);
         dioxus::core::spawn_forever(async move {
             let result = async {
@@ -1473,7 +1483,12 @@ impl Studio {
             .await;
             match result {
                 Ok(()) => self.status.set("Song ZIP ready to download".into()),
-                Err(error) => self.error.set(Some(format!("{error:#}"))),
+                Err(error) => {
+                    self.status
+                        .set("Song export failed · check error details".into());
+                    self.error
+                        .set(Some(format!("Song export failed: {error:#}")));
+                }
             }
             self.export_busy.set(false);
         });
