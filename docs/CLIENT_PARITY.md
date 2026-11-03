@@ -18,6 +18,7 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 | Start from recording or existing chart | Both OS-picker/manual starts exercised; native setup now reaches Ready after save; identical chart/INI settings and unchanged encoded source | Verified |
 | Blank charts and recording attachment | Actual browser blank creation, note placement, silent timeline playback, short-recording rejection, attachment/Undo/Redo, export, backup and restored Undo; source WAV unchanged and post-Undo export has no playable root recording | Verified; fixed browser open/source-state handling after the chart-only rebase |
 | Instrument/difficulty editing | Shared command tests plus actual guitar timing/Tap, Keys, Pro Keys, vocal editing, and native edit/Undo; paired full-song MIDI/master/vocal export matches | Verified supported workflows |
+| Keys MIDI open notes and techniques | Actual hosted four-difficulty export/reopen with Pro Keys and vocals, independent MIDI inspection, edit/Undo/Redo and byte-identical restored export | Browser interchange verified; dedicated Keys authoring and native/game acceptance remain open |
 | Drum accents and ghost notes | Actual native/static single and batch authoring, kick exclusion, cymbal retention, move, clipboard, delete, Undo/Redo, restart/reload and mixed-part MIDI export/reimport | Verified controlled fixture; in-game dynamics judgment remains unqualified |
 | Double kicks and imported MIDI drum editing | Actual static placement, movement, clipboard, deletion, rejected duplicate, saved Undo/Redo, MIDI-only roundtrip and retained note-off intervals | Browser paths verified; current native controls and target-game acceptance remain open |
 | Independent preview and piano-roll tracks | Native and browser Focused/Selected/All choices, stable order, collapse and reopen; actual hosted reload preserves separate choices without changing chart revision | Verified exercised paths; browser preferences stay in that profile/project |
@@ -82,6 +83,18 @@ export. Imported MIDI songs continue to refuse `.chart` conversion when it could
 discard original events; the inspector explains that boundary. Actual static
 checks exercised both refusals and successful lower-difficulty `.chart` export
 from a chart-based song. No unsupported conversion is silently substituted.
+
+Hosted MIDI export was exercised with four Keys difficulties using distinct
+note times alongside Pro Keys and vocals. Independent inspection of the actual
+download verified each difficulty's open notes, HOPO markers and tap ranges,
+plus shared Star Power, the Pro Keys sustain and the pitched lyric and phrase.
+Reopening only the MIDI, INI and audio retained all six tracks. A Pro Keys edit,
+Undo/Redo and mixed MIDI export preserved the four Keys parts; final Undo
+restored byte-identical MIDI. Reload retained the saved Redo operation and its
+matching export receipt. The controlled song also completed playback with all
+instrument views visible. This qualifies browser interchange. Keys open-note
+and technique authoring controls, fresh native acceptance and target-game
+judgment remain open.
 
 Native practice playback now processes a bounded window on a Rust worker,
 mixing aligned original-rate stems before pitch-preserving stretching. Playing
