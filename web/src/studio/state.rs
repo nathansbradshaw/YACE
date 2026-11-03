@@ -330,7 +330,12 @@ impl Studio {
         );
         let selected = matches!(
             action,
-            Action::SelectTrack { .. } | Action::SelectNote { .. } | Action::Undo | Action::Redo
+            Action::SelectTrack { .. }
+                | Action::SelectNote { .. }
+                | Action::AddNote { .. }
+                | Action::DeleteNote { .. }
+                | Action::Undo
+                | Action::Redo
         );
         let session = matches!(
             action,
@@ -355,12 +360,12 @@ impl Studio {
                 self.error.set(None);
                 self.dirty.set(true);
                 self.reload(session);
-                if !apply_media {
-                    return true;
-                }
                 if selected {
                     self.group.set(Default::default());
                     self.vocal_note.set(None);
+                }
+                if !apply_media {
+                    return true;
                 }
                 if let Some(doc) = self.snapshot()
                     && let Some(media) = self.media.read().clone()

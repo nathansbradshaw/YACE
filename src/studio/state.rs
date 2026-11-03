@@ -715,13 +715,15 @@ impl Studio {
             self.kit_autoplay.set(None);
             self.kit_audition_busy.set(None);
         }
-        if matches!(
+        let reset_selection = matches!(
             &action,
-            Action::SelectTrack { .. } | Action::SelectNote { .. } | Action::Undo | Action::Redo
-        ) {
-            self.vocal_note.set(None);
-            self.group.set(Default::default());
-        }
+            Action::SelectTrack { .. }
+                | Action::SelectNote { .. }
+                | Action::AddNote { .. }
+                | Action::DeleteNote { .. }
+                | Action::Undo
+                | Action::Redo
+        );
         let Some(store) = self.store.read().clone() else {
             return false;
         };
@@ -748,6 +750,12 @@ impl Studio {
         }) {
             Ok(result) => {
                 self.error.set(None);
+                // A newly placed hit is the saved primary selection. Do not
+                // let the previous local group keep owning inspector/Copy.
+                if reset_selection {
+                    self.vocal_note.set(None);
+                    self.group.set(Default::default());
+                }
                 if let Some(path) = result.exported_to {
                     let receipt = crate::export_state::Receipt::capture(
                         &store,
