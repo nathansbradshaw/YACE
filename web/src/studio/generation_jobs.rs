@@ -716,7 +716,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     onopen:move |_|{if *busy.peek(){return;}
                         if let Some(handle)=job(){let root=handle.root;busy.set(true);status.set("Opening generated chart…".into());spawn(async move{
                             let result=async{studio.persist_current().await?;let copy=crate::files::unique_root();crate::pipeline::copy_folder(&generation::project_path(&root),&copy)?;studio.open_project(copy).await}.await;
-                            match result{Ok(())=>{studio.detach_library();studio.generation_open.set(false);studio.generation_target.set(None);},Err(failure)=>error.set(Some(format!("{failure:#}")))}busy.set(false);
+                            match result{Ok(())=>{status.set("Generated chart opened".into());studio.detach_library();studio.generation_open.set(false);studio.generation_target.set(None);},Err(failure)=>error.set(Some(format!("{failure:#}")))}busy.set(false);
                         });}},
                     onresume:move |_|{if let Some(handle)=job(){runner.resume(studio,handle);}},
                     onstart:move |_|start_analysis.call(()),

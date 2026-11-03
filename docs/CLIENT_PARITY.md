@@ -74,8 +74,12 @@ after reload. A seven-hit MIDI export without YACE sidecars reimported with thre
 double kicks, the ordinary kick, accent and cymbals intact. An imported double
 kick then moved while retaining its one-tick note-off interval. The final static
 build completed a 243.880-second recording with a temporary double-kick edit;
-Undo restored the prior note count and matching export receipt. Native control
-verification for this increment remains open. Eleven articulation regressions
+Undo restored the prior note count and matching export receipt. An earlier native
+preview also verified imported one-tick edits, double-kick placement, real
+clipboard paste, deletion and duplicate refusal without losing selection.
+Restoring the original notes produced byte-identical MIDI, which reopened with
+all seven hits and completed its ten-second recording. The latest integrated
+native build still needs a full-song workflow and restart. Eleven articulation regressions
 cover the core rules, including unrelated marker preservation.
 
 MIDI represents double kicks on Expert only. Other difficulties require `.chart`
@@ -421,6 +425,20 @@ reimported game files start with ordinary audition defaults, while the editable
 backup retains the previous mix settings. These checks establish browser state
 and file preservation; native controls, acoustic balance, phase alignment,
 long-file memory and target-game acceptance remain separate gates.
+
+Failed browser song exports also show a terminal failure instead of retaining
+preparation text. The failure appears inside the export dialog beside its retry
+controls. An accepted retry clears that export's earlier error while retaining
+unrelated editing, playback and persistence errors. Actual
+browser checks exercised a refused conversion followed by a preserving chart
+export, plus a separate rejected edit whose error survived a successful MIDI
+export. Both downloads retained the original chart or MIDI bytes.
+
+Native generation now explicitly releases its worker lock when a run or recovery
+operation returns. A decoder that briefly inherits an open file description must
+not keep a finished job locked and prevent immediate resume. A native OS-lock
+regression retains a cloned description, checks that an active worker excludes a
+second owner, and verifies that the next worker can acquire after completion.
 
 The static entry point stays small. Application rules, audio processing and
 browser API calls remain Rust. CPU-heavy work must allow editing and playback

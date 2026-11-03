@@ -4,7 +4,7 @@ use crate::export_options::{self, Format, Options, Target};
 use dioxus::prelude::*;
 
 #[component]
-pub fn ExportDialog(mut studio: Studio) -> Element {
+pub fn ExportDialog(mut studio: Studio, #[props(default)] failure: String) -> Element {
     let context = use_hook(move || {
         let store = studio
             .store
@@ -65,6 +65,9 @@ pub fn ExportDialog(mut studio: Studio) -> Element {
             id: "export-options", title: "Export playable song", description: "Choose what goes into a separate song copy. Your complete editing project stays saved.",
             close_label: "Close export", class: "export-sheet", onclose: close,
             actions: rsx! {
+                if !failure.is_empty() {
+                    p {class: "generation-validation", role: "alert", aria_label: "Song export error", style: "margin:0;flex:1;overflow-wrap:anywhere", "{failure}"}
+                }
                 button {disabled: busy, onclick: move |_| close.call(()), "Cancel"}
                 button {class: "primary", disabled: busy || validation.is_some(), onclick: move |_| studio.export_selected(options(), root.clone(), revision),
                     aria_busy:busy, super::activity::BusyLabel{busy,label:if cfg!(target_arch="wasm32"){"Prepare song ZIP"}else{"Choose export folder…"},active:"Preparing export…"}
