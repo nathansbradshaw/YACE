@@ -89,7 +89,3 @@
 .welcome-recent-row .welcome-action > div { min-width: 0; }
 .welcome-recent-row strong, .welcome-recent-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .welcome-recent-remove { flex-shrink: 0; font-size: 20px; padding: 8px; }
-@media (max-width:760px) {
-  .welcome-content { display:block; width:min(520px,100%); }
-  .welcome-recent { margin-top:24px; }
-}

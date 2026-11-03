@@ -626,10 +626,3 @@
 .compact-vocal-lyric{position:absolute;top:54px;line-height:16px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#deebf5;font-size:12px}.compact-vocal-lyric.active{color:#fff4bb}
 .preview-vocals>button{min-height:22px;line-height:14px}.vocal-preview-caption{position:absolute;top:5px;right:9px;color:#a8bacb;font-size:11px;pointer-events:none}
 .focused-vocal-surface{flex:1;min-height:96px;position:relative}.focused-vocal-surface>.vocal-pitch-preview{height:100%;width:100%;position:absolute;inset:0}
-@media(max-width:620px) {
-  .project-bar { height:auto; min-height:54px; flex-wrap:wrap; gap:6px 10px; padding:6px 10px; }
-  .project-identity { min-width:100px; }
-  .project-bar .chart-library-picker { order:3; flex-basis:100%; max-width:100%; }
-  .chart-library-picker select { flex:1; }
-  .studio-status { height:auto; min-height:25px; flex-wrap:wrap; gap:2px 10px; }
-}

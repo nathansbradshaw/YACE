@@ -144,9 +144,3 @@
 .browser-generation .generation-recording { font-size:13px; }
 .browser-generation .generation-counts { margin:0; padding-left:20px; font-size:13px; }
 
-@media(max-width:650px) {
-  .generation-modal .generation-grid {
-    grid-template-columns:1fr
-  }
-
-}
