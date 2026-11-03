@@ -134,19 +134,36 @@ pub fn App() -> Element {
         band || dance
     });
     difficulty::use_snapshot(studio);
+    let mut recovery_warning = use_signal(|| None::<String>);
+    let workspace = use_memo(move || dance::browser_workspace_target(studio));
+    use_effect(move || {
+        if let Some(target) = workspace() {
+            recovery_warning.set(crate::workspace_recovery::remember(&target).err().map(|error| {
+                format!("Could not remember this tab's workspace: {error:#}. Your project save is separate; use Saved in this browser after reloading.")
+            }));
+        }
+    });
     use_future(move || async move {
         let mut studio = studio;
-        match crate::persistence::restore().await {
-            Ok(Some((root, revision))) if studio.store.read().is_none() => {
-                if let Err(error) = studio
-                    .open_project_with_revision(root, Some(revision))
-                    .await
-                {
+        match crate::persistence::restore_workspace().await {
+            Ok(Some((target, revision))) if studio.store.read().is_none() && !dance::active() => {
+                let result = match target.family {
+                    crate::workspace_recovery::Family::Band => {
+                        studio
+                            .open_project_with_revision(target.root, Some(revision))
+                            .await
+                    }
+                    crate::workspace_recovery::Family::Stepmania => {
+                        dance::try_open_path(&target.root).and_then(|opened| {
+                            anyhow::ensure!(opened, "Saved dance project is invalid");
+                            Ok(())
+                        })
+                    }
+                };
+                if let Err(error) = result {
                     studio.error.set(Some(format!(
                         "Could not restore the local project: {error:#}"
                     )));
-                } else {
-                    studio.saved_revision.set(Some(revision));
                 }
             }
             Ok(_) => (),
@@ -214,6 +231,7 @@ pub fn App() -> Element {
         if dance::active()||studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
     div{class:"studio-status",activity::Status{studio,title:"Local browser activity"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{role:"status",title:"Browser saves stay in this browser profile. Download a project backup to keep an independent copy.",if let Some(status)=dance::save_status(){"{status}"}else if let Some(doc)=studio.snapshot(){if (studio.dirty)()||(studio.persistence_busy)(){"Project r{doc.revision} · saving in this browser…"}else if (studio.saved_revision)()!=Some(doc.revision){"Project r{doc.revision} not saved · download backup"}else{"Project saved in this browser · r{doc.revision}"}}else{"Projects save automatically in this browser"}} project_bar::ExportSummary{studio}}
         if let Some(error)=(studio.error)(){div{class:"studio-error",role:"alert",span{"{error}"}button{onclick:move |_|{let mut studio=studio;studio.error.set(None);},"Dismiss"}}}
+        if let Some(warning)=recovery_warning(){div{class:"studio-error",role:"alert",span{"{warning}"}button{onclick:move |_|recovery_warning.set(None),"Dismiss workspace warning"}}}
         if (studio.review_open)(){review::ReviewPanel{studio}}
         if (studio.export_open)(){export::ExportDialog{studio}}
         if (studio.parts_open)(){parts::PartsPanel{studio}}

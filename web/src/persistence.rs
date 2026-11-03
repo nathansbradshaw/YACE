@@ -155,11 +155,11 @@ pub async fn save_job(root: &Path, revision: u64, expected: Option<u64>) -> Resu
 pub async fn save_stepmania(root: &Path, revision: u64, expected: Option<u64>) -> Result<()> {
     save_snapshot(root, revision, expected, "last-stepmania").await
 }
-pub async fn restore_stepmania() -> Result<Option<(PathBuf, u64)>> {
+async fn restore_key(key: &str) -> Result<Option<(PathBuf, u64)>> {
     let db = Database(open().await?);
     let tx = db.0.transaction_with_str("files").map_err(error)?;
     let store = tx.object_store("files").map_err(error)?;
-    let Some(root) = request(store.get(&"last-stepmania".into()).map_err(error)?)
+    let Some(root) = request(store.get(&key.into()).map_err(error)?)
         .await?
         .as_string()
     else {
@@ -289,17 +289,22 @@ async fn save_snapshot(
     crate::storage::acknowledge(dirty);
     Ok(())
 }
-pub async fn restore() -> Result<Option<(PathBuf, u64)>> {
-    let db = Database(open().await?);
-    let tx = db.0.transaction_with_str("files").map_err(error)?;
-    let store = tx.object_store("files").map_err(error)?;
-    let Some(root) = request(store.get(&"last".into()).map_err(error)?)
+pub async fn restore_workspace() -> Result<Option<(crate::workspace_recovery::Target, u64)>> {
+    use crate::workspace_recovery::{Family, Target};
+    if let Some(target) = crate::workspace_recovery::current()? {
+        let (_, revision) = load(&target.root).await?.context(
+            "This tab's saved project is unavailable. Use Saved in this browser or open a project backup to recover it",
+        )?;
+        return Ok(Some((target, revision)));
+    }
+    // Migrate old profiles deterministically. Only one family restores; the
+    // previous independent futures could replace each other's workspace.
+    if let Some((root, revision)) = restore_key("last").await? {
+        return Ok(Some((Target::new(Family::Band, root), revision)));
+    }
+    Ok(restore_key("last-stepmania")
         .await?
-        .as_string()
-    else {
-        return Ok(None);
-    };
-    load(Path::new(&root)).await
+        .map(|(root, revision)| (Target::new(Family::Stepmania, root), revision)))
 }
 
 /// Reopen any durable project, without loading other songs into memory.

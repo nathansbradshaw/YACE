@@ -37,6 +37,9 @@ mod recording_tags;
 mod static_release;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+#[path = "../src/workspace_target.rs"]
+mod workspace_target;
 fn run(command: &mut Command) -> Result<()> {
     let status = command.status()?;
     if !status.success() {
