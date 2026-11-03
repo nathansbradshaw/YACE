@@ -20,6 +20,9 @@ mod audio_identity;
 #[path = "../src/audio_resample.rs"]
 mod audio_resample;
 #[cfg(test)]
+#[path = "../../src/compact_backup.rs"]
+mod compact_backup;
+#[cfg(test)]
 #[path = "../../src/media_clock.rs"]
 mod media_clock;
 #[path = "../../src/preview_ports.rs"]

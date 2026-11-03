@@ -538,6 +538,8 @@ pub struct Studio {
     pub library_busy: Signal<bool>,
     pub file_activity: Signal<Option<super::activity::FileAction>>,
     pub generation_busy: Signal<bool>,
+    pub stem_generation_open: Signal<bool>,
+    pub stem_generation_busy: Signal<bool>,
     pub library_selected: Signal<Option<usize>>,
     pub source_choice: Signal<Option<super::source_choice::Prompt>>,
     pub timing: Signal<Option<TempoMap>>,
@@ -1735,7 +1737,10 @@ impl Studio {
             }
         });
     }
-    pub fn save_project(mut self) {
+    pub fn save_project(self) {
+        self.save_project_with_options(crate::compact_backup::Options::default());
+    }
+    pub fn save_project_with_options(mut self, options: crate::compact_backup::Options) {
         let Some(store) = self.store.read().clone() else {
             return;
         };
@@ -1774,8 +1779,10 @@ impl Studio {
             }
             let output = output.path().to_owned();
             let download = output.clone();
-            match tokio::task::spawn_blocking(move || crate::project_files::backup(&store, &output))
-                .await
+            match tokio::task::spawn_blocking(move || {
+                crate::project_files::backup_with_options(&store, &output, options)
+            })
+            .await
             {
                 Ok(Ok(())) => {
                     self.status.set("Project ZIP backup saved".into());
@@ -2540,6 +2547,8 @@ pub fn use_studio() -> Studio {
         library_busy: use_signal(|| false),
         file_activity: use_signal(|| None),
         generation_busy: use_signal(|| false),
+        stem_generation_open: use_signal(|| false),
+        stem_generation_busy: use_signal(|| false),
         library_selected: use_signal(|| None),
         source_choice: use_signal(|| None),
         timing: use_signal(|| None),

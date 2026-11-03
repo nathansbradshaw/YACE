@@ -137,40 +137,24 @@ fn archive_unlocked(folder: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 fn unpack_song(path: &Path, folder: &Path) -> Result<()> {
-    let mut archive = zip::ZipArchive::new(std::fs::File::open(path)?)?;
-    ensure!(!archive.is_empty(), "The song archive is empty");
-    ensure!(
-        archive.len() <= 1024,
-        "A song archive may contain at most 1024 entries"
-    );
-    let mut total = 0u64;
-    for index in 0..archive.len() {
-        let mut entry = archive.by_index(index)?;
-        total = total
-            .checked_add(entry.size())
-            .context("Archive size overflow")?;
-        ensure!(total <= 1024 * 1024 * 1024, "Expanded song exceeds 1 GiB");
-        ensure!(
-            !entry.is_symlink(),
-            "Archive symbolic links are not supported"
-        );
-        let relative = entry
-            .enclosed_name()
-            .context("Archive path leaves the song folder")?;
-        let target = folder.join(relative);
-        if entry.is_dir() {
-            std::fs::create_dir_all(target)?;
-        } else {
-            std::fs::create_dir_all(target.parent().unwrap())?;
-            let mut file = std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(target)?;
-            std::io::copy(&mut entry, &mut file)?;
-            file.sync_all()?;
+    crate::archive_codec::decode_into(std::fs::File::open(path)?, |name, data| {
+        let target = folder.join(name);
+        std::fs::create_dir_all(target.parent().context("Invalid import path")?)?;
+        let mut file = std::fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(target)?;
+        match data {
+            crate::archive_codec::Decoded::Bytes(bytes) => {
+                std::io::Write::write_all(&mut file, &bytes)?
+            }
+            crate::archive_codec::Decoded::Alias(source) => {
+                std::io::copy(&mut std::fs::File::open(folder.join(source))?, &mut file)?;
+            }
         }
-    }
-    Ok(())
+        file.sync_all()?;
+        Ok(())
+    })
 }
 fn imported_root(folder: &Path) -> Result<PathBuf> {
     let mut root = folder.to_owned();
@@ -247,7 +231,9 @@ fn serve_inner(workspace: &Path, port: u16, start_project: Option<PathBuf>) -> R
             .route("/upload", post(upload))
             .route("/asset/{id}", get(asset))
             .route("/download/{id}", get(download_asset))
-            .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
+            .layer(DefaultBodyLimit::max(
+                16 * 1024 * 1024 * 1024 + 64 * 1024 * 1024,
+            ))
             .layer(middleware::from_fn_with_state(host.clone(), guard))
             .with_state(host);
         let server = axum::serve(listener, app);

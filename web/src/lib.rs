@@ -4,6 +4,7 @@ pub mod analysis_validation;
 mod archive_blob;
 #[path = "../../src/archive_codec.rs"]
 pub mod archive_codec;
+mod archive_import;
 pub mod audio_decode;
 mod audio_identity;
 mod audio_resample;
@@ -21,6 +22,8 @@ pub mod clean_transcript;
 pub mod collaboration;
 #[path = "../../src/collaboration_exchange.rs"]
 pub mod collaboration_exchange;
+#[path = "../../src/compact_backup.rs"]
+pub mod compact_backup;
 pub mod dance_archive;
 #[path = "../../src/detection_settings.rs"]
 pub mod detection_settings;
@@ -48,6 +51,8 @@ pub mod generated_rules;
 pub mod generation;
 #[path = "../../src/generation_build.rs"]
 pub mod generation_build;
+#[path = "../../src/generation_feedback.rs"]
+pub mod generation_feedback;
 #[path = "../../src/generation_protocol.rs"]
 pub mod generation_protocol;
 pub mod github_api;

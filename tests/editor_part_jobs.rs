@@ -25,6 +25,7 @@ fn request(store: &Store, instrument: &str) -> Request {
         source: Source::Audio {
             path: store.audio_path(&store.load().unwrap()).unwrap(),
         },
+        existing_stems: None,
         bpm: 120.,
         title: "Job fixture".into(),
         artist: "Test".into(),
@@ -47,6 +48,68 @@ fn human() -> Actor {
     Actor {
         kind: ActorKind::Human,
         name: "Part job test".into(),
+    }
+}
+
+#[test]
+fn review_totals_ignore_modifiers_and_keep_open_and_pro_keys_notes() {
+    use chart_engine::{editor::EditorNote, reanalysis};
+    let root = tempfile::tempdir().unwrap();
+    let base = fixture(root.path()).load().unwrap();
+    for (track, playable, modifiers) in [
+        ("ExpertDrums", vec![0, 4], vec![7, 32, 66, 67, 68]),
+        ("HardSingle", vec![0, 7], vec![5, 6]),
+        ("ExpertDoubleBass", vec![4, 7], vec![5, 6]),
+        ("ExpertKeyboard", vec![0, 4], vec![5, 7]),
+        ("ExpertProKeys", vec![48, 72], vec![0, 47, 73, 116]),
+    ] {
+        let note = |id: &str, tick, lane| EditorNote {
+            id: id.into(),
+            midi: None,
+            note: chart_engine::chart::Note {
+                tick,
+                lane,
+                sustain: 0,
+            },
+        };
+        let mut before = base.clone();
+        before.content.tracks.insert(
+            track.into(),
+            playable
+                .iter()
+                .enumerate()
+                .map(|(index, &lane)| note("old", index as u64 * 480, lane))
+                .chain(modifiers.iter().map(|&lane| note("old marker", 0, lane)))
+                .collect(),
+        );
+        let mut after = before.clone();
+        // Regenerated IDs and a completely different set of modifier events
+        // must not report extra musical notes or make the totals disagree.
+        after.content.tracks.insert(
+            track.into(),
+            playable
+                .iter()
+                .enumerate()
+                .map(|(index, &lane)| note("new", index as u64 * 480, lane))
+                .chain(modifiers.iter().map(|&lane| note("new marker", 960, lane)))
+                .collect(),
+        );
+        let result = reanalysis::changes(&before, &after, &[track.into()]).remove(0);
+        assert_eq!(
+            (result.before, result.after, result.added, result.removed),
+            (2, 2, 0, 0),
+            "{track}"
+        );
+        let notes = after.content.tracks.get_mut(track).unwrap();
+        notes.remove(0);
+        // A duplicate playable event still counts, even though its ID differs.
+        notes.push(note("duplicate", 480, playable[1]));
+        let result = reanalysis::changes(&before, &after, &[track.into()]).remove(0);
+        assert_eq!(
+            (result.before, result.after, result.added, result.removed),
+            (2, 2, 1, 1),
+            "{track}"
+        );
     }
 }
 

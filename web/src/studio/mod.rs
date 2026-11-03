@@ -19,6 +19,8 @@ mod export;
 mod game_preview;
 mod generation_actions;
 mod generation_jobs;
+#[path = "../../../src/studio/generation_status.rs"]
+mod generation_status;
 pub mod github;
 #[path = "../../../src/studio/icons.rs"]
 mod icons;
@@ -69,7 +71,9 @@ mod song_overview;
 mod source_choice;
 #[path = "../../../src/studio/star_power.rs"]
 mod star_power;
-mod state;
+pub(crate) mod state;
+#[path = "../../../src/studio/stem_generation.rs"]
+mod stem_generation;
 #[path = "../../../src/studio/stems.rs"]
 mod stems;
 #[path = "../../../src/studio/timing_editor.rs"]
@@ -211,6 +215,7 @@ pub fn App() -> Element {
         if (studio.parts_open)(){parts::PartsPanel{studio}}
         if (studio.collaboration_open)(){collaboration::Collaboration{studio}}
         generation_jobs::GenerationPanel{studio}
+        stem_generation::StemGeneration{studio}
         if let Some((path,name,kind))=(studio.export_ready)(){sheet::ToolSheet{id:"song-export",title:match kind{state::DownloadKind::Project=>"Project backup ready",state::DownloadKind::Song=>"Song export ready",state::DownloadKind::File=>"File ready to download"},description:"This download is separate from browser autosave.",close_label:"Close download",class:"export-sheet",onclose:move |_|studio.close_export(),
             actions:rsx!{
                 button{onclick:move |_|studio.close_export(),"Close"}

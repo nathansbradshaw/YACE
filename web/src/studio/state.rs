@@ -35,6 +35,8 @@ pub struct Studio {
     pub library_busy: Signal<bool>,
     pub file_activity: Signal<Option<super::activity::FileAction>>,
     pub generation_busy: Signal<bool>,
+    pub stem_generation_open: Signal<bool>,
+    pub stem_generation_busy: Signal<bool>,
     pub library_selected: Signal<Option<usize>>,
     pub source_choice: Signal<Option<super::source_choice::Prompt>>,
     library_files: Signal<Option<Rc<crate::files::FolderSelection>>>,
@@ -107,6 +109,8 @@ pub fn use_studio() -> Studio {
         library_busy: use_signal(|| false),
         file_activity: use_signal(|| None),
         generation_busy: use_signal(|| false),
+        stem_generation_open: use_signal(|| false),
+        stem_generation_busy: use_signal(|| false),
         library_selected: use_signal(|| None),
         source_choice: use_signal(|| None),
         library_files: use_signal(|| None),
@@ -908,12 +912,18 @@ impl Studio {
                     };
                     let files = crate::files::unpack(files)?;
                     super::dance::flush().await?;
-                    if super::dance::try_open_files(
-                        files
-                            .iter()
-                            .map(|(name, bytes)| (name.clone(), bytes.as_ref().clone()))
-                            .collect(),
-                    )? {
+                    let catalogue = files
+                        .iter()
+                        .map(|(name, _)| (name.clone(), Vec::new()))
+                        .collect();
+                    if crate::stepmania::bundle::entry(&catalogue).is_some()
+                        && super::dance::try_open_files(
+                            files
+                                .iter()
+                                .map(|(name, bytes)| (name.clone(), bytes.as_ref().clone()))
+                                .collect(),
+                        )?
+                    {
                         return Ok(());
                     }
                     (None, files)
@@ -1466,7 +1476,10 @@ impl Studio {
             crate::storage::clear(&path);
         }
     }
-    pub fn save_project(mut self) {
+    pub fn save_project(self) {
+        self.save_project_with_options(crate::compact_backup::Options::default());
+    }
+    pub fn save_project_with_options(mut self, options: crate::compact_backup::Options) {
         if (self.export_busy)() {
             return;
         }
@@ -1494,6 +1507,7 @@ impl Studio {
                     crate::worker::Task::Backup {
                         root: store.root.clone(),
                         output: output.clone(),
+                        options,
                     },
                     std::slice::from_ref(&store.root),
                 )

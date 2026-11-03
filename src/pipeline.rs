@@ -178,6 +178,8 @@ pub const STEM_MANIFEST: &str = "stem-manifest.json";
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct IsolationOptions<'a> {
+    /// Supplied-audio jobs fail rather than invoking either separator.
+    pub skip_separation: bool,
     pub detection: crate::detection_settings::Settings,
     pub guitar_source: crate::mapping::GuitarSource,
     /// Compatibility folder option; it must contain stem-manifest.json.
@@ -460,6 +462,10 @@ pub fn transcribe_with_isolation(
         options.piano_quality,
     );
     ensure!(
+        !options.skip_separation || options.manifest.is_some() || options.stems.is_some(),
+        "Existing-stem generation requires supplied stems; separation is disabled"
+    );
+    ensure!(
         options.keyboard_analysis.is_none() || hq,
         "Separate Piano analysis requires higher-quality Piano detection"
     );
@@ -503,6 +509,10 @@ pub fn transcribe_with_isolation(
         && keyboard_analysis.is_none()
         && !manifest.as_ref().is_some_and(higher_quality_manifest)
     {
+        ensure!(
+            !options.skip_separation,
+            "The attached stems do not include higher-quality Piano audio. Use Standard analysis or attach the required stems; separation is disabled."
+        );
         keyboard_analysis = Some(cached_keyboard_separation(
             audio,
             model_dir,

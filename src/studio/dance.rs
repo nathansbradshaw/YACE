@@ -328,7 +328,15 @@ impl DanceStudio {
         .await;
         self.report(result);
     }
-    async fn prepare(mut self, format: Option<Format>) {
+    async fn prepare(self, format: Option<Format>) {
+        self.prepare_with_options(format, crate::compact_backup::Options::default())
+            .await;
+    }
+    async fn prepare_with_options(
+        mut self,
+        format: Option<Format>,
+        options: crate::compact_backup::Options,
+    ) {
         let result = async {
             let project = self.project.read().clone().context("No project")?;
             let files = if let Some(format) = format {
@@ -337,28 +345,10 @@ impl DanceStudio {
                 bundle::backup(&project, &self.assets.read())?
             };
             #[cfg(not(target_arch = "wasm32"))]
-            let mut files = files;
-            #[cfg(not(target_arch = "wasm32"))]
-            if format.is_none()
-                && let Some(parent) = self.parent.read().clone()
-            {
-                let mut combined = {
-                    let temporary = tempfile::tempdir()?;
-                    let path = temporary.path().join("backup.zip");
-                    crate::project_files::backup(&crate::editor::Store::new(&parent), &path)?;
-                    crate::archive_codec::decode(&std::fs::read(path)?)?
-                        .into_iter()
-                        .collect::<Files>()
-                };
-                for (name, bytes) in files {
-                    combined.insert(format!("dance/{name}"), bytes);
-                }
-                files = combined;
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            let bytes = crate::archive_codec::encode(
-                files.iter().map(|(n, b)| (n.as_str(), b.as_slice())),
-            )?;
+            let parent = format
+                .is_none()
+                .then(|| self.parent.read().clone())
+                .flatten();
             #[cfg(target_arch = "wasm32")]
             {
                 let path = unique_root().join(if format.is_some() {
@@ -371,7 +361,13 @@ impl DanceStudio {
                     .then(|| self.parent.read().clone())
                     .flatten();
                 self.status.set("Preparing ZIP on a local worker…".into());
-                crate::dance_archive::prepare(files, parent.as_deref(), &path).await?;
+                crate::dance_archive::prepare(
+                    files,
+                    parent.as_deref(),
+                    &path,
+                    format.is_none().then_some(options),
+                )
+                .await?;
                 self.status.set(format!(
                     "Download ready: {}",
                     path.file_name().unwrap_or_default().to_string_lossy()
@@ -401,7 +397,40 @@ impl DanceStudio {
                     .save_file()
                     .await
                 {
-                    std::fs::write(file.path(), bytes)?;
+                    let output = file.path().to_owned();
+                    self.status
+                        .set("Preparing compact backup on a local worker…".into());
+                    tokio::task::spawn_blocking(move || {
+                        let mut files = files;
+                        if let Some(parent) = parent {
+                            let mut combined = crate::project_files::snapshot(
+                                &crate::editor::Store::new(&parent),
+                                options,
+                            )?;
+                            for (name, bytes) in files {
+                                combined.insert(format!("dance/{name}"), bytes);
+                            }
+                            files = combined;
+                        }
+                        let mut stage = tempfile::NamedTempFile::new_in(
+                            output.parent().context("Choose a backup location")?,
+                        )?;
+                        let entries = files
+                            .iter()
+                            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()));
+                        if format.is_none() {
+                            crate::compact_backup::encode_into(entries, &mut stage, options)?;
+                        } else {
+                            crate::archive_codec::encode_into(entries, &mut stage)?;
+                        }
+                        stage.as_file().sync_all()?;
+                        stage
+                            .persist_noclobber(&output)
+                            .map_err(|error| error.error)
+                            .context("Choose a new filename; existing files are preserved")?;
+                        Ok::<_, anyhow::Error>(())
+                    })
+                    .await??;
                     let status = format!("Saved {}", file.path().display());
                     self.status.set(status.clone());
                     consume_context::<super::state::Studio>().status.set(status);
@@ -1174,7 +1203,7 @@ pub fn review(mut studio: super::state::Studio) {
         studio.review_open.set(true);
     }
 }
-pub fn save(studio: super::state::Studio) {
+pub fn save_with_options(studio: super::state::Studio, options: crate::compact_backup::Options) {
     let linked = try_consume_context::<DanceStudio>().is_some_and(|s| {
         s.parent.read().is_some()
             && s.parent.read().as_ref() == studio.store.read().as_ref().map(|s| &s.root)
@@ -1194,10 +1223,10 @@ pub fn save(studio: super::state::Studio) {
         dioxus::core::spawn_forever(async move {
             let (_guard, _busy) = (guard, busy);
             s.save().await;
-            s.prepare(None).await;
+            s.prepare_with_options(None, options).await;
         });
     } else {
-        studio.save_project();
+        studio.save_project_with_options(options);
     }
 }
 pub fn deactivate() {

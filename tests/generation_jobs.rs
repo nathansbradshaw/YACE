@@ -20,6 +20,7 @@ fn request(audio: &Path) -> Request {
         title: "Job fixture".into(),
         artist: "Local test".into(),
         instruments: vec!["drums".into()],
+        existing_stems: None,
         keyboard_sound: Default::default(),
         piano_quality: Default::default(),
         model_dir: audio.parent().unwrap().join("missing-models"),
@@ -35,6 +36,93 @@ fn audio(root: &Path) -> std::path::PathBuf {
     let samples = vec![0.0; 44100 * 3];
     models::write_audio(&path, &samples, &samples).unwrap();
     path
+}
+
+fn supplied_stems(input: &Path) -> chart_engine::stem_review::StemManifest {
+    use chart_engine::stem_review::{AlignmentEvidence, StemId, StemManifest};
+    let drums = input.with_file_name("drums.wav");
+    models::write_audio(&drums, &vec![0.01; 44100 * 3], &vec![0.01; 44100 * 3]).unwrap();
+    StemManifest::build(
+        input,
+        std::collections::BTreeMap::from([(StemId::Drums, drums)]),
+        AlignmentEvidence {
+            method: "fixture".into(),
+            details: "Synthetic stems on the identical sample clock; no inference or musical claim"
+                .into(),
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn existing_stem_jobs_need_no_separator_and_retain_audio_when_the_attachment_moves() {
+    let temp = tempfile::tempdir().unwrap();
+    let input = audio(temp.path());
+    let mut settings = request(&input);
+    settings.full_mix_drums = false;
+    settings.existing_stems = Some(supplied_stems(&input));
+    settings.validate().unwrap();
+    let job = generation::create_job(settings, &temp.path().join("job")).unwrap();
+    let wire: serde_json::Value =
+        serde_json::from_slice(&fs::read(job.join("request.json")).unwrap()).unwrap();
+    assert!(Path::new(wire["existing_stems"]["stems"][0]["path"].as_str().unwrap()).is_relative());
+    let moved = temp.path().join("moved-job");
+    fs::rename(&job, &moved).unwrap();
+    let restored = generation::read_request(&moved).unwrap();
+    let manifest = restored.existing_stems.unwrap();
+    assert!(
+        manifest.stems[0]
+            .path
+            .starts_with(moved.canonicalize().unwrap())
+    );
+    manifest
+        .validate_source(&input, &models::hash_file(&input).unwrap(), 3.)
+        .unwrap();
+    assert!(!input.parent().unwrap().join("missing-models").exists());
+}
+
+#[test]
+fn existing_stem_mode_rejects_missing_parts_conflicting_inputs_and_changed_audio() {
+    let temp = tempfile::tempdir().unwrap();
+    let input = audio(temp.path());
+    let mut settings = request(&input);
+    settings.existing_stems = Some(supplied_stems(&input));
+    assert!(
+        settings
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("full recording")
+    );
+    settings.full_mix_drums = false;
+    settings.instruments = vec!["bass".into()];
+    assert!(
+        settings
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("No attached bass")
+    );
+    settings.instruments = vec!["drums".into(), "bass".into()];
+    assert!(
+        settings
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("one part")
+    );
+    settings.instruments = vec!["drums".into()];
+    settings
+        .existing_stems
+        .as_mut()
+        .unwrap()
+        .source_audio_sha256 = "aa".repeat(32);
+    let job = temp.path().join("rejected");
+    assert!(generation::create_job(settings, &job).is_err());
+    assert!(
+        !job.exists(),
+        "Invalid supplied audio must not publish a job or trigger separation"
+    );
 }
 
 #[test]

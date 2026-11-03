@@ -15,6 +15,7 @@ mod export;
 mod frame_pacing;
 mod game_preview;
 mod generation;
+mod generation_status;
 mod icons;
 mod inline_review;
 mod modal;
@@ -41,6 +42,7 @@ mod song_overview;
 mod source_choice;
 mod star_power;
 pub mod state;
+mod stem_generation;
 mod stems;
 #[cfg(not(feature = "browser"))]
 mod timeline_player;
@@ -171,6 +173,7 @@ pub(crate) fn App() -> Element {
             clean::CleanPanel{studio}
         }
         generation::GenerationPanel{studio}
+        stem_generation::StemGeneration{studio}
         if let Some((root,title))=(studio.new_song)(){new_song::Setup{studio,root,suggested_title:title}}
         if (studio.blank_chart)(){new_blank::Setup{studio}}
         collaboration::Collaboration{studio}

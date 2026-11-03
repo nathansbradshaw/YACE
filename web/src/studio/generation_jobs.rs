@@ -44,6 +44,9 @@ fn view(root: &std::path::Path) -> Result<View> {
 type Stop = Rc<Cell<bool>>;
 #[derive(Clone, Copy)]
 struct Runner {
+    rate: Signal<crate::generation_feedback::Tracker>,
+    step: Signal<String>,
+    started: Signal<Option<u64>>,
     updated: Signal<u64>,
     job: Signal<Option<Job>>,
     view: Signal<Option<View>>,
@@ -60,6 +63,8 @@ impl Runner {
         }
     }
     fn start(mut self, mut studio: Studio, mut job: Job) {
+        self.rate.set(Default::default());
+        self.started.set(Some(js_sys::Date::now() as u64));
         self.updated.set(js_sys::Date::now() as u64);
         let stop = Rc::new(Cell::new(false));
         self.stop.set(Some(stop.clone()));
@@ -89,6 +94,8 @@ impl Runner {
                         stage.label().into(),
                         None,
                     )?;
+                    self.step.set(stage.label().into());
+                    self.rate.set(Default::default());
                     self.status.set(format!(
                         "Saving job before {}…",
                         stage.label().to_ascii_lowercase()
@@ -98,7 +105,11 @@ impl Runner {
                     let roots = [job.root.clone()];
                     let progress = Rc::new(move |label: String| {
                         let mut runner = self;
-                        runner.updated.set(js_sys::Date::now() as u64);
+                        let now = js_sys::Date::now() as u64;
+                        runner.updated.set(now);
+                        runner
+                            .rate
+                            .with_mut(|rate| rate.observe(stage.label(), &label, None, now));
                         runner.status.set(label.clone());
                         let mut studio = studio;
                         studio.status.set(label);
@@ -128,6 +139,7 @@ impl Runner {
                     }
                     self.status
                         .set("Saving the completed stage locally…".into());
+                    self.rate.set(Default::default());
                     if generation::status(&job.root)?.state == State::Complete
                         && crate::parts::target(&job.root)?.is_some()
                         && let Err(error) = crate::parts::save_review(&job.root)
@@ -202,6 +214,8 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut model_busy = use_signal(|| false);
     let mut model_error = use_signal(|| None::<String>);
     let mut started = use_signal(|| None::<u64>);
+    let rate = use_signal(crate::generation_feedback::Tracker::default);
+    let step = use_signal(|| "Preparing recording".to_owned());
     let mut now = use_signal(|| js_sys::Date::now() as u64);
     let updated = use_signal(|| js_sys::Date::now() as u64);
     let mut status = use_signal(String::new);
@@ -216,6 +230,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut piano_quality = use_signal(|| crate::keyboard_detection::PianoQuality::Standard);
     let mut standard_drums = use_signal(|| false);
     let mut full_mix_drums = use_signal(|| false);
+    let mut existing_stems = use_signal(|| false);
     let mut sensitivity = use_signal(|| 50u8);
     let mut loop_only = use_signal(|| false);
     let mut guitar_source = use_signal(crate::mapping::GuitarSource::default);
@@ -276,6 +291,13 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             sensitivity.set(50);
             loop_only.set(false);
             if let Some(doc) = studio.doc.peek().clone() {
+                let supplied = crate::parts::existing_stems(&doc.content, &track).is_some();
+                existing_stems.set(supplied);
+                if supplied {
+                    full_mix_drums.set(false);
+                    keyboard_sound.set(crate::keyboard_detection::KeyboardSound::Piano);
+                    piano_quality.set(Default::default());
+                }
                 guitar_source.set(crate::reanalysis::source_at(
                     &doc.content,
                     &track,
@@ -291,6 +313,9 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         }
     });
     let runner = Runner {
+        rate,
+        step,
+        started,
         updated,
         job,
         view: current,
@@ -301,11 +326,16 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         refresh,
     };
     let start_analysis = EventHandler::new(move |_: ()| {
+        if (studio.stem_generation_busy)() {
+            error.set(Some("Wait for stem generation to finish".into()));
+            return;
+        }
         if *busy.peek() {
             return;
         }
         let target_track = (studio.generation_target)()
             .or_else(|| current.peek().as_ref().and_then(|view| view.part.clone()));
+        let use_existing = existing_stems() && target_track.is_some();
         studio.analysis_preview.set(None);
         if current
             .peek()
@@ -339,6 +369,19 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 };
                 let full_mix = full_mix_drums() && instruments.iter().all(|part| part == "drums");
                 let request = generation::Request {
+                    existing_stems: if use_existing {
+                        Some(
+                            crate::parts::existing_stems(
+                                &doc.content,
+                                target_track
+                                    .as_deref()
+                                    .context("Choose one part to use existing stems")?,
+                            )
+                            .context("No attached stems. Generate or attach stems first.")?,
+                        )
+                    } else {
+                        None
+                    },
                     detection: crate::detection_settings::Settings {
                         sensitivity: sensitivity(),
                         ..Default::default()
@@ -353,7 +396,11 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     instruments,
                     guitar_source: guitar_source(),
                     keyboard_sound: keyboard_sound(),
-                    piano_quality: piano_quality(),
+                    piano_quality: if use_existing {
+                        Default::default()
+                    } else {
+                        piano_quality()
+                    },
                     vocal_language: language(),
                     vocal_analysis_mode: vocal_mode(),
                     model_dir: "/models".into(),
@@ -414,7 +461,15 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         generation::write_json(&root.join("supplied-lyrics.json"), &lyrics)?;
                     }
                     generation::freeze(&root, metadata)?;
-                    if let Some(manifest) = &doc.content.stems {
+                    if use_existing {
+                        let manifest = generation::read_request(&root)?
+                            .existing_stems
+                            .context("Missing frozen stems")?;
+                        ensure!(
+                            generation::reuse_stems(&root, &manifest)?,
+                            "Existing stems could not be prepared; separation is disabled"
+                        );
+                    } else if let Some(manifest) = &doc.content.stems {
                         generation::reuse_stems(&root, manifest)?;
                     }
                     let revision = generation::checkpoint(&root, None).await?;
@@ -476,6 +531,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             || view.settings.vocal_analysis_mode != vocal_mode()
             || view.settings.standard_drums != standard_drums()
             || view.settings.full_mix_drums != full_mix_drums()
+            || view.settings.existing_stems.is_some() != (existing_stems() && view.part.is_some())
     });
     let saved_drafts = rsx! {
         if !saved.is_empty(){details{class:"generation-options",open:saved_expanded(),summary{onclick:move |event|{event.prevent_default();saved_expanded.set(!saved_expanded());},"Saved drafts"}div{class:"generation-saved-list",for(root,title)in saved{button{disabled:busy(),onclick:move |_|{
@@ -492,7 +548,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 match result{
                     Ok((loaded,view,target))=>{
                         requested.set(view.settings.instruments.clone());
-                        sensitivity.set(view.settings.detection.sensitivity);loop_only.set(view.loop_only);guitar_source.set(view.settings.guitar_source);keyboard_sound.set(view.settings.keyboard_sound);piano_quality.set(view.settings.piano_quality);language.set(view.settings.vocal_language);vocal_mode.set(view.settings.vocal_analysis_mode);standard_drums.set(view.settings.standard_drums);full_mix_drums.set(view.settings.full_mix_drums);
+                        sensitivity.set(view.settings.detection.sensitivity);loop_only.set(view.loop_only);guitar_source.set(view.settings.guitar_source);keyboard_sound.set(view.settings.keyboard_sound);piano_quality.set(view.settings.piano_quality);language.set(view.settings.vocal_language);vocal_mode.set(view.settings.vocal_analysis_mode);standard_drums.set(view.settings.standard_drums);full_mix_drums.set(view.settings.full_mix_drums);existing_stems.set(view.settings.existing_stems.is_some());
                         studio.generation_target.set(None);opened_target.set(target);
                         current.set(Some(view));job.set(Some(loaded));saved_expanded.set(false);status.set("Saved draft opened".into());
                     },
@@ -502,6 +558,13 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             });
         },"{title}"}}}}}
     };
+    let progress_card = rsx! {super::generation_status::GenerationStatus{
+        parts:current.read().as_ref().map(|view|view.settings.instruments.clone()).unwrap_or_else(&*requested),
+        recording:current.read().as_ref().map(|view|view.title.clone()).unwrap_or_else(||studio.metadata_value("name")),
+        step:step(),activity:status(),elapsed_ms:started().map_or(0,|start|now().saturating_sub(start)),
+        feedback:rate.read().feedback(now()),quiet_for:now().saturating_sub(updated())/1000,
+        stopping:stop.read().as_ref().is_some_and(|control|control.get())
+    }};
     if let Some(track) = (studio.generation_target)()
         .or_else(|| current.peek().as_ref().and_then(|view| view.part.clone()))
     {
@@ -522,6 +585,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             .unwrap_or("guitar")
             .to_owned();
         let options = Options {
+            existing_stems: existing_stems(),
             sensitivity: sensitivity(),
             loop_only: loop_only(),
             guitar_source: guitar_source(),
@@ -560,7 +624,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             .map(|start| format!("Elapsed {}s", now().saturating_sub(start) / 1000))
             .unwrap_or_default();
         let quiet_for = now().saturating_sub(updated()) / 1000;
-        let controls = rsx! {Controls{options,instrument,loop_label,onchange:move|next:Options|{sensitivity.set(next.sensitivity);loop_only.set(next.loop_only);guitar_source.set(next.guitar_source);keyboard_sound.set(next.keyboard_sound);piano_quality.set(next.piano_quality);language.set(next.language);vocal_mode.set(next.vocal_mode);standard_drums.set(next.standard_drums);full_mix_drums.set(next.full_mix_drums);},advanced:rsx!{
+        let controls = rsx! {Controls{options,instrument,loop_label,onchange:move|next:Options|{existing_stems.set(next.existing_stems);sensitivity.set(next.sensitivity);loop_only.set(next.loop_only);guitar_source.set(next.guitar_source);keyboard_sound.set(next.keyboard_sound);piano_quality.set(next.piano_quality);language.set(next.language);vocal_mode.set(next.vocal_mode);standard_drums.set(next.standard_drums);full_mix_drums.set(next.full_mix_drums);},advanced:rsx!{
             {model_import}
             if model_busy(){p{class:"ra-hint",role:"status","Verifying model…"}}else if let Some(problem)=model_error(){p{class:"ra-hint",role:"alert","{problem}"}}
         }}};
@@ -575,14 +639,14 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         };
         let diagnostics = rsx! {div{class:"ra-saved-list",
             {saved_drafts}
-            if let Some(previous)=previous_draft(){button{class:"action-secondary",disabled:busy(),onclick:move |_|{match view(&previous.root){Ok(loaded)=>{sensitivity.set(loaded.settings.detection.sensitivity);loop_only.set(loaded.loop_only);guitar_source.set(loaded.settings.guitar_source);keyboard_sound.set(loaded.settings.keyboard_sound);piano_quality.set(loaded.settings.piano_quality);language.set(loaded.settings.vocal_language);vocal_mode.set(loaded.settings.vocal_analysis_mode);standard_drums.set(loaded.settings.standard_drums);full_mix_drums.set(loaded.settings.full_mix_drums);job.set(Some(previous.clone()));current.set(Some(loaded));error.set(None);},Err(problem)=>error.set(Some(format!("{problem:#}")))}},"Previous successful draft"}}
+            if let Some(previous)=previous_draft(){button{class:"action-secondary",disabled:busy(),onclick:move |_|{match view(&previous.root){Ok(loaded)=>{sensitivity.set(loaded.settings.detection.sensitivity);loop_only.set(loaded.loop_only);guitar_source.set(loaded.settings.guitar_source);keyboard_sound.set(loaded.settings.keyboard_sound);piano_quality.set(loaded.settings.piano_quality);language.set(loaded.settings.vocal_language);vocal_mode.set(loaded.settings.vocal_analysis_mode);standard_drums.set(loaded.settings.standard_drums);full_mix_drums.set(loaded.settings.full_mix_drums);existing_stems.set(loaded.settings.existing_stems.is_some());job.set(Some(previous.clone()));current.set(Some(loaded));error.set(None);},Err(problem)=>error.set(Some(format!("{problem:#}")))}},"Previous successful draft"}}
             if let Some(handle)=job(){
                 if !busy() && active.as_ref().is_some_and(|view|view.status.state!=State::Complete){button{class:"action-secondary",disabled:stale,onclick:move |_|runner.resume(studio,handle.clone()),"Resume saved analysis"}if stale{p{class:"ra-hint","Settings changed. Analyze again to use them."}}}
                 if active.as_ref().is_some_and(|view|view.status.state==State::Complete)&&error().is_some(){button{class:"action-secondary",onclick:move |_|error.set(None),"Review saved draft"}}
                 p{class:"ra-hint","Analysis stages are saved in this browser."}
             }
         }};
-        return rsx! {Panel{studio,track,recording,phase,activity,elapsed,quiet_for,problem:error(),controls,review,diagnostics,stop_after_step:true,stopping:stop.read().as_ref().is_some_and(|control|control.get()),can_start:!busy()&&!model_busy(),blocked_reason:if model_busy(){Some("Verifying the selected model…".into())}else{None},onstart:move |_|start_analysis.call(()),oncancel:move |_|{if let Some(control)=stop.read().as_ref(){control.set(true);status.set("Finishing this step before stopping…".into());}}}};
+        return rsx! {Panel{studio,track,recording,phase,activity,elapsed,quiet_for,problem:error(),controls,review,diagnostics,progress:if stop.read().is_some(){Some(progress_card)}else{None},stop_after_step:true,stopping:stop.read().as_ref().is_some_and(|control|control.get()),can_start:!busy()&&!model_busy(),blocked_reason:if model_busy(){Some("Verifying the selected model…".into())}else{None},onstart:move |_|start_analysis.call(()),oncancel:move |_|{if let Some(control)=stop.read().as_ref(){control.set(true);status.set("Finishing this step before stopping…".into());}}}};
     }
     let complete = current
         .read()
@@ -662,13 +726,15 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             if job().is_none() && !busy(){
                 {setup.clone()}
                 p{class:"generation-footnote","Choose what YACE should create from your recording."}
+            }else if busy() && stop.read().is_some(){
+                {progress_card}
             }else if busy(){
                 div{class:"generation-progress",role:"status",strong{if stop.read().is_some(){"Generating your draft"}else{"Preparing your draft"}}p{"{status}"}progress{aria_label:"Generation in progress"}p{class:"generation-footnote",if stop.read().as_ref().is_some_and(|control|control.get()){"This step will finish and save before stopping."}else{"You can close this window while YACE finishes."}}}
             }else{
                 div{class:"generation-result",role:"status",h3{if complete{"Your draft is ready"}else{"Progress saved"}}p{if complete{"Open it to review and edit the notes."}else{"Resume from your last completed step."}}}
             }
             if let Some(previous) = previous_draft() { button { disabled: busy(), onclick: move |_| {
-                match view(&previous.root) { Ok(loaded) => { sensitivity.set(loaded.settings.detection.sensitivity);loop_only.set(loaded.loop_only);guitar_source.set(loaded.settings.guitar_source);keyboard_sound.set(loaded.settings.keyboard_sound);piano_quality.set(loaded.settings.piano_quality);language.set(loaded.settings.vocal_language);vocal_mode.set(loaded.settings.vocal_analysis_mode);standard_drums.set(loaded.settings.standard_drums);full_mix_drums.set(loaded.settings.full_mix_drums);job.set(Some(previous.clone()));current.set(Some(loaded)); }, Err(failure) => error.set(Some(format!("{failure:#}"))) }
+                match view(&previous.root) { Ok(loaded) => { sensitivity.set(loaded.settings.detection.sensitivity);loop_only.set(loaded.loop_only);guitar_source.set(loaded.settings.guitar_source);keyboard_sound.set(loaded.settings.keyboard_sound);piano_quality.set(loaded.settings.piano_quality);language.set(loaded.settings.vocal_language);vocal_mode.set(loaded.settings.vocal_analysis_mode);standard_drums.set(loaded.settings.standard_drums);full_mix_drums.set(loaded.settings.full_mix_drums);existing_stems.set(loaded.settings.existing_stems.is_some());job.set(Some(previous.clone()));current.set(Some(loaded)); }, Err(failure) => error.set(Some(format!("{failure:#}"))) }
             }, "Review previous successful draft" } }
             if let Some(failure)=error(){p{role:"alert","{failure}"}}
             if let (Some(handle),Some(result))=(job(),current()){
@@ -680,7 +746,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     }
                     if complete || crate::storage::is_file(handle.root.join("stems/stem-manifest.json")){details{class:"generation-options",summary{"Downloads"}
                 if crate::storage::is_file(handle.root.join("stems/stem-manifest.json")){button{onclick:{let root=handle.root.clone();move |_|{let root=root.clone();spawn(async move{let folder=root.join("stems");let path=download_path("separated-parts.zip");let result=crate::worker::run::<serde_json::Value>(crate::worker::Task::Archive{root:folder.clone(),output:path.clone()},&[folder]).await;match result{Ok(_)=>offer_download(studio,path,"separated-parts.zip",DownloadKind::File),Err(failure)=>error.set(Some(format!("{failure:#}")))}});}},"Download instrument audio…"}}
-                if result.status.state==State::Complete{button{onclick:{let root=handle.root.clone();move |_|{let root=generation::project_path(&root);spawn(async move{let path=download_path("generated-project.zip");let result=crate::worker::run::<serde_json::Value>(crate::worker::Task::Backup{root:root.clone(),output:path.clone()},&[root]).await;match result{Ok(_)=>offer_download(studio,path,"generated-project.zip",DownloadKind::Project),Err(failure)=>error.set(Some(format!("{failure:#}")))}});}},"Download project ZIP…"}}
+                if result.status.state==State::Complete{button{onclick:{let root=handle.root.clone();move |_|{let root=generation::project_path(&root);spawn(async move{let path=download_path("generated-project.zip");let result=crate::worker::run::<serde_json::Value>(crate::worker::Task::Backup{root:root.clone(),output:path.clone(),options:Default::default()},&[root]).await;match result{Ok(_)=>offer_download(studio,path,"generated-project.zip",DownloadKind::Project),Err(failure)=>error.set(Some(format!("{failure:#}")))}});}},"Download project ZIP…"}}
                     }}
                 details{class:"generation-options",summary{"Technical details"}
                 p{"Generated parts: {result.requested}"}

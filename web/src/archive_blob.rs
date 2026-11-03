@@ -17,8 +17,8 @@ impl Write for Writer {
             .position
             .checked_add(length as u64)
             .ok_or_else(|| io::Error::other("Archive position overflow"))?;
-        if end > 3 * 1024 * 1024 * 1024 {
-            return Err(io::Error::other("Archive exceeds 3 GiB"));
+        if end > crate::archive_import::MAX_ENCODED {
+            return Err(io::Error::other("Archive exceeds 16 GiB"));
         }
         while !bytes.is_empty() {
             let index = self.position as usize / CHUNK;
@@ -55,7 +55,7 @@ impl Seek for Writer {
             SeekFrom::End(value) => i128::from(self.length) + i128::from(value),
             SeekFrom::Current(value) => i128::from(self.position) + i128::from(value),
         };
-        if !(0..=3 * 1024 * 1024 * 1024).contains(&next) {
+        if !(0..=i128::from(crate::archive_import::MAX_ENCODED)).contains(&next) {
             return Err(io::Error::other("Invalid archive seek"));
         }
         self.position = next as u64;

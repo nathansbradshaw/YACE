@@ -193,6 +193,126 @@ fn write_fixture(root: &Path) -> (std::path::PathBuf, std::path::PathBuf, StemMa
 }
 
 #[test]
+#[cfg(any(feature = "editor", feature = "browser"))]
+fn compact_backup_preserves_solo_samples_and_optional_stems_through_undo() {
+    use chart_engine::{
+        compact_backup::{Options, StemQuality},
+        project_files,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let (song, source, base) = write_fixture(root.path());
+    let drum_path = root.path().join("listening-drums.wav");
+    let samples = (0..44100)
+        .map(|i| (i as f32 * 0.071).sin() * 0.4)
+        .collect::<Vec<_>>();
+    models::write_audio(&drum_path, &samples, &samples).unwrap();
+    let mut paths = base
+        .stems
+        .iter()
+        .map(|asset| (asset.id, asset.path.clone()))
+        .collect::<BTreeMap<_, _>>();
+    paths.insert(StemId::Drums, drum_path);
+    let manifest = StemManifest::build(&source, paths, base.alignment).unwrap();
+    let original = fs::read(&source).unwrap();
+    let expected = manifest.load(&source).unwrap().stems[&StemId::Drums].clone();
+    let store = Store::create(&song, None, &root.path().join("project")).unwrap();
+    let path = root.path().join("stems.json");
+    fs::write(&path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    apply(&store, Action::AttachStems { manifest: path }).unwrap();
+    apply(
+        &store,
+        Action::AddNote {
+            track: "ExpertDrums".into(),
+            tick: 960,
+            lane: 1,
+            sustain: 0,
+            cymbal: false,
+        },
+    )
+    .unwrap();
+    for (include_generated_stems, stem_quality) in [
+        (true, StemQuality::Exact),
+        (false, StemQuality::Exact),
+        (true, StemQuality::Listening),
+    ] {
+        let backup = root.path().join(format!(
+            "backup-{include_generated_stems}-{stem_quality:?}.zip"
+        ));
+        project_files::backup_with_options(
+            &store,
+            &backup,
+            Options {
+                include_generated_stems,
+                stem_quality,
+            },
+        )
+        .unwrap();
+        let restored = project_files::import(
+            &backup,
+            &root.path().join(format!(
+                "restored-{include_generated_stems}-{stem_quality:?}"
+            )),
+        )
+        .unwrap();
+        let doc = restored.load().unwrap();
+        let audio = restored.audio_path(&doc).unwrap();
+        assert_eq!(fs::read(&audio).unwrap(), original);
+        let stems = doc.content.stems.as_ref().unwrap();
+        if include_generated_stems {
+            let loaded = stems.load(&audio).unwrap();
+            let solo = mix(&[(
+                StemId::Drums,
+                StemChannel {
+                    solo: true,
+                    ..Default::default()
+                },
+            )]);
+            let actual = loaded.render(&solo).unwrap();
+            if stem_quality == StemQuality::Exact {
+                assert_eq!(actual, *expected);
+            } else {
+                assert_ne!(
+                    stems
+                        .stems
+                        .iter()
+                        .find(|s| s.id == StemId::Drums)
+                        .unwrap()
+                        .sha256,
+                    manifest
+                        .stems
+                        .iter()
+                        .find(|s| s.id == StemId::Drums)
+                        .unwrap()
+                        .sha256
+                );
+                assert!(
+                    actual
+                        .iter()
+                        .zip(expected.iter())
+                        .all(|(a, b)| (*a - *b).abs() < 0.4 * 1.3e-7)
+                );
+                assert!(restored.root.join("yace-portable-audio.json").is_file());
+            }
+        } else {
+            assert!(stems.stems.iter().all(|stem| !stem.path.exists()));
+        }
+        apply(&restored, Action::Undo).unwrap();
+        let doc = restored.load().unwrap();
+        assert!(doc.content.stems.is_some());
+        if include_generated_stems {
+            doc.content
+                .stems
+                .as_ref()
+                .unwrap()
+                .load(&restored.audio_path(&doc).unwrap())
+                .unwrap();
+        }
+        apply(&restored, Action::Redo).unwrap();
+    }
+    assert_eq!(fs::read(source).unwrap(), original);
+}
+
+#[test]
 fn manifests_bind_real_hashes_exact_frames_and_relative_paths_without_claiming_alignment() {
     let root = tempfile::tempdir().unwrap();
     let (_song, source, mut manifest) = write_fixture(root.path());

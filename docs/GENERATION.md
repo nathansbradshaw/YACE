@@ -8,6 +8,18 @@ in place. When it finishes, select **Add** or **Replace** to apply the draft;
 Undo restores the previous notes. If that part changed during generation,
 YACE keeps both versions and refuses to overwrite your edits.
 
+In the part dialog, **Audio source → Use existing stems · skip separation**
+generates only the selected part from the attached audio. This is selected by
+default when stems are attached. The required stem must match the recording;
+missing or invalid audio stops the job instead of running separation. Guitar's
+**Follow this sound** still selects Guitar, Other or Piano. Piano uses the
+attached keyboard separation when available. Experimental Synth uses the full
+recording and is available under **Separate as needed** instead.
+
+Existing-stem jobs retain their own supplied audio for recovery. They load only
+the selected part's detector models, and keep the chart's current tempo map,
+review/apply flow and Undo behavior.
+
 ### Reanalyze a part
 
 Select **Reanalyze…** beside the track picker, then choose **Whole track** or
@@ -32,6 +44,8 @@ Use **Current / Proposed** and **Play** to compare notes at the same
 playhead position, loop and speed. The proposal is read-only. Review the note
 changes, affected difficulties, final repair range and detection warnings, then
 choose **Apply draft** or **Discard**. Apply is one undoable edit.
+Review totals count playable notes, matching the editor; chart modifier events
+such as cymbal and forced-note markers do not inflate these totals.
 Cancelled, failed and empty proposals keep your chart and earlier saved drafts.
 **Saved analyses & details → Previous successful draft** returns to the preceding
 valid result after a retry. Model options and licenses are under **Advanced**.
