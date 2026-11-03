@@ -127,9 +127,19 @@ Production HTTPS served the matching WASM bytes and independently completed
 the same song, retaining the Bass edit and matching export-content receipt.
 These muted checks establish continuity and persistence; listening acceptance
 remains open. The compact fixture intentionally omitted generated stems, so it
-does not replace the separate multi-stem acceptance. Dance selection and its
-hidden-preview layout did not survive root reload; individual Dance note SVGs
-also lack accessible note roles. Those integration/accessibility gaps remain open.
+does not replace the separate multi-stem acceptance. Root reload returns to the
+saved band track; reselecting Dance recovers its hidden-preview layout and saved
+hold. Individual Dance note SVGs lack accessible note roles. Active Dance-track
+recovery and accessibility remain open integration gaps.
+
+Dance beat and hold-length fields commit a complete entered value on change,
+matching the band inspector, instead of saving every parseable keystroke.
+Actual native and static Firefox checks typed a multi-digit fractional beat and
+hold length: one Undo restored the complete previous value, and Redo restored
+the intended value. Native typing left the saved revision and note unchanged
+until blur, which added exactly one history action. Browser reload recovered
+the hold at beat 0.875 with length 1.125 beats. These checks used the same mixed
+full-song fixture and retained its eleven Dance/4-key charts.
 
 The browser keeps a desktop workspace at least 1024×600 CSS pixels. A smaller
 window shows an inline notice with per-tab dismissal, without moving focus or
