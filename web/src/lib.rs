@@ -51,6 +51,8 @@ pub mod generated_rules;
 pub mod generation;
 #[path = "../../src/generation_build.rs"]
 pub mod generation_build;
+#[path = "../../src/generation_feedback.rs"]
+pub mod generation_feedback;
 #[path = "../../src/generation_protocol.rs"]
 pub mod generation_protocol;
 pub mod github_api;
@@ -85,6 +87,7 @@ pub mod larsnet_receipt;
 pub mod lyric_language;
 #[path = "../../src/mapping.rs"]
 pub mod mapping;
+#[path = "../../src/media_clock.rs"]
 mod media_clock;
 #[path = "../../src/midi.rs"]
 pub mod midi;

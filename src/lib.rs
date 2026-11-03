@@ -21,6 +21,8 @@ pub mod export_options;
 pub mod export_state;
 pub mod github_reviews;
 pub mod kit_audition;
+#[cfg(feature = "browser")]
+mod media_clock;
 pub mod note_groups;
 pub mod note_types;
 pub mod parts;
@@ -54,6 +56,7 @@ pub mod gameplay_view;
 pub mod generated_rules;
 pub mod generation;
 pub mod generation_build;
+pub mod generation_feedback;
 pub mod generation_progress;
 pub mod generation_protocol;
 pub mod guitar_attacks;

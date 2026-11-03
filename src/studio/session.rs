@@ -70,6 +70,28 @@ pub fn rate(studio: Studio, rate: f64) {
         studio.set_playback_rate(rate);
     }
 }
+pub fn preview_rate(studio: Studio, rate: Option<f64>) {
+    if standalone(studio) {
+        if let Some(rate) = rate {
+            dance::set_rate(rate);
+        }
+    } else {
+        studio.preview_playback_rate(rate);
+    }
+}
+pub fn project_identity(studio: Studio) -> Option<std::path::PathBuf> {
+    if standalone(studio) {
+        dance::source_identity()
+    } else {
+        studio.store.read().as_ref().and_then(|store| {
+            studio
+                .doc
+                .read()
+                .as_ref()
+                .map(|doc| store.root.join(&doc.audio_sha256))
+        })
+    }
+}
 pub fn volume(mut studio: Studio, volume: f32) {
     if standalone(studio) {
         studio.volume.set(volume);

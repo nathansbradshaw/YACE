@@ -21,6 +21,8 @@ mod export;
 mod game_preview;
 mod generation_actions;
 mod generation_jobs;
+#[path = "../../../src/studio/generation_status.rs"]
+mod generation_status;
 pub mod github;
 #[path = "../../../src/studio/icons.rs"]
 mod icons;

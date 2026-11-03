@@ -91,6 +91,7 @@ pub fn Panel(
     oncancel: EventHandler,
     #[props(default = false)] stop_after_step: bool,
     #[props(default = false)] stopping: bool,
+    #[props(default)] progress: Option<Element>,
 ) -> Element {
     let title = super::track_picker::title(&track);
     let review_phase = phase == Phase::Review;
@@ -114,7 +115,8 @@ pub fn Panel(
             div { class:"ra-target",strong{"{title}"}span{class:"ra-hint","{recording}"} }
             ol { class:"ra-steps",aria_label:"Analysis steps",li{class:if matches!(phase,Phase::Setup|Phase::Stopped|Phase::Failed|Phase::Empty){"active"}else{""},"1  Setup"}li{class:if phase==Phase::Analyzing{"active"}else{""},"2  Analyze"}li{class:if review_phase||phase==Phase::Applying{"active"}else{""},"3  Review"} }
             if matches!(phase,Phase::Analyzing|Phase::Applying) {
-                div{class:"ra-status ra-working",role:"status",aria_live:"polite",span{class:"ra-spinner"}strong{if phase==Phase::Applying{"Applying your draft"}else{"Analyzing recording"}}p{if phase==Phase::Applying{"Saving one undoable edit…"}else{"{activity}"}}span{class:"ra-hint","{elapsed}"}if quiet_for>=20{span{class:"ra-hint","Waiting for the detector · last update {quiet_for}s ago"}}progress{aria_label:"Analysis in progress"}}
+                if phase==Phase::Analyzing && let Some(progress)=progress { {progress} }
+                else {div{class:"ra-status ra-working",role:"status",aria_live:"polite",span{class:"ra-spinner"}strong{if phase==Phase::Applying{"Applying your draft"}else{"Analyzing recording"}}p{if phase==Phase::Applying{"Saving one undoable edit…"}else{"{activity}"}}span{class:"ra-hint","{elapsed}"}if quiet_for>=20{span{class:"ra-hint","Waiting for the detector · last update {quiet_for}s ago"}}progress{aria_label:"Analysis in progress"}}}
             } else if phase==Phase::Review {
                 {review}
                 details { class:"ra-adjust",summary{"Adjust and analyze again"},{controls}button{class:"action-secondary",disabled:!can_start,onclick:move |_|onstart.call(()),"Analyze again"} }
