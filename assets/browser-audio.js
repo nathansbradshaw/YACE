@@ -7,6 +7,7 @@ const output = context.createGain();
 output.connect(context.destination);
 let disposed = false, intent = 0, error = null, baseRate = config.rate, epoch = 0;
 const channels = [], gains = [], nodes = [];
+const objectUrls = [], requests = new AbortController();
 const position = () => channels[0]?.currentTime || 0;
 function pause() { intent++; for (const element of channels) element.pause(); }
 async function play() {
@@ -40,7 +41,9 @@ function unlock() { if (context.state === 'suspended') context.resume(); }
 function dispose() {
   if (disposed) return;
   pause(); disposed = true; clearInterval(timer);
+  requests.abort();
   for (const element of channels) { element.removeAttribute('src'); element.load(); element.remove(); }
+  for (const url of objectUrls) URL.revokeObjectURL(url);
   for (const node of nodes) node.disconnect();
   for (const gain of gains) gain.disconnect();
   output.disconnect(); context.close();
@@ -75,7 +78,16 @@ try {
     channels.push(element); gains.push(gain); nodes.push(node);
     element.addEventListener('loadedmetadata', resolve, {once:true});
     element.addEventListener('error', () => { error = 'Recording playback failed'; reject(Error(error)); }, {once:true});
-    document.body.append(element); element.src = url;
+    document.body.append(element);
+    // Retain local bytes before enabling playback. Seven independent HTTP
+    // range decoders can otherwise starve the last stem on every loop/seek.
+    fetch(url, {signal:requests.signal}).then(response => {
+      if (!response.ok) throw Error('Audio request failed');
+      return response.blob();
+    }).then(blob => {
+      if (disposed) throw Error('Audio preparation was superseded');
+      const local = URL.createObjectURL(blob); objectUrls.push(local); element.src = local;
+    }).catch(reject);
   })));
   weights(config.weights);
   if (window.__yaceAudioPreparing !== config.id || disposed) throw Error('Audio preparation was superseded');
