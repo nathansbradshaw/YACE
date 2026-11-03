@@ -155,8 +155,6 @@ pub mod storage;
 pub mod studio;
 #[path = "../../src/sync_track.rs"]
 pub mod sync_track;
-#[path = "../../src/track_names.rs"]
-pub mod track_names;
 mod synth;
 #[path = "../../src/tempo_analysis.rs"]
 pub mod tempo_analysis;
@@ -166,6 +164,8 @@ pub mod timeline;
 pub mod timeline_clock;
 #[path = "../../src/timing.rs"]
 pub mod timing;
+#[path = "../../src/track_names.rs"]
+pub mod track_names;
 pub mod transcription;
 mod unload;
 #[path = "../../src/vocal_alignment.rs"]
