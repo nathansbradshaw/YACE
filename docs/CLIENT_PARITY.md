@@ -319,6 +319,14 @@ not an ongoing sync connection. Git subprocesses, SSH and arbitrary disk writes
 are not browser APIs. Their replacement must preserve the proposal/review and
 conflict outcomes and make the transport explicit.
 
+Failed static-browser imports and project opens now report a terminal failure
+instead of leaving archive progress visible. Actual browser checks rejected an
+archive with an ambiguous filename, retained the open project's revision,
+cleared busy controls and exposed the error details. Retrying with a valid
+MIDI song or editable backup returned to Ready; the backup's Undo/Redo history
+and the song's parts and playback remained available. This correction changes
+browser feedback only; native file handling is unchanged.
+
 The static entry point stays small. Application rules, audio processing and
 browser API calls remain Rust. CPU-heavy work must allow editing and playback
 to continue; an enabled button that freezes the editor does not close a gap.

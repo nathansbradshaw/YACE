@@ -955,6 +955,14 @@ impl Studio {
             }
             .await;
             if let Err(error) = result {
+                self.status.set(
+                    if action == super::activity::FileAction::Open {
+                        "Opening failed · check error details"
+                    } else {
+                        "Song import failed · check error details"
+                    }
+                    .into(),
+                );
                 self.error.set(Some(format!("{error:#}")));
             }
             self.library_busy.set(false);
