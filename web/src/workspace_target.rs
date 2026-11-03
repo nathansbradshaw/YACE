@@ -33,8 +33,12 @@ impl Target {
         );
         let root = target.root.to_string_lossy();
         ensure!(
-            target.root.is_absolute()
-                && target.root.parent().is_some()
+            // These are virtual storage keys, including relative roots from
+            // older profiles, rather than native filesystem locations.
+            target
+                .root
+                .components()
+                .any(|c| matches!(c, Component::Normal(_)))
                 && root.len() <= 4096
                 && !root.contains('\0')
                 && !target
@@ -113,7 +117,7 @@ mod tests {
         for raw in [
             r#"{"version":2,"family":"band","root":"/projects/a"}"#,
             r#"{"version":1,"family":"unknown","root":"/projects/a"}"#,
-            r#"{"version":1,"family":"band","root":"relative"}"#,
+            r#"{"version":1,"family":"band","root":""}"#,
             r#"{"version":1,"family":"band","root":"/projects/../a"}"#,
             r#"{"version":1,"family":"band","root":"/"}"#,
         ] {
@@ -121,6 +125,14 @@ mod tests {
                 select(Some(raw), || panic!("must retain the failed target")).is_err(),
                 "{raw}"
             );
+        }
+    }
+
+    #[test]
+    fn legacy_relative_virtual_roots_remain_recoverable() {
+        for root in ["/projects/song-a", "projects/song-a", "legacy-song"] {
+            let raw = encoded(Family::Band, root);
+            assert_eq!(Target::decode(&raw).unwrap().root, PathBuf::from(root));
         }
     }
 }
