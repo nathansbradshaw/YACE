@@ -111,6 +111,15 @@ completed the original 243.880-second recording in a separate band project.
 Fresh native controls, hosted release and target-game acceptance remain open;
 retaining six-fret Keys does not establish target-game support for that part.
 
+Hosted MIDI preservation checks also exercised instrument and Pro Keys solos,
+drum activation/fill and roll markers, four-difficulty drum velocities and
+Expert double kick alongside pitched vocals. Independent inspection of actual
+downloads confirmed the expected boundaries and notes. Reopening only MIDI,
+INI and audio, editing Pro Keys, Undo/Redo and reload retained those parts;
+final Undo restored byte-identical MIDI. This qualifies browser interchange,
+with native controls and target-game interpretation still open. The chart's
+S64 interval has no separate fill-versus-BRE distinction.
+
 Native practice playback now processes a bounded window on a Rust worker,
 mixing aligned original-rate stems before pitch-preserving stretching. Playing
 rate changes retain the decoded audio, waveform and output device; paused rate
