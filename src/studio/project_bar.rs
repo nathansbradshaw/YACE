@@ -138,6 +138,7 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
                     }
                     if backup_quality()==crate::compact_backup::StemQuality::Listening {
                         p { "Smaller isolated parts for charting. Uses 24-bit precision with preserved headroom, stereo and timing. Tiny rounding differences are recorded; your original recording stays exact." }
+                        p { class:"field-hint", "Saved audio checks may need reanalysis after restoring listening copies. Choose Exact to keep their original samples and hashes." }
                     } else {p { "Preserves every generated sample and file checksum. Exact backups are larger." }}
                 } else {
                     p { "Stems will be unavailable after restoring this backup until you regenerate or reattach them. The original recording and all chart edits and undo history are still included." }

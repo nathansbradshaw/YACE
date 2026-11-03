@@ -71,6 +71,16 @@ pub fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 pub fn generated(path: &str) -> bool {
+    let audio = Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            ["wav", "flac", "ogg", "opus", "mp3", "m4a", "aiff", "aac"]
+                .contains(&ext.to_ascii_lowercase().as_str())
+        });
+    if !audio {
+        return false;
+    }
     let path = format!("/{path}");
     path.contains("/.yace/audio/stems/")
         || path.contains("/.yace/audio/keyboard-stems/")
@@ -505,6 +515,10 @@ mod tests {
                 "source/.yace/audio/stems/key/guitar.wav",
                 b"generated".as_slice(),
             ),
+            (
+                "source/.yace/audio/stems/key/manifest.json",
+                b"provenance".as_slice(),
+            ),
             ("analysis/kit-one/parts/kick.wav", b"kit".as_slice()),
             ("checkpoints/state.json", b"history".as_slice()),
             ("source/extras/take.wav", b"authored".as_slice()),
@@ -525,6 +539,7 @@ mod tests {
             m.files.iter().map(|e| e.path.as_str()).collect::<Vec<_>>(),
             vec![
                 "source/song.ogg",
+                "source/.yace/audio/stems/key/manifest.json",
                 "checkpoints/state.json",
                 "source/extras/take.wav"
             ]

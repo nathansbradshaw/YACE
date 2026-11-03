@@ -12,6 +12,11 @@ const CHUNK: u64 = 1024 * 1024;
 pub const MAX_ENCODED: u64 = 16 * 1024 * 1024 * 1024;
 pub const MAX_RESIDENT: u64 = 2 * 1024 * 1024 * 1024;
 pub const MAX_ENTRY: u64 = 1024 * 1024 * 1024;
+pub fn available_budget() -> u64 {
+    (3 * 1024 * 1024 * 1024u64)
+        .saturating_sub(crate::storage::resident_bytes())
+        .min(MAX_RESIDENT)
+}
 fn error(value: JsValue) -> anyhow::Error {
     anyhow::anyhow!("Local archive: {value:?}")
 }
@@ -143,9 +148,7 @@ pub async fn read(blob: web_sys::Blob) -> Result<crate::files::Files> {
     let input = js_sys::Object::new();
     set(&input, "kind", &"import-archive".into())?;
     set(&input, "archive", &blob)?;
-    let budget = (3 * 1024 * 1024 * 1024u64)
-        .saturating_sub(crate::storage::resident_bytes())
-        .min(MAX_RESIDENT);
+    let budget = available_budget();
     ensure!(
         budget > 0,
         "The browser is holding too much project data to import another project. Open the backup on desktop or choose one without generated stems."
@@ -153,14 +156,16 @@ pub async fn read(blob: web_sys::Blob) -> Result<crate::files::Files> {
     set(&input, "budget", &JsValue::from_f64(budget as f64))?;
     let files = Rc::new(RefCell::new(BTreeMap::<String, Arc<Vec<u8>>>::new()));
     let output = files.clone();
+    // JS worker callbacks run outside Dioxus's current scope. Capture the signal
+    // here while the owning import future still has its runtime context.
+    let status = dioxus::prelude::try_consume_context::<crate::studio::state::Studio>()
+        .map(|studio| studio.status);
     let response = crate::worker::exchange_with_entries(
         &input,
         Rc::new(move |label| {
-            if let Some(mut studio) =
-                dioxus::prelude::try_consume_context::<crate::studio::state::Studio>()
-            {
+            if let Some(mut status) = status {
                 use dioxus::prelude::WritableExt;
-                studio.status.set(label);
+                status.set(label);
             }
         }),
         Some(Rc::new(move |message| {

@@ -113,7 +113,7 @@ fn relocate_content(
         let mut converted = false;
         for asset in &mut manifest.stems {
             let next = translated(&asset.sha256, index, transcodes)?;
-            converted |= next != asset.sha256;
+            converted |= !next.eq_ignore_ascii_case(&asset.sha256);
             asset.sha256 = next;
             let candidates = index.get(&asset.sha256.to_ascii_lowercase());
             let available = || {
@@ -150,8 +150,6 @@ fn relocate_content(
                         .insert("portable_audio".into(), "peak-scaled-pcm24-v1".into());
                     identity.cache_key =
                         identity.calculated_cache_key(&manifest.source_audio_sha256)?;
-                } else {
-                    manifest.generation = None;
                 }
             }
         }

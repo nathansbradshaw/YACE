@@ -63,6 +63,10 @@ impl FolderSelection {
             total <= crate::archive_import::MAX_RESIDENT as f64,
             "The selected song exceeds the browser's 2 GiB expanded-data budget"
         );
+        ensure!(
+            total <= crate::archive_import::available_budget() as f64,
+            "The selected song and currently open files exceed the browser's memory budget. Open it on desktop or choose a backup without generated stems."
+        );
         for (name, file) in files {
             ensure!(
                 file.size() <= crate::archive_import::MAX_ENTRY as f64,
