@@ -136,6 +136,7 @@ fn section_review(
         div{class:"form-heading","Section audio comparison"}
         p{class:"field-hint","{voiced}s of model-supported voice · {gaps}s outside existing notes. Voice may include backing singers or leakage."}
         {contour_plot(studio,a,timing,&selected)}
+        super::vocal_section_audio::VocalSectionAudio{studio,selected:indices.clone(),include_pitch:include_pitch()}
         p{class:"field-hint","Blue: detected vocal pitch · gray: current notes · orange: selected repairs. Play the vocal stem to check singer identity. Shortening and deletion remain review findings to protect missed or quiet singing."}
         if !a.applied&&valid {
             label{class:"form-check",input{r#type:"checkbox",checked:include_pitch(),onchange:move|e|include_pitch.set(e.checked())},"Include supported pitch corrections"}

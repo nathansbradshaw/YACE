@@ -22,6 +22,12 @@ extern "C" {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Task {
+    VocalSectionAudition {
+        root: PathBuf,
+        project: Box<crate::editor::Project>,
+        chart: crate::vocals::VocalChart,
+        range: crate::editor::TimeRange,
+    },
     StepMania {
         audio: PathBuf,
         project: Box<crate::stepmania::Project>,
@@ -157,6 +163,17 @@ pub enum Task {
 impl Task {
     fn audio(&self) -> Vec<PathBuf> {
         match self {
+            Self::VocalSectionAudition { root, project, .. } => crate::editor::Store::new(root)
+                .audio_path(project)
+                .ok()
+                .into_iter()
+                .chain(project.content.stems.iter().flat_map(|m| {
+                    m.stems
+                        .iter()
+                        .filter(|s| s.id == crate::stem_review::StemId::Vocals)
+                        .map(|s| s.path.clone())
+                }))
+                .collect(),
             Self::StepMania { audio, .. } => vec![audio.clone()],
             Self::CompareVocalPitch { audio, project, .. } => std::iter::once(audio.clone())
                 .chain(project.content.stems.iter().flat_map(|m| {
@@ -257,6 +274,17 @@ impl Task {
     }
     fn execute(&self) -> Result<serde_json::Value> {
         match self {
+            Self::VocalSectionAudition {
+                root,
+                project,
+                chart,
+                range,
+            } => Ok(serde_json::to_value(crate::vocal_section_audio::prepare(
+                project,
+                &crate::editor::Store::new(root),
+                chart,
+                *range,
+            )?)?),
             Self::StepMania {
                 audio,
                 project,
@@ -1027,7 +1055,7 @@ pub async fn run_with_progress<T: serde::de::DeserializeOwned>(
                     continue;
                 }
             }
-            if matches!(task, Task::GenerationStage { .. } | Task::RecognizeWords { .. } | Task::CompareVocalPitch { .. })
+            if matches!(task, Task::GenerationStage { .. } | Task::RecognizeWords { .. } | Task::CompareVocalPitch { .. } | Task::VocalSectionAudition { .. })
                 && path
                     .extension()
                     .and_then(|value| value.to_str())
