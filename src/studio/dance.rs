@@ -1545,6 +1545,7 @@ pub fn attach_existing(studio: super::state::Studio) {
             );
             s.parent.set(Some(root));
             s.open.set(false);
+            super::track_views::restore_linked_selection(studio);
         }
         Ok(false) => {}
         Err(error) => {
@@ -1693,6 +1694,17 @@ pub fn uses_recording(studio: super::state::Studio) -> bool {
             .and_then(|name| p.assets_sha256.get(name))
             == Some(&doc.audio_sha256)
     })
+}
+
+pub fn linked_root(studio: super::state::Studio) -> Option<PathBuf> {
+    let state = try_consume_context::<DanceStudio>()?;
+    let root = state.parent.read().clone()?;
+    studio
+        .store
+        .read()
+        .as_ref()
+        .filter(|store| store.root == root)
+        .map(|_| root)
 }
 impl DanceStudio {
     fn edit_selection(self, edit: sm::project::SelectionEdit) {

@@ -62,6 +62,7 @@ struct Preferences {
     collapsed: BTreeSet<String>,
     difficulty: String,
     layout: super::workspace::Layout,
+    active_dance: Option<String>,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -72,6 +73,7 @@ impl Default for Preferences {
             collapsed: Default::default(),
             difficulty: "Expert".into(),
             layout: Default::default(),
+            active_dance: None,
         }
     }
 }
@@ -212,6 +214,70 @@ pub fn provide(studio: Studio) {
             update(studio, |p| p.difficulty = difficulty.into());
         }
     });
+    let linked = use_memo(move || {
+        // Standalone charts must not replace the previous band's choice.
+        let root = dance::linked_root(studio)?;
+        let selected = dance::selected_track()
+            .and_then(|track| track.strip_prefix("dance:").map(str::to_owned));
+        Some((Key { root, dance: false }, selected))
+    });
+    use_effect(move || {
+        if let Some((key, selected)) = linked() {
+            remember_linked_selection(key, selected);
+        }
+    });
+}
+
+fn remember_selection(key: &Key, selected: Option<String>) -> Result<bool, String> {
+    let mut prefs = load(key)?;
+    if prefs.active_dance == selected {
+        return Ok(false);
+    }
+    prefs.active_dance = selected;
+    save(key, &prefs)?;
+    Ok(true)
+}
+
+fn remembered_dance(prefs: &Preferences, available: &[(String, String)]) -> Option<String> {
+    let id = prefs.active_dance.as_ref()?;
+    let selected = format!("dance:{id}");
+    available
+        .iter()
+        .any(|(track, _)| track == &selected)
+        .then(|| id.clone())
+}
+
+fn remember_linked_selection(key: Key, selected: Option<String>) {
+    let result = remember_selection(&key, selected.clone());
+    if let Some(mut views) = try_consume_context::<TrackViews>() {
+        let loaded_here = views.value.peek().key.as_ref() == Some(&key);
+        match result {
+            Ok(true) if loaded_here => {
+                views.value.write().prefs.active_dance = selected;
+            }
+            Err(error) => {
+                views.value.write().warning =
+                    Some(format!("Workspace selection is temporary: {error}"));
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn restore_linked_selection(studio: Studio) {
+    let Some(root) = dance::linked_root(studio) else {
+        return;
+    };
+    let key = Key { root, dance: false };
+    let Some(id) = load(&key)
+        .ok()
+        .and_then(|prefs| remembered_dance(&prefs, &dance::tracks(studio)))
+    else {
+        return;
+    };
+    if let Some(state) = try_consume_context::<dance::DanceStudio>() {
+        dance::select_track(state, id);
+    }
 }
 fn current(studio: Studio) -> Preferences {
     let Some(views) = try_consume_context::<TrackViews>() else {
@@ -428,6 +494,7 @@ mod tests {
         let old = br#"{"version":1,"preview":{"mode":"all"},"collapsed":["ExpertSingle"],"difficulty":"Hard"}"#;
         let mut prefs = decode(old).unwrap();
         assert_eq!(prefs.layout, Default::default());
+        assert_eq!(prefs.active_dance, None);
         prefs.layout = serde_json::from_str(
             r#"{"right":32.5,"top":65,"preview_hidden":true,"inspector_hidden":true}"#,
         )
@@ -457,10 +524,60 @@ mod tests {
         p.roll.mode = Mode::All;
         save(&key, &p).unwrap();
         assert_eq!(load(&key).unwrap(), p);
+        assert!(remember_selection(&key, Some("keyboard-chart".into())).unwrap());
+        p.active_dance = Some("keyboard-chart".into());
+        assert_eq!(load(&key).unwrap(), p);
+        assert!(!remember_selection(&key, p.active_dance.clone()).unwrap());
+        let other = tempfile::tempdir().unwrap();
+        assert_eq!(
+            load(&Key {
+                root: other.path().into(),
+                dance: false
+            })
+            .unwrap()
+            .active_dance,
+            None
+        );
+        assert!(remember_selection(&key, None).unwrap());
+        p.active_dance = None;
+        assert_eq!(load(&key).unwrap(), p);
         assert_eq!(
             std::fs::read(chart).unwrap(),
             b"retained chart and undo history"
         );
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 2);
+    }
+    #[test]
+    fn remembered_chart_must_still_exist_in_the_linked_project() {
+        let mut prefs = Preferences::default();
+        let available = vec![
+            ("dance:pad".into(), "Dance".into()),
+            ("dance:keys".into(), "4-key".into()),
+        ];
+        assert_eq!(remembered_dance(&prefs, &available), None);
+        prefs.active_dance = Some("keys".into());
+        assert_eq!(
+            remembered_dance(&prefs, &available).as_deref(),
+            Some("keys")
+        );
+        assert_eq!(remembered_dance(&prefs, &[]), None);
+        prefs.active_dance = Some("removed-chart".into());
+        assert_eq!(remembered_dance(&prefs, &available), None);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn remembering_selection_does_not_overwrite_damaged_preferences() {
+        let root = tempfile::tempdir().unwrap();
+        let key = Key {
+            root: root.path().into(),
+            dance: false,
+        };
+        let path = root.path().join(key.name());
+        std::fs::write(&path, b"{retained invalid preferences").unwrap();
+        assert!(remember_selection(&key, Some("keys".into())).is_err());
+        assert_eq!(
+            std::fs::read(path).unwrap(),
+            b"{retained invalid preferences"
+        );
     }
 }
