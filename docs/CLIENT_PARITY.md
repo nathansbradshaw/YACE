@@ -87,10 +87,11 @@ The ledger above is acceptance evidence for the exercised workflows, not a
 claim that later desktop changes are automatically verified on the web. The
 practice-speed implementation is `2e0cbb89`, merged into main by PR 76
 at `cd03655e`. All four normal CI jobs passed on that exact feature head.
-The published engine `b5432874` contains that playback work, generation/draft
-review, the browser workspace notice from PR 82 and native project-navigation
-recovery from PR 86. Remote main `0724467` contains that source merge; later
-desktop additions still need their own browser acceptance.
+The `b5432874` release combined that playback work, generation/draft review,
+the browser workspace notice from PR 82 and native project-navigation recovery
+from PR 86. Release `59f32a7b`, merged through PR 89 at `b1edfa87`, also includes
+whole-value Dance timing edits and the synchronized vocal comparison work.
+Later desktop additions still need their own browser acceptance.
 GitHub Pages serves that engine on `yace.n8bradshaw.com`; its approved
 certificate and HTTPS redirect were verified. The served WASM matches the
 staged artifact. Actual hosted overview seeking, local vocal pitch analysis and
@@ -129,8 +130,8 @@ These muted checks establish continuity and persistence; listening acceptance
 remains open. The compact fixture intentionally omitted generated stems, so it
 does not replace the separate multi-stem acceptance. Root reload returns to the
 saved band track; reselecting Dance recovers its hidden-preview layout and saved
-hold. Individual Dance note SVGs lack accessible note roles. Active Dance-track
-recovery and accessibility remain open integration gaps.
+hold. Individual Dance note SVGs lack accessible note roles; that accessibility
+gap remains open.
 
 Dance beat and hold-length fields commit a complete entered value on change,
 matching the band inspector, instead of saving every parseable keystroke.
@@ -140,6 +141,21 @@ the intended value. Native typing left the saved revision and note unchanged
 until blur, which added exactly one history action. Browser reload recovered
 the hold at beat 0.875 with length 1.125 beats. These checks used the same mixed
 full-song fixture and retained its eleven Dance/4-key charts.
+
+Mixed projects also retain the selected linked Dance or 4-key chart through
+native restart and browser reload. Returning to band editing clears that
+choice. Actual checks exercised both linked profiles and the band return;
+another native project retained its own Drums selection. Native project and
+linked-chart files remained byte-identical through selection and restart,
+preserving their existing Undo/Redo history. The preference is local to the
+project workspace; it does not add a chart editing action. Browser view choices
+remain in that browser profile.
+
+Six focused regressions cover old preferences, separate view choices, atomic
+history-preserving saves, project isolation, removed chart IDs and damaged
+preference files. Removed or unknown linked charts fall back to band editing;
+damaged preferences are retained rather than overwritten. Standalone Dance
+selection recovery and assistive-technology acceptance remain unqualified.
 
 The browser keeps a desktop workspace at least 1024×600 CSS pixels. A smaller
 window shows an inline notice with per-tab dismissal, without moving focus or
