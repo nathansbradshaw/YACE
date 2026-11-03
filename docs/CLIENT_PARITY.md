@@ -87,16 +87,17 @@ The ledger above is acceptance evidence for the exercised workflows, not a
 claim that later desktop changes are automatically verified on the web. The
 practice-speed implementation is `2e0cbb89`, merged into main by PR 76
 at `cd03655e`. All four normal CI jobs passed on that exact feature head.
-The current published engine is `6753fe7a`, containing that playback work,
-the latest generation/draft review, and the browser workspace notice from PR 82.
-Remote main `8df19ec4` contains this production source plus a test-only lint fix.
+The published engine `b5432874` contains that playback work, generation/draft
+review, the browser workspace notice from PR 82 and native project-navigation
+recovery from PR 86. Remote main `0724467` contains that source merge; later
+desktop additions still need their own browser acceptance.
 GitHub Pages serves that engine on `yace.n8bradshaw.com`; its approved
 certificate and HTTPS redirect were verified. The served WASM matches the
 staged artifact. Actual hosted overview seeking, local vocal pitch analysis and
 chart-only export/reimport retain the three-second duration, two vocal notes,
 phrases and lyrics. Existing same-origin browser saves reopen after migration.
 Earlier engine assets remain accessible for tabs opened before the host change.
-The latest release also recovered the existing full-song browser project and
+The earlier `6753fe7a` release recovered the existing full-song browser project and
 its matching export receipt, restarted from EOF at 200 percent, and completed
 both loaded 243.880-second channels at their exact end. The source revision's
 native and local static apps separately completed the same full-length song;
@@ -106,6 +107,29 @@ All with roll Focused, separate Selected preview choices with roll All, and
 collapse/reload persistence kept the existing chart revision and selected note's
 240-tick sustain unchanged. A hosted mixed-part project repeated All/All and
 collapse/reload at the same revision. View hotkeys left the note tool unchanged.
+
+Native `b5432874` checks found and fixed two navigation failures: an unrelated
+import retained the previous chart-folder switcher, and a corrupt single-project
+folder replaced that context while leaving the old document loaded and the
+status at Opening. Successful opens now match their actual source/editing copy;
+failed or cancelled automatic opens restore the prior catalogue, selection and
+status. Actual native compact-backup import retained the selected Bass note at
+9153 ticks with its 240-tick sustain, original recording and eleven Dance/4-key
+charts. The corrupt-folder check retained the valid project and Ready status
+while showing its parse error. Eight library regressions, saved-history
+integration, strict native/hosted lints and all four normal CI jobs passed.
+
+The exact static `b5432874` artifact imported that compact backup in Firefox,
+played the complete 243.880-second recording at 200 percent, switched Bass to
+Dance during playback, and recovered the saved band project after reload.
+Native integrated Dance also completed the song with its saved note edit.
+Production HTTPS served the matching WASM bytes and independently completed
+the same song, retaining the Bass edit and matching export-content receipt.
+These muted checks establish continuity and persistence; listening acceptance
+remains open. The compact fixture intentionally omitted generated stems, so it
+does not replace the separate multi-stem acceptance. Dance selection and its
+hidden-preview layout did not survive root reload; individual Dance note SVGs
+also lack accessible note roles. Those integration/accessibility gaps remain open.
 
 The browser keeps a desktop workspace at least 1024×600 CSS pixels. A smaller
 window shows an inline notice with per-tab dismissal, without moving focus or
