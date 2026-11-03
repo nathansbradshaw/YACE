@@ -1,0 +1,18 @@
+.activity-spinner {
+  display:inline-block;
+  flex:none;
+  width:11px;
+  height:11px;
+  box-sizing:border-box;
+  border:2px solid currentColor;
+  border-right-color:transparent;
+  border-radius:50%;
+  animation:yace-activity-spin 900ms linear infinite;
+}
+.activity-status { display:inline-flex; align-items:center; gap:6px; min-width:0; }
+.activity-status > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.generation-running strong { display:flex; align-items:center; gap:7px; }
+@keyframes yace-activity-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) {
+  .activity-spinner { animation:none; border-right-color:currentColor; border-style:dotted; }
+}

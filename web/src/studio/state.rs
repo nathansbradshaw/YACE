@@ -33,6 +33,8 @@ pub struct Studio {
     pub recent_projects: Signal<crate::recent_projects::History>,
     pub library: Signal<Option<crate::chart_library::Library>>,
     pub library_busy: Signal<bool>,
+    pub file_activity: Signal<Option<super::activity::FileAction>>,
+    pub generation_busy: Signal<bool>,
     pub library_selected: Signal<Option<usize>>,
     pub source_choice: Signal<Option<super::source_choice::Prompt>>,
     library_files: Signal<Option<Rc<crate::files::FolderSelection>>>,
@@ -103,6 +105,8 @@ pub fn use_studio() -> Studio {
         recent_projects: use_signal(|| crate::recent_projects::History::load().unwrap_or_default()),
         library: use_signal(|| None),
         library_busy: use_signal(|| false),
+        file_activity: use_signal(|| None),
+        generation_busy: use_signal(|| false),
         library_selected: use_signal(|| None),
         source_choice: use_signal(|| None),
         library_files: use_signal(|| None),
@@ -686,19 +690,30 @@ impl Studio {
         }
     }
     pub fn open_dialog(self) {
-        self.import(false);
+        self.import(false, super::activity::FileAction::Open);
     }
     pub fn create_dialog(self) {
-        self.import(true);
+        self.import(true, super::activity::FileAction::Open);
     }
     pub fn import_song(self) {
-        self.import(false);
+        self.import(false, super::activity::FileAction::Import);
     }
     pub fn open_zip(self) {
         self.open_dialog();
     }
     pub fn new_chart(mut self) {
-        spawn(async move {
+        if (self.library_busy)() {
+            return;
+        }
+        let Some(guard) = super::activity::FileGuard::start(
+            self.file_activity,
+            self.status,
+            super::activity::FileAction::Recording,
+        ) else {
+            return;
+        };
+        dioxus::core::spawn_forever(async move {
+            let _guard = guard;
             let result = async {
                 let Some(mut files) =
                     crate::files::pick(false, ".ogg,.opus,.mp3,.flac,.wav,.m4a").await?
@@ -751,7 +766,15 @@ impl Studio {
         if doc.has_recording() {
             return;
         }
+        let Some(guard) = super::activity::FileGuard::start(
+            self.file_activity,
+            self.status,
+            super::activity::FileAction::Recording,
+        ) else {
+            return;
+        };
         dioxus::core::spawn_forever(async move {
+            let _guard = guard;
             let result=async{
                 let Some(mut files)=crate::files::pick(false,".ogg,.opus,.mp3,.flac,.wav,.m4a,.aiff,.aac").await? else{return Ok(());};
                 let (name,bytes)=files.pop().context("Choose a recording")?;
@@ -861,12 +884,18 @@ impl Studio {
         }
         Ok(())
     }
-    pub fn import(mut self, folder: bool) {
+    fn import(mut self, folder: bool, action: super::activity::FileAction) {
         if (self.library_busy)() {
             return;
         }
+        let Some(guard) =
+            super::activity::FileGuard::start(self.file_activity, self.status, action)
+        else {
+            return;
+        };
         self.library_busy.set(true);
         dioxus::core::spawn_forever(async move {
+            let _guard = guard;
             let result = async {
                 let (selection, files) = if folder {
                     let Some(selected) = crate::files::pick_library().await? else {
@@ -1441,8 +1470,18 @@ impl Studio {
         if (self.export_busy)() {
             return;
         }
-        self.export_busy.set(true);
+        let Some(guard) = super::activity::FileGuard::start(
+            self.file_activity,
+            self.status,
+            super::activity::FileAction::Backup,
+        ) else {
+            return;
+        };
+        let Some(package) = super::activity::BusyGuard::start(self.export_busy) else {
+            return;
+        };
         dioxus::core::spawn_forever(async move {
+            let (_guard, _package) = (guard, package);
             let result = async {
                 let store = self.store.read().clone().context("Open a project")?;
                 let name = format!("{} project.zip", self.metadata_value("name"));
@@ -1474,7 +1513,6 @@ impl Studio {
             } else {
                 self.status.set("Project snapshot ready to download".into());
             }
-            self.export_busy.set(false);
         });
     }
     pub fn song_download_requested(mut self) {

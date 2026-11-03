@@ -3,26 +3,28 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn Welcome(mut studio: Studio) -> Element {
+    let action = (studio.file_activity)();
+    let file_busy = action.is_some() || (studio.library_busy)();
     rsx! {
         main { class: "studio-welcome", aria_label: "Start a chart project",
             div { class: "welcome-content",
                 h1 { "Start a chart project" }
                 p { class: "welcome-intro", "Start with audio, a chart, or a saved project." }
                 div { class: "welcome-actions", onkeydown: move |event| event.stop_propagation(),
-                    button{class:"welcome-action",onclick:move |_|studio.new_blank_chart(),Icon{name:"file",size:20}div{strong{"New blank chart"}span{"Start without a recording and attach audio later."}}}
-                    button {class:"welcome-action",onclick:move |_|super::dance::new_recording(studio,false),Icon{name:"music",size:20}div{strong{"New chart from audio"}span{"Start a blank chart from a recording."}}}
-                    button { class: "welcome-action", title:"Generate a draft from local audio",onclick: move |_| super::dance::new_recording(studio,true),
+                    button{class:"welcome-action",disabled:file_busy,onclick:move |_|studio.new_blank_chart(),Icon{name:"file",size:20}div{strong{"New blank chart"}span{"Start without a recording and attach audio later."}}}
+                    button {class:"welcome-action",disabled:file_busy,aria_busy:action==Some(super::activity::FileAction::Recording),onclick:move |_|super::dance::new_recording(studio,false),Icon{name:"music",size:20}div{strong{super::activity::BusyLabel{busy:action==Some(super::activity::FileAction::Recording),label:"New chart from audio",active:"Choosing recording…"}}span{"Start a blank chart from a recording."}}}
+                    button { class: "welcome-action", disabled:file_busy, aria_busy:action==Some(super::activity::FileAction::Recording),title:"Generate a draft from local audio",onclick: move |_| super::dance::new_recording(studio,true),
                         Icon { name: "music", size: 20 }
-                        div { strong { "Import audio" } span { "Generate a chart draft from a recording." } }
+                        div { strong { super::activity::BusyLabel{busy:action==Some(super::activity::FileAction::Recording),label:"Import audio",active:"Choosing recording…"} } span { "Generate a chart draft from a recording." } }
                     }
-                    button { class: "welcome-action", disabled: (studio.library_busy)(), "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(),
+                    button { class: "welcome-action", disabled: file_busy, "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(),
                         Icon { name: "folder-open", size: 20 }
                         div { strong { "Open charting folder" } span { "Find charts up to 3 folders deep and switch between them." } }
                     }
-                    button {class:"welcome-action",onclick:move |_|studio.import_song(),Icon{name:"folder-open",size:20}div{strong{"Import song ZIP"}span{"Open an existing chart with or without a recording."}}}
-                    button { class: "welcome-action", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(),
+                    button {class:"welcome-action",disabled:file_busy,aria_busy:action==Some(super::activity::FileAction::Import),onclick:move |_|studio.import_song(),Icon{name:"folder-open",size:20}div{strong{super::activity::BusyLabel{busy:action==Some(super::activity::FileAction::Import),label:"Import song ZIP",active:"Importing song…"}}span{"Open an existing chart with or without a recording."}}}
+                    button { class: "welcome-action", disabled:file_busy,aria_busy:action==Some(super::activity::FileAction::Open),"data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(),
                         Icon { name: "folder-open", size: 20 }
-                        div { strong { "Open saved project" } span { if cfg!(feature="browser") {"Open a saved project ZIP."} else {"Continue editing a YACE project."} } }
+                        div { strong {super::activity::BusyLabel{busy:action==Some(super::activity::FileAction::Open),label:"Open saved project",active:"Opening project…"}} span { if cfg!(feature="browser") {"Open a saved project ZIP."} else {"Continue editing a YACE project."} } }
                     }
                 }
                 if !cfg!(feature = "browser") || cfg!(target_arch = "wasm32") {
@@ -30,7 +32,7 @@ pub fn Welcome(mut studio: Studio) -> Element {
                     div { class: "welcome-recent-heading",
                         h2 { "Open Recent" }
                         if !(studio.recent_projects)().entries.is_empty() {
-                            button { disabled: (studio.library_busy)(), onclick: move |_| studio.forget_recent(None), "Clear list" }
+                            button { disabled: file_busy, onclick: move |_| studio.forget_recent(None), "Clear list" }
                         }
                     }
                     if (studio.recent_projects)().entries.is_empty() {
@@ -39,7 +41,7 @@ pub fn Welcome(mut studio: Studio) -> Element {
                     div { class: "welcome-chart-list", onkeydown: move |event| event.stop_propagation(),
                         for entry in (studio.recent_projects)().entries {
                             div { class: "welcome-recent-row", key: "{entry.path.display()}",
-                                button { class: "welcome-action", title: "Open recent {entry.title}", disabled: (studio.library_busy)(),
+                                button { class: "welcome-action", title: "Open recent {entry.title}", disabled: file_busy,
                                     onclick: { let path = entry.path.clone(); move |_| {
                                         let path = path.clone();
                                         dioxus::core::spawn_forever(async move { studio.open_recent(path).await; });
@@ -49,7 +51,7 @@ pub fn Welcome(mut studio: Studio) -> Element {
                                         if cfg!(target_arch = "wasm32") { "Saved in this browser" } else { "{entry.path.display()}" }
                                     } }
                                 }
-                                button { class: "welcome-recent-remove", title: "Remove {entry.title} from recent projects", aria_label: "Remove {entry.title} from recent projects", disabled: (studio.library_busy)(),
+                                button { class: "welcome-recent-remove", title: "Remove {entry.title} from recent projects", aria_label: "Remove {entry.title} from recent projects", disabled: file_busy,
                                     onclick: move |_| studio.forget_recent(Some(entry.path.clone())), "×"
                                 }
                             }
@@ -63,7 +65,7 @@ pub fn Welcome(mut studio: Studio) -> Element {
                             p { "{library.entries.len()} charts in {library.root.display()}" }
                             div { class: "welcome-chart-list",
                                 for (index, item) in library.entries.iter().enumerate() {
-                                    button { class: "welcome-action", title: "Open chart {item.title}", disabled: (studio.library_busy)(),
+                                    button { class: "welcome-action", title: "Open chart {item.title}", disabled: file_busy,
                                         onclick: move |_| {
                                             #[cfg(any(not(feature = "browser"), target_arch = "wasm32"))]
                                             dioxus::core::spawn_forever(async move { studio.open_library_chart(index).await; });
