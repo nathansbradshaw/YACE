@@ -161,6 +161,10 @@ mod rate_tests {
     }
 }
 fn stage_rate(studio: Studio, mut draft: Signal<RateDraft>, text: String) {
+    if draft.peek().project != session::project_identity(studio) {
+        return;
+    }
+    let saved = draft.peek().saved;
     let parsed = percentage(&text);
     draft.with_mut(|draft| {
         draft.text = text;
@@ -169,6 +173,11 @@ fn stage_rate(studio: Studio, mut draft: Signal<RateDraft>, text: String) {
     });
     if let Ok(rate) = parsed {
         session::preview_rate(studio, Some(rate));
+    } else {
+        // The slider falls back to the saved rate for an invalid draft; the
+        // actual player must do the same, even before blur or Enter.
+        session::preview_rate(studio, Some(saved));
+        session::preview_rate(studio, None);
     }
 }
 fn commit_rate(studio: Studio, mut draft: Signal<RateDraft>) {
