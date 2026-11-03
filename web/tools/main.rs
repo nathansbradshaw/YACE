@@ -23,7 +23,7 @@ mod audio_resample;
 #[path = "../../src/compact_backup.rs"]
 mod compact_backup;
 #[cfg(test)]
-#[path = "../src/media_clock.rs"]
+#[path = "../../src/media_clock.rs"]
 mod media_clock;
 #[path = "../../src/preview_ports.rs"]
 mod preview_ports;

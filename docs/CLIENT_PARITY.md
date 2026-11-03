@@ -70,13 +70,18 @@ needs replacement; it is distinct from the public static WASM client.
 
 The ledger above is acceptance evidence for the exercised workflows, not a
 claim that later desktop changes are automatically verified on the web. The
-current published browser engine includes desktop work through `6e70367`.
+current published browser engine is `54abd143`, merged into main by PR 73.
 GitHub Pages now serves that engine on `yace.n8bradshaw.com`; its approved
 certificate and HTTPS redirect were verified. The served WASM matches the
 staged artifact. Actual hosted overview seeking, local vocal pitch analysis and
 chart-only export/reimport retain the three-second duration, two vocal notes,
 phrases and lyrics. Existing same-origin browser saves reopen after migration.
 Earlier engine assets remain accessible for tabs opened before the host change.
+The latest release also recovered the existing full-song browser project and
+its matching export receipt, restarted from EOF at 200 percent, and completed
+both loaded 243.880-second channels at their exact end. The source revision's
+native and local static apps separately completed the same full-length song;
+native-to-browser restoration retained a saved 83-percent custom speed.
 Independent track visibility passed an additional full-song browser check: preview
 All with roll Focused, separate Selected preview choices with roll All, and
 collapse/reload persistence kept the existing chart revision and selected note's
