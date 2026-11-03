@@ -4,13 +4,7 @@ use crate::editor::{Action, Project};
 use dioxus::prelude::*;
 
 pub fn title(track: &str) -> String {
-    ["Expert", "Hard", "Medium", "Easy"]
-        .into_iter()
-        .find(|tier| track.starts_with(tier))
-        .map_or_else(
-            || track.to_owned(),
-            |tier| format!("{} · {tier}", instrument(track)),
-        )
+    crate::track_names::title(track)
 }
 
 #[cfg(test)]

@@ -45,6 +45,7 @@ pub mod streaming_audio;
 #[cfg(feature = "studio")]
 pub mod studio;
 pub mod sync_track;
+pub mod track_names;
 #[cfg(feature = "editor")]
 pub use studio as editor_ui;
 #[cfg(any(feature = "editor", feature = "browser"))]

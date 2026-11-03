@@ -96,6 +96,11 @@ instrument views visible. This qualifies browser interchange. Keys open-note
 and technique authoring controls, fresh native acceptance and target-game
 judgment remain open.
 
+Export choices distinguish rhythm guitar, co-op guitar and each six-fret
+instrument. Unknown source identifiers remain visible. These parts retain
+their interchange support; dedicated rhythm/co-op and six-fret editing controls
+remain open.
+
 Native practice playback now processes a bounded window on a Rust worker,
 mixing aligned original-rate stems before pitch-preserving stretching. Playing
 rate changes retain the decoded audio, waveform and output device; paused rate

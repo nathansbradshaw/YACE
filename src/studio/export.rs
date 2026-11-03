@@ -1,8 +1,5 @@
 //! The same export choices and validation on desktop and in the browser.
-use super::{
-    sheet::ToolSheet,
-    state::{self, Studio},
-};
+use super::{sheet::ToolSheet, state::Studio};
 use crate::export_options::{self, Format, Options, Target};
 use dioxus::prelude::*;
 
@@ -105,9 +102,7 @@ pub fn ExportDialog(mut studio: Studio) -> Element {
                                 let selected = options.tracks.get_or_insert_with(Default::default);
                                 if event.checked() { selected.insert(track.clone()); } else { selected.remove(&track); }
                             }}}
-                            if track.starts_with("MIDI: ") {"{track}"} else if track == "Vocals" {"Vocals"} else {
-                                "{state::instrument(&track)} · {difficulty(&track)}"
-                            }
+                            "{super::track_picker::title(&track)}"
                         }
                     }
                 }
@@ -134,10 +129,4 @@ pub fn ExportDialog(mut studio: Studio) -> Element {
             if let Some(error) = validation {p {class: "generation-validation", role: "alert", "{error}"}}
         }
     }
-}
-fn difficulty(track: &str) -> &str {
-    ["Easy", "Medium", "Hard", "Expert"]
-        .into_iter()
-        .find(|tier| track.starts_with(tier))
-        .unwrap_or(track)
 }
