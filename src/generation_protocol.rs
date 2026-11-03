@@ -21,6 +21,9 @@ pub struct Request {
     pub title: String,
     pub artist: String,
     pub instruments: Vec<String>,
+    /// Explicit supplied-audio mode. Missing/invalid stems must never trigger separation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing_stems: Option<crate::stem_review::StemManifest>,
     #[serde(default)]
     pub guitar_source: crate::mapping::GuitarSource,
     #[serde(default)]
@@ -49,6 +52,46 @@ pub struct Request {
 }
 
 impl Request {
+    pub fn validate_existing_stems(&self) -> Result<()> {
+        let Some(manifest) = &self.existing_stems else {
+            return Ok(());
+        };
+        ensure!(
+            self.instruments.len() == 1,
+            "Choose one part when using existing stems"
+        );
+        ensure!(
+            !self.full_mix_drums,
+            "Choose existing stems or the full recording"
+        );
+        ensure!(
+            self.keyboard_sound != crate::keyboard_detection::KeyboardSound::Synth
+                || !self
+                    .instruments
+                    .iter()
+                    .any(|part| matches!(part.as_str(), "piano" | "pro_piano")),
+            "Experimental Synth analyzes the full recording. Choose Piano to use existing stems."
+        );
+        let part = self
+            .instruments
+            .first()
+            .map(String::as_str)
+            .unwrap_or_default();
+        let required = match part {
+            "guitar" => self.guitar_source.stem().as_str(),
+            "pro_piano" => "piano",
+            other => other,
+        };
+        ensure!(
+            manifest
+                .stems
+                .iter()
+                .any(|stem| stem.id.as_str() == required),
+            "No attached {required} stem. Attach matching stems or generate stems first."
+        );
+        Ok(())
+    }
+
     pub fn timing(&self) -> Result<TempoMap> {
         let fallback = TempoMap::constant(self.bpm)?;
         let Some(map) = &self.tempo_map else {
@@ -69,6 +112,7 @@ impl Request {
     pub fn validate(&self) -> Result<()> {
         self.detection.validate()?;
         self.timing()?;
+        self.validate_existing_stems()?;
         ensure!(
             !self.title.trim().is_empty() && !self.artist.trim().is_empty(),
             "Enter the song title and artist"
@@ -96,7 +140,8 @@ impl Request {
         );
         if !cfg!(any(feature = "separation", target_arch = "wasm32")) {
             ensure!(
-                self.full_mix_drums
+                self.existing_stems.is_some()
+                    || self.full_mix_drums
                     || (crate::keyboard_detection::high_quality_piano(
                         &self.instruments,
                         self.keyboard_sound,

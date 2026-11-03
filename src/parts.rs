@@ -22,6 +22,20 @@ pub const PARTS: [(&str, &str, &str); 6] = [
     ("Pro Piano (Pro Keys)", "ProKeys", "pro_piano"),
     ("Vocals", "Vocals", "vocals"),
 ];
+
+/// Keyboard review may retain a distinct piano separation. Other parts use
+/// the primary audio; never substitute a different instrument silently.
+pub fn existing_stems(content: &Content, track: &str) -> Option<crate::stem_review::StemManifest> {
+    if crate::keys::is_keys(track) {
+        content
+            .keyboard_stems
+            .as_ref()
+            .or(content.stems.as_ref())
+            .cloned()
+    } else {
+        content.stems.clone()
+    }
+}
 pub fn instrument(track: &str) -> Result<&'static str> {
     if track == "Vocals" {
         return Ok("vocals");

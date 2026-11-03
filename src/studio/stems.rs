@@ -148,6 +148,9 @@ pub fn StemControls(studio: Studio) -> Element {
                 }
                 span{class:"stem-runtime-status",aria_label:"Audition source",title:"{studio.stem_status}",if !doc.has_recording(){"No recording"}else if let Some(kit)=kit{"Kit · {kit.label}"}else if available.is_none(){"No stems"}else if conventional {"Game channels"}else if !original{"Isolated estimate"}}
                 super::part_analysis::PartAnalysisButton{studio}
+                if doc.has_recording() && available.is_none() {
+                    button{class:"studio-tool",disabled:(studio.generation_busy)(),onclick:move |_|studio.stem_generation_open.set(true),"Generate stems…"}
+                }
             }
             if synth_reference {p{class:"field-hint","Synth notes were detected from the original recording. The piano stem may miss the synth or place it in another instrument. Use the full recording to review; an isolated synth stem is unavailable."}}
             if expanded(){
@@ -164,6 +167,7 @@ pub fn StemControls(studio: Studio) -> Element {
                         }
                     }
                     div{class:"stem-mixer-footer",
+                        button{class:"studio-tool",disabled:(studio.generation_busy)(),onclick:move |_|studio.stem_generation_open.set(true),"Generate stems…"}
                         button{class:"studio-tool","data-browser-pick":"file",onclick:move |_|studio.attach_stems_dialog(),Icon{name:"folder-open",size:13}"Replace stems"}
                         span{title:"{manifest.alignment.details}","Alignment: {manifest.alignment.method}"}
                     }

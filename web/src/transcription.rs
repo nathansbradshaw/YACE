@@ -172,7 +172,15 @@ pub async fn instruments_configured(
                 progress,
             )
             .await?;
-            let residual = if baseline.notes.iter().any(|n| n.confidence >= 0.65) {
+            let residual = if baseline.notes.iter().any(|n| n.confidence >= 0.65)
+                && [
+                    crate::stem_review::StemId::Drums,
+                    crate::stem_review::StemId::Bass,
+                    crate::stem_review::StemId::Vocals,
+                ]
+                .iter()
+                .all(|id| keyboard_manifest.stems.iter().any(|stem| stem.id == *id))
+            {
                 let prepared = crate::keyboard_audio::prepare(audio, keyboard_manifest)?;
                 let output =
                     piano_samples_configured(&prepared.samples, &model, settings, progress).await?;

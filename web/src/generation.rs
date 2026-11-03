@@ -158,18 +158,25 @@ pub fn reuse_stems(root: &Path, manifest: &crate::stem_review::StemManifest) -> 
         .into_iter()
         .find(|asset| asset.id == expected)
         .context("Missing separator identity")?;
-    if manifest.ids() != crate::stem_review::StemId::ALL.into_iter().collect()
-        || !manifest
-            .generation
-            .as_ref()
-            .is_some_and(|model| model.model_id == expected && model.model_sha256 == pinned.sha256)
+    if request.existing_stems.is_none()
+        && (manifest.ids() != crate::stem_review::StemId::ALL.into_iter().collect()
+            || !manifest.generation.as_ref().is_some_and(|model| {
+                model.model_id == expected && model.model_sha256 == pinned.sha256
+            }))
     {
         return Ok(false);
     }
     manifest.validate_binding(&input.audio_sha256, input.metadata.duration)?;
     let mut copied = manifest.clone();
     for stem in &mut copied.stems {
-        let path = root.join("stems").join(format!("{}.wav", stem.id.as_str()));
+        let path = root.join("stems").join(format!(
+            "{}.{}",
+            stem.id.as_str(),
+            stem.path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("wav")
+        ));
         crate::storage::copy(&stem.path, &path)?;
         stem.path = path;
     }
@@ -372,6 +379,8 @@ pub async fn run_stage(
                 }
                 write_json(&root.join("stems/stem-manifest.json"), &portable)?;
                 manifest
+            } else if request.existing_stems.is_some() {
+                anyhow::bail!("The frozen existing stems are missing; separation is disabled")
             } else if hq_only(&request) {
                 crate::keyboard_separation::run(audio, &root.join("stems"), progress).await?
             } else {
@@ -381,6 +390,10 @@ pub async fn run_stage(
             write_json(&root.join("isolation.json"), &manifest)?;
         }
         Stage::Keyboard => {
+            ensure!(
+                request.existing_stems.is_none(),
+                "Separation is disabled for existing-stem jobs"
+            );
             let manifest =
                 crate::keyboard_separation::run(audio, &root.join("keyboard-stems"), progress)
                     .await?;
@@ -615,6 +628,20 @@ pub fn create_job(mut request: Request, root: &Path) -> Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("Missing recording filename"))?;
     let target = root.join("input").join(filename);
     crate::storage::copy(path, &target)?;
+    if let Some(manifest) = &mut request.existing_stems {
+        for stem in &mut manifest.stems {
+            let target = root.join("supplied-stems").join(format!(
+                "{}.{}",
+                stem.id.as_str(),
+                stem.path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .unwrap_or("wav")
+            ));
+            crate::storage::copy(&stem.path, &target)?;
+            stem.path = target;
+        }
+    }
     request.source = Source::Audio { path: target };
     write_json(&root.join("request.json"), &request)?;
     write_json(

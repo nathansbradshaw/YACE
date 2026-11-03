@@ -51,6 +51,18 @@ game packages, full-song manifests or evidence of improved musical accuracy.
 
 ## Attach existing stems
 
+To create audio without generating any chart notes, choose **Generate stems…**
+beside **Attach stems** in the playback strip. When stems are already attached,
+open the mixer to find the same command. **Generate stems** separates the
+current recording into six instrument channels, downloading a missing separator
+model when needed. Close the panel to continue editing while it runs.
+
+Successful generation attaches the stems as one undoable change. Failed jobs
+keep the previous audio and notes. If you switch charts, replace the recording
+or attach different stems while generation runs, YACE retains the result and
+does not attach it to the changed target. Generation does not establish that
+each isolated instrument is musically accurate.
+
 Choose **Attach stems** and select a YACE stem manifest. It must match the
 recording and the referenced audio files. Generated song folders can attach
 their matching isolation manifest automatically when a project is created.

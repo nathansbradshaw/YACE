@@ -221,6 +221,8 @@ impl Drop for Worker {
 
 #[derive(Clone)]
 struct View {
+    use_existing_stems: bool,
+    attached_stems: Option<crate::stem_review::StemManifest>,
     detection: crate::detection_settings::Settings,
     loop_only: bool,
     job_settings: Option<String>,
@@ -267,6 +269,8 @@ struct View {
 impl Default for View {
     fn default() -> Self {
         Self {
+            use_existing_stems: false,
+            attached_stems: None,
             detection: Default::default(),
             loop_only: false,
             job_settings: None,
@@ -323,6 +327,7 @@ impl View {
     }
     fn signature(&self) -> String {
         serde_json::to_string(&(
+            self.use_existing_stems,
             self.detection,
             self.loop_only,
             self.guitar_source,
@@ -343,6 +348,8 @@ impl View {
         let title = studio.metadata_value("name");
         let artist = studio.metadata_value("artist");
         Ok(Self {
+            use_existing_stems: crate::parts::existing_stems(&project.content, track).is_some(),
+            attached_stems: crate::parts::existing_stems(&project.content, track),
             audio: Some(store.audio_path(&project)?),
             title: if title.is_empty() {
                 project.title.clone()
@@ -388,6 +395,15 @@ impl View {
     }
     fn request(&self) -> Result<Request> {
         let request = Request {
+            existing_stems: if self.use_existing_stems {
+                Some(
+                    self.attached_stems
+                        .clone()
+                        .context("No attached stems. Generate or attach stems first.")?,
+                )
+            } else {
+                None
+            },
             detection: self.detection,
             source: Source::Audio {
                 path: self.audio.clone().context("Choose an audio file")?,
@@ -419,7 +435,11 @@ impl View {
             model_dir: self.models.clone(),
             guitar_source: self.guitar_source,
             keyboard_sound: self.keyboard_sound,
-            piano_quality: self.piano_quality,
+            piano_quality: if self.use_existing_stems {
+                Default::default()
+            } else {
+                self.piano_quality
+            },
             vocal_language: self.vocal_language,
             vocal_analysis_mode: self.vocal_analysis_mode,
             fetch_models: self.fetch,
@@ -703,6 +723,10 @@ fn launch_worker(mut data: Signal<View>, root: PathBuf) -> Result<()> {
 }
 
 fn generate(mut studio: Studio, mut data: Signal<View>) {
+    if (studio.stem_generation_busy)() {
+        fail(data, "Wait for stem generation to finish");
+        return;
+    }
     if data.peek().busy {
         return;
     }
@@ -712,6 +736,7 @@ fn generate(mut studio: Studio, mut data: Signal<View>) {
         let result = (|| -> Result<_> {
             let store = (studio.store)().context("Open the target chart")?;
             let project = (studio.doc)().context("Open the target chart")?;
+            view.attached_stems = crate::parts::existing_stems(&project.content, &target.track);
             let range = if view.loop_only {
                 Some(project.transport.loop_range.context("Set a loop first")?)
             } else {
@@ -887,6 +912,8 @@ fn recover(mut data: Signal<View>) {
         match loaded {
             Ok(Ok((request, status, target, progress, log_tail, root))) => data.with_mut(|v| {
                 v.detection = request.detection;
+                v.use_existing_stems = request.existing_stems.is_some();
+                v.attached_stems = request.existing_stems;
                 v.loop_only = target.as_ref().is_some_and(|t| t.requested_range.is_some());
                 let Source::Audio { path } = request.source;
                 v.target = target;
@@ -943,6 +970,8 @@ fn review_saved_part(studio: Studio, mut data: Signal<View>, root: PathBuf) {
         let target = crate::parts::target(&root)?.context("Saved job has no part target")?;
         let mut view = View::for_part(studio, &target.track)?;
         view.detection = request.detection;
+        view.use_existing_stems = request.existing_stems.is_some();
+        view.attached_stems = request.existing_stems;
         view.loop_only = target.requested_range.is_some();
         view.guitar_source = request.guitar_source;
         view.keyboard_sound = request.keyboard_sound;
@@ -1111,7 +1140,14 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             studio.generation_busy.set(busy);
         }
     });
-    let view = data.read().clone();
+    let mut view = data.read().clone();
+    if let Some(target) = &view.target
+        && let Some(store) = studio.store.read().as_ref()
+        && fs::canonicalize(&store.root).is_ok_and(|root| root == target.project)
+        && let Some(project) = studio.snapshot()
+    {
+        view.attached_stems = crate::parts::existing_stems(&project.content, &target.track);
+    }
     let elapsed = view
         .started_ms
         .map(|start| {
@@ -1201,6 +1237,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             .unwrap_or("guitar")
             .to_owned();
         let options = Options {
+            existing_stems: view.use_existing_stems,
             sensitivity: view.detection.sensitivity,
             loop_only: view.loop_only,
             guitar_source: view.guitar_source,
@@ -1249,7 +1286,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             .map(|progress| progress.updated_ms)
             .or(view.started_ms)
             .map_or(0, |updated| now_ms().saturating_sub(updated) / 1000);
-        let controls = rsx! { Controls {options,instrument,loop_label,onchange:move|next:Options|data.with_mut(|v|{v.detection.sensitivity=next.sensitivity;v.loop_only=next.loop_only;v.guitar_source=next.guitar_source;v.keyboard_sound=next.keyboard_sound;v.piano_quality=next.piano_quality;v.vocal_language=next.language;v.vocal_analysis_mode=next.vocal_mode;v.standard=next.standard_drums;v.full_mix=next.full_mix_drums;}),advanced:rsx!{
+        let controls = rsx! { Controls {options,instrument,loop_label,onchange:move|next:Options|data.with_mut(|v|{v.use_existing_stems=next.existing_stems;v.detection.sensitivity=next.sensitivity;v.loop_only=next.loop_only;v.guitar_source=next.guitar_source;v.keyboard_sound=next.keyboard_sound;v.piano_quality=next.piano_quality;v.vocal_language=next.language;v.vocal_analysis_mode=next.vocal_mode;v.standard=next.standard_drums;v.full_mix=next.full_mix_drums;}),advanced:rsx!{
             label{class:"ra-check",input{r#type:"checkbox",checked:view.fetch,onchange:move|event|data.write().fetch=event.checked()},"Download missing models"}
             details{summary{"Model licenses"}for asset in crate::models::assets(){p{class:"ra-hint","{asset.id}: {asset.license}"}}}
         }} };
