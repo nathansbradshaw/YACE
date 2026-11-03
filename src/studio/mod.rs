@@ -15,6 +15,7 @@ mod export;
 mod frame_pacing;
 mod game_preview;
 mod generation;
+mod generation_status;
 mod icons;
 mod inline_review;
 mod modal;

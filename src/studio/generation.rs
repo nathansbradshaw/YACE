@@ -997,6 +997,7 @@ fn review_saved_part(studio: Studio, mut data: Signal<View>, root: PathBuf) {
 pub fn GenerationPanel(mut studio: Studio) -> Element {
     let mut data = use_signal(View::default);
     let mut now_ms = use_signal(crate::generation_progress::now_ms);
+    let mut rate = use_signal(crate::generation_feedback::Tracker::default);
     use_effect(move || {
         if (studio.generation_open)() && data.peek().applied {
             let track = data
@@ -1059,6 +1060,22 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                 })
                 .await
             {
+                if let Some(progress) = progress
+                    .as_ref()
+                    .filter(|progress| progress.stage == status.stage)
+                {
+                    let key = format!("{}:{}", root.display(), status.stage);
+                    rate.with_mut(|rate| {
+                        rate.observe(
+                            &key,
+                            &progress.detail,
+                            progress.completed.zip(progress.total),
+                            progress.updated_ms,
+                        )
+                    });
+                } else {
+                    rate.set(Default::default());
+                }
                 data.with_mut(|view| {
                     view.status = Some(status);
                     view.progress = progress;
@@ -1224,6 +1241,14 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
         .as_ref()
         .map(|root| root.join("worker.log").display().to_string())
         .unwrap_or_default();
+    let progress_card = rsx! {super::generation_status::GenerationStatus{
+        parts:[(view.guitar,"guitar"),(view.bass,"bass"),(view.drums,"drums"),(view.vocals,"vocals"),(view.piano,"piano"),(view.pro_piano,"pro_piano")].into_iter().filter(|(selected,_)|*selected).map(|(_,part)|part.to_owned()).collect::<Vec<_>>(),
+        recording:format!("{} — {}",view.artist,view.title),
+        step:view.status.as_ref().map_or("Preparing recording",|status|stage_title(&status.stage)),
+        activity:detail.clone(),elapsed_ms:view.started_ms.map_or(0,|start|now_ms().saturating_sub(start)),
+        feedback:rate.read().feedback(now_ms()),
+        quiet_for:view.progress.as_ref().map(|progress|progress.updated_ms).or(view.started_ms).map_or(0,|updated|now_ms().saturating_sub(updated)/1000)
+    }};
     if let Some(target) = &view.target {
         use super::reanalysis_panel::{Controls, Options, Panel};
         let track = target.track.clone();
@@ -1305,7 +1330,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
             if let Some(root)=&view.root{p{class:"ra-hint","Saved: {root.display()}"}}
             if !view.log_tail.is_empty(){pre{class:"ra-error-detail","{view.log_tail}"}}
         }};
-        return rsx! { Panel {studio,track,recording,phase,activity,elapsed,quiet_for,problem:view.error.clone(),controls,review,diagnostics,can_start:!busy&&can_generate,blocked_reason:if validation.is_empty(){None}else{Some(validation)},onstart:move |_|generate(studio,data),oncancel:move |_|{if let Some(worker)=data.peek().worker.clone(){worker.borrow_mut().cancel();}}} };
+        return rsx! { Panel {studio,track,recording,phase,activity,elapsed,quiet_for,problem:view.error.clone(),controls,review,diagnostics,progress:Some(progress_card),can_start:!busy&&can_generate,blocked_reason:if validation.is_empty(){None}else{Some(validation)},onstart:move |_|generate(studio,data),oncancel:move |_|{if let Some(worker)=data.peek().worker.clone(){worker.borrow_mut().cancel();}}} };
     }
     rsx! {
         style{"{CSS}"}
@@ -1444,7 +1469,9 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     }
                     if !view.notice.is_empty(){p{class:"field-hint",role:"status","{view.notice}"}}
 
-                    if let Some(status)=&view.status{
+                    if busy && view.worker.is_some(){
+                        {progress_card}
+                    }else if let Some(status)=&view.status{
                         div{class:"generation-progress",role:"status",aria_live:"polite",
                             strong{"{stage_title(&status.stage)}"}
                             span{"{detail}"}
