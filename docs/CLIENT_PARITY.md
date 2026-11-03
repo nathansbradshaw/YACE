@@ -19,6 +19,7 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 | Blank charts and recording attachment | Actual browser blank creation, note placement, silent timeline playback, short-recording rejection, attachment/Undo/Redo, export, backup and restored Undo; source WAV unchanged and post-Undo export has no playable root recording | Verified; fixed browser open/source-state handling after the chart-only rebase |
 | Instrument/difficulty editing | Shared command tests plus actual guitar timing/Tap, Keys, Pro Keys, vocal editing, and native edit/Undo; paired full-song MIDI/master/vocal export matches | Verified supported workflows |
 | Drum accents and ghost notes | Actual native/static single and batch authoring, kick exclusion, cymbal retention, move, clipboard, delete, Undo/Redo, restart/reload and mixed-part MIDI export/reimport | Verified controlled fixture; in-game dynamics judgment remains unqualified |
+| Double kicks and imported MIDI drum editing | Actual static placement, movement, clipboard, deletion, rejected duplicate, saved Undo/Redo, MIDI-only roundtrip and retained note-off intervals | Browser paths verified; current native controls and target-game acceptance remain open |
 | Independent preview and piano-roll tracks | Native and browser Focused/Selected/All choices, stable order, collapse and reopen; actual hosted reload preserves separate choices without changing chart revision | Verified exercised paths; browser preferences stay in that profile/project |
 | Timing, sections and Star Power | Browser edits/Undo and native tempo, section and phrase Add/Undo exercised through their actual dialogs | Verified |
 | Playback, seek, loop, speed and waveform | Full 243.880 s browser playthrough; native whole-song playback; browser loop/speed; all five saved kit components at 75%; native kit backup opened at saved speed/selection | Verified; acoustic synchronization is unmeasured |
@@ -57,6 +58,30 @@ Seven articulation regressions cover these operations and mixed-feature MIDI
 roundtrip. These controlled checks do not establish musical quality or game
 controller/velocity judgment. Prepared audio is checked separately; matching
 original recordings do not imply byte-identical client-prepared PCM.
+
+Double kicks now have a separate editable drum row. Moving an imported MIDI
+drum hit preserves its note-off interval and attributes; those existing intervals
+previously caused inspector edits to fail as unsupported sustains. New placements
+use zero sustain, and edits cannot introduce a different positive sustain.
+Successful placement and deletion
+also update local selection, so Copy and the inspector follow the current hit.
+Rejected edits retain the previous selection.
+
+Actual static checks placed and moved a double kick with another hit selected,
+copied and pasted it, deleted/restored it and recovered its Undo/Redo history
+after reload. A seven-hit MIDI export without YACE sidecars reimported with three
+double kicks, the ordinary kick, accent and cymbals intact. An imported double
+kick then moved while retaining its one-tick note-off interval. The final static
+build completed a 243.880-second recording with a temporary double-kick edit;
+Undo restored the prior note count and matching export receipt. Native control
+verification for this increment remains open. Eleven articulation regressions
+cover the core rules, including unrelated marker preservation.
+
+MIDI represents double kicks on Expert only. Other difficulties require `.chart`
+export. Imported MIDI songs continue to refuse `.chart` conversion when it could
+discard original events; the inspector explains that boundary. Actual static
+checks exercised both refusals and successful lower-difficulty `.chart` export
+from a chart-based song. No unsupported conversion is silently substituted.
 
 Native practice playback now processes a bounded window on a Rust worker,
 mixing aligned original-rate stems before pitch-preserving stretching. Playing
@@ -117,6 +142,9 @@ actual production reloads restored both linked 4-key and Dance selections.
 Release `80203e0b`, merged through PR 92 at `3c21644f`, additionally keeps each
 browser tab's own project and chart family through reload. Actual hosted
 independent band and standalone Dance recovery passed.
+Release `1407a963`, merged through PR 93 at `a6e182f5`, includes drum dynamics
+authoring and the open-editor recovery download. Its actual native, static and
+hosted full-song checks passed; the served WASM matches the tested artifact.
 Later desktop additions still need their own browser acceptance.
 GitHub Pages serves that engine on `yace.n8bradshaw.com`; its approved
 certificate and HTTPS redirect were verified. The served WASM matches the
