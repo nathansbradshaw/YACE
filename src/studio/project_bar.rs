@@ -102,6 +102,10 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
             if !cfg!(target_arch="wasm32") {button{disabled:file_busy,"popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.open_zip(),"Import project ZIP…"}}
             button { disabled:file_busy,aria_busy:file_action==Some(super::activity::FileAction::Import),"popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.import_song(),super::activity::BusyLabel{busy:file_action==Some(super::activity::FileAction::Import),label:"Import song ZIP…",active:"Importing song…"} }
             button {disabled:!loaded || package_busy || file_busy,aria_busy:file_action==Some(super::activity::FileAction::Backup),"popovertarget":"project-actions","popovertargetaction":"hide",title:"Compact editable backup with original audio and undo history",onclick:move |_|backup_open.set(true),super::activity::BusyLabel{busy:file_action==Some(super::activity::FileAction::Backup),label:if cfg!(target_arch="wasm32"){"Download project backup…"}else{"Save project backup…"},active:"Preparing backup…"}}
+            if cfg!(target_arch="wasm32") && band {button {disabled:studio.doc.read().is_none() || package_busy,"popovertarget":"project-actions","popovertargetaction":"hide",title:"Preserve the open editor and available files even when normal backup fails",onclick:move |_| {
+                #[cfg(target_arch="wasm32")]
+                studio.recover_open_project();
+            },"Download recovery copy…"}}
             if cfg!(target_arch="wasm32") {button {"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_| {
                 #[cfg(target_arch="wasm32")]
                 studio.open_saved_projects();

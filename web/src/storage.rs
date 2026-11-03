@@ -32,7 +32,9 @@ pub fn save_project(root: &Path, project: &crate::editor::Project) {
     });
 }
 fn materialize(path: &Path) -> io::Result<()> {
-    if !UNENCODED.with(|paths| paths.borrow().contains(path)) {
+    let cached_only = !FILES.with(|files| files.borrow().contains_key(path))
+        && PROJECTS.with(|projects| projects.borrow().contains_key(path));
+    if !cached_only && !UNENCODED.with(|paths| paths.borrow().contains(path)) {
         return Ok(());
     }
     let project = PROJECTS
@@ -42,6 +44,9 @@ fn materialize(path: &Path) -> io::Result<()> {
     FILES.with(|files| {
         files.borrow_mut().insert(path.to_owned(), Arc::new(bytes));
     });
+    if cached_only {
+        DIRTY.with(|paths| paths.borrow_mut().insert(path.to_owned()));
+    }
     UNENCODED.with(|paths| {
         paths.borrow_mut().remove(path);
     });
@@ -78,7 +83,7 @@ pub fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
             .borrow()
             .get(path.as_ref())
             .map(|bytes| bytes.as_ref().clone())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Project file is missing"))
+            .ok_or_else(|| missing_file(path.as_ref()))
     })
 }
 pub fn shared(path: impl AsRef<Path>) -> io::Result<Arc<Vec<u8>>> {
@@ -88,8 +93,14 @@ pub fn shared(path: impl AsRef<Path>) -> io::Result<Arc<Vec<u8>>> {
             .borrow()
             .get(path.as_ref())
             .cloned()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Project file is missing"))
+            .ok_or_else(|| missing_file(path.as_ref()))
     })
+}
+fn missing_file(path: &Path) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::NotFound,
+        format!("Project file is missing: {}", path.display()),
+    )
 }
 /// Unique encoded bytes already resident in this editor's WASM instance.
 pub fn resident_bytes() -> u64 {
@@ -129,6 +140,11 @@ pub fn exists(path: impl AsRef<Path>) -> bool {
             .borrow()
             .keys()
             .any(|key| key == path.as_ref() || key.starts_with(path.as_ref()))
+    }) || PROJECTS.with(|projects| {
+        projects
+            .borrow()
+            .keys()
+            .any(|key| key.starts_with(path.as_ref()))
     }) || DIRECTORIES.with(|dirs| {
         dirs.borrow()
             .iter()
@@ -143,7 +159,7 @@ pub fn is_dir(path: impl AsRef<Path>) -> bool {
     exists(&path) && !is_file(path)
 }
 pub fn list(root: &Path) -> io::Result<Vec<(PathBuf, Arc<Vec<u8>>)>> {
-    let pending: Vec<_> = UNENCODED.with(|paths| {
+    let pending: BTreeSet<_> = UNENCODED.with(|paths| {
         paths
             .borrow()
             .iter()
@@ -151,7 +167,15 @@ pub fn list(root: &Path) -> io::Result<Vec<(PathBuf, Arc<Vec<u8>>)>> {
             .cloned()
             .collect()
     });
-    for path in pending {
+    let cached: Vec<_> = PROJECTS.with(|projects| {
+        projects
+            .borrow()
+            .keys()
+            .filter(|path| path.starts_with(root))
+            .cloned()
+            .collect()
+    });
+    for path in pending.into_iter().chain(cached) {
         materialize(&path)?;
     }
     Ok(FILES.with(|files| {
@@ -311,24 +335,25 @@ pub fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
     Ok(())
 }
 pub fn pending(root: &Path) -> io::Result<Vec<(PathBuf, Arc<Vec<u8>>)>> {
-    DIRTY.with(|dirty| {
+    let paths: Vec<_> = DIRTY.with(|dirty| {
         dirty
             .borrow()
             .iter()
             .filter(|path| path.starts_with(root))
-            .map(|path| shared(path).map(|bytes| (path.clone(), bytes)))
+            .cloned()
             .collect()
-    })
+    });
+    paths
+        .into_iter()
+        .map(|path| shared(&path).map(|bytes| (path, bytes)))
+        .collect()
 }
 pub fn acknowledge(files: Vec<(PathBuf, Arc<Vec<u8>>)>) {
-    DIRTY.with(|dirty| {
-        let mut dirty = dirty.borrow_mut();
-        for (path, bytes) in files {
-            if shared(&path).is_ok_and(|current| Arc::ptr_eq(&current, &bytes)) {
-                dirty.remove(&path);
-            }
+    for (path, bytes) in files {
+        if shared(&path).is_ok_and(|current| Arc::ptr_eq(&current, &bytes)) {
+            DIRTY.with(|dirty| dirty.borrow_mut().remove(&path));
         }
-    });
+    }
 }
 pub fn write_new(path: impl AsRef<Path>, bytes: &[u8]) -> io::Result<()> {
     if is_file(&path) {
