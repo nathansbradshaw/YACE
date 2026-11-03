@@ -460,3 +460,27 @@ improves feedback without establishing a faster download or startup time.
 The resulting browser build also completed a real 243.880-second song at
 200 percent, retained a final-note edit through Undo/Redo, and reimported its
 downloaded song ZIP with the original chart and recording bytes intact.
+
+### Static browser playback regression checks (2026-11-03)
+
+Original/Complete mix previously started every attached media decoder, even when
+all stems had zero output gain. A nine-channel synthetic fixture now runs only
+the recording in that mode; solo audition runs the recording clock plus the
+selected stem. Muted channels finish a 10 ms gain ramp before pausing and rejoin
+at the current recording position when enabled. Ordinary editor actions no
+longer reset an unchanged practice rate or its drift controller. Replaced
+channels disconnect their audio nodes and release their decoder resources;
+cancelled channel starts cannot fail a later playback request.
+
+Runtime mixing now retains settings for the channels actually decoded, including
+when a separate keyboard set is selected or optional stems are missing. An empty
+set falls back to the recording. Strict project/action mix validation is
+unchanged. Asset availability changes also refresh the static audio graph.
+
+Actual static-browser checks exercised Guitar, Bass, Drums, Keys, Pro Keys and
+Vocals while looping, solo/backing switches, mute/rejoin, seeking, pause, and
+25/83/100/150/200-percent rate changes. Reloading the isolated fixture restored
+83 percent on all nine paused media elements. Five focused Rust regressions
+cover channel activity/fade cancellation and partial/empty runtime mixes. Preview
+listening reported an improvement. These checks do not establish sample-accurate
+acoustic alignment or artifact-free stretching on every browser/output device.

@@ -24,6 +24,73 @@ fn mix(stems: &[(StemId, StemChannel)]) -> StemMix {
         channels: stems.iter().copied().collect(),
     }
 }
+#[test]
+fn playback_mix_keeps_available_channels_when_switching_stem_sets() {
+    let mix = mix(&[
+        (
+            StemId::Drums,
+            StemChannel {
+                gain: 0.7,
+                ..Default::default()
+            },
+        ),
+        (
+            StemId::Bass,
+            StemChannel {
+                gain: 1.1,
+                ..Default::default()
+            },
+        ),
+        (
+            StemId::Piano,
+            StemChannel {
+                gain: 0.2,
+                ..Default::default()
+            },
+        ),
+    ]);
+    // Project/action validation remains strict; playback handles a smaller
+    // decoded set without turning every selected channel into silence.
+    assert!(mix.prepare([StemId::Piano]).is_err());
+    let keyboard = mix.prepare_playback([StemId::Piano]).unwrap();
+    assert!(!keyboard.original);
+    assert_eq!(keyboard.gains, BTreeMap::from([(StemId::Piano, 0.2)]));
+    let band = mix.prepare_playback([StemId::Drums, StemId::Bass]).unwrap();
+    assert_eq!(
+        band.gains,
+        BTreeMap::from([(StemId::Drums, 0.7), (StemId::Bass, 1.1)])
+    );
+    let rendered = impulses().frame_with_mix(0, &band);
+    assert!((rendered[0] - 0.21).abs() < 0.000001);
+    assert!((rendered[1] - 0.07).abs() < 0.000001);
+}
+
+#[test]
+fn playback_without_stems_uses_the_original_but_invalid_available_gains_fail() {
+    let mix = mix(&[(
+        StemId::Drums,
+        StemChannel {
+            gain: 1.,
+            solo: true,
+            mute: false,
+        },
+    )]);
+    let fallback = mix.prepare_playback([]).unwrap();
+    assert!(fallback.original);
+    assert!(fallback.gains.is_empty());
+    assert_eq!(impulses().frame_with_mix(0, &fallback), [0.3, 0.1]);
+    let invalid = StemMix {
+        channels: BTreeMap::from([(
+            StemId::Drums,
+            StemChannel {
+                gain: f32::NAN,
+                ..Default::default()
+            },
+        )]),
+        ..mix
+    };
+    assert!(invalid.prepare_playback([StemId::Drums]).is_err());
+}
 fn impulses() -> LoadedStems {
     let drums = vec![0.3, 0.1, 0.0, 0.0, 0.0, 0.0, -0.2, 0.1];
     let bass = vec![0.0, 0.0, 0.2, -0.1, 0.0, 0.0, 0.1, -0.1];

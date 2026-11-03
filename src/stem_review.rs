@@ -458,6 +458,22 @@ pub struct PreparedMix {
     pub gains: BTreeMap<StemId, f32>,
 }
 impl StemMix {
+    /// Runtime decoding can have fewer channels than the saved project (missing
+    /// optional assets or a separate keyboard set). Keep valid channel settings
+    /// and fall back to the recording when no selected stems are available.
+    /// `prepare` remains strict for authoring and project validation.
+    pub fn prepare_playback(
+        &self,
+        available: impl IntoIterator<Item = StemId>,
+    ) -> Result<PreparedMix> {
+        let available: BTreeSet<_> = available.into_iter().collect();
+        let mut mix = self.clone();
+        mix.channels.retain(|id, _| available.contains(id));
+        if available.is_empty() {
+            mix.mode = MixMode::Original;
+        }
+        mix.prepare(available)
+    }
     pub fn prepare(&self, available: impl IntoIterator<Item = StemId>) -> Result<PreparedMix> {
         let available: BTreeSet<_> = available.into_iter().collect();
         ensure!(
