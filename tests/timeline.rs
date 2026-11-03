@@ -52,7 +52,10 @@ fn rejects_nonfinite_nonpositive_and_unrepresentable_coordinate_ranges() {
 #[test]
 fn drum_rows_and_open_guitar_bass_rows_remain_distinct() {
     for difficulty in ["Easy", "Medium", "Hard", "Expert"] {
-        assert_eq!(lane_rows(&format!("{difficulty}Drums")), [0, 1, 2, 3, 4]);
+        assert_eq!(
+            lane_rows(&format!("{difficulty}Drums")),
+            [0, 32, 1, 2, 3, 4]
+        );
         for instrument in ["Single", "DoubleBass"] {
             let rows = lane_rows(&format!("{difficulty}{instrument}"));
             assert_eq!(rows, [0, 1, 2, 3, 4, 7]);

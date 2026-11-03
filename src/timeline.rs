@@ -55,15 +55,17 @@ impl TimelineTransform {
 
 /// Editable row order for the editor's currently supported instrument tracks.
 ///
-/// Guitar and bass have a distinct open-note row (lane 7); drums have five rows.
-/// Marker lanes and double-kick lane 32 are not editable rows in this editor.
+/// Guitar and bass have a distinct open-note row (lane 7); drums have separate
+/// ordinary-kick (0) and double-kick (32) rows. Control markers have no row.
 /// Rows run from top to bottom; Pro Keys puts higher pitches first.
 pub fn lane_rows(track: &str) -> Vec<u8> {
     if crate::keys::is_pro(track) {
         (crate::keys::MIN_PITCH..=crate::keys::MAX_PITCH)
             .rev()
             .collect()
-    } else if track.ends_with("Drums") || track.ends_with("Keyboard") {
+    } else if track.ends_with("Drums") {
+        vec![0, 32, 1, 2, 3, 4]
+    } else if track.ends_with("Keyboard") {
         vec![0, 1, 2, 3, 4]
     } else {
         vec![0, 1, 2, 3, 4, 7]
