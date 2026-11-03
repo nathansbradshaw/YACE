@@ -189,6 +189,10 @@ staged artifact. Actual hosted overview seeking, local vocal pitch analysis and
 chart-only export/reimport retain the three-second duration, two vocal notes,
 phrases and lyrics. Existing same-origin browser saves reopen after migration.
 Earlier engine assets remain accessible for tabs opened before the host change.
+Hosted full-song keyboard seeking was also exercised in band, Dance and 4-key
+views: paused moves retained pause, playing moves resumed playback, and an
+active 130–132-second loop clamped Home/End to its bounds without autoplay.
+Physical pointer cancellation and acoustic synchronization remain open.
 The earlier `6753fe7a` release recovered the existing full-song browser project and
 its matching export receipt, restarted from EOF at 200 percent, and completed
 both loaded 243.880-second channels at their exact end. The source revision's
@@ -393,6 +397,12 @@ picker and local browser storage; exports use downloads. A folder snapshot is
 not an ongoing sync connection. Git subprocesses, SSH and arbitrary disk writes
 are not browser APIs. Their replacement must preserve the proposal/review and
 conflict outcomes and make the transport explicit.
+
+Direct hosted blank-chart setup passed cancellation, recording-free creation,
+a twelve-second virtual playthrough and chart-only export/reimport. The package
+retained its metadata and duration without fabricating audio. Current native
+recording-free setup remains distinct from the earlier native recording-based
+manual checks; it still needs its own qualified UI acceptance.
 
 Failed static-browser imports and project opens now report a terminal failure
 instead of leaving archive progress visible. Actual browser checks rejected an
