@@ -1720,7 +1720,10 @@ impl Studio {
             }
         });
     }
-    pub fn save_project(mut self) {
+    pub fn save_project(self) {
+        self.save_project_with_options(crate::compact_backup::Options::default());
+    }
+    pub fn save_project_with_options(mut self, options: crate::compact_backup::Options) {
         let Some(store) = self.store.read().clone() else {
             return;
         };
@@ -1759,8 +1762,10 @@ impl Studio {
             }
             let output = output.path().to_owned();
             let download = output.clone();
-            match tokio::task::spawn_blocking(move || crate::project_files::backup(&store, &output))
-                .await
+            match tokio::task::spawn_blocking(move || {
+                crate::project_files::backup_with_options(&store, &output, options)
+            })
+            .await
             {
                 Ok(Ok(())) => {
                     self.status.set("Project ZIP backup saved".into());

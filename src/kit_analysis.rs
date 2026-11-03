@@ -18,6 +18,15 @@ pub struct DrumPartSet {
     pub directory: PathBuf,
     pub parts: Vec<DrumPartFile>,
     pub receipt: crate::larsnet::SeparationReceipt,
+    /// Actual listening-copy file hash -> original receipt's file hash.
+    /// The receipt still describes the original inference, never a new run.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub portable_audio: BTreeMap<String, String>,
+}
+impl DrumPartSet {
+    pub fn original_hash<'a>(&'a self, hash: &'a str) -> &'a str {
+        self.portable_audio.get(hash).map_or(hash, String::as_str)
+    }
 }
 /// A persisted listening preference, independent of chart notes and approvals.
 pub use crate::kit_audition::KitAudition;
@@ -86,7 +95,7 @@ fn validate_cached_kit(
         set.source_key == source_key
             && set.original_audio_sha256 == project.audio_sha256
             && set.drum_audio_sha256 == drum_hash
-            && set.receipt.source_audio_sha256.as_deref() == Some(drum_hash),
+            && set.receipt.source_audio_sha256.as_deref() == Some(set.original_hash(drum_hash)),
         "Stale kit cache source"
     );
     let receipt = &set.receipt;
@@ -153,7 +162,7 @@ fn validate_cached_kit(
                 && output.filename == part.filename
                 && part.frames == frames
                 && output.frames == frames
-                && output.wav_sha256.as_ref() == Some(&part.sha256)
+                && output.wav_sha256.as_deref() == Some(set.original_hash(&part.sha256))
                 && valid_hash(&part.sha256)
                 && valid_hash(&output.pcm_sha256),
             "Invalid cached component metadata"
@@ -473,6 +482,7 @@ pub fn prepare_project_drum_parts(
         directory: output,
         parts,
         receipt,
+        portable_audio: BTreeMap::new(),
     };
     fs::write(
         stage.path().join("kit-parts.json"),
@@ -509,7 +519,8 @@ pub fn audition_clip(
     );
     let (_, hash) = project_drums(store, project)?;
     ensure!(
-        set.drum_audio_sha256 == hash && set.receipt.source_audio_sha256.as_ref() == Some(&hash),
+        set.drum_audio_sha256 == hash
+            && set.receipt.source_audio_sha256.as_deref() == Some(set.original_hash(&hash)),
         "Separated kit source receipt changed"
     );
     let part = set
@@ -547,7 +558,7 @@ pub fn audition_clip(
     ensure!(
         output.filename == part.filename
             && output.frames == part.frames
-            && output.wav_sha256.as_ref() == Some(&part.sha256),
+            && output.wav_sha256.as_deref() == Some(set.original_hash(&part.sha256)),
         "Separated part metadata differs from its native receipt"
     );
     ensure!(

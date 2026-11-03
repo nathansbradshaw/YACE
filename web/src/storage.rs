@@ -91,6 +91,18 @@ pub fn shared(path: impl AsRef<Path>) -> io::Result<Arc<Vec<u8>>> {
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Project file is missing"))
     })
 }
+/// Unique encoded bytes already resident in this editor's WASM instance.
+pub fn resident_bytes() -> u64 {
+    FILES.with(|files| {
+        let mut seen = BTreeSet::new();
+        files
+            .borrow()
+            .values()
+            .filter(|bytes| seen.insert(Arc::as_ptr(bytes)))
+            .map(|bytes| bytes.len() as u64)
+            .sum()
+    })
+}
 pub fn read_to_string(path: impl AsRef<Path>) -> io::Result<String> {
     String::from_utf8(read(path)?)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))

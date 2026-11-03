@@ -225,6 +225,66 @@ fn imported_game_archive_shares_its_identical_recovery_audio() {
 }
 
 #[test]
+fn compact_backup_restore_retains_source_history_and_shared_assets() {
+    use std::{io::Cursor, sync::Arc};
+    let audio = vec![31; 65536];
+    let files = [
+        ("source/song.ogg", audio.as_slice()),
+        ("dance/source/song.ogg", audio.as_slice()),
+        ("project.json", b"document".as_slice()),
+        ("checkpoints/id.json", b"history".as_slice()),
+    ];
+    let zip =
+        super::compact_backup::encode_into(files, Cursor::new(Vec::new()), Default::default())
+            .unwrap()
+            .into_inner();
+    let restored: std::collections::BTreeMap<_, _> = super::archive_codec::decode_shared(&zip)
+        .unwrap()
+        .into_iter()
+        .collect();
+    assert_eq!(restored["source/song.ogg"].as_slice(), audio);
+    assert_eq!(restored["checkpoints/id.json"].as_slice(), b"history");
+    assert!(Arc::ptr_eq(
+        &restored["source/song.ogg"],
+        &restored["dance/source/song.ogg"]
+    ));
+}
+
+#[test]
+fn incremental_import_seeks_archives_larger_than_one_gibibyte() {
+    use std::io::{Seek, SeekFrom, Write};
+    let mut file = tempfile::tempfile().unwrap();
+    file.seek(SeekFrom::Start(1024 * 1024 * 1024 + 1)).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    zip.start_file("project.json", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    zip.write_all(b"project").unwrap();
+    let mut file = zip.finish().unwrap();
+    assert!(file.metadata().unwrap().len() > 1024 * 1024 * 1024);
+    file.rewind().unwrap();
+    let files = super::archive_codec::strip_wrapper_shared(
+        super::archive_codec::decode_reader(file).unwrap(),
+        "project.json",
+    )
+    .unwrap();
+    assert_eq!(files[0].1.as_slice(), b"project");
+}
+
+#[test]
+fn incremental_import_limits_expansion_before_allocating_an_entry() {
+    use std::io::Cursor;
+    let bytes = super::archive_codec::encode([("big.wav", [7; 1024].as_slice())]).unwrap();
+    let mut delivered = false;
+    let result =
+        super::archive_codec::decode_into_limited(Cursor::new(bytes), 512, 2048, |_, _| {
+            delivered = true;
+            Ok(())
+        });
+    assert!(result.is_err());
+    assert!(!delivered);
+}
+
+#[test]
 fn shared_archive_import_checks_the_complete_entry_crc() {
     use super::archive_codec;
     let mut bytes = archive_codec::encode([("recording.ogg", [19u8; 64].as_slice())]).unwrap();

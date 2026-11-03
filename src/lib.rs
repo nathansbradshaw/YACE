@@ -10,6 +10,8 @@ pub mod clean_recognition;
 pub mod clean_transcript;
 pub mod collaboration;
 pub mod collaboration_exchange;
+#[cfg(any(test, feature = "editor", feature = "browser"))]
+pub mod compact_backup;
 pub mod detection_settings;
 pub mod difficulty_links;
 pub mod drum_articulation;

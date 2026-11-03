@@ -75,7 +75,7 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
   preserve source files and distinguish same-named songs. Discovery keeps local
   file handles and reads small INI files; recording/stem bytes load only for the
   selected song and are released from the collection snapshot after opening.
-  A selected song is bounded to 4096 files and 1 GiB, independently of the
+  A selected song is bounded to 16,384 files and 2 GiB, independently of the
   collection's total recording size (up to 100,000 selected file handles).
   **Open saved project** opens a project ZIP with review and undo history.
 - Pick tracks, select/place/erase notes, edit timing and song sections, work with
@@ -87,6 +87,15 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
   The original encoded recording is preserved in exports.
 - **Download project backup…** in the YACE menu prepares a complete portable ZIP
   with source files, stable note identities, checkpoints and review history.
+  Backups use a versioned compact format: duplicate files are stored once and
+  stems default to high-quality 24-bit listening copies, with peak scaling to
+  preserve headroom, stereo, frame counts and timing. **Exact** retains every
+  original generated sample and file hash, with larger downloads.
+  **Include generated stems** is on by default so isolated parts remain available
+  for charting. Turn it off for a smaller backup; the original audio and complete
+  editing history remain, but omitted stems must be regenerated or reattached.
+  Open compact backups with an updated YACE. Existing ordinary ZIPs still open.
+  Original recordings are always byte-for-byte preserved in either quality mode.
   **Export playable song…** opens the same choices as desktop: target preset,
   automatic / `.chart` / MIDI format, instruments and difficulties, and recording
   and stems included or omitted. All parts are initially selected. Incompatible
@@ -99,10 +108,17 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
 Files stay on the user's computer. Browser file inputs open the native picker;
 there is no custom workspace file browser and no upload endpoint. ZIP imports
 reject unsafe paths, symbolic links, duplicates and excessive expanded sizes.
-ZIP selection is limited to 1 GiB encoded; expansion allows 3 GiB of entries
-while retaining at most 1 GiB of unique data. Identical game/recovery audio shares
-one immutable allocation. Exports compress WAVs and write bounded browser chunks
-instead of growing one large WASM archive buffer.
+ZIP selection allows up to 16 GiB encoded. A dedicated worker seeks local Blob
+slices through a 1 MiB cache, inflates one entry at a time and transfers each
+completed file to the editor. The complete encoded ZIP is never copied into
+WASM. Expansion is bounded to 32 GiB of logical entries, 2 GiB of unique data
+and 1 GiB per file in the browser. Duplicate data shares one immutable
+allocation. This is incremental archive reading, not unlimited disk-backed
+editing: the open project's unique files still occupy memory, and decoding and
+analysis need additional working space. Smaller devices can reach their memory
+limits earlier. Exports write bounded browser chunks instead of growing one
+large WASM archive buffer. Desktop import also seeks the original ZIP and
+shares duplicate allocations while restoring files; its per-file limit is 2 GiB.
 Folder import reads a snapshot; it does not establish ongoing disk access.
 
 IndexedDB stores the current project, source files and checkpoints in a single

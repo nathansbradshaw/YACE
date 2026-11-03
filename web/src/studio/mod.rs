@@ -69,7 +69,7 @@ mod song_overview;
 mod source_choice;
 #[path = "../../../src/studio/star_power.rs"]
 mod star_power;
-mod state;
+pub(crate) mod state;
 #[path = "../../../src/studio/stem_generation.rs"]
 mod stem_generation;
 #[path = "../../../src/studio/stems.rs"]

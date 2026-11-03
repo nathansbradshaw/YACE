@@ -26,6 +26,9 @@ pub(super) fn ExportSummary(studio: Studio) -> Element {
 
 #[component]
 pub fn ProjectBar(mut studio: Studio) -> Element {
+    let mut backup_open = use_signal(|| false);
+    let mut backup_stems = use_signal(|| true);
+    let mut backup_quality = use_signal(|| crate::compact_backup::StemQuality::Listening);
     let document = studio.snapshot();
     let loaded = document.is_some() || super::dance::active();
     let band = !super::dance::active();
@@ -98,7 +101,7 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
             if cfg!(feature="browser") {button { disabled:file_busy,aria_busy:file_action==Some(super::activity::FileAction::Open),"popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(), Icon { name: "file-plus", size: 15 } "Open charting folder…" }}
             if !cfg!(target_arch="wasm32") {button{disabled:file_busy,"popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.open_zip(),"Import project ZIP…"}}
             button { disabled:file_busy,aria_busy:file_action==Some(super::activity::FileAction::Import),"popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.import_song(),super::activity::BusyLabel{busy:file_action==Some(super::activity::FileAction::Import),label:"Import song ZIP…",active:"Importing song…"} }
-            button {disabled:!loaded || package_busy || file_busy,aria_busy:file_action==Some(super::activity::FileAction::Backup),"popovertarget":"project-actions","popovertargetaction":"hide",title:"Complete editable project ZIP with source files and undo history",onclick:move |_|super::dance::save(studio),super::activity::BusyLabel{busy:file_action==Some(super::activity::FileAction::Backup),label:if cfg!(target_arch="wasm32"){"Download project backup…"}else{"Save project backup…"},active:"Preparing backup…"}}
+            button {disabled:!loaded || package_busy || file_busy,aria_busy:file_action==Some(super::activity::FileAction::Backup),"popovertarget":"project-actions","popovertargetaction":"hide",title:"Compact editable backup with original audio and undo history",onclick:move |_|backup_open.set(true),super::activity::BusyLabel{busy:file_action==Some(super::activity::FileAction::Backup),label:if cfg!(target_arch="wasm32"){"Download project backup…"}else{"Save project backup…"},active:"Preparing backup…"}}
             if cfg!(target_arch="wasm32") {button {"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_| {
                 #[cfg(target_arch="wasm32")]
                 studio.open_saved_projects();
@@ -108,6 +111,39 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
             button { title: if !band {"Chart assistant is unavailable for this chart type".to_owned()}else if cfg!(target_arch="wasm32"){ "The current assistant backends require native runtimes".to_owned() }else{ format!("Assistant for {title}") }, aria_label: "Chart assistant", disabled: !band || !loaded || cfg!(target_arch="wasm32"), "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.assistant_open.set(true), "Chart assistant" }
             button { disabled: !band || document.as_ref().is_none_or(|doc|!doc.has_recording()),title:"Attach a recording before cleaning audio", "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.clean_open.set(true), "Clean audio" }
             button { disabled: !band || !loaded, "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.collaboration_open.set(true), "Collaborate" }
+        }
+        if backup_open() {
+            super::sheet::ToolSheet {
+                id: "project-backup-options", title: "Compact project backup",
+                description: "Keep your original recording, charts and complete editing history.",
+                close_label: "Close backup options", class: "export-sheet",
+                onclose: move |_| backup_open.set(false),
+                actions: rsx! {
+                    button { onclick: move |_| backup_open.set(false), "Cancel" }
+                    button { disabled: !loaded || file_busy || package_busy, onclick: move |_| {
+                        backup_open.set(false);
+                        super::dance::save_with_options(studio, crate::compact_backup::Options { include_generated_stems: backup_stems(),stem_quality:backup_quality() });
+                    }, "Prepare backup" }
+                },
+                label { class: "checkbox-row",
+                    input { r#type: "checkbox", checked: backup_stems(), onchange: move |event| backup_stems.set(event.checked()) }
+                    "Include generated stems"
+                }
+                if backup_stems() {
+                    label { "Stem quality"
+                        select { value:if backup_quality()==crate::compact_backup::StemQuality::Listening {"listening"}else{"exact"},onchange:move |event|backup_quality.set(if event.value()=="exact"{crate::compact_backup::StemQuality::Exact}else{crate::compact_backup::StemQuality::Listening}),
+                            option {value:"listening","High quality · 24-bit listening copies"}
+                            option {value:"exact","Exact · original generated samples"}
+                        }
+                    }
+                    if backup_quality()==crate::compact_backup::StemQuality::Listening {
+                        p { "Smaller isolated parts for charting. Uses 24-bit precision with preserved headroom, stereo and timing. Tiny rounding differences are recorded; your original recording stays exact." }
+                    } else {p { "Preserves every generated sample and file checksum. Exact backups are larger." }}
+                } else {
+                    p { "Stems will be unavailable after restoring this backup until you regenerate or reattach them. The original recording and all chart edits and undo history are still included." }
+                }
+                p { class: "field-hint", "Repeated assets are stored once. Open this backup in an updated YACE; older versions cannot read the compact format." }
+            }
         }
     }
 }

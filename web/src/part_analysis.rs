@@ -93,6 +93,7 @@ pub async fn prepare_project_drum_parts(
         serde_json::to_vec_pretty(&receipt)?,
     )?;
     let set = DrumPartSet {
+        portable_audio: std::collections::BTreeMap::new(),
         source_key: kit_source_key(project)?,
         original_audio_sha256: project.audio_sha256.clone(),
         drum_audio_sha256: hash,
