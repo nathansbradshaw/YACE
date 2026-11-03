@@ -91,6 +91,7 @@ pub fn Setup(mut studio: Studio, root: PathBuf, suggested_title: String) -> Elem
         section{class:"sections-dialog",
             h2{"New chart"}
             p{"Choose the first part for this recording. Add and generate more parts in the editor."}
+            if analyzing {p{role:"status",aria_live:"polite",super::activity::BusyLabel{busy:true,label:"",active:"Reading recording and estimating tempo…"}}}
             super::parts::FirstPart{value:chart_type,disabled:busy()}
             label{class:"field-stack","Title",input{class:"field-control",aria_label:"Song title",value:title,disabled:busy()||lookup_busy(),oninput:move|e|title.set(e.value())}}
             label{class:"field-stack","Artist",input{class:"field-control",aria_label:"Song artist",value:artist,disabled:busy()||lookup_busy(),oninput:move|e|artist.set(e.value())}}
@@ -109,10 +110,11 @@ pub fn Setup(mut studio: Studio, root: PathBuf, suggested_title: String) -> Elem
                 },"Choose cover…"}
                 button{disabled:busy()||lookup_busy()||info.read().artwork.is_none(),onclick:move|_|info.with_mut(|info|{info.artwork=None;info.artwork_source.clear();}),"Clear cover"}
                 label{class:"form-check",input{r#type:"checkbox",checked:lyrics(),disabled:busy()||lookup_busy(),onchange:move|e|lyrics.set(e.checked())},"Look up lyric reference"}
-                button{disabled:busy()||lookup_busy()||analyzing||title().trim().is_empty()||duration()<=0.,onclick:move|_|{
+                button{disabled:busy()||lookup_busy()||analyzing||title().trim().is_empty()||duration()<=0.,aria_busy:lookup_busy(),onclick:move|_|{
+                    if *busy.peek() || *lookup_busy.peek() {return;}
                     let root=lookup_root.clone();let current=info();let metadata=crate::pipeline::Metadata{name:title(),artist:artist(),album:current.album.clone(),year:current.year.clone(),genre:current.genre.clone(),duration:duration()};let lyrics=lyrics();lookup_busy.set(true);
                     spawn(async move{match studio.lookup_new_chart(root,metadata,current,lyrics).await{Ok(found)=>{title.set(found.metadata.name);artist.set(found.metadata.artist);info.set(found.info);studio.error.set(None);},Err(error)=>studio.error.set(Some(format!("{error:#}")))}lookup_busy.set(false);});
-                },if lookup_busy(){"Looking up song information…"}else{"Look up song info & cover art"}}
+                },super::activity::BusyLabel{busy:lookup_busy(),label:"Look up song info & cover art",active:"Looking up song information…"}}
                 p{class:"field-hint","Lookup shares title, artist and duration with public catalogues. Audio stays local. Suggestions remain editable."}
                 if !info.read().artwork_source.is_empty(){p{class:"field-hint",style:"overflow-wrap:anywhere","{info.read().artwork_source}"}}
                 if !info.read().notes.is_empty(){details{summary{"Import notes"}for note in &info.read().notes{p{class:"field-hint","{note}"}}}}
@@ -128,13 +130,14 @@ pub fn Setup(mut studio: Studio, root: PathBuf, suggested_title: String) -> Elem
             p{class:"field-hint","You can change tempo and time signatures later with Timing."}
             if let Some(error)=(studio.error)(){p{role:"alert","{error}"}}
             button{disabled:busy(),onclick:move|_|close.call(()),"Cancel"}
-            button{disabled:busy()||lookup_busy()||analyzing||!valid,onclick:move|_|{
+            button{disabled:busy()||lookup_busy()||analyzing||!valid,aria_busy:busy(),onclick:move|_|{
+                if *busy.peek() || *lookup_busy.peek() {return;}
                 let root=root.clone();let title=title();let artist=artist();let tempo=tempo().parse().unwrap_or(120.);let info=info();
                 let timing=if use_detected(){analysis.read().as_ref().and_then(|r|r.as_ref().ok()).filter(|e|!e.segments.is_empty()).map(|e|e.tempo_map()).unwrap_or_else(||crate::timing::TempoMap::constant(tempo))}else{crate::timing::TempoMap::constant(tempo)};
                 let timing=match timing{Ok(timing)=>timing,Err(error)=>{studio.error.set(Some(error.to_string()));return;}};busy.set(true);
                 let kind=chart_type();
                 spawn(async move{let result=if kind=="band"{let result=studio.finish_new_chart(root,title,artist,timing,info).await;if result.is_ok()&&super::dance::after_new(){studio.generation_open.set(true);}result}else{super::dance::finish_new(studio,root,title,artist,timing,info,if kind=="pad"{crate::stepmania::Profile::Pad}else{crate::stepmania::Profile::Keyboard}).await};if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));busy.set(false);}});
-            },if busy(){"Preparing…"}else{"Create chart"}}
+            },super::activity::BusyLabel{busy:busy(),label:"Create chart",active:"Creating chart…"}}
         }
     }}
 }

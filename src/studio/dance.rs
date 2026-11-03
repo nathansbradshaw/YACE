@@ -1143,6 +1143,9 @@ pub fn identity() -> Option<(String, String)> {
     ))
 }
 pub fn new_recording(studio: super::state::Studio, generate: bool) {
+    if studio.file_activity.peek().is_some() || *studio.library_busy.peek() {
+        return;
+    }
     if let Some(mut s) = try_consume_context::<DanceStudio>() {
         s.after_new.set(generate);
     }
@@ -1177,8 +1180,19 @@ pub fn save(studio: super::state::Studio) {
             && s.parent.read().as_ref() == studio.store.read().as_ref().map(|s| &s.root)
     });
     if active() || linked {
+        let Some(guard) = super::activity::FileGuard::start(
+            studio.file_activity,
+            studio.status,
+            super::activity::FileAction::Backup,
+        ) else {
+            return;
+        };
+        let Some(busy) = super::activity::BusyGuard::start(studio.export_busy) else {
+            return;
+        };
         let s = consume_context::<DanceStudio>();
         dioxus::core::spawn_forever(async move {
+            let (_guard, _busy) = (guard, busy);
             s.save().await;
             s.prepare(None).await;
         });
