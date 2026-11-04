@@ -158,10 +158,10 @@ pub fn StemControls(studio: Studio) -> Element {
                     div{style:"display:flex;gap:12px;flex-wrap:wrap;padding-top:8px",
                         for stem in &manifest.stems{
                             {let id=stem.id;let settings=doc.content.stem_mix.channels.get(&id).cloned().unwrap_or_default();
-                            rsx!{div{key:"{label(id)}",style:"display:flex;align-items:center;gap:5px",
+                            rsx!{div{key:"{label(id)}",role:"group",aria_label:"{label(id)} mixer channel",style:"display:flex;align-items:center;gap:5px",
                                 strong{"{label(id)}"}
-                                label{style:"display:flex;gap:3px;align-items:center",input{r#type:"checkbox",checked:settings.mute,onkeydown:move|e|e.stop_propagation(),onchange:move|e|channel(studio,id,None,Some(e.checked()),None)}"Mute"}
-                                label{style:"display:flex;gap:3px;align-items:center",input{r#type:"checkbox",checked:settings.solo,onkeydown:move|e|e.stop_propagation(),onchange:move|e|channel(studio,id,None,None,Some(e.checked()))}"Solo"}
+                                label{style:"display:flex;gap:3px;align-items:center",input{r#type:"checkbox",aria_label:"Mute {label(id)}",checked:settings.mute,onkeydown:move|e|e.stop_propagation(),onchange:move|e|channel(studio,id,None,Some(e.checked()),None)}"Mute"}
+                                label{style:"display:flex;gap:3px;align-items:center",input{r#type:"checkbox",aria_label:"Solo {label(id)}",checked:settings.solo,onkeydown:move|e|e.stop_propagation(),onchange:move|e|channel(studio,id,None,None,Some(e.checked()))}"Solo"}
                                 input{r#type:"number",min:"0",max:"2",step:"0.05",value:"{settings.gain}",style:"width:56px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:3px;padding:3px",aria_label:"{label(id)} gain",title:"Stem gain (0–2)",onkeydown:move|e|e.stop_propagation(),onchange:move|e|{if let Ok(gain)=e.value().parse::<f32>(){channel(studio,id,Some(gain),None,None)}}}
                             }}}
                         }
