@@ -10,6 +10,7 @@ use std::collections::BTreeSet;
 
 #[component]
 pub fn NoteTypes(mut studio: Studio) -> Element {
+    let reset = super::field_reset::use_field_reset();
     let Some(doc) = studio.snapshot() else {
         return rsx! {};
     };
@@ -38,14 +39,14 @@ pub fn NoteTypes(mut studio: Studio) -> Element {
     };
     rsx! {div {class:"selection-note-types",
         label {class:"selection-lane","Type"
-            select {aria_label:"Selected note type",title:"Forced switches the automatic strum/HOPO type. Changes the whole chord.",value,
+            for epoch in [reset.key()] {select {key:"{epoch}",aria_label:"Selected note type",title:"Forced switches the automatic strum/HOPO type. Changes the whole chord.",value,onmounted:move |event|reset.mounted(event),
                 onkeydown:move |event|event.stop_propagation(),
-                onchange:move |event|{if let Some(kind)=Kind::parse(&event.value()){studio.dispatch(Action::SetNoteType {selection:snapshot.clone(),kind});}},
+                onchange:{let snapshot=snapshot.clone();move |event|{if !Kind::parse(&event.value()).is_some_and(|kind|studio.try_dispatch(Action::SetNoteType {selection:snapshot.clone(),kind})){reset.rejected();}}},
                 if value=="mixed" {option {value:"mixed",disabled:true,selected:true,"Mixed"}}
                 option {value:"auto",selected:value=="auto","Auto"}
                 option {value:"forced",selected:value=="forced","Forced"}
                 option {value:"tap",selected:value=="tap","Tap"}
-            }
+            }}
         }
     }}
 }

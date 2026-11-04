@@ -671,7 +671,11 @@ impl Studio {
         }
     }
     pub fn dispatch(self, action: Action) {
-        self.dispatch_with_transport(action, true);
+        self.try_dispatch(action);
+    }
+    /// Whether the editor accepted the action; refused form edits need rollback.
+    pub fn try_dispatch(self, action: Action) -> bool {
+        self.dispatch_with_transport(action, true)
     }
     fn dispatch_with_transport(mut self, action: Action, apply_audio_transport: bool) -> bool {
         if self.analysis_preview.peek().is_some() && !crate::reanalysis::preview_transport(&action)

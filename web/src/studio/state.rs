@@ -308,7 +308,11 @@ impl Studio {
         }
     }
     pub fn dispatch(self, action: Action) {
-        self.dispatch_with_media(action, true);
+        self.try_dispatch(action);
+    }
+    /// Whether the editor accepted the action, independently of pending autosave.
+    pub fn try_dispatch(self, action: Action) -> bool {
+        self.dispatch_with_media(action, true)
     }
     fn dispatch_with_media(mut self, action: Action, apply_media: bool) -> bool {
         if self.analysis_preview.peek().is_some() && !crate::reanalysis::preview_transport(&action)
