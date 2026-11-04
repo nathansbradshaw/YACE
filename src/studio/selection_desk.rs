@@ -6,28 +6,36 @@ use super::{
 use crate::editor::{Action, DecisionStatus, EditorNote};
 use dioxus::prelude::*;
 
-fn update(studio: Studio, id: &str, apply: impl FnOnce(&mut crate::chart::Note, &mut bool)) {
+fn update(
+    studio: Studio,
+    id: &str,
+    apply: impl FnOnce(&mut crate::chart::Note, &mut bool),
+) -> bool {
     let Some(document) = studio.snapshot() else {
-        return;
+        return false;
     };
     let Some((track, item)) = document.find_note(id) else {
-        return;
+        return false;
     };
     let mut note = item.note.clone();
     let mut cymbal = document.is_cymbal(track, &note);
     apply(&mut note, &mut cymbal);
     cymbal &= track.ends_with("Drums") && (2..=4).contains(&note.lane);
-    studio.dispatch(Action::UpdateNote {
+    studio.try_dispatch(Action::UpdateNote {
         note_id: id.into(),
         tick: note.tick,
         lane: note.lane,
         sustain: note.sustain,
         cymbal,
-    });
+    })
 }
 
 #[component]
 fn NoteSelection(studio: Studio, track: String, item: EditorNote) -> Element {
+    let tick_reset = super::field_reset::use_field_reset();
+    let length_reset = super::field_reset::use_field_reset();
+    let lane_reset = super::field_reset::use_field_reset();
+    let cymbal_reset = super::field_reset::use_field_reset();
     let tick_id = item.id.clone();
     let length_id = item.id.clone();
     let lane_id = item.id.clone();
@@ -47,17 +55,17 @@ fn NoteSelection(studio: Studio, track: String, item: EditorNote) -> Element {
             p { class: "selection-caption", "{track_picker::title(&track)} · {clock(seconds)}" }
             div { class: "selection-timing",
                 label { "Start tick"
-                    input { aria_label: "Note position in ticks", r#type: "number", min: "0", value: "{item.note.tick}", onkeydown: move |event| event.stop_propagation(), onchange: move |event| { if let Ok(value) = event.value().parse() { update(studio, &tick_id, |note, _| note.tick = value); } } }
+                    for epoch in [tick_reset.key()] { input { key: "{epoch}", aria_label: "Note position in ticks", r#type: "number", min: "0", value: "{item.note.tick}", onmounted: move |event| tick_reset.mounted(event), onkeydown: move |event| event.stop_propagation(), onchange: {let id=tick_id.clone(); move |event| { if !event.value().parse().ok().is_some_and(|value| update(studio, &id, |note, _| note.tick = value)) { tick_reset.rejected(); } } } } }
                 }
                 label { "Length ticks"
-                    input { aria_label: "Note duration in ticks", r#type: "number", min: "0", value: "{item.note.sustain}", disabled: drums, onkeydown: move |event| event.stop_propagation(), onchange: move |event| { if let Ok(value) = event.value().parse() { update(studio, &length_id, |note, _| note.sustain = value); } } }
+                    for epoch in [length_reset.key()] { input { key: "{epoch}", aria_label: "Note duration in ticks", r#type: "number", min: "0", value: "{item.note.sustain}", disabled: drums, onmounted: move |event| length_reset.mounted(event), onkeydown: move |event| event.stop_propagation(), onchange: {let id=length_id.clone(); move |event| { if !event.value().parse().ok().is_some_and(|value| update(studio, &id, |note, _| note.sustain = value)) { length_reset.rejected(); } } } } }
                 }
             }
             div { class: if crate::note_types::supported(&track) || drums {"selection-properties"} else {""},
               label { class: "selection-lane", "Lane"
-                select { aria_label: "Note lane", value: "{item.note.lane}", onkeydown: move |event| event.stop_propagation(), onchange: move |event| { if let Ok(value) = event.value().parse() { update(studio, &lane_id, |note, _| note.lane = value); } },
+                for epoch in [lane_reset.key()] { select { key: "{epoch}", aria_label: "Note lane", value: "{item.note.lane}", onmounted: move |event| lane_reset.mounted(event), onkeydown: move |event| event.stop_propagation(), onchange: {let id=lane_id.clone(); move |event| { if !event.value().parse().ok().is_some_and(|value| update(studio, &id, |note, _| note.lane = value)) { lane_reset.rejected(); } } },
                     for lane in crate::timeline::lane_rows(&track) { option { value: "{lane}", selected: lane == item.note.lane, "{super::note_canvas::lane_name(&track, lane)}" } }
-                }
+                } }
               }
               super::note_types::NoteTypes {studio}
               super::drum_dynamics::DrumDynamics {studio}
@@ -67,7 +75,7 @@ fn NoteSelection(studio: Studio, track: String, item: EditorNote) -> Element {
             }
             div { class: "selection-actions",
                 if drums && (2..=4).contains(&item.note.lane) { label { class: "form-check",
-                    input { r#type: "checkbox", checked: cymbal, onkeydown: move |event| event.stop_propagation(), onchange: move |event| update(studio, &cymbal_id, |_, cymbal| *cymbal = event.checked()) } "Cymbal"
+                    for epoch in [cymbal_reset.key()] { input { key: "{epoch}", r#type: "checkbox", checked: cymbal, onmounted: move |event| cymbal_reset.mounted(event), onkeydown: move |event| event.stop_propagation(), onchange: {let id=cymbal_id.clone(); move |event| { if !update(studio, &id, |_, cymbal| *cymbal = event.checked()) { cymbal_reset.rejected(); } } } } } "Cymbal"
                 } }
                 button { class: "selection-delete", onclick: move |_| studio.dispatch(Action::DeleteNote { note_id: delete_id.clone() }), "Delete note" }
             }

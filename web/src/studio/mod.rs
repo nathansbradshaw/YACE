@@ -19,6 +19,8 @@ mod difficulty;
 mod drum_dynamics;
 #[path = "../../../src/studio/export.rs"]
 mod export;
+#[path = "../../../src/studio/field_reset.rs"]
+mod field_reset;
 #[path = "../../../src/studio/game_preview.rs"]
 mod game_preview;
 mod generation_actions;

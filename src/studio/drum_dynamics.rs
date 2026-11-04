@@ -9,6 +9,7 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn DrumDynamics(studio: Studio) -> Element {
+    let reset = super::field_reset::use_field_reset();
     let Some(doc) = studio.snapshot() else {
         return rsx! {};
     };
@@ -39,14 +40,14 @@ pub fn DrumDynamics(studio: Studio) -> Element {
     let value = kind.map_or("mixed", Kind::key);
     let skipped = selection.len() - selected.len();
     rsx! {label{class:"selection-note-type","Drum dynamics"
-        select{aria_label:"Drum dynamics",value:"{value}",onkeydown:move|event|event.stop_propagation(),onchange:move|event|{
-            if let Some(kind)=Kind::parse(&event.value()){studio.dispatch(Action::SetDrumDynamics{selection:snapshot.clone(),kind});}
-        },
+        for epoch in [reset.key()] {select{key:"{epoch}",aria_label:"Drum dynamics",value:"{value}",onmounted:move|event|reset.mounted(event),onkeydown:move|event|event.stop_propagation(),onchange:{let snapshot=snapshot.clone();move|event|{
+            if !Kind::parse(&event.value()).is_some_and(|kind|studio.try_dispatch(Action::SetDrumDynamics{selection:snapshot.clone(),kind})){reset.rejected();}
+        }},
             if kind.is_none(){option{value:"mixed",disabled:true,selected:true,"Mixed"}}
             option{value:"normal",selected:value=="normal","Normal"}
             option{value:"accent",selected:value=="accent","Accent"}
             option{value:"ghost",selected:value=="ghost","Ghost"}
-        }
+        }}
     }
     if skipped>0{p{class:"field-hint","Drum pads affected: {selected.len()}. Kick notes unchanged: {skipped}."}}}
 }
