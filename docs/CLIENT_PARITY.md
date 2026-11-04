@@ -100,11 +100,17 @@ not establish acoustic latency, sustained frame performance or musical quality.
 The native mixed-part export displayed 34 distinct choices. Omitting only
 Expert six-fret bass produced the same MIDI as the previously inspected browser
 selection, preserving its lower difficulties and the other families. Native
-export failure feedback remains incomplete: choosing a destination inside the
-source folder correctly refuses the write, but leaves a preparation status and
-places the error behind the dialog. Cancelling exposes the reason; retrying
-outside the source folder succeeds. Browser inline export feedback is verified
-separately below.
+export failures now appear once inside the dialog, with an enabled retry and a
+terminal failure status. Closing and reopening retains the relevant error;
+retrying clears only the previous export failure. Cancelling the native file
+picker ends with a cancellation status. Actual native checks refused a source
+folder destination, cancelled a retry and then exported all 34 parts to a valid
+destination. Independent MIDI inspection retained every instrument family,
+technique and phrase. Browser inline export feedback is verified separately below.
+
+A rejected lane change exposed a separate inspector rollback gap: the saved note
+and selection remain correct, but the lane field can display the refused value.
+Resetting that field after refusal remains unfinished.
 
 MIDI represents double kicks on Expert only. Other difficulties require `.chart`
 export. Imported MIDI songs continue to refuse `.chart` conversion when it could
