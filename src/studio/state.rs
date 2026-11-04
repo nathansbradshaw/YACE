@@ -2077,6 +2077,16 @@ impl Studio {
         let Some(busy) = super::activity::BusyGuard::start(self.export_busy) else {
             return;
         };
+        // A retry clears only this operation's previous failure. Unrelated
+        // editing, persistence and playback errors must remain visible.
+        let retrying_failed_export = self
+            .error
+            .peek()
+            .as_ref()
+            .is_some_and(|message| message.starts_with("Song export failed: "));
+        if retrying_failed_export {
+            self.error.set(None);
+        }
         dioxus::core::spawn_forever(async move {
             let _busy = busy;
             let result = async {
@@ -2130,12 +2140,20 @@ impl Studio {
                     }
                     rfd::download(&download).await;
                     self.export_open.set(false);
+                } else if self.store.peek().as_ref().is_some_and(|s| s.root == root) {
+                    self.status.set("Song export cancelled".into());
                 }
                 Ok::<_, anyhow::Error>(())
             }
             .await;
             if let Err(error) = result {
-                self.error.set(Some(format!("{error:#}")));
+                // Do not attach an old project's failure to a newly opened one.
+                if self.store.peek().as_ref().is_some_and(|s| s.root == root) {
+                    self.status
+                        .set("Song export failed · check error details".into());
+                    self.error
+                        .set(Some(format!("Song export failed: {error:#}")));
+                }
             }
         });
     }
