@@ -79,15 +79,32 @@ preview also verified imported one-tick edits, double-kick placement, real
 clipboard paste, deletion and duplicate refusal without losing selection.
 Restoring the original notes produced byte-identical MIDI, which reopened with
 all seven hits and completed its ten-second recording. The latest integrated
-native build still needs a full-song workflow and restart. Eleven articulation regressions
-cover the core rules, including unrelated marker preservation.
+native build completed a 243.880-second recording in both combined and focused
+vocal views. A double-kick edit, clipboard paste, deletion and Undo/Redo worked
+in the full-song chart. A compact backup passed archive checks; quitting,
+restarting and reopening the project retained the accepted edit and Undo/Redo.
+The edited playable export reopened with the added double kick. Startup first
+restored the existing Dance session, so automatically reopening the most recent
+band project is not verified. Eleven articulation regressions cover the core
+rules, including unrelated marker preservation.
 
 Native vocal previews now carry the recording and revision metadata expected by
 the display clock. A preview without that identity can still deliver clock ticks;
 its timing samples are excluded from recording-specific measurements. Previously,
 the first vocal batch in an all-parts view could stop the refresh task and leave
-the preview on its fallback timer. The integrated native workflow must verify
-that the display link remains active through vocal and combined previews.
+the preview on its fallback timer. Actual combined and focused-vocal runs
+reached the recording's natural end without the error and produced fresh,
+recording-bound frame samples while playing. These muted transport checks do
+not establish acoustic latency, sustained frame performance or musical quality.
+
+The native mixed-part export displayed 34 distinct choices. Omitting only
+Expert six-fret bass produced the same MIDI as the previously inspected browser
+selection, preserving its lower difficulties and the other families. Native
+export failure feedback remains incomplete: choosing a destination inside the
+source folder correctly refuses the write, but leaves a preparation status and
+places the error behind the dialog. Cancelling exposes the reason; retrying
+outside the source folder succeeds. Browser inline export feedback is verified
+separately below.
 
 MIDI represents double kicks on Expert only. Other difficulties require `.chart`
 export. Imported MIDI songs continue to refuse `.chart` conversion when it could
