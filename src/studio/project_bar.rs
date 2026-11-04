@@ -30,6 +30,12 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
     let mut backup_stems = use_signal(|| true);
     let mut backup_quality = use_signal(|| crate::compact_backup::StemQuality::Listening);
     let document = studio.snapshot();
+    #[cfg(target_arch = "wasm32")]
+    let direct_folders = crate::project_folder::supported();
+    #[cfg(target_arch = "wasm32")]
+    let linked = super::dance::standalone_folder()
+        .or_else(|| studio.store.read().as_ref().map(|store| store.root.clone()))
+        .is_some_and(|root| crate::project_folder::linked(&root));
     let loaded = document.is_some() || super::dance::active();
     let band = !super::dance::active();
     let title = studio.metadata_value("name");
@@ -97,11 +103,24 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
         div { id: "project-actions", class: "command-popover project-popover", "popover": "auto", onkeydown: keep_space_local,
             button{disabled:file_busy,"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|studio.new_blank_chart(),Icon{name:"file-plus",size:15}"New blank chart…"}
             button { disabled:file_busy,aria_busy:file_action==Some(super::activity::FileAction::Recording),"popovertarget":"project-actions","popovertargetaction":"hide",onclick:move |_|super::dance::new_recording(studio,false),Icon{name:"music",size:15}super::activity::BusyLabel{busy:file_action==Some(super::activity::FileAction::Recording),label:"New chart from audio…",active:"Choosing recording…"}}
-            button { disabled: file_busy, aria_busy:file_action==Some(super::activity::FileAction::Open), "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(), Icon { name: "folder-open", size: 15 } super::activity::BusyLabel{busy:file_action==Some(super::activity::FileAction::Open),label:if cfg!(feature="browser"){ "Open saved project…" }else{"Open project or charting folder…"},active:"Opening project…"} }
+            button { disabled: file_busy, aria_busy:file_action==Some(super::activity::FileAction::Open), "popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(), Icon { name: "folder-open", size: 15 } super::activity::BusyLabel{busy:file_action==Some(super::activity::FileAction::Open),label:if cfg!(feature="browser"){ "Open project ZIP…" }else{"Open project or charting folder…"},active:"Opening project…"} }
+            {
+                #[cfg(target_arch = "wasm32")]
+                {rsx! {
+                    if direct_folders {
+                        button { disabled:file_busy, "popovertarget":"project-actions","popovertargetaction":"hide", onclick: move |_| studio.open_project_folder(), Icon { name: "folder-open", size: 15 } "Open project folder…" }
+                        if loaded && !linked {
+                            button { disabled:file_busy || package_busy, "popovertarget":"project-actions","popovertargetaction":"hide", title:"Choose an empty folder for the complete editable project", onclick: move |_| studio.save_to_project_folder(), "Save to project folder…" }
+                        }
+                    }
+                }}
+                #[cfg(not(target_arch = "wasm32"))]
+                {rsx! {}}
+            }
             if cfg!(feature="browser") {button { disabled:file_busy,aria_busy:file_action==Some(super::activity::FileAction::Open),"popovertarget": "project-actions", "popovertargetaction": "hide", "data-browser-pick": "folder", onclick: move |_| studio.create_dialog(), Icon { name: "file-plus", size: 15 } "Open charting folder…" }}
             if !cfg!(target_arch="wasm32") {button{disabled:file_busy,"popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.open_zip(),"Import project ZIP…"}}
             button { disabled:file_busy,aria_busy:file_action==Some(super::activity::FileAction::Import),"popovertarget":"project-actions","popovertargetaction":"hide","data-browser-pick":"file","data-browser-accept":".zip",onclick:move |_|studio.import_song(),super::activity::BusyLabel{busy:file_action==Some(super::activity::FileAction::Import),label:"Import song ZIP…",active:"Importing song…"} }
-            button {disabled:!loaded || package_busy || file_busy,aria_busy:file_action==Some(super::activity::FileAction::Backup),"popovertarget":"project-actions","popovertargetaction":"hide",title:"Compact editable backup with original audio and undo history",onclick:move |_|backup_open.set(true),super::activity::BusyLabel{busy:file_action==Some(super::activity::FileAction::Backup),label:if cfg!(target_arch="wasm32"){"Download project backup…"}else{"Save project backup…"},active:"Preparing backup…"}}
+            button {disabled:!loaded || package_busy || file_busy,aria_busy:file_action==Some(super::activity::FileAction::Backup),"popovertarget":"project-actions","popovertargetaction":"hide",title:"Editable ZIP with original audio, exact stems and undo history",onclick:move |_|super::dance::save_with_options(studio, crate::compact_backup::Options::default()),super::activity::BusyLabel{busy:file_action==Some(super::activity::FileAction::Backup),label:if cfg!(target_arch="wasm32"){"Download complete project…"}else{"Save complete project ZIP…"},active:"Preparing project ZIP…"}}
             if cfg!(target_arch="wasm32") && band {button {disabled:studio.doc.read().is_none() || package_busy,"popovertarget":"project-actions","popovertargetaction":"hide",title:"Preserve the open editor and available files even when normal backup fails",onclick:move |_| {
                 #[cfg(target_arch="wasm32")]
                 studio.recover_open_project();
@@ -112,6 +131,7 @@ pub fn ProjectBar(mut studio: Studio) -> Element {
             },"Saved in this browser…"}}
         }
         div { id: "project-tools", class: "command-popover tools-popover", "popover": "auto", onkeydown: keep_space_local,
+            button { disabled:!loaded || package_busy || file_busy,"popovertarget":"project-tools","popovertargetaction":"hide",onclick:move |_|backup_open.set(true),"Prepare smaller project backup…" }
             button { title: if !band {"Chart assistant is unavailable for this chart type".to_owned()}else if cfg!(target_arch="wasm32"){ "The current assistant backends require native runtimes".to_owned() }else{ format!("Assistant for {title}") }, aria_label: "Chart assistant", disabled: !band || !loaded || cfg!(target_arch="wasm32"), "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.assistant_open.set(true), "Chart assistant" }
             button { disabled: !band || document.as_ref().is_none_or(|doc|!doc.has_recording()),title:"Attach a recording before cleaning audio", "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.clean_open.set(true), "Clean audio" }
             button { disabled: !band || !loaded, "popovertarget": "project-tools", "popovertargetaction": "hide", onclick: move |_| studio.collaboration_open.set(true), "Collaborate" }

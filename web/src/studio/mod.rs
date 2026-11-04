@@ -217,6 +217,9 @@ pub fn App() -> Element {
                 }
                 Err(error) => {
                     studio.dirty.set(false);
+                    if crate::project_folder::linked(&store.root) {
+                        studio.saved_revision.set(None);
+                    }
                     studio
                         .error
                         .set(Some(format!("Autosave failed: {error:#}")));
@@ -230,10 +233,32 @@ pub fn App() -> Element {
             studio.tick();
         }
     });
+    let linked = studio
+        .store
+        .read()
+        .as_ref()
+        .is_some_and(|store| crate::project_folder::linked(&store.root));
+    let band_save_status = studio.snapshot().map_or_else(
+        || "Projects save automatically".into(),
+        |doc| {
+            let destination = if linked {
+                "to project folder"
+            } else {
+                "in this browser"
+            };
+            if (studio.dirty)() || (studio.persistence_busy)() {
+                format!("Project r{} · saving {destination}…", doc.revision)
+            } else if (studio.saved_revision)() != Some(doc.revision) {
+                format!("Project r{} not saved · download project ZIP", doc.revision)
+            } else {
+                format!("Project saved {destination} · r{}", doc.revision)
+            }
+        },
+    );
     rsx! {style{"{CSS}"}browser_viewport::BrowserViewport{div{class:"studio-app",tabindex:"-1",onkeydown:move|event|{shortcuts::handle(studio,event);},
         project_bar::ProjectBar{studio}
         if dance::active()||studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
-    div{class:"studio-status",activity::Status{studio,title:"Local browser activity"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{role:"status",title:"Browser saves stay in this browser profile. Download a project backup to keep an independent copy.",if let Some(status)=dance::save_status(){"{status}"}else if let Some(doc)=studio.snapshot(){if (studio.dirty)()||(studio.persistence_busy)(){"Project r{doc.revision} · saving in this browser…"}else if (studio.saved_revision)()!=Some(doc.revision){"Project r{doc.revision} not saved · download backup"}else{"Project saved in this browser · r{doc.revision}"}}else{"Projects save automatically in this browser"}} project_bar::ExportSummary{studio}}
+    div{class:"studio-status",activity::Status{studio,title:"Local browser activity"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{role:"status",if let Some(status)=dance::save_status(){"{status}"}else{"{band_save_status}"}} project_bar::ExportSummary{studio}}
         if let Some(error)=(studio.error)().filter(|message| !(studio.export_open)() || !message.starts_with("Song export failed: ")){div{class:"studio-error",role:"alert",span{"{error}"}
             if studio.doc.read().is_some(){button{disabled:(studio.export_busy)(),title:"Recover the open editor without reloading missing files",onclick:move |_|studio.recover_open_project(),"Download recovery copy…"}}
             button{onclick:move |_|{let mut studio=studio;studio.error.set(None);},"Dismiss"}}}
@@ -255,7 +280,7 @@ pub fn App() -> Element {
         if let Some(entries)=(studio.saved_projects)(){sheet::ToolSheet{id:"saved-projects",title:"Saved in this browser",description:"Reopen an automatically saved editing project.",close_label:"Close saved projects",class:"export-sheet",onclose:move |_|{let mut s=studio;s.saved_projects.set(None);},
             actions:rsx!{button{onclick:move |_|{let mut s=studio;s.saved_projects.set(None);},"Close"}},
             p{"Projects save automatically on this browser profile and device. Browser saves do not sync to other browsers. Clearing site data removes them."}
-            p{"Use Download project backup in the YACE menu to keep a complete editable copy, including undo history, or move a project to another device."}
+            p{"Use Download complete project in the YACE menu to move an editable project, including undo history, to another device."}
             if entries.is_empty(){p{"No saved projects yet. Open a chart or import a project ZIP."}}
             for entry in entries {button{class:"welcome-action",disabled:(studio.library_busy)(),onclick:move |_|{let root=entry.path.clone();dioxus::core::spawn_forever(async move{studio.open_saved_project(root).await;});},"{entry.title}"}}
         }}

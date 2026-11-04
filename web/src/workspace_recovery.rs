@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 
 const TAB_KEY: &str = "YACE-tab-workspace-v1";
 const DEFAULT_KEY: &str = "YACE-last-workspace-v1";
+const FOLDER: &str = "folder";
 
 fn storage_error(error: wasm_bindgen::JsValue) -> anyhow::Error {
     anyhow::anyhow!("Workspace recovery preferences: {error:?}")
@@ -23,6 +24,20 @@ pub fn current() -> Result<Option<Target>> {
     crate::workspace_target::select(tab.as_deref(), || {
         storage(false)?.get_item(DEFAULT_KEY).map_err(storage_error)
     })
+}
+
+pub fn folder_tab() -> Result<bool> {
+    Ok(storage(true)?
+        .get_item(TAB_KEY)
+        .map_err(storage_error)?
+        .as_deref()
+        == Some(FOLDER))
+}
+
+pub fn remember_folder() -> Result<()> {
+    storage(true)?
+        .set_item(TAB_KEY, FOLDER)
+        .map_err(storage_error)
 }
 
 /// Call only for the current durable workspace, never an asynchronous save's

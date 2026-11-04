@@ -21,6 +21,19 @@ pub fn Welcome(mut studio: Studio) -> Element {
                         Icon { name: "folder-open", size: 20 }
                         div { strong { "Open charting folder" } span { "Find charts up to 3 folders deep and switch between them." } }
                     }
+                    {
+                        #[cfg(target_arch = "wasm32")]
+                        {rsx! {
+                            if crate::project_folder::supported() {
+                                button { class:"welcome-action", disabled:file_busy, onclick: move |_| studio.open_project_folder(),
+                                    Icon { name:"folder-open", size:20 }
+                                    div { strong { "Open project folder" } span { "Edit a YACE project and save back to its folder." } }
+                                }
+                            }
+                        }}
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {rsx! {}}
+                    }
                     button {class:"welcome-action",disabled:file_busy,aria_busy:action==Some(super::activity::FileAction::Import),onclick:move |_|studio.import_song(),Icon{name:"folder-open",size:20}div{strong{super::activity::BusyLabel{busy:action==Some(super::activity::FileAction::Import),label:"Import song ZIP",active:"Importing song…"}}span{"Open an existing chart with or without a recording."}}}
                     button { class: "welcome-action", disabled:file_busy,aria_busy:action==Some(super::activity::FileAction::Open),"data-browser-pick": "file", "data-browser-accept":".zip", onclick: move |_| studio.open_dialog(),
                         Icon { name: "folder-open", size: 20 }

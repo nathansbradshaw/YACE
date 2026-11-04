@@ -241,6 +241,8 @@ pub fn relocate<B: Bytes>(files: &mut BTreeMap<String, B>, root: &Path) -> Resul
             &transcodes,
             &mut keys,
         )?;
+        #[cfg(target_arch = "wasm32")]
+        crate::editor::Store::new(root).portable_stem_paths(&mut checkpoint.content);
         let bytes = checkpoint.encode()?;
         let next = digest(&bytes);
         files

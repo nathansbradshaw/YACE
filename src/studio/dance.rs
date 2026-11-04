@@ -1096,6 +1096,7 @@ pub fn browser_workspace_target(
     if (s.open)() && s.parent.read().is_none() {
         return (s.saved)()
             .and_then(|_| (s.root)())
+            .filter(|root| !crate::project_folder::linked(root))
             .map(|root| Target::new(Family::Stepmania, root));
     }
     (studio.saved_revision)()?;
@@ -1103,7 +1104,16 @@ pub fn browser_workspace_target(
         .store
         .read()
         .as_ref()
+        .filter(|store| !crate::project_folder::linked(&store.root))
         .map(|store| Target::new(Family::Band, store.root.clone()))
+}
+#[cfg(target_arch = "wasm32")]
+pub fn standalone_folder() -> Option<PathBuf> {
+    let s = try_consume_context::<DanceStudio>()?;
+    if !(s.open)() || s.parent.read().is_some() {
+        return None;
+    }
+    (s.root)()
 }
 pub fn view_epoch() -> u64 {
     try_consume_context::<DanceStudio>().map_or(0, |s| (s.epoch)())
@@ -1130,6 +1140,13 @@ pub fn save_status() -> Option<&'static str> {
         return None;
     }
     let revision = s.project.read().as_ref()?.revision;
+    #[cfg(target_arch = "wasm32")]
+    let linked = s
+        .parent
+        .read()
+        .clone()
+        .or_else(|| (s.root)())
+        .is_some_and(|root| crate::project_folder::linked(&root));
     Some(if (s.blocked)() {
         if cfg!(target_arch = "wasm32") {
             "Not saved · download project backup"
@@ -1137,12 +1154,20 @@ pub fn save_status() -> Option<&'static str> {
             "Not saved · save project backup"
         }
     } else if (s.saved)() == Some(revision) {
+        #[cfg(target_arch = "wasm32")]
+        if linked {
+            return Some("Saved to project folder");
+        }
         if cfg!(target_arch = "wasm32") {
             "Saved in this browser"
         } else {
             "Saved locally"
         }
     } else if cfg!(target_arch = "wasm32") {
+        #[cfg(target_arch = "wasm32")]
+        if linked {
+            return Some("Saving to project folder…");
+        }
         "Saving in this browser…"
     } else {
         "Saving locally…"

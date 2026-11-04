@@ -40,7 +40,9 @@ fn materialize(path: &Path) -> io::Result<()> {
     let project = PROJECTS
         .with(|projects| projects.borrow().get(path).cloned())
         .ok_or_else(|| io::Error::other("Project cache is missing"))?;
-    let bytes = serde_json::to_vec(project.as_ref()).map_err(io::Error::other)?;
+    let mut document = project.as_ref().clone();
+    crate::editor::Store::new(path.parent().unwrap()).portable_stem_paths(&mut document.content);
+    let bytes = serde_json::to_vec(&document).map_err(io::Error::other)?;
     FILES.with(|files| {
         files.borrow_mut().insert(path.to_owned(), Arc::new(bytes));
     });
@@ -188,6 +190,7 @@ pub fn list(root: &Path) -> io::Result<Vec<(PathBuf, Arc<Vec<u8>>)>> {
     }))
 }
 pub fn clear(root: &Path) {
+    crate::project_folder::forget(root);
     crate::files::clear_downloads(root);
     DIRECTORIES.with(|dirs| dirs.borrow_mut().retain(|path| !path.starts_with(root)));
     crate::part_analysis::forget_root(root);

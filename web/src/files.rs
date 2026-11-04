@@ -87,7 +87,7 @@ impl FolderSelection {
         }
     }
 }
-async fn read_file(file: &web_sys::File) -> Result<Vec<u8>> {
+pub(crate) async fn read_file(file: &web_sys::File) -> Result<Vec<u8>> {
     let buffer = JsFuture::from(file.array_buffer()).await.map_err(error)?;
     Ok(js_sys::Uint8Array::new(&buffer).to_vec())
 }
