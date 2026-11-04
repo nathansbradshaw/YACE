@@ -108,9 +108,15 @@ folder destination, cancelled a retry and then exported all 34 parts to a valid
 destination. Independent MIDI inspection retained every instrument family,
 technique and phrase. Browser inline export feedback is verified separately below.
 
-A rejected lane change exposed a separate inspector rollback gap: the saved note
-and selection remain correct, but the lane field can display the refused value.
-Resetting that field after refusal remains unfinished.
+Rejected inspector edits now restore the accepted value and keyboard focus.
+Shared Rust controls remount only the refused field; accepted edits retain their
+element identity. Actual browser checks repeated lane and tick collisions,
+then accepted a keyboard step and exercised Undo/Redo. A full recording reached
+its natural end with a temporary drum edit, and undoing the edits exported the
+original chart byte for byte. Native checks covered the same collisions and
+refused dynamics/cymbal changes during a failed write, retaining the saved file;
+restoring write access allowed a retry and Undo. Its restored MIDI export also
+matched the original. These checks do not establish musical or game acceptance.
 
 MIDI represents double kicks on Expert only. Other difficulties require `.chart`
 export. Imported MIDI songs continue to refuse `.chart` conversion when it could
