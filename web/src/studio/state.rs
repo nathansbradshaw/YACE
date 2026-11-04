@@ -196,6 +196,9 @@ impl Drop for Candidate {
 }
 impl Studio {
     pub fn remember_recent(mut self, path: PathBuf) {
+        if crate::project_folder::linked(&path) {
+            return;
+        }
         let mut history = crate::recent_projects::History::load().unwrap_or_default();
         history.remember(
             path.clone(),
@@ -708,6 +711,102 @@ impl Studio {
     pub fn create_dialog(self) {
         self.import(true, super::activity::FileAction::Open);
     }
+    pub fn open_project_folder(mut self) {
+        let Some(guard) = super::activity::FileGuard::start(
+            self.file_activity,
+            self.status,
+            super::activity::FileAction::Open,
+        ) else {
+            return;
+        };
+        let picker = crate::project_folder::pick();
+        dioxus::core::spawn_forever(async move {
+            let _guard = guard;
+            let root = crate::files::unique_root();
+            let result = async {
+                let Some(directory) = crate::project_folder::selected(picker?).await? else {
+                    return Ok(false);
+                };
+                super::dance::flush().await?;
+                self.persist_current().await?;
+                self.status.set("Reading the project folder…".into());
+                let manifest = crate::project_folder::open(&root, directory).await?;
+                if manifest == crate::stepmania::bundle::MANIFEST {
+                    ensure!(
+                        super::dance::try_open_path(&root)?,
+                        "Could not open the dance project"
+                    );
+                } else {
+                    self.open_project(root.clone()).await?;
+                }
+                self.detach_library();
+                self.status.set("Opened project folder".into());
+                self.error.set(None);
+                if let Err(error) = crate::workspace_recovery::remember_folder() {
+                    self.error.set(Some(format!("{error:#}")));
+                }
+                Ok::<_, anyhow::Error>(true)
+            }
+            .await;
+            if !matches!(result, Ok(true)) {
+                crate::storage::clear(&root);
+            }
+            if let Err(error) = result {
+                self.error.set(Some(format!("{error:#}")));
+            }
+        });
+    }
+    pub fn save_to_project_folder(mut self) {
+        let Some(guard) = super::activity::FileGuard::start(
+            self.file_activity,
+            self.status,
+            super::activity::FileAction::Backup,
+        ) else {
+            return;
+        };
+        let picker = crate::project_folder::pick();
+        dioxus::core::spawn_forever(async move {
+            let _guard = guard;
+            let result = async {
+                let Some(directory) = crate::project_folder::selected(picker?).await? else {
+                    return Ok(false);
+                };
+                super::dance::flush().await?;
+                if let Some(root) = super::dance::standalone_folder() {
+                    crate::project_folder::attach_new(
+                        &root,
+                        directory,
+                        crate::stepmania::bundle::MANIFEST,
+                    )
+                    .await?;
+                } else {
+                    // This is also the escape hatch when browser storage is full.
+                    while (self.persistence_busy)() {
+                        gloo_timers::future::TimeoutFuture::new(20).await;
+                    }
+                    let store = self.store.read().clone().context("Open a project")?;
+                    self.persistence_busy.set(true);
+                    let result =
+                        crate::project_folder::attach_new(&store.root, directory, "project.json")
+                            .await;
+                    self.persistence_busy.set(false);
+                    result?;
+                    // Refresh the save location even when the revision was already saved.
+                    self.dirty.set(true);
+                }
+                if let Err(error) = crate::workspace_recovery::remember_folder() {
+                    self.error.set(Some(format!("{error:#}")));
+                }
+                Ok::<_, anyhow::Error>(true)
+            }
+            .await;
+            match result {
+                Ok(true) => self.status.set("Saved to project folder".into()),
+                Ok(false) => (),
+                Err(error) => self.error.set(Some(format!("{error:#}"))),
+            }
+        });
+    }
     pub fn import_song(self) {
         self.import(false, super::activity::FileAction::Import);
     }
@@ -933,6 +1032,25 @@ impl Studio {
                                 .collect(),
                         )?
                     {
+                        return Ok(());
+                    }
+                    // A project ZIP is a snapshot, even when the same source
+                    // song is already in this browser's charting library.
+                    if action == super::activity::FileAction::Open
+                        && files.iter().any(|(name, _)| {
+                            name == "project.json" || name.ends_with("/project.json")
+                        })
+                    {
+                        let files =
+                            crate::archive_codec::strip_wrapper_shared(files, "project.json")?;
+                        let root = crate::files::unique_root();
+                        let _candidate = Candidate {
+                            studio: self,
+                            root: root.clone(),
+                        };
+                        crate::files::mount(&root, files)?;
+                        self.open_project(root).await?;
+                        self.detach_library();
                         return Ok(());
                     }
                     (None, files)
@@ -1317,12 +1435,12 @@ impl Studio {
                 }
             }
         }
-        crate::storage::write(root.join("project.json"), serde_json::to_vec(&doc)?)?;
+        crate::storage::save_project(&root, &doc);
         // Resolve archived/imported stems by content, never by a server filesystem path.
         restore_stem_aliases(&store, &doc)?;
         if review_manifest(&doc, doc.selected_track == "Vocals").is_none() {
             doc.content.stem_mix.mode = crate::stem_review::MixMode::Original;
-            crate::storage::write(root.join("project.json"), serde_json::to_vec(&doc)?)?;
+            crate::storage::save_project(&root, &doc);
         }
         let metadata =
             crate::pipeline::ini_fields(&crate::pipeline::song_ini(&root.join("source"))?);
@@ -1357,7 +1475,12 @@ impl Studio {
         self.song_download_receipt.set(None);
         self.export_state
             .set(crate::export_state::State::load(&store, &doc));
-        self.saved_revision.set(saved_revision);
+        let linked = crate::project_folder::linked(&root);
+        self.saved_revision.set(if linked {
+            Some(doc.revision)
+        } else {
+            saved_revision
+        });
         self.metadata.set(metadata);
         self.timing.set(Some(timing));
         self.source_sections.set(sections);
@@ -1378,12 +1501,12 @@ impl Studio {
         self.doc.set(Some(Arc::new(doc.clone())));
         super::dance::deactivate();
         super::dance::attach_existing(self);
-        self.dirty.set(true);
+        self.dirty.set(!linked);
         self.waveforms.set(Some(Arc::new(waves)));
         self.media.set(Some(Rc::new(media)));
         self.audio_ready.set(true);
         self.stem_status.set(kit_notice.unwrap_or(notice));
-        self.status.set("Ready · files stay in this browser".into());
+        self.status.set("Ready".into());
         if saved_revision.is_some() {
             self.remember_recent(root.clone());
         }

@@ -46,8 +46,10 @@ impl Store {
         content: &Content,
         recording: Option<&crate::project_recording::Basis>,
     ) -> Result<String> {
+        let mut content = content.clone();
+        self.portable_stem_paths(&mut content);
         let bytes = crate::project_recording::Checkpoint {
-            content: content.clone(),
+            content,
             recording: recording.cloned(),
         }
         .encode()?;
@@ -1463,19 +1465,21 @@ impl Store {
             }
         }
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    fn portable_stem_paths(&self, content: &mut Content) {
+    pub(crate) fn portable_stem_paths(&self, content: &mut Content) {
+        #[cfg(not(target_arch = "wasm32"))]
         let root = self
             .root
             .canonicalize()
             .unwrap_or_else(|_| self.root.clone());
+        #[cfg(target_arch = "wasm32")]
+        let root = &self.root;
         for manifest in content
             .stems
             .iter_mut()
             .chain(content.keyboard_stems.iter_mut())
         {
             for asset in &mut manifest.stems {
-                if let Ok(relative) = asset.path.strip_prefix(&root) {
+                if let Ok(relative) = asset.path.strip_prefix(root.as_path()) {
                     asset.path = relative.to_owned();
                 }
             }

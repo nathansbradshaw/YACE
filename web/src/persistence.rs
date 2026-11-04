@@ -147,12 +147,18 @@ impl Drop for Database {
     }
 }
 pub async fn save(root: &Path, revision: u64, expected: Option<u64>) -> Result<()> {
+    if crate::project_folder::save(root).await? {
+        return Ok(());
+    }
     save_snapshot(root, revision, expected, "last").await
 }
 pub async fn save_job(root: &Path, revision: u64, expected: Option<u64>) -> Result<()> {
     save_snapshot(root, revision, expected, "last-generation").await
 }
 pub async fn save_stepmania(root: &Path, revision: u64, expected: Option<u64>) -> Result<()> {
+    if crate::project_folder::save(root).await? {
+        return Ok(());
+    }
     save_snapshot(root, revision, expected, "last-stepmania").await
 }
 async fn restore_key(key: &str) -> Result<Option<(PathBuf, u64)>> {
@@ -291,6 +297,9 @@ async fn save_snapshot(
 }
 pub async fn restore_workspace() -> Result<Option<(crate::workspace_recovery::Target, u64)>> {
     use crate::workspace_recovery::{Family, Target};
+    if crate::workspace_recovery::folder_tab()? {
+        return Ok(None);
+    }
     if let Some(target) = crate::workspace_recovery::current()? {
         let (_, revision) = load(&target.root).await?.context(
             "This tab's saved project is unavailable. Use Saved in this browser or open a project backup to recover it",

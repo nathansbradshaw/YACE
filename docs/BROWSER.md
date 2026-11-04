@@ -77,7 +77,14 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
   selected song and are released from the collection snapshot after opening.
   A selected song is bounded to 16,384 files and 2 GiB, independently of the
   collection's total recording size (up to 100,000 selected file handles).
-  **Open saved project** opens a project ZIP with review and undo history.
+  **Open project ZIP** opens a fresh copy of the selected project with its
+  review and undo history.
+- In a browser that supports writable folder access, **Open project folder**
+  opens a desktop YACE project in place, including a song folder that contains
+  `.yace/project`. **Save to project folder** puts a browser project into an
+  empty folder you choose. Edits then autosave to that folder. Close the project
+  in one editor before editing it in the other. Reopen the folder from the
+  picker after a browser reload.
 - Pick tracks, select/place/erase notes, edit timing and song sections, work with
   difficulty links, author vocals, and undo/redo using the shared Rust commands.
 - Play the recording, seek, loop and change pitch-preserving practice speed.
@@ -85,17 +92,12 @@ APIs. The static crate imports the shared native Rust editor and chart modules.
   waveforms. Formats such as Opus use the browser's local decoder as a fallback,
   with a bounded wait and a visible error if neither decoder accepts the file.
   The original encoded recording is preserved in exports.
-- **Download project backup…** in the YACE menu prepares a complete portable ZIP
-  with source files, stable note identities, checkpoints and review history.
-  Backups use a versioned compact format: duplicate files are stored once and
-  stems default to high-quality 24-bit listening copies, with peak scaling to
-  preserve headroom, stereo, frame counts and timing. **Exact** retains every
-  original generated sample and file hash, with larger downloads.
-  **Include generated stems** is on by default so isolated parts remain available
-  for charting. Turn it off for a smaller backup; the original audio and complete
-  editing history remain, but omitted stems must be regenerated or reattached.
-  Open compact backups with an updated YACE. Existing ordinary ZIPs still open.
-  Original recordings are always byte-for-byte preserved in either quality mode.
+- **Download complete project…** in the YACE menu prepares one editable ZIP
+  with source files, exact available stems, checkpoints and review history. Open
+  it with **Open project ZIP** in the browser or **Import project ZIP** on
+  desktop. Backups store duplicate files once. Use **Prepare smaller project
+  backup…** under Tools to choose 24-bit listening copies or omit generated
+  stems. Existing ordinary project ZIPs still open.
   **Export playable song…** opens the same choices as desktop: target preset,
   automatic / `.chart` / MIDI format, instruments and difficulties, and recording
   and stems included or omitted. All parts are initially selected. Incompatible
@@ -119,7 +121,7 @@ analysis need additional working space. Smaller devices can reach their memory
 limits earlier. Exports write bounded browser chunks instead of growing one
 large WASM archive buffer. Desktop import also seeks the original ZIP and
 shares duplicate allocations while restoring files; its per-file limit is 2 GiB.
-Folder import reads a snapshot; it does not establish ongoing disk access.
+Open charting folder reads a snapshot. Open project folder uses ongoing disk access.
 
 IndexedDB stores the current project, source files and checkpoints in a single
 transaction. The status says **Saved in this browser** only after that transaction
