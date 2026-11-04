@@ -132,7 +132,8 @@ fn projects_named_lanes_flags_ids_and_preserved_unknown_events_without_mutation(
         .unwrap();
     assert_eq!(double_kick.lane_name, "doubleKick");
     assert!(double_kick.flags.double_kick);
-    assert!(!double_kick.editable);
+    assert!(double_kick.editable);
+    assert!(double_kick.read_only_reason.is_none());
     let marker = drums
         .markers
         .iter()

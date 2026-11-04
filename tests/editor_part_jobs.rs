@@ -52,17 +52,18 @@ fn human() -> Actor {
 }
 
 #[test]
-fn review_totals_ignore_modifiers_and_keep_open_and_pro_keys_notes() {
+fn review_totals_keep_double_kick_open_and_pro_keys_notes_and_ignore_modifiers() {
     use chart_engine::{editor::EditorNote, reanalysis};
     let root = tempfile::tempdir().unwrap();
     let base = fixture(root.path()).load().unwrap();
     for (track, playable, modifiers) in [
-        ("ExpertDrums", vec![0, 4], vec![7, 32, 66, 67, 68]),
+        ("ExpertDrums", vec![0, 4, 32], vec![7, 34, 40, 66, 67, 68]),
         ("HardSingle", vec![0, 7], vec![5, 6]),
         ("ExpertDoubleBass", vec![4, 7], vec![5, 6]),
         ("ExpertKeyboard", vec![0, 4], vec![5, 7]),
         ("ExpertProKeys", vec![48, 72], vec![0, 47, 73, 116]),
     ] {
+        let count = playable.len();
         let note = |id: &str, tick, lane| EditorNote {
             id: id.into(),
             midi: None,
@@ -97,7 +98,7 @@ fn review_totals_ignore_modifiers_and_keep_open_and_pro_keys_notes() {
         let result = reanalysis::changes(&before, &after, &[track.into()]).remove(0);
         assert_eq!(
             (result.before, result.after, result.added, result.removed),
-            (2, 2, 0, 0),
+            (count, count, 0, 0),
             "{track}"
         );
         let notes = after.content.tracks.get_mut(track).unwrap();
@@ -107,7 +108,7 @@ fn review_totals_ignore_modifiers_and_keep_open_and_pro_keys_notes() {
         let result = reanalysis::changes(&before, &after, &[track.into()]).remove(0);
         assert_eq!(
             (result.before, result.after, result.added, result.removed),
-            (2, 2, 1, 1),
+            (count, count, 1, 1),
             "{track}"
         );
     }

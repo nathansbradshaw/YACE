@@ -433,7 +433,9 @@ pub fn playable(track: &str, lane: u8) -> bool {
     if crate::keys::is_pro(track) {
         (crate::keys::MIN_PITCH..=crate::keys::MAX_PITCH).contains(&lane)
     } else {
-        lane <= 4 || (!track.ends_with("Drums") && !crate::keys::is_keys(track) && lane == 7)
+        lane <= 4
+            || (track.ends_with("Drums") && lane == 32)
+            || (!track.ends_with("Drums") && !crate::keys::is_keys(track) && lane == 7)
     }
 }
 fn editable_track(name: &str) -> bool {
@@ -646,6 +648,7 @@ impl Project {
     }
     pub fn is_cymbal(&self, track: &str, note: &Note) -> bool {
         track.ends_with("Drums")
+            && (2..=4).contains(&note.lane)
             && self.content.tracks[track]
                 .iter()
                 .any(|n| n.note.tick == note.tick && n.note.lane == note.lane + 64)
@@ -716,7 +719,11 @@ impl Project {
                 "Cymbals require drum lane 2, 3 or 4"
             );
             ensure!(
-                !track.ends_with("Drums") || note.sustain == 0,
+                !track.ends_with("Drums")
+                    || note.sustain == 0
+                    // Imported MIDI retains its note-off interval. Moving or
+                    // changing the pad must not require discarding that data.
+                    || old.as_ref().is_some_and(|old| old.sustain == note.sustain),
                 "Drums cannot sustain"
             );
         }
@@ -726,7 +733,9 @@ impl Project {
             let notes = self.content.tracks.get_mut(track).unwrap();
             notes.retain(|n| Some(n.id.as_str()) != id);
             if track.ends_with("Drums") {
-                notes.retain(|n| !(n.note.tick == old.tick && n.note.lane == old.lane + 64));
+                if (2..=4).contains(&old.lane) {
+                    notes.retain(|n| !(n.note.tick == old.tick && n.note.lane == old.lane + 64));
+                }
                 if (1..=4).contains(&old.lane) {
                     for marker in notes.iter().filter(|n| {
                         n.note.tick == old.tick

@@ -536,3 +536,324 @@ fn articulation_collision_rejects_the_whole_move_without_losing_marker_ids() {
             .is_some()
     );
 }
+
+#[test]
+fn double_kick_selection_move_clipboard_and_delete_keep_the_ordinary_kick_and_unknowns() {
+    let source = SOURCE.replace(
+        " 480 = N 2 0",
+        " 480 = N 0 0\n 480 = N 32 0\n 480 = N 96 9\n 480 = N 2 0",
+    );
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture_with(root.path(), &source);
+    store
+        .apply(request(
+            &store,
+            Action::SelectNote {
+                note_id: Some("n-32-480".into()),
+            },
+        ))
+        .unwrap();
+    let doc = store.load().unwrap();
+    assert!(!doc.is_cymbal("ExpertDrums", &doc.find_note("n-32-480").unwrap().1.note));
+    store
+        .apply(request(
+            &store,
+            Action::UpdateNote {
+                note_id: "n-32-480".into(),
+                tick: 720,
+                lane: 32,
+                sustain: 0,
+                cymbal: false,
+            },
+        ))
+        .unwrap();
+    let selection = selected(&store, &["n-32-480"]);
+    store
+        .apply(request(
+            &store,
+            Action::EditNoteGroup {
+                edit: note_groups::Edit::Move {
+                    selection,
+                    ticks: 240,
+                    rows: 0,
+                },
+            },
+        ))
+        .unwrap();
+    let doc = store.load().unwrap();
+    let selection = Selection {
+        track: "ExpertDrums".into(),
+        ids: ["n-32-480".into()].into(),
+        vocals: Default::default(),
+    };
+    let clipboard = note_groups::copy(&doc, &doc.timing(&store).unwrap(), &selection).unwrap();
+    let clipboard = note_groups::Clipboard::decode(&clipboard.encode().unwrap()).unwrap();
+    store
+        .apply(request(
+            &store,
+            Action::EditNoteGroup {
+                edit: note_groups::Edit::Paste {
+                    track: "ExpertDrums".into(),
+                    tick: 1440,
+                    clipboard,
+                },
+            },
+        ))
+        .unwrap();
+    let doc = store.load().unwrap();
+    assert!(
+        doc.content.tracks["ExpertDrums"]
+            .iter()
+            .any(|n| n.note.tick == 1440 && n.note.lane == 32)
+    );
+    store
+        .apply(request(
+            &store,
+            Action::DeleteNote {
+                note_id: "n-32-480".into(),
+            },
+        ))
+        .unwrap();
+    assert!(store.load().unwrap().find_note("n-32-480").is_none());
+    store.apply(request(&store, Action::Undo)).unwrap();
+    let doc = Store::new(root.path()).load().unwrap();
+    assert_eq!(doc.find_note("n-32-480").unwrap().1.note.tick, 960);
+    assert_eq!(doc.find_note("n-0-480").unwrap().1.note.tick, 480);
+    assert_eq!(
+        doc.find_note("n-96-480").unwrap().1.note,
+        Note {
+            tick: 480,
+            lane: 96,
+            sustain: 9
+        }
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("source/notes.chart")).unwrap(),
+        source
+    );
+}
+
+#[test]
+fn double_kick_placement_coexists_with_kick_and_rejects_cymbals_and_sustains_atomically() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    for lane in [0, 32] {
+        store
+            .apply(request(
+                &store,
+                Action::AddNote {
+                    track: "ExpertDrums".into(),
+                    tick: 720,
+                    lane,
+                    sustain: 0,
+                    cymbal: false,
+                },
+            ))
+            .unwrap();
+    }
+    let doc = store.load().unwrap();
+    let id = doc.content.tracks["ExpertDrums"]
+        .iter()
+        .find(|n| n.note.tick == 720 && n.note.lane == 32)
+        .unwrap()
+        .id
+        .clone();
+    let before = fs::read(root.path().join("project.json")).unwrap();
+    for (sustain, cymbal) in [(1, false), (0, true)] {
+        assert!(
+            store
+                .apply(request(
+                    &store,
+                    Action::UpdateNote {
+                        note_id: id.clone(),
+                        tick: 960,
+                        lane: 32,
+                        sustain,
+                        cymbal
+                    }
+                ))
+                .is_err()
+        );
+        assert_eq!(fs::read(root.path().join("project.json")).unwrap(), before);
+    }
+    store
+        .apply(request(
+            &store,
+            Action::DeleteNote {
+                note_id: id.clone(),
+            },
+        ))
+        .unwrap();
+    let doc = store.load().unwrap();
+    assert!(doc.find_note(&id).is_none());
+    assert!(
+        doc.content.tracks["ExpertDrums"]
+            .iter()
+            .any(|n| n.note.tick == 720 && n.note.lane == 0)
+    );
+    store.apply(request(&store, Action::Undo)).unwrap();
+    assert_eq!(
+        store.load().unwrap().find_note(&id).unwrap().1.note.lane,
+        32
+    );
+}
+
+#[test]
+fn authored_double_kick_roundtrips_as_midi95_and_lower_tier_midi_refuses_loss() {
+    let source = SOURCE.replace(" 1200 = N 12 17\n", "");
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture_with(root.path(), &source);
+    set_dynamics(&store, &["n-2-480"], Kind::Ghost);
+    for lane in [0, 32] {
+        store
+            .apply(request(
+                &store,
+                Action::AddNote {
+                    track: "ExpertDrums".into(),
+                    tick: 720,
+                    lane,
+                    sustain: 0,
+                    cymbal: false,
+                },
+            ))
+            .unwrap();
+    }
+    let text = store.load().unwrap().chart_text(&store).unwrap();
+    let chart = Chart::parse(text.clone()).unwrap();
+    let bytes = chart_engine::game_export::song(&chart, None).unwrap().0;
+    let midi = midly::Smf::parse(&bytes).unwrap();
+    let pitches: Vec<_> = midi
+        .tracks
+        .iter()
+        .flatten()
+        .filter_map(|e| match e.kind {
+            midly::TrackEventKind::Midi {
+                message: midly::MidiMessage::NoteOn { key, vel },
+                ..
+            } if vel.as_int() > 0 => Some(key.as_int()),
+            _ => None,
+        })
+        .collect();
+    assert!(pitches.contains(&95) && pitches.contains(&96));
+    let reopened = root.path().join("double-kick-midi-only");
+    fs::create_dir(&reopened).unwrap();
+    fs::write(reopened.join("notes.mid"), bytes).unwrap();
+    fs::write(reopened.join("song.ini"), "[song]\npro_drums = true\n").unwrap();
+    chart_engine::song_layout::prepare(&reopened).unwrap();
+    chart_engine::song_files::game_midi::prepare(&reopened).unwrap();
+    let restored = Chart::parse(fs::read_to_string(reopened.join("notes.chart")).unwrap()).unwrap();
+    let notes = restored.notes("ExpertDrums").unwrap();
+    for (tick, lane) in [(720, 0), (720, 32), (480, 2), (480, 66), (480, 41)] {
+        assert!(
+            notes.iter().any(|n| n.tick == tick && n.lane == lane),
+            "missing {tick}/{lane}"
+        );
+    }
+    let hard = Chart::parse(text.replace("ExpertDrums", "HardDrums")).unwrap();
+    assert!(
+        format!(
+            "{:#}",
+            chart_engine::game_export::song(&hard, None).unwrap_err()
+        )
+        .contains("Double kick MIDI export requires Expert drums")
+    );
+    assert!(
+        hard.notes("HardDrums")
+            .unwrap()
+            .iter()
+            .any(|n| n.lane == 32)
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("source/notes.chart")).unwrap(),
+        source
+    );
+}
+
+#[test]
+fn moving_imported_drum_hits_preserves_note_off_intervals_and_midi_attributes() {
+    for lane in [2, 32] {
+        let source = if lane == 2 {
+            SOURCE.replace("480 = N 2 0", "480 = N 2 1")
+        } else {
+            SOURCE.replace("480 = N 2 0", "480 = N 32 1\n 480 = N 96 9\n 480 = N 2 0")
+        };
+        let root = tempfile::tempdir().unwrap();
+        let store = fixture_with(root.path(), &source);
+        let id = format!("n-{lane}-480");
+        let attributes = chart_engine::song_files::game_midi::NoteAttributes {
+            channel: 3,
+            velocity: 29,
+            off_velocity: 7,
+            off_as_note_on: false,
+            zero_length: false,
+            talkie_pitch: None,
+        };
+        let mut doc = store.load().unwrap();
+        doc.content
+            .tracks
+            .get_mut("ExpertDrums")
+            .unwrap()
+            .iter_mut()
+            .find(|n| n.id == id)
+            .unwrap()
+            .midi = Some(attributes.clone());
+        fs::write(
+            root.path().join("project.json"),
+            serde_json::to_vec(&doc).unwrap(),
+        )
+        .unwrap();
+        store
+            .apply(request(
+                &store,
+                Action::UpdateNote {
+                    note_id: id.clone(),
+                    tick: 720,
+                    lane,
+                    sustain: 1,
+                    cymbal: lane == 2,
+                },
+            ))
+            .unwrap();
+        let doc = store.load().unwrap();
+        let (_, note) = doc.find_note(&id).unwrap();
+        assert_eq!(
+            note.note,
+            Note {
+                tick: 720,
+                lane,
+                sustain: 1
+            }
+        );
+        assert_eq!(note.midi, Some(attributes.clone()));
+        assert_eq!(doc.is_cymbal("ExpertDrums", &note.note), lane == 2);
+        let before = fs::read(root.path().join("project.json")).unwrap();
+        assert!(
+            store
+                .apply(request(
+                    &store,
+                    Action::UpdateNote {
+                        note_id: id.clone(),
+                        tick: 960,
+                        lane,
+                        sustain: 2,
+                        cymbal: false
+                    }
+                ))
+                .is_err()
+        );
+        assert_eq!(fs::read(root.path().join("project.json")).unwrap(), before);
+        store.apply(request(&store, Action::Undo)).unwrap();
+        let doc = store.load().unwrap();
+        let (_, note) = doc.find_note(&id).unwrap();
+        assert_eq!(note.note.tick, 480);
+        assert_eq!(note.note.sustain, 1);
+        assert_eq!(note.midi, Some(attributes));
+        if lane == 32 {
+            assert!(doc.find_note("n-96-480").is_some());
+        }
+        assert_eq!(
+            fs::read_to_string(root.path().join("source/notes.chart")).unwrap(),
+            source
+        );
+    }
+}

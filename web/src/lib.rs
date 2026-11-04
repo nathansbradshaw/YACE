@@ -165,6 +165,8 @@ pub mod timeline;
 pub mod timeline_clock;
 #[path = "../../src/timing.rs"]
 pub mod timing;
+#[path = "../../src/track_names.rs"]
+pub mod track_names;
 pub mod transcription;
 mod unload;
 #[path = "../../src/vocal_alignment.rs"]

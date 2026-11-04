@@ -62,6 +62,9 @@ fn NoteSelection(studio: Studio, track: String, item: EditorNote) -> Element {
               super::note_types::NoteTypes {studio}
               super::drum_dynamics::DrumDynamics {studio}
             }
+            if drums && item.note.lane == 32 && track != "ExpertDrums" {
+                p { class: "field-hint", "MIDI supports double kick on Expert only. Lower difficulties need .chart export, which is unavailable for imported MIDI songs." }
+            }
             div { class: "selection-actions",
                 if drums && (2..=4).contains(&item.note.lane) { label { class: "form-check",
                     input { r#type: "checkbox", checked: cymbal, onkeydown: move |event| event.stop_propagation(), onchange: move |event| update(studio, &cymbal_id, |_, cymbal| *cymbal = event.checked()) } "Cymbal"
