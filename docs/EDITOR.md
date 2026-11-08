@@ -102,11 +102,21 @@ the editing snapshot, not a continuing check that an external copy still exists.
 
 ## Edit notes
 
-Use **Add part** beside **Track** to add guitar, bass, drums, Keys, Pro Keys or
-vocals. Choose **Blank** to place notes yourself, or **Generate…** to make a
+Use **Add part** beside **Track** to add guitar, bass, rhythm guitar, co-op guitar,
+drums, Keys, Pro Keys or vocals. Choose **Blank** to place notes yourself, or
+**Generate…**, where available, to make a
 draft from the current recording. Generated drafts keep the current tempo map
 and require **Add** or **Replace** before changing the chart. Undo restores
 the previous part.
+
+Rhythm guitar and co-op guitar support blank creation and manual editing at all
+four difficulties, with the same five-fret note types and clipboard controls.
+They have no dedicated generator. Imported `.chart` sections become editable
+without replacing the original source or its saved history. Fresh MIDI imports
+also expose these parts. If an older MIDI project retained a part only as an
+opaque original track, adding a matching blank part is refused to preserve its
+notes. Import the original MIDI into a new project to edit it with the current
+decoder; keep the existing project for its earlier edits and recovery history.
 
 Choose an instrument and difficulty from **Track** beside the editing tools.
 Audition, selection details and review follow that track.
