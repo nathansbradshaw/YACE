@@ -149,6 +149,14 @@ removed by clearing site data. Backups include the complete project regardless
 of playable-song export selections. A revision check rejects stale writes from
 another tab instead of silently overwriting that tab's edits.
 
+The open band project's working files stay owned by the editor until another
+project opens successfully. Import and generation cleanup cannot release that
+active folder. Before saving, the browser checks that the document, source chart,
+recording and referenced undo/redo checkpoints are present, and captures the files
+before awaiting IndexedDB. An incomplete working set is refused without replacing
+the previous durable manifest. This protects against missing-file saves; it does
+not establish the cause of every browser storage failure.
+
 Portable project ZIPs include retained stems and saved kit results. Older
 projects with external assets require matching local files. Attach files or a
 new source-bound stem manifest with the native picker; checks cover hashes,

@@ -11,6 +11,11 @@ thread_local! { static DIRECTORIES: RefCell<BTreeSet<PathBuf>> = RefCell::defaul
 thread_local! { static DIRTY: RefCell<BTreeSet<PathBuf>> = RefCell::default(); }
 thread_local! { static PROJECTS: RefCell<BTreeMap<PathBuf,Arc<crate::editor::Project>>> = RefCell::default(); }
 thread_local! { static UNENCODED: RefCell<BTreeSet<PathBuf>> = RefCell::default(); }
+thread_local! { static ACTIVE_PROJECT: RefCell<Option<PathBuf>> = const { RefCell::new(None) }; }
+/// Cancelled imports and generated drafts cannot retire the editor's working set.
+pub fn activate_project(root: Option<&Path>) {
+    ACTIVE_PROJECT.with(|active| *active.borrow_mut() = root.map(Path::to_owned));
+}
 pub fn cached_project(root: &Path) -> Option<Arc<crate::editor::Project>> {
     PROJECTS.with(|projects| projects.borrow().get(&root.join("project.json")).cloned())
 }
@@ -190,6 +195,14 @@ pub fn list(root: &Path) -> io::Result<Vec<(PathBuf, Arc<Vec<u8>>)>> {
     }))
 }
 pub fn clear(root: &Path) {
+    if ACTIVE_PROJECT.with(|active| {
+        active
+            .borrow()
+            .as_ref()
+            .is_some_and(|path| path.starts_with(root))
+    }) {
+        return;
+    }
     crate::project_folder::forget(root);
     crate::files::clear_downloads(root);
     DIRECTORIES.with(|dirs| dirs.borrow_mut().retain(|path| !path.starts_with(root)));

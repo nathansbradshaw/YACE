@@ -1469,6 +1469,7 @@ impl Studio {
             media.pause();
         }
         self.media.set(None);
+        crate::storage::activate_project(Some(&root));
         self.store.set(Some(store.clone()));
         self.song_download_receipt.set(None);
         self.export_state

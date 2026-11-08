@@ -148,6 +148,12 @@ impl Drop for Database {
     }
 }
 pub async fn save(root: &Path, revision: u64, expected: Option<u64>) -> Result<()> {
+    crate::project_integrity::validate(
+        root,
+        revision,
+        &crate::storage::list(root)?,
+        crate::storage::cached_project(root),
+    )?;
     if crate::project_folder::save(root).await? {
         return Ok(());
     }
@@ -180,6 +186,28 @@ async fn save_snapshot(
     expected: Option<u64>,
     last_key: &str,
 ) -> Result<()> {
+    // Capture one complete working set before yielding to IndexedDB. Losing
+    // files must never replace the prior durable manifest with an empty list.
+    let files = crate::storage::list(root)?;
+    if last_key == "last" {
+        crate::project_integrity::validate(
+            root,
+            revision,
+            &files,
+            crate::storage::cached_project(root),
+        )?;
+    }
+    let dirty = crate::storage::pending(root)?;
+    let linked_path = root.join("dance").join(crate::stepmania::bundle::MANIFEST);
+    let linked_snapshot = if crate::storage::is_file(&linked_path) {
+        let incoming = crate::stepmania::Project::decode(&crate::storage::read(&linked_path)?)?;
+        let expected = LINKED_BASES
+            .with(|bases| bases.borrow().get(&linked_path).copied())
+            .context("Linked chart revision was not loaded; reopen this project before saving")?;
+        Some((incoming, expected))
+    } else {
+        None
+    };
     let db = Database(open().await?);
     let tx =
         db.0.transaction_with_str_and_mode("files", IdbTransactionMode::Readwrite)
@@ -195,13 +223,7 @@ async fn save_snapshot(
         let _ = tx.abort();
         anyhow::bail!("This project changed in another tab. {STALE_RECOVERY_HELP}");
     }
-    let files = crate::storage::list(root)?;
-    let linked_path = root.join("dance").join(crate::stepmania::bundle::MANIFEST);
-    let linked = if crate::storage::is_file(&linked_path) {
-        let incoming = crate::stepmania::Project::decode(&crate::storage::read(&linked_path)?)?;
-        let expected = LINKED_BASES
-            .with(|bases| bases.borrow().get(&linked_path).copied())
-            .context("Linked chart revision was not loaded; reopen this project before saving")?;
+    let linked = if let Some((incoming, expected)) = linked_snapshot {
         let value = request(
             store
                 .get(&format!("file:{}", linked_path.display()).into())
@@ -228,7 +250,6 @@ async fn save_snapshot(
     } else {
         None
     };
-    let dirty = crate::storage::pending(root)?;
     let paths: Vec<_> = files
         .iter()
         .map(|(path, _)| path.to_string_lossy().into_owned())
@@ -332,6 +353,10 @@ pub async fn load(root: &Path) -> Result<Option<(PathBuf, u64)>> {
         return Ok(None);
     };
     let paths: Vec<String> = serde_json::from_str(&manifest)?;
+    ensure!(
+        !paths.is_empty(),
+        "Saved project manifest is empty. Keep the original tab open and restore a complete project backup."
+    );
     ensure!(paths.len() <= 10000, "Saved project has too many files");
     let revision = request(
         store
@@ -358,6 +383,12 @@ pub async fn load(root: &Path) -> Result<Option<(PathBuf, u64)>> {
     }
     // Publish only a complete snapshot. A missing/quota-corrupt file must not
     // partially overwrite the working copy currently offered for ZIP recovery.
+    if loaded
+        .iter()
+        .any(|(path, _)| path == &Path::new(root.as_ref()).join("project.json"))
+    {
+        crate::project_integrity::validate(Path::new(root.as_ref()), revision, &loaded, None)?;
+    }
     for (path, bytes) in loaded {
         crate::storage::write_shared(path, bytes)?;
     }

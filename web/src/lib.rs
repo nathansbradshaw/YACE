@@ -117,6 +117,7 @@ mod playback_activity;
 #[path = "../../src/pro_keys.rs"]
 pub mod pro_keys;
 pub mod project_folder;
+mod project_integrity;
 #[path = "../../src/project_portability.rs"]
 pub mod project_portability;
 #[path = "../../src/project_recording.rs"]
