@@ -148,7 +148,8 @@ mod tests {
 
     #[tokio::test]
     async fn recent_open_finishes_after_the_welcome_component_unmounts() {
-        open_from_welcome("Open recent Lifecycle fixture", None).await;
+        // Saved-project opens also select their entry in the shared library.
+        open_from_welcome("Open recent Lifecycle fixture", Some(0)).await;
     }
 
     async fn open_from_welcome(title: &str, selected: Option<usize>) {
