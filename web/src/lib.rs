@@ -178,6 +178,8 @@ mod unload;
 pub mod vocal_alignment;
 #[path = "../../src/vocal_generation.rs"]
 pub mod vocal_generation;
+#[path = "../../src/vocal_posterior.rs"]
+pub mod vocal_posterior;
 pub mod vocal_inference;
 #[path = "../../src/vocal_pitch.rs"]
 pub mod vocal_pitch;

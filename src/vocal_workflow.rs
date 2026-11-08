@@ -58,6 +58,26 @@ pub fn generate_project(
     request: ProjectRequest<'_>,
     control: Arc<clean_recognition::Control>,
 ) -> Result<ProjectResult> {
+    generate_project_inner(request, control, false)
+}
+/// Explicit pitch-only desktop option. No quality-mode fallback or lyric gate.
+pub fn generate_project_independent(
+    request: ProjectRequest<'_>,
+    control: Arc<clean_recognition::Control>,
+) -> Result<ProjectResult> {
+    ensure!(
+        request.analysis_mode == vocal_generation::AnalysisMode::HighAccuracy,
+        "Independent pitch analysis requires acoustic High accuracy segmentation"
+    );
+    crate::vocal_independent::helpers()?;
+    crate::vocal_independent::model_directory(request.model_dir)?;
+    generate_project_inner(request, control, true)
+}
+fn generate_project_inner(
+    request: ProjectRequest<'_>,
+    control: Arc<clean_recognition::Control>,
+    independent: bool,
+) -> Result<ProjectResult> {
     let store = crate::editor::Store::new(request.project);
     let lock = fs::OpenOptions::new()
         .create(true)
@@ -81,7 +101,7 @@ pub fn generate_project(
         .tempdir_in(&parent)?
         .keep();
     crate::generation::write_json(&job.join("isolation.json"), manifest)?;
-    let lyrics = if request.lookup_lyrics {
+    let lyrics = if request.lookup_lyrics && !independent {
         let existing = crate::song_layout::resolve(
             &request.project.join("source"),
             "chart-engine-lyrics.json",
@@ -123,7 +143,7 @@ pub fn generate_project(
         None
     };
     let output = job.join("proposal");
-    let result = generate(
+    let mut result = generate(
         Request {
             analysis_mode: request.analysis_mode,
             audio: &audio,
@@ -131,7 +151,7 @@ pub fn generate_project(
             timing: &timing,
             words: None,
             lyrics: lyrics.as_ref(),
-            recognize: request.recognize,
+            recognize: request.recognize && !independent,
             language: request.language,
             neural_pitch: request.neural_pitch,
             model_dir: request.model_dir,
@@ -140,6 +160,40 @@ pub fn generate_project(
         &output,
         control.clone(),
     )?;
+    if independent {
+        crate::generation::write_json(&output.join("baseline-generation.json"), &result)?;
+        let stem = manifest
+            .stems
+            .iter()
+            .find(|s| s.id == StemId::Vocals)
+            .context("No vocal stem")?;
+        result = crate::vocal_independent::analyze(
+            &result,
+            &audio,
+            &stem.path,
+            request.model_dir,
+            &request.project.join("vocal-pitch-cache"),
+            control.clone(),
+        )?;
+        crate::generation::write_json(&output.join("generation.json"), &result)?;
+        if let Some(chart) = &result.chart {
+            crate::generation::write_json(&output.join("vocals.json"), chart)?;
+            if timing.offset == 0. {
+                let base = crate::midi::new_midi(&timing, &Default::default())?;
+                fs::write(
+                    output.join("vocals.mid"),
+                    crate::vocals::append_midi(&base, chart)?,
+                )?;
+            }
+        } else {
+            for name in ["vocals.json", "vocals.mid"] {
+                let path = output.join(name);
+                if path.exists() {
+                    fs::remove_file(path)?;
+                }
+            }
+        }
+    }
     ensure!(
         !control.is_cancelled(),
         "Vocal generation cancelled; proposals retained at {}",

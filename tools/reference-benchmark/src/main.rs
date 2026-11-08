@@ -90,6 +90,20 @@ fn song(path: &Path) -> Result<Song> {
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.first().map(String::as_str) {
+        Some("select-vocal-heldout") => {
+            ensure!(
+                args.len() == 5,
+                "select-vocal-heldout INVENTORY EXPOSURE_HISTORY NEW_MANIFEST COUNT"
+            );
+            let inventory = serde_json::from_slice(&std::fs::read(&args[1])?)?;
+            let history = serde_json::from_slice(&std::fs::read(&args[2])?)?;
+            let selection = vocal::select_size(&inventory, &history, false, args[4].parse()?, 0)?;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&args[3])?
+                .write_all(&serde_json::to_vec_pretty(&selection)?)?;
+        }
         Some("select-vocal-english" | "select-vocal-pitch") => {
             ensure!(
                 args.len() == 4,

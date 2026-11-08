@@ -4,6 +4,17 @@ The application code is MIT. Included and downloaded third-party components
 retain their own licenses. No upstream Python program is bundled or invoked.
 Research-only source checkouts and private recordings are not included.
 
+The explicit private desktop multi-model vocal pack uses CREPE full (onnxcrepe
+v1.1.0), the MIT FCPE export pinned in `docs/VOCAL_ACCURACY.md`, and the Rust
+ROSVOT/RWBD conversion. Original notices and pinned model provenance are in
+`tools/singing-pitch-probe/licenses`, `examples/support/FCPE-MIT.txt`, and
+`tools/rosvot-convert/THIRD_PARTY.md`. The packager includes these notices when
+`--vocal-tools` and `--vocal-models` are explicitly supplied. Weights remain
+excluded from default/public bundles; this option packages verified local assets.
+ROSVOT's README prohibits nonconsensual speech/singing synthesis; this feature
+extracts note evidence and does not synthesize a person's voice. Model agreement
+does not establish performer identity or a correctness probability.
+
 | Upstream | Pinned revision | Use and license |
 | --- | --- | --- |
 | timestretch-rs | `timestretch` and `timestretch-core` 0.16.0, Cargo.lock | MIT; optional native audition worker uses the portable Rust pitch-preserving session and source-position ledger. Original notice: `licenses/Timestretch-MIT.txt`. No model weights or external processing service. |

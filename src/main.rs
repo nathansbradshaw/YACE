@@ -481,6 +481,9 @@ enum VocalCommand {
     /// Generate a retained vocal proposal for an existing editor project.
     GenerateProject {
         project: PathBuf,
+        /// Explicit slower desktop pitch-only comparison across five methods.
+        #[arg(long)]
+        independent_pitch: bool,
         #[arg(long, value_enum, default_value = "standard")]
         analysis_mode: chart_engine::vocal_generation::AnalysisMode,
         #[arg(long)]
@@ -1119,6 +1122,7 @@ fn main() -> Result<()> {
                 )?;
             }
             VocalCommand::GenerateProject {
+                independent_pitch,
                 analysis_mode,
                 project,
                 recognize,
@@ -1130,23 +1134,28 @@ fn main() -> Result<()> {
             } => {
                 let model_dir =
                     model_dir.unwrap_or_else(chart_engine::generation::default_model_dir);
-                print(&chart_engine::vocal_workflow::generate_project(
-                    chart_engine::vocal_workflow::ProjectRequest {
-                        analysis_mode,
-                        project: &project,
-                        model_dir: &model_dir,
-                        recognize,
-                        language,
-                        neural_pitch,
-                        lookup_lyrics,
-                        download_model,
-                        actor: chart_engine::editor::Actor {
-                            kind: chart_engine::editor::ActorKind::Ai,
-                            name: "CLI vocal generation".into(),
-                        },
+                let request = chart_engine::vocal_workflow::ProjectRequest {
+                    analysis_mode,
+                    project: &project,
+                    model_dir: &model_dir,
+                    recognize,
+                    language,
+                    neural_pitch,
+                    lookup_lyrics,
+                    download_model,
+                    actor: chart_engine::editor::Actor {
+                        kind: chart_engine::editor::ActorKind::Ai,
+                        name: "CLI vocal generation".into(),
                     },
-                    std::sync::Arc::new(chart_engine::clean_recognition::Control::default()),
-                )?)?;
+                };
+                let control =
+                    std::sync::Arc::new(chart_engine::clean_recognition::Control::default());
+                let result = if independent_pitch {
+                    chart_engine::vocal_workflow::generate_project_independent(request, control)
+                } else {
+                    chart_engine::vocal_workflow::generate_project(request, control)
+                }?;
+                print(&result)?;
             }
             VocalCommand::Generate {
                 analysis_mode,

@@ -612,6 +612,7 @@ fn checking_another_phrase_keeps_prior_corrected_notes_flagged() {
     )
     .unwrap();
     next.retained_evidence.push(vg::NoteEvidence {
+        models: vec![],
         start: 1440,
         end: 1920,
         selected_midi: 64,

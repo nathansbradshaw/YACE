@@ -508,6 +508,7 @@ fn per_note_vocal_evidence_requires_current_source_tempo_and_pitch() {
         panic!("Expected pitched fixture")
     };
     report.note_evidence.push(NoteEvidence {
+        models: vec![],
         start: note.start,
         end: note.end,
         selected_midi: midi,

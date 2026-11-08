@@ -11,6 +11,32 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub const TRACK: &str = "Vocals";
+/// Both clients accept editable charts and source-bound analysis reports.
+/// The editor checks the recording, stem, timing and chart witness on apply.
+pub fn import_document(bytes: &[u8]) -> Result<crate::editor::Action> {
+    ensure!(
+        bytes.len() <= 64 * 1024 * 1024,
+        "Vocal analysis JSON exceeds 64 MiB"
+    );
+    let value: serde_json::Value = serde_json::from_slice(bytes)
+        .context("Invalid vocal JSON; files above 8 MiB must be source-bound analysis reports")?;
+    if value.get("pitch_frames").is_some() {
+        let report: Generation = serde_json::from_value(value)?;
+        let review = VocalReviewMap::from_generation(&report)?;
+        let document = report
+            .chart
+            .context("Analysis has no pitched vocal chart")?;
+        Ok(crate::editor::Action::SetVocalGeneration { document, review })
+    } else {
+        ensure!(
+            bytes.len() <= 8 * 1024 * 1024,
+            "Vocal chart JSON exceeds 8 MiB"
+        );
+        let document: VocalChart = serde_json::from_value(value)?;
+        document.validate()?;
+        Ok(crate::editor::Action::SetVocals { document })
+    }
+}
 fn digest(value: &impl Serialize) -> Result<String> {
     Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(value)?)))
 }
@@ -170,7 +196,18 @@ impl VocalReviewMap {
                     && e.alternatives.iter().all(|p| (36..=84).contains(p))
                     && e.support.len() <= 7
                     && e.reasons.len() <= 16
-                    && e.reasons.iter().all(|r| r.len() <= 4096)),
+                    && e.reasons.iter().all(|r| r.len() <= 4096)
+                    && e.models.len() <= 8
+                    && e.models.iter().all(|m| !m.model_id.is_empty()
+                        && m.model_id.len() <= 128
+                        && valid_hash(&m.model_sha256)
+                        && valid_hash(&m.implementation_sha256)
+                        && m.selected_midi.is_none_or(|p| (36..=84).contains(&p))
+                        && m.alternatives.len() <= 49
+                        && m.alternatives.iter().all(|p| (36..=84).contains(p))
+                        && m.selected_note_support_frames <= m.voiced_frames
+                        && m.voiced_frames <= m.inspected_frames
+                        && m.inspected_frames <= 400_001)),
             "Invalid per-note vocal evidence"
         );
         ensure!(

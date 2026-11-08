@@ -95,6 +95,9 @@ enum Command {
         ini_delay_ms: f64,
         #[arg(long)]
         output: PathBuf,
+        /// Evaluator only: include explicitly authored HARM2/HARM3 target lanes.
+        #[arg(long)]
+        harmonies: bool,
     },
     /// Compare small/large-v3/turbo; supply original audio or an aligned stem.
     Recognize {
@@ -491,6 +494,7 @@ fn main() -> Result<()> {
             midi,
             ini_delay_ms,
             output,
+            harmonies,
         } => {
             use chart_engine::{
                 benchmark::{self, Instrument},
@@ -498,6 +502,15 @@ fn main() -> Result<()> {
             };
             let bytes = fs::read(&midi)?;
             let authored = benchmark::parse(&bytes, Instrument::Vocals, ini_delay_ms)?;
+            let mut backing = vec![];
+            if harmonies {
+                let smf = midly::Smf::parse(&bytes)?;
+                for name in [b"HARM2".as_slice(), b"HARM3", b"PART HARM2", b"PART HARM3"] {
+                    if smf.tracks.iter().any(|t|t.iter().any(|e|matches!(e.kind,midly::TrackEventKind::Meta(midly::MetaMessage::TrackName(n)) if n==name))) {
+                        backing.extend(benchmark::parse_vocal_track(&bytes,name,ini_delay_ms)?.notes.into_iter().filter(|n|n.pitch.is_some()));
+                    }
+                }
+            }
             let duration = models::decode(&audio, 16000, 1)?.len() as f64 / 16000.;
             let notes: Vec<_> = authored
                 .notes
@@ -511,10 +524,13 @@ fn main() -> Result<()> {
                 })
                 .collect();
             ensure!(
-                !notes.is_empty()
-                    && notes
-                        .iter()
-                        .all(|n| n.start_seconds >= 0. && n.end_seconds <= duration),
+                !notes.is_empty(),
+                "Authored PART VOCALS contains no eligible pitched notes; retain this case as unsupported pitch annotation, never score generated notes as truth"
+            );
+            ensure!(
+                notes
+                    .iter()
+                    .all(|n| n.start_seconds >= 0. && n.end_seconds <= duration),
                 "Authored notes must fit the verified source clock and INI delay"
             );
             let frames = (0..(duration * 100.).ceil() as usize)
@@ -527,7 +543,11 @@ fn main() -> Result<()> {
                     ReferenceFrame {
                         time_seconds: time,
                         midi: pitch,
-                        backing_midi: vec![],
+                        backing_midi: backing
+                            .iter()
+                            .filter(|n| n.start <= time && time < n.end)
+                            .filter_map(|n| n.pitch.map(|p| p as f64))
+                            .collect(),
                     }
                 })
                 .collect();
@@ -536,7 +556,7 @@ fn main() -> Result<()> {
                 audio_sha256: models::hash_file(&audio)?,
                 duration_seconds: duration,
                 provenance: format!(
-                    "User-authorized professional YARG PART VOCALS; MIDI sha256={}; INI delay={ini_delay_ms}ms; chart-relative target pitches, not measured performed F0. Lyrics and singer identity require separate annotations.",
+                    "User-authorized professional YARG PART VOCALS; MIDI sha256={}; INI delay={ini_delay_ms}ms; authored HARM2/HARM3 targets included={harmonies}; chart-relative target pitches, not measured performed F0 or acoustic singer identities. Lyrics require separate annotations.",
                     models::hash_file(&midi)?
                 ),
                 reviewed: true,

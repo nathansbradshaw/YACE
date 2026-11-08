@@ -220,6 +220,21 @@ pub struct NoteEvidence {
     pub support: Vec<PitchSupport>,
     pub uncertain: bool,
     pub reasons: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<NoteModelEvidence>,
+}
+/// Counts describe detector support, never a calibrated correctness probability.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NoteModelEvidence {
+    pub model_id: String,
+    pub model_sha256: String,
+    pub implementation_sha256: String,
+    pub selected_midi: Option<u8>,
+    pub alternatives: Vec<u8>,
+    pub selected_note_support_frames: usize,
+    pub voiced_frames: usize,
+    pub inspected_frames: usize,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

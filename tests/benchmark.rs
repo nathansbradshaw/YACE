@@ -5,6 +5,51 @@ use midly::{
 };
 use std::{fs, path::Path};
 
+#[test]
+fn named_authored_harmony_uses_its_own_pitches_phrases_and_talkie_rules() {
+    let lead_bytes = midi(b"PART VOCALS", &[(0, 480, 60, "lead")], false);
+    let harmony_bytes = midi(
+        b"HARM2",
+        &[
+            (0, 960, 105, ""),
+            (0, 480, 67, "sí"),
+            (480, 960, 69, "habla#"),
+        ],
+        false,
+    );
+    let lead = Smf::parse(&lead_bytes).unwrap();
+    let harmony = Smf::parse(&harmony_bytes).unwrap();
+    let mut bytes = vec![];
+    Smf {
+        header: Header::new(Format::Parallel, Timing::Metrical(u15::new(480))),
+        tracks: vec![lead.tracks[0].clone(), harmony.tracks[0].clone()],
+    }
+    .write_std(&mut bytes)
+    .unwrap();
+    let before = bytes.clone();
+    let parsed = benchmark::parse_vocal_track(&bytes, b"HARM2", 0.).unwrap();
+    assert_eq!(parsed.notes.len(), 2);
+    assert_eq!(parsed.notes[0].pitch, Some(67));
+    assert_eq!(parsed.notes[1].pitch, None);
+    assert_eq!(
+        benchmark::parse(&bytes, Instrument::Vocals, 0.)
+            .unwrap()
+            .notes[0]
+            .pitch,
+        Some(60)
+    );
+    assert!(benchmark::parse_vocal_track(&bytes, b"HARM3", 0.).is_err());
+    assert!(benchmark::parse_vocal_track(&bytes, b"PART GUITAR", 0.).is_err());
+    assert_eq!(before, bytes);
+    let unphrased = midi(b"HARM2", &[(0, 480, 67, "sí")], false);
+    assert!(
+        benchmark::parse_vocal_track(&unphrased, b"HARM2", 0.)
+            .unwrap()
+            .notes
+            .is_empty()
+    );
+}
+
 fn midi(
     label: &'static [u8],
     notes: &[(u64, u64, u8, &'static str)],

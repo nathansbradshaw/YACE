@@ -7,7 +7,11 @@ use ort::{session::Session, value::Tensor};
 use rustfft::{FftPlanner, num_complex::Complex32};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    io::{BufWriter, Write},
+    path::PathBuf,
+};
 #[path = "support/onnx_proto.rs"]
 mod proto;
 const SHA: &str = "0467e0a627c4dd7e774c2d3a05fb5ca1830af7491451ca0158e62cb2621e0908";
@@ -130,6 +134,14 @@ fn main() -> Result<()> {
         .with_intra_threads(2)?
         .commit_from_memory(&patched)?;
     let mut frames = vec![];
+    let salience_path = a.output.with_extension("salience.f32le");
+    let mut salience_file = BufWriter::new(
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&salience_path)?,
+    );
+    let mut salience_hash = Sha256::new();
     for start in (0..count).step_by(2000) {
         let end = (start + 2000).min(count);
         let left = start.saturating_sub(100);
@@ -156,6 +168,11 @@ fn main() -> Result<()> {
         );
         for i in start..end {
             let row = &salience[(i - left) * 360..(i - left + 1) * 360];
+            for v in row {
+                let bytes = v.clamp(0., 1.).to_le_bytes();
+                salience_file.write_all(&bytes)?;
+                salience_hash.update(bytes)
+            }
             let peak = (0..360).max_by(|&a, &b| row[a].total_cmp(&row[b])).unwrap();
             let confidence = row[peak].clamp(0., 1.);
             let mut sum = 0.;
@@ -175,11 +192,12 @@ fn main() -> Result<()> {
         models::hash_file(&a.input)? == source && models::hash_file(&a.model)? == SHA,
         "Source/model changed"
     );
+    salience_file.flush()?;
     let mut hash = Sha256::new();
     for p in &pcm {
         hash.update(p.to_le_bytes())
     }
-    let result = json!({"status":"raw_research_only","model_id":"fcpe-deiteris-onnx","model_revision":"a6317b2f21619f35087d870b37c7a3eeb6bb3b4d","model_sha256":SHA,"raw_graph_sha256":patched_sha,"source_sha256":source,"pcm_sha256":format!("{:x}",hash.finalize()),"sample_rate":16000,"hop_samples":160,"duration_seconds":pcm.len()as f64/16000.,"frontend":"Slaney128-0to8000;Hann1024;hop160;reflect432;ln-magnitude;2000core100context;time-window-centre+5ms","decoder":"official local argmax9;edge indices clipped;zero-denominator gap;salience>0.006","confidence_meaning":"peak neural salience; not calibrated probability","frames":frames});
+    let result = json!({"status":"raw_research_only","model_id":"fcpe-deiteris-onnx","model_revision":"a6317b2f21619f35087d870b37c7a3eeb6bb3b4d","model_sha256":SHA,"raw_graph_sha256":patched_sha,"source_sha256":source,"pcm_sha256":format!("{:x}",hash.finalize()),"sample_rate":16000,"hop_samples":160,"duration_seconds":pcm.len()as f64/16000.,"frontend":"Slaney128-0to8000;Hann1024;hop160;reflect432;ln-magnitude;2000core100context;time-window-centre+5ms","decoder":"official local argmax9;edge indices clipped;zero-denominator gap;salience>0.006","confidence_meaning":"peak neural salience; not calibrated probability","salience_file":salience_path,"salience_sha256":format!("{:x}",salience_hash.finalize()),"salience_shape":[frames.len(),360],"cents_table":cents,"implementation_sha256":format!("{:x}",Sha256::digest(include_bytes!("vocal_fcpe_probe.rs"))),"frames":frames});
     fs::write(a.output, serde_json::to_vec(&result)?)?;
     Ok(())
 }
