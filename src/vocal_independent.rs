@@ -68,17 +68,26 @@ fn executable(name: &str) -> String {
 }
 pub fn helpers() -> Result<PathBuf> {
     let override_dir = std::env::var_os("YACE_VOCAL_TOOLS").map(PathBuf::from);
-    let dir = override_dir.clone().unwrap_or(
-        std::env::current_exe()?
+    let executable = std::env::current_exe()?;
+    let executable_dir = executable.parent().context("Executable directory")?;
+    let dir = override_dir
+        .clone()
+        .unwrap_or_else(|| executable_dir.join("vocal-tools"));
+    // MacOS is a code directory: a JSON receipt there is interpreted as unsigned
+    // nested code by codesign. Keep the receipt in the bundle's resource seal.
+    let receipt = if override_dir.is_some() {
+        dir.join("manifest.json")
+    } else {
+        executable_dir
             .parent()
-            .context("Executable directory")?
-            .join("vocal-tools"),
-    );
-    validate_helpers(&dir)?;
+            .context("Application contents")?
+            .join("Resources/vocal-tools.json")
+    };
+    validate_helpers(&dir, &receipt)?;
     Ok(dir)
 }
-fn validate_helpers(dir: &Path) -> Result<()> {
-    let receipts:Vec<HelperReceipt>=serde_json::from_slice(&fs::read(dir.join("manifest.json")).context("Multi-model pitch tools are not installed. Install the desktop vocal model pack; another analysis mode was not substituted.")?)?;
+fn validate_helpers(dir: &Path, receipt: &Path) -> Result<()> {
+    let receipts:Vec<HelperReceipt>=serde_json::from_slice(&fs::read(receipt).context("Multi-model pitch tools are not installed. Install the desktop vocal model pack; another analysis mode was not substituted.")?)?;
     ensure!(
         receipts.len() == HELPERS.len(),
         "Incomplete multi-model tool receipt"
@@ -468,7 +477,8 @@ mod tests {
     #[test]
     fn helper_receipts_reject_missing_replaced_and_duplicate_resources() {
         let temp = tempfile::tempdir().unwrap();
-        assert!(validate_helpers(temp.path()).is_err());
+        let receipt = temp.path().join("manifest.json");
+        assert!(validate_helpers(temp.path(), &receipt).is_err());
         let mut receipts = vec![];
         for name in HELPERS {
             let path = temp.path().join(executable(name));
@@ -479,12 +489,12 @@ mod tests {
             });
         }
         crate::generation::write_json(&temp.path().join("manifest.json"), &receipts).unwrap();
-        validate_helpers(temp.path()).unwrap();
+        validate_helpers(temp.path(), &receipt).unwrap();
         fs::write(temp.path().join(executable(HELPERS[0])), b"changed").unwrap();
-        assert!(validate_helpers(temp.path()).is_err());
+        assert!(validate_helpers(temp.path(), &receipt).is_err());
         receipts[0].name = HELPERS[1].into();
         crate::generation::write_json(&temp.path().join("manifest.json"), &receipts).unwrap();
-        assert!(validate_helpers(temp.path()).is_err());
+        assert!(validate_helpers(temp.path(), &receipt).is_err());
     }
     #[test]
     fn cached_salience_relocation_preserves_values_and_uses_relative_paths() {

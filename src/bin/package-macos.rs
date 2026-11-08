@@ -305,7 +305,10 @@ fn build_bundle(args: &Args) -> Result<PathBuf> {
                 sha256: chart_engine::models::hash_file(&target)?,
             });
         }
-        chart_engine::generation::write_json(&destination.join("manifest.json"), &receipts)?;
+        chart_engine::generation::write_json(
+            &stage.path().join("Contents/Resources/vocal-tools.json"),
+            &receipts,
+        )?;
         for asset in ASSETS {
             let source = weights.join(asset.source);
             ensure!(
@@ -481,6 +484,58 @@ mod tests {
                 .join("Contents/Resources/third-party/practice-acoustic/src/lib.rs")
                 .is_file()
         );
+    }
+    #[test]
+    fn vocal_helper_receipt_is_a_signed_resource_not_nested_code() {
+        let root = tempfile::tempdir().unwrap();
+        let bundle = root.path().join("YACE.app");
+        let code = bundle.join("Contents/MacOS");
+        let resources = bundle.join("Contents/Resources");
+        fs::create_dir_all(code.join("vocal-tools")).unwrap();
+        fs::create_dir_all(&resources).unwrap();
+        let native = native_executable(root.path());
+        fs::copy(&native, code.join("chart-engine")).unwrap();
+        let mut receipts = vec![];
+        for name in chart_engine::vocal_independent::HELPERS {
+            let target = code.join("vocal-tools").join(name);
+            fs::copy(&native, &target).unwrap();
+            assert!(
+                Command::new("codesign")
+                    .args(["--force", "--sign", "-"])
+                    .arg(&target)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            receipts.push(chart_engine::vocal_independent::HelperReceipt {
+                name: name.into(),
+                sha256: chart_engine::models::hash_file(&target).unwrap(),
+            });
+        }
+        chart_engine::generation::write_json(&resources.join("vocal-tools.json"), &receipts)
+            .unwrap();
+        fs::write(
+            bundle.join("Contents/Info.plist"),
+            include_str!("../../packaging/macos/Info.plist"),
+        )
+        .unwrap();
+        assert!(
+            Command::new("codesign")
+                .args(["--force", "--sign", "-"])
+                .arg(&bundle)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            Command::new("codesign")
+                .args(["--verify", "--deep", "--strict"])
+                .arg(&bundle)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(!code.join("vocal-tools/manifest.json").exists());
     }
     #[test]
     fn optional_model_flags_need_explicit_inclusion() {
