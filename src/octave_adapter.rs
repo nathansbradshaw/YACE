@@ -13,6 +13,7 @@ use std::collections::BTreeSet;
 #[serde(rename_all = "camelCase")]
 pub enum Instrument {
     Guitar,
+    SixFret,
     Bass,
     Drums,
     Keys,
@@ -167,6 +168,9 @@ fn track_kind(track: &str) -> Result<(Instrument, Difficulty)> {
         if let Some(suffix) = track.strip_prefix(prefix) {
             let instrument = match suffix {
                 "Single" | "DoubleRhythm" | "DoubleGuitar" => Instrument::Guitar,
+                "GHLGuitar" | "GHLBass" | "GHLRhythm" | "GHLCoop" | "GHLKeys" => {
+                    Instrument::SixFret
+                }
                 "DoubleBass" => Instrument::Bass,
                 "Drums" => Instrument::Drums,
                 "Keyboard" => Instrument::Keys,
@@ -308,6 +312,8 @@ pub fn snapshot(project: &Project, timing: &TempoMap) -> Result<Snapshot> {
                         5 => "greenTom",
                         _ => "doubleKick",
                     })
+                } else if crate::six_fret::is_track(key) {
+                    crate::six_fret::name(raw.lane)
                 } else if crate::keys::is_pro(key) {
                     editor::playable(key, raw.lane).then(|| crate::keys::pitch_name(raw.lane))
                 } else {

@@ -9,7 +9,9 @@ use dioxus::prelude::*;
 use std::fmt::Write;
 
 pub fn lane_name(track: &str, lane: u8) -> &'static str {
-    if crate::keys::is_pro(track) {
+    if crate::six_fret::is_track(track) {
+        crate::six_fret::name(lane).unwrap_or("Control")
+    } else if crate::keys::is_pro(track) {
         crate::keys::pitch_name(lane)
     } else if track.ends_with("Drums") {
         match lane {
@@ -44,7 +46,9 @@ fn note_count(count: usize) -> String {
     format!("{count} {}", if count == 1 { "note" } else { "notes" })
 }
 pub fn color(track: &str, lane: u8) -> &'static str {
-    if crate::keys::is_pro(track) {
+    if crate::six_fret::is_track(track) {
+        crate::six_fret::color(lane)
+    } else if crate::keys::is_pro(track) {
         if matches!(lane % 12, 1 | 3 | 6 | 8 | 10) {
             "#949dac"
         } else {

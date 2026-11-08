@@ -204,7 +204,7 @@ fn store(root: &Path, bytes: &[u8], delay: i32) -> Store {
 }
 
 #[test]
-fn legacy_opaque_rhythm_cannot_be_replaced_by_adding_a_blank_part() {
+fn legacy_opaque_manual_parts_cannot_be_replaced_by_adding_a_blank_part() {
     let root = tempfile::tempdir().unwrap();
     let original = fixture();
     let store = store(root.path(), &original, 0);
@@ -217,7 +217,7 @@ fn legacy_opaque_rhythm_cannot_be_replaced_by_adding_a_blank_part() {
     let legacy: String = chart
         .sections
         .iter()
-        .filter(|s| !s.name.ends_with("DoubleRhythm"))
+        .filter(|s| !s.name.ends_with("DoubleRhythm") && !s.name.ends_with("GHLGuitar"))
         .map(|s| {
             format!(
                 "[{}]\n{{\n{}\n}}\n",
@@ -228,10 +228,10 @@ fn legacy_opaque_rhythm_cannot_be_replaced_by_adding_a_blank_part() {
         .collect();
     let mut attributes: Vec<AttributeRecord> =
         serde_json::from_slice(&fs::read(directory.join("attributes.json")).unwrap()).unwrap();
-    attributes.retain(|a| !a.track.ends_with("DoubleRhythm"));
+    attributes.retain(|a| !a.track.ends_with("DoubleRhythm") && !a.track.ends_with("GHLGuitar"));
     imported
         .attributes
-        .retain(|a| !a.track.ends_with("DoubleRhythm"));
+        .retain(|a| !a.track.ends_with("DoubleRhythm") && !a.track.ends_with("GHLGuitar"));
     fs::write(
         directory.join("attributes.json"),
         serde_json::to_vec(&attributes).unwrap(),
@@ -253,11 +253,14 @@ fn legacy_opaque_rhythm_cannot_be_replaced_by_adding_a_blank_part() {
         .unwrap();
     assert!(extra_parts(&song).unwrap().contains("MIDI: PART RHYTHM"));
     let before = fs::read(store.root.join("project.json")).unwrap();
-    for tier in ["Easy", "Medium", "Hard", "Expert"] {
+    for (tier, suffix) in ["Easy", "Medium", "Hard", "Expert"]
+        .into_iter()
+        .flat_map(|tier| ["DoubleRhythm", "GHLGuitar"].map(|suffix| (tier, suffix)))
+    {
         let error = apply(
             &store,
             Action::CreateTrack {
-                track: format!("{tier}DoubleRhythm"),
+                track: format!("{tier}{suffix}"),
             },
         )
         .unwrap_err();

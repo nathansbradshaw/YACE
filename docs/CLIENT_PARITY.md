@@ -189,8 +189,28 @@ judgment remain open.
 
 Export choices distinguish rhythm guitar, co-op guitar and each six-fret
 instrument. Unknown source identifiers remain visible. Rhythm and co-op guitar
-now have manual authoring controls at all four difficulties. Dedicated six-fret
-editing controls remain open.
+now have manual authoring controls at all four difficulties. Six-fret authoring
+has implementation coverage for all five families and four difficulties, with
+white/black/open rows, a distinct clipboard family and fresh MIDI decoding.
+Static browser checks exercised all 20 parts through individual Black3 timing
+and Tap edits, typed clipboard paste/delete, Undo/Redo and reload. An independent
+MIDI audit verified the exported edits, white/black/open attacks, sustains,
+scoped techniques and Star Power, with seven unrelated raw track chunks
+unchanged. Reimporting only MIDI, INI and audio exposed the same 20 edited
+parts. A complete editable backup retained revision 95 and 42 Undo entries.
+Blank-chart checks created all 20 parts; lane and sustain edits, independent
+part/note Undo/Redo, reload and all 20 distinct `.chart` sections passed.
+Older opaque MIDI imports refused all 20 conflicting blank parts without
+changing the saved revision. Their automatic promotion remains unimplemented.
+Native checks independently edited all 20 parts and created all 20 blank
+parts through the actual controls. White/open lane and sustain edits,
+clipboard-family refusal and independent part/note Undo/Redo passed. The
+native blank `.chart` export matched the browser byte-for-byte. A full process
+exit/restart retained the acknowledged project bytes and recovered Undo/Redo;
+its edited MIDI and original audio matched the browser export exactly. The
+browser's complete backup reopened natively with all 20 parts and 42 Undo
+entries, including usable recovered note history. Hosted, independent
+released-Moonscraper and game/controller/musical acceptance remain open.
 
 Native and static browser checks created all eight rhythm/co-op parts from a
 blank chart, entered typed five-fret notes and independently undid/redid part

@@ -148,10 +148,21 @@ fn track_check(notes: &[Note], chart: &Chart, drums: bool) -> TrackCheck {
     track_check_pitched(notes, chart, drums, false)
 }
 fn track_check_pitched(notes: &[Note], chart: &Chart, drums: bool, pro_keys: bool) -> TrackCheck {
+    track_check_family(notes, chart, drums, pro_keys, false)
+}
+fn track_check_family(
+    notes: &[Note],
+    chart: &Chart,
+    drums: bool,
+    pro_keys: bool,
+    six_fret: bool,
+) -> TrackCheck {
     let mut notes: Vec<_> = notes
         .iter()
         .filter(|n| {
-            if pro_keys {
+            if six_fret {
+                crate::six_fret::ROWS.contains(&n.lane)
+            } else if pro_keys {
                 (48..=72).contains(&n.lane)
             } else {
                 n.lane <= 4 || (!drums && n.lane == 7)
@@ -210,6 +221,11 @@ fn all_track_checks(chart: &Chart) -> Result<BTreeMap<String, TrackCheck>> {
             "DoubleBass",
             "DoubleRhythm",
             "DoubleGuitar",
+            "GHLGuitar",
+            "GHLBass",
+            "GHLRhythm",
+            "GHLCoop",
+            "GHLKeys",
             "Drums",
             "Keyboard",
             "ProKeys",
@@ -219,6 +235,8 @@ fn all_track_checks(chart: &Chart) -> Result<BTreeMap<String, TrackCheck>> {
                 name.clone(),
                 if part == "ProKeys" {
                     track_check_pitched(&chart.notes(&name)?, chart, false, true)
+                } else if crate::six_fret::is_track(part) {
+                    track_check_family(&chart.notes(&name)?, chart, false, false, true)
                 } else {
                     track_check(&chart.notes(&name)?, chart, part == "Drums")
                 },

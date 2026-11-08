@@ -40,6 +40,9 @@ impl Kind {
     }
 }
 pub fn supported(track: &str) -> bool {
+    if crate::six_fret::is_track(track) {
+        return true;
+    }
     ["Easy", "Medium", "Hard", "Expert"].iter().any(|tier| {
         ["Single", "DoubleBass", "DoubleRhythm", "DoubleGuitar"]
             .iter()
@@ -60,7 +63,7 @@ pub fn markers(notes: &[EditorNote]) -> BTreeMap<u64, Kind> {
 pub fn apply(project: &mut Project, selection: &Snapshot, kind: Kind) -> Result<()> {
     ensure!(
         supported(&selection.track),
-        "Note types are for five-fret guitar and bass"
+        "Note types are for five-fret and six-fret instruments"
     );
     selection.validate(project)?;
     let original = &project.content.tracks[&selection.track];

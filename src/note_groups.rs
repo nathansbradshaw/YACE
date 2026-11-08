@@ -58,6 +58,8 @@ pub struct Clipboard {
 pub fn family(track: &str) -> &'static str {
     if track == "Vocals" {
         "vocals"
+    } else if crate::six_fret::is_track(track) {
+        "six_fret"
     } else if crate::keys::is_pro(track) {
         "pro_keys"
     } else if track.ends_with("Drums") {
@@ -286,8 +288,15 @@ impl Clipboard {
         match &value.payload {
             Payload::Instrument { family, notes } => {
                 ensure!(
-                    ["frets", "drums", "five_lane_drums", "keys", "pro_keys"]
-                        .contains(&family.as_str())
+                    [
+                        "frets",
+                        "six_fret",
+                        "drums",
+                        "five_lane_drums",
+                        "keys",
+                        "pro_keys"
+                    ]
+                    .contains(&family.as_str())
                         && !notes.is_empty()
                         && notes.len() <= MAX_NOTES,
                     "Invalid note clipboard"

@@ -280,7 +280,7 @@ fn Highway(
             let classified = classified.read();
             let (notes, _) = classified.as_ref().ok()?;
             let beats = beat_lines(&timing, position, lookahead());
-            let mut geometry = render_highway(&Scene {
+            let scene = Scene {
                 notes,
                 beats: &beats,
                 flashes: &animation().flashes,
@@ -291,7 +291,12 @@ fn Highway(
                 pro_piano: crate::keys::is_pro(&track),
                 pro_drums: pro_drums(),
                 playing: doc.transport.playing && (studio.audio_ready)(),
-            });
+            };
+            let mut geometry = if crate::six_fret::is_track(&track) {
+                render_six_fret_highway(&scene)
+            } else {
+                render_highway(&scene)
+            };
             if let Some(phrases) = power.read().as_ref() {
                 geometry.push_str(&render_power(phrases, &timing, position, lookahead()));
             }
@@ -502,6 +507,135 @@ fn render_piano_highway(scene: &Scene<'_>) -> String {
             crate::keys::pitch_name(pitch)
         );
     }
+    out
+}
+
+/// Three paired columns keep both white and black gems visible in a chord.
+/// The two small offsets are an editing aid, not a controller simulation.
+fn render_six_fret_highway(scene: &Scene<'_>) -> String {
+    if !scene.position.is_finite() || !scene.lookahead.is_finite() || scene.lookahead <= 0. {
+        return String::new();
+    }
+    let mut out = String::from(DEFINITIONS);
+    let (left, far, _) = project(0., scene.lookahead, scene.lookahead);
+    let (right, _, _) = project(1., scene.lookahead, scene.lookahead);
+    let _ = write!(
+        out,
+        "<path data-kind='six-fret-board' d='M{left:.2} {far:.2}L{right:.2} {far:.2}L774 550L226 550Z' fill='url(#game-board)' stroke='#657382' stroke-width='3'/>"
+    );
+    for column in 1..3 {
+        let (x, y, _) = project(column as f64 / 3., scene.lookahead, scene.lookahead);
+        let (near, _, _) = project(column as f64 / 3., 0., scene.lookahead);
+        let _ = write!(
+            out,
+            "<path d='M{x:.2} {y:.2}L{near:.2} 535' stroke='#8492a3' stroke-opacity='.4'/>"
+        );
+    }
+    for beat in scene.beats {
+        let (a, y, _) = project(0., beat - scene.position, scene.lookahead);
+        let (b, _, _) = project(1., beat - scene.position, scene.lookahead);
+        let _ = write!(
+            out,
+            "<path data-kind='beat' d='M{a:.2} {y:.2}H{b:.2}' stroke='#d9e0eb' stroke-opacity='.35'/>"
+        );
+    }
+    let fraction = |lane| {
+        crate::six_fret::column(lane)
+            .map(|column| (column as f64 + if lane <= 2 { 0.28 } else { 0.72 }) / 3.)
+    };
+    let mut notes: Vec<_> = scene
+        .notes
+        .iter()
+        .filter(|note| {
+            note.start.is_finite()
+                && note.end.is_finite()
+                && note.end >= scene.position
+                && note.start <= scene.position + scene.lookahead
+        })
+        .collect();
+    notes.sort_by(|a, b| b.start.total_cmp(&a.start));
+    for note in notes {
+        if note.lane == 7 {
+            render_note(&mut out, scene, note, 3);
+            continue;
+        }
+        let Some(fraction) = fraction(note.lane) else {
+            continue;
+        };
+        let (x, y, scale) = project(
+            fraction,
+            (note.start - scene.position).max(0.),
+            scene.lookahead,
+        );
+        let color = crate::six_fret::color(note.lane);
+        if note.end > note.start && note.end > scene.position {
+            let (tx, ty, _) = project(
+                fraction,
+                (note.end - scene.position).min(scene.lookahead),
+                scene.lookahead,
+            );
+            let _ = write!(
+                out,
+                "<path data-kind='sustain' data-lane='{}' d='M{x:.2} {y:.2}L{tx:.2} {ty:.2}' stroke='{color}' stroke-width='{:.2}' opacity='.75'/>",
+                note.lane,
+                8. * scale
+            );
+        }
+        if note.start < scene.position {
+            continue;
+        }
+        let rx = 26. * scale;
+        let ry = 15. * scale;
+        let stroke = if note.selected { "#ffdf54" } else { "#b9c9da" };
+        let label = if note.lane <= 2 { "W" } else { "B" };
+        let _ = write!(
+            out,
+            "<g data-kind='six-fret-gem' data-lane='{}'><rect x='{:.2}' y='{:.2}' width='{:.2}' height='{:.2}' rx='{:.2}' fill='{color}' stroke='{stroke}' stroke-width='{:.2}'/><text x='{x:.2}' y='{:.2}' text-anchor='middle' fill='{}' font-size='{:.2}'>{label}</text></g>",
+            note.lane,
+            x - rx,
+            y - ry,
+            rx * 2.,
+            ry * 2.,
+            4. * scale,
+            (2. * scale).max(0.7),
+            y + 4. * scale,
+            if note.lane <= 2 { "#14202a" } else { "#fff" },
+            12. * scale
+        );
+        if matches!(note.technique, Some(Technique::Hopo | Technique::Tap)) {
+            let technique = if note.technique == Some(Technique::Tap) {
+                "T"
+            } else {
+                "H"
+            };
+            let _ = write!(
+                out,
+                "<text data-kind='technique' x='{x:.2}' y='{:.2}' text-anchor='middle' fill='#fff' font-size='{:.2}'>{technique}</text>",
+                y - 19. * scale,
+                11. * scale
+            );
+        }
+    }
+    for lane in [0, 3, 1, 4, 2, 8] {
+        let (x, _, _) = project(fraction(lane).unwrap(), 0., scene.lookahead);
+        let color = crate::six_fret::color(lane);
+        let (active, holding) = lane_activity(scene, lane);
+        let label = crate::six_fret::name(lane).unwrap();
+        let _ = write!(
+            out,
+            "<g data-kind='six-fret-receptor' data-lane='{lane}'><rect x='{:.2}' y='521' width='62' height='28' rx='5' fill='{color}' stroke='#cbd5e1' stroke-width='2'/><text x='{x:.2}' y='568' text-anchor='middle' fill='#e9eff5' font-size='13'>{label}</text></g>",
+            x - 31.
+        );
+        if active > 0. {
+            render_flash(&mut out, x, color, active, holding);
+        }
+    }
+    let (open, _) = lane_activity(scene, 7);
+    let _ = write!(
+        out,
+        "<rect data-kind='bar-receptor' data-lane='7' x='226' y='580' width='548' height='5' rx='2' fill='#c889ff' opacity='{:.2}'/>",
+        0.3 + open * 0.7
+    );
     out
 }
 
@@ -1000,6 +1134,39 @@ const DEFINITIONS: &str = "<defs><linearGradient id='game-board' x1='0' y1='0' x
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn six_fret_preview_has_three_pairs_and_distinct_six_gems_and_open() {
+        let notes: Vec<_> = crate::six_fret::ROWS
+            .into_iter()
+            .map(|lane| note(1., 1.5, lane, false))
+            .collect();
+        let scene = Scene {
+            notes: &notes,
+            beats: &[],
+            flashes: &[],
+            position: 0.,
+            lookahead: 3.6,
+            drums: false,
+            drum_layout: crate::drum_layout::Layout::FourLane,
+            pro_piano: false,
+            pro_drums: false,
+            playing: false,
+        };
+        let svg = render_six_fret_highway(&scene);
+        assert_eq!(svg.matches("data-kind='six-fret-gem'").count(), 6);
+        assert_eq!(svg.matches("data-kind='six-fret-receptor'").count(), 6);
+        assert_eq!(svg.matches("data-kind='open'").count(), 1);
+        assert!(svg.contains("Black 3"));
+        assert!(svg.contains("data-lane='8'"));
+        let held = render_six_fret_highway(&Scene {
+            position: 1.1,
+            playing: true,
+            ..scene
+        });
+        assert_eq!(held.matches("data-kind='six-fret-gem'").count(), 0);
+        assert!(held.contains("data-kind='sustain' data-lane='8'"));
+        assert!(held.contains("data-kind='autoplay-flash'"));
+    }
     #[test]
     fn authored_power_rails_clip_to_the_source_window_across_tempo_changes() {
         let timing = TempoMap::new(
