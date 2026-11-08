@@ -12,6 +12,11 @@ Rust project, command validation and recovery history.
   restarting the app. Remove an entry with **×** or use **Clear list** to forget
   the history; both keep the projects and their saved edits. New browser imports
   appear after their first successful autosave.
+- Desktop startup reopens the newest entry, whether it is a band project or a
+  standalone Dance project. An explicitly requested project or charting folder
+  takes priority. If the newest project is missing or history cannot be read,
+  YACE reports the problem and keeps the recorded history instead of opening a
+  different project. With an empty history, older Dance recovery remains available.
 - On desktop, **Open charting folder** accepts a song, a saved project, or an
   entire collection. YACE searches up to three folders below the chosen folder.
   Pick a chart from the welcome list or the **Charts** selector beside the song
