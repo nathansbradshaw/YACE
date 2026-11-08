@@ -434,6 +434,7 @@ fn correction_evidence(c: &Correction) -> crate::vocal_generation::NoteEvidence 
         end: c.end,
         selected_midi: c.after,
         alternatives: vec![c.before],
+        models: vec![],
         support: vec![crate::vocal_generation::PitchSupport::ContourPath],
         uncertain: true,
         reasons: vec![format!(

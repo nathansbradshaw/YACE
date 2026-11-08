@@ -1,6 +1,6 @@
 //! Private, reference-bound evaluation. Generated notes never become truth.
 use crate::{clean::AlignedWord, models, vocal_generation::Generation, vocals::VocalTone};
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -57,6 +57,8 @@ pub struct ReferenceNote {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Metrics {
     pub reference_voiced_frames: usize,
+    pub missed_voiced_frames: usize,
+    pub reference_unvoiced_frames: usize,
     pub correct_pitch_frames: usize,
     pub incorrect_pitch_frames: usize,
     pub detected_voiced_frames: usize,
@@ -82,7 +84,14 @@ impl Metrics {
         self.detected_voiced_frames as f64 / self.reference_voiced_frames.max(1) as f64
     }
     fn error_rate(&self) -> f64 {
-        self.incorrect_pitch_frames as f64 / self.reference_voiced_frames.max(1) as f64
+        (self.incorrect_pitch_frames + self.missed_voiced_frames) as f64
+            / self.reference_voiced_frames.max(1) as f64
+    }
+    fn wrong_pitch_proportion(&self) -> f64 {
+        self.incorrect_pitch_frames as f64 / self.detected_voiced_frames.max(1) as f64
+    }
+    fn false_voicing_rate(&self) -> f64 {
+        self.false_voiced_frames as f64 / self.reference_unvoiced_frames.max(1) as f64
     }
 }
 #[derive(Serialize)]
@@ -92,6 +101,8 @@ pub struct Comparison {
     pub split: String,
     pub baseline: Metrics,
     pub candidate: Metrics,
+    pub baseline_notes: Metrics,
+    pub candidate_notes: Metrics,
 }
 #[derive(Serialize)]
 pub struct Evaluation {
@@ -300,9 +311,11 @@ pub fn score(reference: &Reference, report: &Generation) -> Result<Metrics> {
                     metrics.backing_capture_frames += 1;
                 }
             } else {
+                metrics.missed_voiced_frames += 1;
                 role = None;
             }
         } else {
+            metrics.reference_unvoiced_frames += 1;
             metrics.false_voiced_frames += usize::from(pitch.is_some());
             role = None;
         }
@@ -426,6 +439,50 @@ pub fn score(reference: &Reference, report: &Generation) -> Result<Metrics> {
     Ok(metrics)
 }
 
+/// Sample the actual editable/exported notes on the reference clock. Detector
+/// frames remain a separate metric; uncertainty never excludes a chart note.
+pub fn score_exported_notes(reference: &Reference, report: &Generation) -> Result<Metrics> {
+    validate_reference(reference)?;
+    let mut selected = report.clone();
+    let template = report
+        .pitch_frames
+        .first()
+        .context("Missing analysis frame clock")?;
+    let mut intervals = vec![];
+    if let Some(chart) = &report.chart {
+        chart.validate()?;
+        let timing = report
+            .timing
+            .as_ref()
+            .context("Exported-note scoring needs source timing")?;
+        let canonical =
+            crate::timing::TempoMap::new(timing.resolution, timing.offset, timing.tempos.clone())?;
+        ensure!(
+            canonical == *timing,
+            "Exported-note timing is not a canonical source map"
+        );
+        for n in &chart.notes {
+            if let VocalTone::Pitched { midi } = n.tone {
+                intervals.push((timing.seconds(n.start), timing.seconds(n.end), midi))
+            }
+        }
+    }
+    selected.pitch_frames = reference
+        .frames
+        .iter()
+        .map(|r| {
+            let mut f = template.clone();
+            f.time_seconds = r.time_seconds;
+            let at = intervals.partition_point(|(start, _, _)| *start <= r.time_seconds);
+            f.midi = at.checked_sub(1).and_then(|i| {
+                let (_, end, pitch) = intervals[i];
+                (r.time_seconds < end).then_some(pitch as f64)
+            });
+            f
+        })
+        .collect();
+    score(reference, &selected)
+}
 fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     ensure!(
         fs::metadata(path)?.len() <= 128 * 1024 * 1024,
@@ -493,6 +550,8 @@ fn evaluate_inner(path: &Path, partial: bool) -> Result<Evaluation> {
             split: recording.split.clone(),
             baseline: score(&reference, &baseline)?,
             candidate: score(&reference, &candidate)?,
+            baseline_notes: score_exported_notes(&reference, &baseline)?,
+            candidate_notes: score_exported_notes(&reference, &candidate)?,
         });
     }
     if partial {
@@ -519,37 +578,62 @@ fn evaluate_inner(path: &Path, partial: bool) -> Result<Evaluation> {
         .iter()
         .filter(|r| r.split == "held_out")
         .collect();
-    let mean = |candidate: bool, language: Option<&str>, metric: fn(&Metrics) -> f64| {
-        let rows: Vec<_> = held
-            .iter()
-            .filter(|r| language.is_none_or(|l| r.language == l))
-            .collect();
-        rows.iter()
-            .map(|r| metric(if candidate { &r.candidate } else { &r.baseline }))
-            .sum::<f64>()
-            / rows.len().max(1) as f64
-    };
-    let before = mean(false, None, Metrics::error_rate);
-    let after = mean(true, None, Metrics::error_rate);
-    if before <= 0. || after > before * 0.8 {
-        evaluation.gate_failures.push(
-            "Need at least 20% relative reduction in incorrect-pitch frames on held-out recordings"
-                .into(),
+    let mean =
+        |candidate: bool, language: Option<&str>, notes: bool, metric: fn(&Metrics) -> f64| {
+            let rows: Vec<_> = held
+                .iter()
+                .filter(|r| language.is_none_or(|l| r.language == l))
+                .collect();
+            rows.iter()
+                .map(|r| {
+                    metric(match (candidate, notes) {
+                        (true, true) => &r.candidate_notes,
+                        (false, true) => &r.baseline_notes,
+                        (true, false) => &r.candidate,
+                        (false, false) => &r.baseline,
+                    })
+                })
+                .sum::<f64>()
+                / rows.len().max(1) as f64
+        };
+    for (notes, label) in [(false, "detected contour"), (true, "exported notes")] {
+        let before = mean(false, None, notes, Metrics::error_rate);
+        let after = mean(true, None, notes, Metrics::error_rate);
+        if before <= 0. || after > before * 0.8 {
+            evaluation.gate_failures.push(
+            format!("Need at least 20% relative reduction in missed-or-wrong pitched frames on held-out recordings ({label})"),
         );
-    }
-    if mean(true, None, Metrics::voiced_recall) + 0.02 < mean(false, None, Metrics::voiced_recall) {
-        evaluation
-            .gate_failures
-            .push("Voiced recall fell by more than two percentage points".into());
-    }
-    let languages: BTreeSet<_> = held.iter().map(|r| r.language.as_str()).collect();
-    for language in languages {
-        if mean(true, Some(language), Metrics::pitch_accuracy) + 0.02
-            < mean(false, Some(language), Metrics::pitch_accuracy)
+        }
+        if mean(true, None, notes, Metrics::wrong_pitch_proportion)
+            >= mean(false, None, notes, Metrics::wrong_pitch_proportion)
         {
             evaluation.gate_failures.push(format!(
-                "Pitch accuracy regressed by more than two points in {language}"
+                "The proportion of detected pitches that are wrong must improve ({label})"
             ));
+        }
+        if mean(true, None, notes, Metrics::false_voicing_rate)
+            > mean(false, None, notes, Metrics::false_voicing_rate) + 0.02
+        {
+            evaluation.gate_failures.push(format!(
+                "False voicing increased by more than two percentage points ({label})"
+            ));
+        }
+        if mean(true, None, notes, Metrics::voiced_recall) + 0.02
+            < mean(false, None, notes, Metrics::voiced_recall)
+        {
+            evaluation.gate_failures.push(format!(
+                "Voiced recall fell by more than two percentage points ({label})"
+            ));
+        }
+        let languages: BTreeSet<_> = held.iter().map(|r| r.language.as_str()).collect();
+        for language in languages {
+            if mean(true, Some(language), notes, Metrics::pitch_accuracy) + 0.02
+                < mean(false, Some(language), notes, Metrics::pitch_accuracy)
+            {
+                evaluation.gate_failures.push(format!(
+                    "Pitch accuracy regressed by more than two points in {language} ({label})"
+                ));
+            }
         }
     }
     evaluation.promotion_eligible = evaluation.gate_failures.is_empty();
@@ -565,6 +649,25 @@ fn evaluate_inner(path: &Path, partial: bool) -> Result<Evaluation> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn missing_notes_cannot_make_pitch_error_disappear() {
+        let mut m = Metrics {
+            reference_voiced_frames: 100,
+            correct_pitch_frames: 80,
+            incorrect_pitch_frames: 20,
+            detected_voiced_frames: 100,
+            ..Default::default()
+        };
+        assert_eq!(m.error_rate(), 0.2);
+        m.incorrect_pitch_frames = 0;
+        m.missed_voiced_frames = 20;
+        m.detected_voiced_frames = 80;
+        assert_eq!(m.error_rate(), 0.2);
+        m.missed_voiced_frames = 100;
+        m.correct_pitch_frames = 0;
+        m.detected_voiced_frames = 0;
+        assert_eq!(m.error_rate(), 1.);
+    }
     #[test]
     fn corpus_requires_distinct_artists_and_frozen_splits_not_language_balance() {
         let mut corpus = Corpus {

@@ -171,9 +171,16 @@ one-to-one note matches (50 ms onset; max(50 ms,20% duration) offset), boundary
 errors, word edit counts and matched-word timing errors. Missing singer/word
 annotations are not zero-error evidence. Runtime/RSS have separate run receipts.
 
-Promotion requires at least 20% relative reduction in incorrect-pitch frame rate
-on held-out songs, voiced recall loss no larger than two percentage points, and
+At the user's explicit request, pitch error now includes both missing singing
+and incorrectly selected pitches: `(missed + wrong) / reference voiced frames`.
+Promotion requires at least 20% relative reduction in this error rate
+on held-out songs, an improvement in the proportion of detected pitches that
+are wrong, voiced recall loss no larger than two percentage points, and
 no pitch-accuracy loss larger than two points in any represented language.
+False voicing may increase by no more than two percentage points on reference
+unvoiced frames. These checks apply separately to detector contours and the
+actual exported notes, sampled on the reference clock; a good raw contour cannot
+hide incorrect or missing MIDI notes. Uncertain draft notes count in full.
 Rates are macro-averaged across held-out recordings, so long songs do not dominate.
 The corpus must cover solo singing, harmony and rap. Language changes can be
 annotated separately; they are not a prerequisite for pitch evaluation. An explicit
@@ -181,7 +188,9 @@ annotated separately; they are not a prerequisite for pitch evaluation. An expli
 Lyric improvements cannot offset a failed pitch gate. Listening, actual native
 and browser interaction, and game acceptance remain separate requirements.
 
-CREPE, FCPE and other unaccepted backends remain research-only. RMVPE comparison
+Unaccepted model profiles remain research-only. The explicit desktop multi-model
+option described below is distinct from Standard and the faster High profile.
+RMVPE comparison
 is optional and High accuracy remains experimental pending acceptance.
 Language-specific recognition results are separate from pitch acceptance.
 
@@ -263,3 +272,51 @@ implements local-argmax decoding in Rust. It clamps only probability roundoff
 within 1e-6; zero denominator means no pitch, while nonfinite or larger invalid
 outputs fail. Confidence is raw salience, not a correctness probability.
 Preprocessing and chunk conventions are recorded with each private result.
+
+## Explicit desktop multi-model pitch option
+
+The vocal editor offers **Multi-model pitch (slower)**. It compares RMVPE,
+CREPE full, FCPE, SwiftF0 and ROSVOT/RWBD without lyric recognition or lookup.
+It uses the frozen `vocal_posterior::FROZEN_ENERGY_PROFILE`: joint pitch-band
+costs and corroborated note centres correct existing voice; supported gaps
+require ROSVOT/Swift agreement plus two of three spectral votes, stable pitch
+context for 180 ms, and local RMS above both 0.0015 and half the median existing
+voiced local RMS. Existing quiet voice is retained. No key, scale, octave fold,
+authored pitch or reference timestamp enters the decoder. A short dropout can
+use surrounding supported singing for context instead of being rejected as an
+isolated short sound. Silence and unsupported evidence remain gaps.
+
+The profile was selected using the four development recordings. Its initial
+recovery variant failed the false-voicing check; the energy-filtered variant
+passed the private automated contour and exported-note gates. The second run
+uses previously exposed validation artists, with parameters selected only on
+development material. Private audio, references, exposure history and detailed
+reports stay outside Git. This does not establish complete transcription,
+listening, GUI interaction or game acceptance.
+
+`vocals generate-project PROJECT --analysis-mode high-accuracy
+--independent-pitch` selects the same desktop workflow. Install the matching
+five Rust helpers and checksum-pinned local model pack explicitly. Missing tools
+or models stop this requested profile; they never select Standard or faster
+High. Native packaging adds `--vocal-tools RELEASE_TARGET --vocal-models
+PINNED_LOCAL_MODEL_CACHE` alongside `--include-models`. No new weights are
+downloaded implicitly by the multi-model pack.
+
+Source/model/implementation-bound salience and note-event caches are shared
+across repeat runs of the recording. Cancellation terminates the owned worker
+process group and leaves the current chart unchanged. Each assembled note
+retains alternatives and per-model support counts; these are not probabilities.
+Regeneration and import use ordinary editor history and Undo. Unknown lyrics
+remain typed missing syllables and do not suppress pitch.
+
+The browser compiles the same Rust acoustic decoder and supports source-bound
+analysis JSON import, including per-note model evidence and alternatives. The
+five-model computation currently requires the desktop runtime and local pack;
+the browser states this explicitly. Browser recognition/faster High do not
+silently stand in for the multi-model option.
+
+Evaluator-only `vocal-research reference --harmonies` includes explicitly
+authored HARM2/HARM3 lanes using the same phrase/talkie parser as lead targets.
+It does not infer singers from stem names or replace missing harmony annotations.
+The PANNs activity experiment is separate, not part of this pitch recipe; see
+`tools/vocal-activity-probe/NOTICE.md` for pinned weights and preprocessing.

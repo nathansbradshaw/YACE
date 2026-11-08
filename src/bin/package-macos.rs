@@ -20,6 +20,12 @@ struct Args {
     /// Include the optional Spanish/automatic-language lyric model when installed.
     #[arg(long, requires = "include_models")]
     multilingual_lyrics: bool,
+    /// Private local multi-model pitch helpers, from a compatible release target.
+    #[arg(long,requires_all=["include_models","vocal_models"])]
+    vocal_tools: Option<PathBuf>,
+    /// Pinned local CREPE/FCPE/ROSVOT model cache; not included in public builds.
+    #[arg(long, requires = "vocal_tools")]
+    vocal_models: Option<PathBuf>,
     /// Developer ID identity, or '-' for a local ad-hoc signature.
     #[arg(long, default_value = "-")]
     signing_identity: String,
@@ -271,6 +277,79 @@ fn build_bundle(args: &Args) -> Result<PathBuf> {
             }
         }
     }
+    if let (Some(tools), Some(weights)) = (&args.vocal_tools, &args.vocal_models) {
+        use chart_engine::vocal_independent::{ASSETS, DIRECTORY, HELPERS, HelperReceipt};
+        let destination = stage.path().join("Contents/MacOS/vocal-tools");
+        fs::create_dir_all(&destination)?;
+        let mut receipts = vec![];
+        for name in HELPERS {
+            let direct = tools.join(name);
+            let source = if direct.exists() {
+                direct
+            } else {
+                tools.join("examples").join(name)
+            };
+            let target = destination.join(name);
+            fs::copy(&source, &target)
+                .with_context(|| format!("Missing multi-model helper {}", source.display()))?;
+            let signed = Command::new("codesign")
+                .args(["--force", "--sign", &args.signing_identity])
+                .arg(&target)
+                .output()?;
+            ensure!(
+                signed.status.success(),
+                "Pitch helper signing failed: {name}"
+            );
+            receipts.push(HelperReceipt {
+                name: name.into(),
+                sha256: chart_engine::models::hash_file(&target)?,
+            });
+        }
+        chart_engine::generation::write_json(&destination.join("manifest.json"), &receipts)?;
+        for asset in ASSETS {
+            let source = weights.join(asset.source);
+            ensure!(
+                chart_engine::models::hash_file(&source)? == asset.sha256,
+                "Wrong multi-model asset {}",
+                asset.source
+            );
+            let target = model_output.join(DIRECTORY).join(asset.filename);
+            fs::create_dir_all(target.parent().unwrap())?;
+            fs::copy(source, &target)?;
+            ensure!(
+                chart_engine::models::hash_file(&target)? == asset.sha256,
+                "Packaged pitch model changed"
+            );
+        }
+        for (directory, name) in [
+            ("tools/rosvot-convert", "ROSVOT"),
+            ("examples/support", "FCPE"),
+            ("tools/singing-pitch-probe", "CREPE"),
+        ] {
+            let target = notices.join("vocal-independent").join(name);
+            fs::create_dir_all(&target)?;
+            if sources.join(directory).join("licenses").is_dir() {
+                copy_notices(
+                    &sources.join(directory).join("licenses"),
+                    &target.join("licenses"),
+                )?;
+            }
+            for entry in fs::read_dir(sources.join(directory))? {
+                let entry = entry?;
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if entry.file_type()?.is_file()
+                    && (name.starts_with("LICENSE")
+                        || name.ends_with(".txt")
+                        || name == "NOTICE.md"
+                        || name == "THIRD_PARTY.md"
+                        || name == "README.md")
+                {
+                    fs::copy(entry.path(), target.join(name.as_ref()))?;
+                }
+            }
+        }
+    }
     fs::write(
         stage.path().join("Contents/Info.plist"),
         include_str!("../../packaging/macos/Info.plist"),
@@ -298,7 +377,8 @@ fn build_bundle(args: &Args) -> Result<PathBuf> {
             "signing":if args.signing_identity == "-" {"ad-hoc; not notarized"} else {"Developer ID requested; notarization required"},
             "signing_identity":args.signing_identity,
             "high_quality_piano_included":args.high_quality_piano,
-            "multilingual_lyrics_included":args.multilingual_lyrics
+            "multilingual_lyrics_included":args.multilingual_lyrics,
+            "independent_vocal_pitch_included":args.vocal_tools.is_some()
         }))?,
     )?;
     let mut signing = Command::new("codesign");

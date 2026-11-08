@@ -27,6 +27,7 @@ fn syllable(note: &VocalNote) -> String {
 pub fn VocalEditor(studio: Studio) -> Element {
     let mut recognize = use_signal(|| true);
     let mut analysis_mode = use_signal(crate::vocal_generation::AnalysisMode::default);
+    let mut independent_pitch = use_signal(|| false);
     let mut language = use_signal(|| crate::lyric_language::Language::Auto);
     let mut lookup = use_signal(|| true);
     let mut control = use_signal(|| None::<std::sync::Arc<crate::clean_recognition::Control>>);
@@ -92,7 +93,11 @@ pub fn VocalEditor(studio: Studio) -> Element {
                 spawn(async move{
                     let expected_root=project.clone();
                     let mode=analysis_mode();
-                    let result=tokio::task::spawn_blocking(move||crate::vocal_workflow::generate_project(crate::vocal_workflow::ProjectRequest{analysis_mode:mode,project:&project,model_dir:&models,recognize,language,neural_pitch:recognize,download_model:true,lookup_lyrics,actor},worker)).await;
+                    let independent=independent_pitch();
+                    let result=tokio::task::spawn_blocking(move||{
+                        let request=crate::vocal_workflow::ProjectRequest{analysis_mode:mode,project:&project,model_dir:&models,recognize,language,neural_pitch:recognize,download_model:true,lookup_lyrics,actor};
+                        if independent {crate::vocal_workflow::generate_project_independent(request,worker)}else{crate::vocal_workflow::generate_project(request,worker)}
+                    }).await;
                     if studio.store.read().as_ref().is_some_and(|store|store.root==expected_root){studio.reload(true);refresh.set(refresh()+1);
                     match result{Ok(Ok(result))=>{if !result.applied {
                         let message=match result.status{crate::vocal_generation::Status::ReviewRequired=>Some("New draft saved; current edits kept"),crate::vocal_generation::Status::NeedsLyrics if studio.snapshot().is_some_and(|doc|doc.content.vocal_review.is_some())=>Some("Draft needs timed lyrics; current vocals kept"),crate::vocal_generation::Status::NoVoicedPitch if studio.snapshot().is_some_and(|doc|doc.content.vocal_review.is_some())=>Some("No stable vocal pitch; current vocals kept"),_=>None};
@@ -106,8 +111,9 @@ pub fn VocalEditor(studio: Studio) -> Element {
         }
         details{class:"review-evidence vocal-generation-options",summary{"Options"}
             label{class:"field-label","Vocal analysis"}
-            select{class:"field-control",disabled:busy,value:if analysis_mode()==crate::vocal_generation::AnalysisMode::Standard{"standard"}else{"high"},onchange:move|e|analysis_mode.set(if e.value()=="high"{crate::vocal_generation::AnalysisMode::HighAccuracy}else{crate::vocal_generation::AnalysisMode::Standard}),option{value:"standard","Standard"}option{value:"high","High accuracy (experimental)"}}
-            if analysis_mode()==crate::vocal_generation::AnalysisMode::HighAccuracy{p{class:"field-hint","Experimental: extra pitches can be wrong. Review amber notes before export."}}
+            select{class:"field-control",disabled:busy,value:if independent_pitch(){"multi"}else if analysis_mode()==crate::vocal_generation::AnalysisMode::Standard{"standard"}else{"high"},onchange:move|e|{independent_pitch.set(e.value()=="multi");analysis_mode.set(if e.value()=="standard"{crate::vocal_generation::AnalysisMode::Standard}else{crate::vocal_generation::AnalysisMode::HighAccuracy});},option{value:"standard","Standard"}option{value:"high","High accuracy (experimental)"}option{value:"multi","Multi-model pitch (slower)"}}
+            if independent_pitch(){p{class:"field-hint","Compare five local pitch methods and recover supported gaps. Pitch-only analysis; lyrics can be added afterward. Review flagged alternatives before export."}}
+            else if analysis_mode()==crate::vocal_generation::AnalysisMode::HighAccuracy{p{class:"field-hint","Experimental: extra pitches can be wrong. Review amber notes before export."}}
             label{class:"generation-field","Vocal language",select{class:"field-control",disabled:busy,value:match language(){crate::lyric_language::Language::Auto=>"auto",crate::lyric_language::Language::English=>"english",crate::lyric_language::Language::Spanish=>"spanish"},onkeydown:move|e|e.stop_propagation(),onchange:move|e|language.set(match e.value().as_str(){"english"=>crate::lyric_language::Language::English,"spanish"=>crate::lyric_language::Language::Spanish,_=>crate::lyric_language::Language::Auto}),option{value:"auto","Detect automatically"}option{value:"spanish","Spanish"}option{value:"english","English"}}}
             label{class:"form-check",title:"Optional local models recognize and align lyrics and add a pitch estimate. Off keeps pitch extraction model-free; supply timed words or import JSON to complete lyrics.",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:recognize(),disabled:busy,onchange:move|event|recognize.set(event.checked())}"Local AI assistance"}
             label{class:"form-check",title:"Look up matching lyrics online; source metadata is sent to the lyrics provider",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:lookup(),disabled:busy,onchange:move|event|lookup.set(event.checked())}"Fetch lyrics"}
@@ -161,14 +167,12 @@ fn import_document_path(studio: Studio, path: std::path::PathBuf) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn read_import(path: &std::path::Path) -> anyhow::Result<VocalChart> {
+fn read_import(path: &std::path::Path) -> anyhow::Result<Action> {
     anyhow::ensure!(
-        std::fs::metadata(path)?.len() <= 8 * 1024 * 1024,
-        "Vocal JSON exceeds 8 MiB"
+        std::fs::metadata(path)?.len() <= 64 * 1024 * 1024,
+        "Vocal analysis JSON exceeds 64 MiB"
     );
-    let document: VocalChart = serde_json::from_slice(&std::fs::read(path)?)?;
-    document.validate()?;
-    Ok(document)
+    crate::vocal_review::import_document(&std::fs::read(path)?)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -192,7 +196,7 @@ async fn apply_import(
         return;
     }
     match result {
-        Ok(Ok(document)) => studio.dispatch(Action::SetVocals { document }),
+        Ok(Ok(action)) => studio.dispatch(action),
         Ok(Err(error)) => studio.error.set(Some(format!("{error:#}"))),
         Err(error) => studio.error.set(Some(error.to_string())),
     }
@@ -559,6 +563,9 @@ fn VocalNoteEditor(
                 summary{if evidence.uncertain{"⚑ Uncertain pitch — review"}else{"Acoustic pitch evidence"}}
                 div{class:"review-evidence-body","Selected MIDI {evidence.selected_midi} · support: {evidence.support:?}"}
                 for reason in &evidence.reasons {p{"{reason}"}}
+                for model in &evidence.models {
+                    p{title:"Model SHA-256 {model.model_sha256} · implementation {model.implementation_sha256}","{model.model_id}: {model.selected_note_support_frames} agreeing / {model.voiced_frames} voiced / {model.inspected_frames} inspected frames"}
+                }
                 if !evidence.alternatives.is_empty(){
                     div{class:"field-label","Alternative detector estimates (MIDI)"}
                     for alternative in &evidence.alternatives {button{class:"studio-tool",onclick:{let alternative=*alternative;move |_|draft.write().pitch=alternative.to_string()},"{alternative}"}}
@@ -704,7 +711,9 @@ mod tests {
         let path = directory.path().join("vocals.json");
         let original = chart();
         std::fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
-        assert_eq!(read_import(&path).unwrap(), original);
+        assert!(
+            matches!(read_import(&path).unwrap(),Action::SetVocals{document} if document==original)
+        );
         let mut invalid = original;
         invalid.notes[0].tone = VocalTone::Pitched { midi: 100 };
         std::fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
@@ -745,7 +754,8 @@ pub fn VocalEditor(mut studio: Studio) -> Element {
     VocalReviewChecks{studio}
     div{class:"vocal-file-actions",
     button{class:"studio-tool",onclick:move |_|{studio.generation_target.set(Some("Vocals".into()));studio.generation_open.set(true);},"Generate vocals…"}
-    button{class:"studio-tool",onclick:move |_|{spawn(async move{let result=async{let Some(files)=crate::files::pick(false,".json").await?else{return Ok(())};let document:VocalChart=serde_json::from_slice(&files[0].1)?;document.validate()?;studio.dispatch(Action::SetVocals{document});Ok::<_,anyhow::Error>(())}.await;if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}});},"Import JSON"}
+    button{class:"studio-tool",title:"Import an editable vocal chart or source-bound multi-model analysis",onclick:move |_|{spawn(async move{let result=async{let Some(files)=crate::files::pick(false,".json").await?else{return Ok(())};let Some((_,bytes))=files.first() else{return Ok(())};let action=crate::vocal_review::import_document(bytes)?;studio.dispatch(action);Ok::<_,anyhow::Error>(())}.await;if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}});},"Import JSON"}
+    p{class:"field-hint","Multi-model pitch analysis runs in the desktop app. Import its analysis JSON here to review the same notes, alternatives and model evidence."}
     button{class:"studio-tool",disabled:!studio.snapshot().is_some_and(|doc|doc.content.vocals.is_some()),onclick:move |_|{if let Some(doc)=studio.snapshot()&& let Some(chart)=&doc.content.vocals{let result=serde_json::to_vec_pretty(chart).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download("vocals.json",&bytes));if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}}},"Save JSON"}
     }p{class:"field-hint","Place notes, import a vocal document, or generate a source-bound pitch draft. Missing lyrics stay marked for review."}}
 }

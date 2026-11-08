@@ -35,8 +35,6 @@ pub mod drum_articulation;
 pub mod drum_dynamics;
 #[path = "../../src/drum_layout.rs"]
 pub mod drum_layout;
-#[path = "../../src/six_fret.rs"]
-pub mod six_fret;
 #[path = "../../src/drum_parts.rs"]
 pub mod drum_parts;
 #[path = "../../src/editor.rs"]
@@ -145,6 +143,8 @@ pub mod rmvpe_frontend;
 #[path = "../../src/sections.rs"]
 pub mod sections;
 pub mod separation;
+#[path = "../../src/six_fret.rs"]
+pub mod six_fret;
 #[path = "../../src/song_files.rs"]
 pub mod song_files;
 pub mod song_import;
@@ -185,6 +185,8 @@ pub mod vocal_pitch;
 pub mod vocal_pitch_analysis;
 #[path = "../../src/vocal_pitch_tracking.rs"]
 pub mod vocal_pitch_tracking;
+#[path = "../../src/vocal_posterior.rs"]
+pub mod vocal_posterior;
 #[path = "../../src/vocal_review.rs"]
 pub mod vocal_review;
 #[path = "../../src/vocal_rmvpe.rs"]

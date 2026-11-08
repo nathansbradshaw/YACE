@@ -51,7 +51,7 @@ impl Repair {
             let VocalTone::Pitched{midi} = n.tone else { return None; };
             Some(NoteEvidence {start:n.start,end:n.end,selected_midi:midi,
                 alternatives:self.before.iter().filter_map(|n| match n.tone {VocalTone::Pitched{midi:p} if p!=midi=>Some(p),_=>None}).collect(),
-                support:vec![PitchSupport::ContourPath], uncertain:true,
+                support:vec![PitchSupport::ContourPath], uncertain:true,models:vec![],
                 reasons:vec![format!("Section review: {}. {} model frames, {} agreeing acoustic frames. Review the singer and note boundaries; support is not a correctness probability.",self.detail,self.support_frames,self.acoustic_frames)]})
         }).collect()
     }

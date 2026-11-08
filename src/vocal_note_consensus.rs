@@ -68,6 +68,10 @@ pub fn refine(
     cancelled: &dyn Fn() -> bool,
 ) -> Result<usize> {
     ensure!(!cancelled(), "Vocal generation cancelled");
+    validate_inputs(primary, swift, notes)?;
+    refine_validated(frames, primary, swift, notes, cancelled)
+}
+pub fn validate_inputs(primary: &Contour, swift: &Contour, notes: &Evidence) -> Result<()> {
     crate::vocal_rmvpe::validate(
         primary,
         &primary.audio_sha256,
@@ -85,6 +89,15 @@ pub fn refine(
         "Comparison contours use different PCM"
     );
     validate(notes, &primary.vocal_stem_sha256, primary.duration_seconds)?;
+    Ok(())
+}
+fn refine_validated(
+    frames: &mut [PitchFrame],
+    primary: &Contour,
+    swift: &Contour,
+    notes: &Evidence,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<usize> {
     ensure!(frames.len() <= 400_000, "Frame budget exceeded");
     let mut draft = frames.to_vec();
     let mut weights = vec![1.; frames.len()];

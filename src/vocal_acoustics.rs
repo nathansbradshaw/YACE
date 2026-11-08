@@ -93,7 +93,7 @@ pub(super) fn note_evidence(
         alternatives.sort_unstable();
         uncertain |= !alternatives.is_empty();
         let reasons = if uncertain { vec!["Recovered, low-clarity or conflicting acoustic evidence; compare the recording and alternative pitches.".into()] } else { vec![] };
-        Some(NoteEvidence { start: note.start, end: note.end, selected_midi: midi, alternatives, support, uncertain, reasons })
+        Some(NoteEvidence { start: note.start, end: note.end, selected_midi: midi, alternatives, support, uncertain, reasons, models:vec![] })
     }).collect()
 }
 

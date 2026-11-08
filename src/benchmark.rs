@@ -42,6 +42,45 @@ pub struct Parsed {
     pub excluded_expert_plus_kicks: Option<usize>,
 }
 
+/// Evaluator-only access to an explicitly named authored vocal lane. Reuse
+/// the lead parser's phrase/talkie rules; never infer a singer from stem names.
+pub fn parse_vocal_track(bytes: &[u8], name: &[u8], delay_ms: f64) -> Result<Parsed> {
+    ensure!(
+        matches!(
+            name,
+            b"PART VOCALS"
+                | b"HARM1"
+                | b"HARM2"
+                | b"HARM3"
+                | b"PART HARM1"
+                | b"PART HARM2"
+                | b"PART HARM3"
+        ),
+        "Unsupported authored vocal lane"
+    );
+    let mut smf = Smf::parse(bytes)?;
+    let mut found = 0;
+    for track in &mut smf.tracks {
+        let selected = track
+            .iter()
+            .any(|e| matches!(e.kind,TrackEventKind::Meta(MetaMessage::TrackName(n)) if n==name));
+        found += usize::from(selected);
+        for e in track {
+            if let TrackEventKind::Meta(MetaMessage::TrackName(n)) = &mut e.kind {
+                if selected {
+                    *n = b"PART VOCALS";
+                } else if *n == b"PART VOCALS" {
+                    *n = b"YACE EVALUATOR EXCLUDED LEAD";
+                }
+            }
+        }
+    }
+    ensure!(found == 1, "Expected exactly one authored vocal lane");
+    let mut renamed = vec![];
+    smf.write_std(&mut renamed)?;
+    parse(&renamed, Instrument::Vocals, delay_ms)
+}
+
 fn is_drum(instrument: Instrument) -> bool {
     matches!(instrument, Instrument::Drums | Instrument::ProDrums)
 }
