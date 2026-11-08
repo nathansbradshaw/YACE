@@ -23,7 +23,7 @@ pub fn DrumDynamics(studio: Studio) -> Element {
     let notes = &doc.content.tracks[&selection.track];
     let selected: Vec<_> = notes
         .iter()
-        .filter(|n| selection.ids.contains(&n.id) && drum_dynamics::pad(n.note.lane))
+        .filter(|n| selection.ids.contains(&n.id) && doc.drum_layout().pad(n.note.lane))
         .collect();
     if selected.is_empty() {
         return rsx! {p{class:"field-hint","Accents and ghost notes apply to drum pads. Kick notes stay unchanged."}};

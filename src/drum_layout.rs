@@ -28,7 +28,12 @@ impl Layout {
                 },
             );
         }
-        for section in chart.sections.iter().filter(|s| s.name.ends_with("Drums")) {
+        for section in chart.sections.iter().filter(|s| {
+            matches!(
+                s.name.as_str(),
+                "EasyDrums" | "MediumDrums" | "HardDrums" | "ExpertDrums"
+            )
+        }) {
             if chart
                 .notes(&section.name)?
                 .iter()
@@ -57,6 +62,11 @@ impl Layout {
 
     pub fn cymbal_flag(self, lane: u8) -> bool {
         self == Self::FourLane && (2..=4).contains(&lane)
+    }
+
+    pub fn owns_flag(self, lane: u8, flag: u8) -> bool {
+        (self.cymbal_flag(lane) && flag == lane + 64)
+            || (self.pad(lane) && [lane + 33, lane + 39].contains(&flag))
     }
 
     pub fn name(self, lane: u8) -> &'static str {

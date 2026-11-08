@@ -433,7 +433,7 @@ pub fn RollHeading(studio: Studio, track: String) -> Element {
             doc.content.tracks.get(&track).map(|notes| {
                 notes
                     .iter()
-                    .filter(|n| crate::editor::playable(&track, n.note.lane))
+                    .filter(|n| doc.playable(&track, n.note.lane))
                     .count()
             })
         }
