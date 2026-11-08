@@ -35,6 +35,25 @@ pub fn title(metadata: &std::collections::BTreeMap<String, String>, path: &Path)
 }
 
 impl History {
+    /// Update recents only after the existing history was read successfully.
+    /// Opening a project is still allowed when this fails; callers show a
+    /// separate warning and preserve the unreadable history for recovery.
+    pub fn record_open(path: PathBuf, title: String) -> Result<Self> {
+        Self::record_loaded(Self::load(), path, title, Self::save)
+    }
+
+    fn record_loaded(
+        loaded: Result<Self>,
+        path: PathBuf,
+        title: String,
+        save: impl FnOnce(&Self) -> Result<()>,
+    ) -> Result<Self> {
+        let mut history = loaded?;
+        history.remember(path, title);
+        save(&history)?;
+        Ok(history)
+    }
+
     pub fn remember(&mut self, path: PathBuf, title: String) {
         self.forget(&path);
         self.entries.insert(0, Entry { path, title });
@@ -140,6 +159,35 @@ fn history_path() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(feature = "browser"))]
+    #[test]
+    fn explicit_open_does_not_replace_unreadable_history() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("recent-projects.json");
+        let partial = b"{\"entries\":[{\"path\":\"/recoverable/project\"}";
+        std::fs::write(&path, partial).unwrap();
+        let result = History::record_loaded(
+            History::load_from(&path),
+            root.path().join("opened-project"),
+            "Explicitly opened".into(),
+            |history| history.save_to(&path),
+        );
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), partial);
+        let mut repaired = History::default();
+        repaired.remember("/recovered/dance".into(), "Retained".into());
+        repaired.save_to(&path).unwrap();
+        let history = History::record_loaded(
+            History::load_from(&path),
+            root.path().join("opened-project"),
+            "Explicitly opened".into(),
+            |history| history.save_to(&path),
+        )
+        .unwrap();
+        assert_eq!(history.entries.len(), 2);
+        assert_eq!(History::load_from(&path).unwrap(), history);
+    }
 
     #[test]
     fn reopening_moves_to_front_updates_title_and_bounds_history() {

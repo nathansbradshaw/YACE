@@ -1355,13 +1355,11 @@ pub fn remember_recent(mut studio: super::state::Studio) {
             metadata.get("ARTIST").cloned().unwrap_or_default(),
         ),
     ]);
-    let mut history = crate::recent_projects::History::load().unwrap_or_default();
-    history.remember(root.clone(), crate::recent_projects::title(&fields, &root));
-    match history.save() {
-        Ok(()) => studio.recent_projects.set(history),
+    match crate::recent_projects::History::record_open(root.clone(), crate::recent_projects::title(&fields, &root)) {
+        Ok(history) => studio.recent_projects.set(history),
         Err(error) => studio
             .error
-            .set(Some(format!("Could not update recent projects: {error:#}"))),
+            .set(Some(format!("Project opened, but recent history could not be updated: {error:#}. Existing history has been kept."))),
     }
 }
 pub fn after_new() -> bool {

@@ -2337,13 +2337,17 @@ impl Studio {
         self.audio_epoch.set((self.audio_epoch)() + 1);
         self.audio.set(None);
         self.lock.set(Some(lock));
-        let mut history = crate::recent_projects::History::load().unwrap_or_default();
-        history.remember(
+        let history_result = crate::recent_projects::History::record_open(
             store.root.clone(),
             crate::recent_projects::title(&metadata, &store.root),
         );
-        let history_error = history.save().err();
-        self.recent_projects.set(history);
+        let history_error = match history_result {
+            Ok(history) => {
+                self.recent_projects.set(history);
+                None
+            }
+            Err(error) => Some(error),
+        };
         self.update_library_for_project(&store.root);
         self.store.set(Some(store));
         self.timing.set(Some(timing));
@@ -2385,7 +2389,7 @@ impl Studio {
         self.prepare_practice_audio().await;
         if let Some(error) = history_error {
             self.error.set(Some(format!(
-                "Project opened, but recent history could not be saved: {error:#}"
+                "Project opened, but recent history could not be updated: {error:#}. Existing history has been kept."
             )));
         }
     }
