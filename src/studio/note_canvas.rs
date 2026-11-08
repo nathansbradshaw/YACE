@@ -4,7 +4,6 @@ use super::state::{EditTool, Studio, clock, instrument};
 use crate::{
     editor::{self, Action},
     stem_review::StemId,
-    timeline::lane_rows,
 };
 use dioxus::prelude::*;
 use std::fmt::Write;
@@ -32,6 +31,13 @@ pub fn lane_name(track: &str, lane: u8) -> &'static str {
             7 => "Open",
             _ => "Control",
         }
+    }
+}
+pub fn lane_name_in(layout: crate::drum_layout::Layout, track: &str, lane: u8) -> &'static str {
+    if track.ends_with("Drums") {
+        layout.name(lane)
+    } else {
+        lane_name(track, lane)
     }
 }
 fn note_count(count: usize) -> String {
@@ -66,6 +72,13 @@ pub fn color(track: &str, lane: u8) -> &'static str {
         }
     }
 }
+pub fn color_in(layout: crate::drum_layout::Layout, track: &str, lane: u8) -> &'static str {
+    if track.ends_with("Drums") {
+        layout.color(lane)
+    } else {
+        color(track, lane)
+    }
+}
 
 pub(super) fn snap(studio: Studio, seconds: f64) -> Option<u64> {
     let map = studio.timing.read();
@@ -80,7 +93,10 @@ pub(super) fn snap(studio: Studio, seconds: f64) -> Option<u64> {
 }
 fn place(studio: Studio, track: &str, event: &MouseEvent, width: f64) {
     let seconds = (studio.view_start)() + event.element_coordinates().x / width * (studio.span)();
-    let rows = lane_rows(track);
+    let Some(doc) = studio.snapshot() else {
+        return;
+    };
+    let rows = doc.lane_rows(track);
     let row = (event.element_coordinates().y / 20.0)
         .floor()
         .clamp(0.0, rows.len() as f64 - 1.0) as usize;
@@ -468,7 +484,8 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
     let project = studio.doc.read();
     let doc = project.as_ref().unwrap();
     let timing = studio.timing.read().as_ref().unwrap().clone();
-    let rows = lane_rows(&track);
+    let rows = doc.lane_rows(&track);
+    let layout = doc.drum_layout();
     let height = rows.len() as f64 * 20.0;
     let mut width = use_signal(|| 1000.0);
     let mut drag = use_signal(|| None::<Drag>);
@@ -540,11 +557,11 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
         }
     };
     rsx! {
-        header{class:"lane-track-header",button{aria_pressed:active.to_string(),onclick:{let track=track.clone();move |_|studio.dispatch(Action::SelectTrack{track:track.clone()})},"{super::track_picker::title(&track)}"}super::difficulty::TrackLinkBadge{track:track.clone()}span{"{note_count(doc.content.tracks[&track].iter().filter(|n|editor::playable(&track,n.note.lane)).count())}"}}
+        header{class:"lane-track-header",button{aria_pressed:active.to_string(),onclick:{let track=track.clone();move |_|studio.dispatch(Action::SelectTrack{track:track.clone()})},"{super::track_picker::title(&track)}"}super::difficulty::TrackLinkBadge{track:track.clone()}span{"{note_count(doc.content.tracks[&track].iter().filter(|n|doc.playable(&track,n.note.lane)).count())}"}}
         InstrumentWaveform{studio,track:track.clone()}
         super::star_power::Lane {studio,track:track.clone()}
         InlineReview{studio,track:track.clone(),show_hidden,plot_width:width()}
-        div{class:"lane-surface",ol{class:"lane-labels",for lane in rows.clone(){li{class:"lane-label",style:"color:{color(&track,lane)}","{lane_name(&track,lane)}"}}}
+        div{class:"lane-surface",ol{class:"lane-labels",for lane in rows.clone(){li{class:"lane-label",style:"color:{color_in(layout,&track,lane)}","{lane_name_in(layout,&track,lane)}"}}}
             div{class:"lane-plot",onresize:move|e|{if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.0));}},
                 svg{class:"studio-note-svg",height:"{height}",view_box:"0 0 {width} {height}",preserve_aspect_ratio:"none",
                     onmousedown:move|e:MouseEvent|gestures.background(&box_track,&e),
@@ -557,7 +574,7 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
                     BarLines {studio,width:width(),height}
                     for item in notes{
                         {let overridden=links.as_ref().is_some_and(|snapshot|super::difficulty::is_override(snapshot,&track,&item.id));
-                        {let row=rows.iter().position(|l|*l==item.note.lane).unwrap();let x=(timing.seconds(item.note.tick)-start)/span*width();let end=(timing.seconds(item.note.tick+item.note.sustain)-start)/span*width();let y=row as f64*20.0+3.0;let fill=color(&track,item.note.lane);let id=item.id.clone();let down_id=item.id.clone();let click_track=track.clone();let down_track=track.clone();let id2=item.id.clone();let note_tick=item.note.tick;let origin=Drag{id:item.id.clone(),tick:item.note.tick,lane:item.note.lane,sustain:item.note.sustain,cymbal:doc.is_cymbal(&track,&item.note),start_x:0.0,start_y:0.0,resize:false};let origin2=origin.clone();let is_selected=active&&selected.ids.contains(&item.id);let stroke=if is_selected{"#fff"}else{"#090b0d"};
+                        {let row=rows.iter().position(|l|*l==item.note.lane).unwrap();let x=(timing.seconds(item.note.tick)-start)/span*width();let end=(timing.seconds(item.note.tick+item.note.sustain)-start)/span*width();let y=row as f64*20.0+3.0;let fill=color_in(layout,&track,item.note.lane);let id=item.id.clone();let down_id=item.id.clone();let click_track=track.clone();let down_track=track.clone();let id2=item.id.clone();let note_tick=item.note.tick;let origin=Drag{id:item.id.clone(),tick:item.note.tick,lane:item.note.lane,sustain:item.note.sustain,cymbal:doc.is_cymbal(&track,&item.note),start_x:0.0,start_y:0.0,resize:false};let origin2=origin.clone();let is_selected=active&&selected.ids.contains(&item.id);let stroke=if is_selected{"#fff"}else{"#090b0d"};
                         let dynamics=drum_markers.get(&(item.note.tick,item.note.lane)).copied().unwrap_or(Some(crate::drum_dynamics::Kind::Normal));
                         let accent=dynamics.is_none()||dynamics==Some(crate::drum_dynamics::Kind::Accent);
                         let ghost=dynamics==Some(crate::drum_dynamics::Kind::Ghost);
@@ -567,7 +584,7 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
                             onclick:move|e:MouseEvent|{e.stop_propagation();if gestures.consume_click(){return;}studio.select_gem(&click_track,&id,e.modifiers().shift(),false);if (studio.tool)()==EditTool::Erase{studio.delete_selection();}},
                             onmousedown:move|e:MouseEvent|{e.stop_propagation();gestures.note(&down_track,Some(&down_id),0,note_tick,&e);},
                             if item.note.sustain>0{rect{x:"{x.max(0.0)}",y:"{y+4.0}",width:"{(end.min(width())-x.max(0.0)).max(0.0)}",height:"6",rx:"2",fill,opacity:".55"}}
-                            rect{x:"{x}",y:"{y}",width:"14",height:"14",rx:if doc.is_cymbal(&track,&item.note){"1"}else{"3"},fill,fill_opacity:if ghost{"0.45"}else{"1"},stroke,stroke_width:"1.5",role:"button","aria-pressed":is_selected.to_string(),"aria-label":"{lane_name(&track,item.note.lane)}{dynamics_label} note at {timing.seconds(item.note.tick):.3} seconds",title{"{lane_name(&track,item.note.lane)}{dynamics_label} · {timing.seconds(item.note.tick):.4}s · {item.id}"}}
+                            rect{x:"{x}",y:"{y}",width:"14",height:"14",rx:if doc.is_cymbal(&track,&item.note){"1"}else{"3"},fill,fill_opacity:if ghost{"0.45"}else{"1"},stroke,stroke_width:"1.5",role:"button","aria-pressed":is_selected.to_string(),"aria-label":"{lane_name_in(layout,&track,item.note.lane)}{dynamics_label} note at {timing.seconds(item.note.tick):.3} seconds",title{"{lane_name_in(layout,&track,item.note.lane)}{dynamics_label} · {timing.seconds(item.note.tick):.4}s · {item.id}"}}
                             if accent{rect{"data-dynamics":"accent",x:"{x-2.}",y:"{y-2.}",width:"18",height:"18",rx:"4",fill:"none",stroke:"#fff",stroke_width:"1.5",pointer_events:"none"}}
                             if ghost{rect{"data-dynamics":"ghost",x:"{x-1.}",y:"{y-1.}",width:"16",height:"16",rx:"4",fill:"none",stroke:fill,stroke_dasharray:"2 2",pointer_events:"none"}}
                             path{d:"M{x+3.} {y+2.5}H{x+11.}",stroke:"#fff",stroke_opacity:".55",stroke_width:"1",pointer_events:"none"}
@@ -598,7 +615,7 @@ fn track_geometry(
     span: f64,
     width: f64,
 ) -> (String, Vec<editor::EditorNote>) {
-    let rows = lane_rows(track);
+    let rows = doc.lane_rows(track);
     let height = rows.len() as f64 * 20.0;
     let mut grid = String::new();
     for row in 0..=rows.len() {
@@ -635,7 +652,7 @@ fn track_geometry(
     }
     let notes: Vec<_> = doc.content.tracks[track]
         .iter()
-        .filter(|n| editor::playable(track, n.note.lane))
+        .filter(|n| doc.playable(track, n.note.lane))
         .filter(|n| {
             let s = timing.seconds(n.note.tick);
             let e = timing.seconds(n.note.tick + n.note.sustain);

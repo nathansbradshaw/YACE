@@ -163,6 +163,178 @@ fn legacy_drum_profile_comes_from_retained_source_and_is_saved_on_next_action() 
     assert_eq!(store.load().unwrap().drum_layout, Some(Layout::FourLane));
 }
 
+#[test]
+fn five_pad_edits_keep_dynamics_clipboard_history_and_profile_without_the_last_green() {
+    use chart_engine::{
+        drum_layout::Layout,
+        export_options::{Format, Options},
+    };
+    let root = tempfile::tempdir().unwrap();
+    let source = SOURCE.replace(" 1200 = N 12 17", " 1440 = N 5 0\n 1200 = N 12 17");
+    let store = fixture_with(root.path(), &source);
+    let id = "n-5-1440";
+    store
+        .apply(request(
+            &store,
+            Action::SelectNote {
+                note_id: Some(id.into()),
+            },
+        ))
+        .unwrap();
+    set_dynamics(&store, &[id], Kind::Ghost);
+    store
+        .apply(request(
+            &store,
+            Action::UpdateNote {
+                note_id: id.into(),
+                tick: 1680,
+                lane: 4,
+                sustain: 0,
+                cymbal: false,
+            },
+        ))
+        .unwrap();
+    let doc = store.load().unwrap();
+    assert_eq!(doc.drum_layout(), Layout::FiveLane);
+    assert_eq!(doc.lane_rows("ExpertDrums"), [0, 32, 1, 2, 3, 4, 5]);
+    assert!(
+        doc.content.tracks["ExpertDrums"]
+            .iter()
+            .any(|n| n.note.tick == 1680 && n.note.lane == 43)
+    );
+    assert!(
+        !doc.content.tracks["ExpertDrums"]
+            .iter()
+            .any(|n| n.note.tick == 1440 && n.note.lane == 44)
+    );
+    assert_eq!(
+        doc.drum_layout()
+            .name(doc.find_note(id).unwrap().1.note.lane),
+        "Orange"
+    );
+    let selection = Selection {
+        track: "ExpertDrums".into(),
+        ids: [id.into()].into(),
+        vocals: Default::default(),
+    };
+    let clipboard = note_groups::copy(&doc, &doc.timing(&store).unwrap(), &selection).unwrap();
+    let encoded = clipboard.encode().unwrap();
+    assert!(encoded.contains("five_lane_drums"));
+
+    let other = tempfile::tempdir().unwrap();
+    let four = fixture(other.path());
+    let four_before = fs::read(other.path().join("project.json")).unwrap();
+    assert!(
+        four.apply(request(
+            &four,
+            Action::EditNoteGroup {
+                edit: note_groups::Edit::Paste {
+                    track: "ExpertDrums".into(),
+                    tick: 2400,
+                    clipboard: clipboard.clone()
+                }
+            }
+        ))
+        .is_err()
+    );
+    assert_eq!(
+        fs::read(other.path().join("project.json")).unwrap(),
+        four_before
+    );
+
+    store
+        .apply(request(
+            &store,
+            Action::EditNoteGroup {
+                edit: note_groups::Edit::Move {
+                    selection: selected(&store, &[id]),
+                    ticks: 240,
+                    rows: 1,
+                },
+            },
+        ))
+        .unwrap();
+    let moved = store.load().unwrap();
+    assert_eq!(moved.find_note(id).unwrap().1.note.lane, 5);
+    assert!(
+        moved.content.tracks["ExpertDrums"]
+            .iter()
+            .any(|n| n.note.tick == 1920 && n.note.lane == 44)
+    );
+    store
+        .apply(request(
+            &store,
+            Action::EditNoteGroup {
+                edit: note_groups::Edit::Paste {
+                    track: "ExpertDrums".into(),
+                    tick: 2400,
+                    clipboard: note_groups::Clipboard::decode(&encoded).unwrap(),
+                },
+            },
+        ))
+        .unwrap();
+    let pasted = store.load().unwrap();
+    assert!(
+        pasted.content.tracks["ExpertDrums"]
+            .iter()
+            .any(|n| n.note.tick == 2400 && n.note.lane == 4)
+    );
+    assert!(
+        pasted.content.tracks["ExpertDrums"]
+            .iter()
+            .any(|n| n.note.tick == 2400 && n.note.lane == 43)
+    );
+    store
+        .apply(request(&store, Action::DeleteNote { note_id: id.into() }))
+        .unwrap();
+    let deleted = store.load().unwrap();
+    assert!(
+        !deleted.content.tracks["ExpertDrums"]
+            .iter()
+            .any(|n| n.note.lane == 5)
+    );
+    assert_eq!(deleted.drum_layout(), Layout::FiveLane);
+    let stage = tempfile::tempdir().unwrap();
+    let actor = request(&store, Action::Undo).actor;
+    let options = Options {
+        include_audio: false,
+        format: Format::Chart,
+        ..Default::default()
+    };
+    store
+        .write_export_with_options(&deleted, stage.path(), &actor, &options)
+        .unwrap();
+    let ini = fs::read_to_string(stage.path().join("song.ini")).unwrap();
+    assert_eq!(
+        chart_engine::song_metadata::ini_fields(&ini)["five_lane_drums"],
+        "true"
+    );
+    let refused = tempfile::tempdir().unwrap();
+    assert!(
+        store
+            .write_export_with_options(
+                &deleted,
+                refused.path(),
+                &actor,
+                &Options {
+                    format: Format::Midi,
+                    ..options
+                }
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("Five-lane drums require .chart")
+    );
+    assert_eq!(
+        fs::read_to_string(root.path().join("source/notes.chart")).unwrap(),
+        source
+    );
+    store.apply(request(&store, Action::Undo)).unwrap();
+    let restored = store.load().unwrap();
+    assert_eq!(restored.find_note(id).unwrap().1.note.lane, 5);
+    assert_eq!(restored.drum_layout(), Layout::FiveLane);
+}
+
 fn update(tick: u64, lane: u8, cymbal: bool) -> Action {
     Action::UpdateNote {
         note_id: "n-2-480".into(),

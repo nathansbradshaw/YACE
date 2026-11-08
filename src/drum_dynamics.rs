@@ -49,8 +49,8 @@ pub fn pad(lane: u8) -> bool {
 }
 fn marker(lane: u8) -> Option<(u8, u8)> {
     match lane {
-        34..=37 => Some((lane - 33, 1)),
-        40..=43 => Some((lane - 39, 2)),
+        34..=38 => Some((lane - 33, 1)),
+        40..=44 => Some((lane - 39, 2)),
         _ => None,
     }
 }
@@ -82,7 +82,7 @@ pub fn apply(project: &mut Project, selection: &Snapshot, kind: Kind) -> Result<
     selection.validate(project)?;
     let selected: BTreeSet<_> = project.content.tracks[&selection.track]
         .iter()
-        .filter(|n| selection.ids.contains(&n.id) && pad(n.note.lane))
+        .filter(|n| selection.ids.contains(&n.id) && project.drum_layout().pad(n.note.lane))
         .map(|n| (n.note.tick, n.note.lane))
         .collect();
     ensure!(

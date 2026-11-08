@@ -863,6 +863,10 @@ pub fn clear_overrides(
 }
 
 pub fn preview(project: &Project, track: &str, timing: &TempoMap) -> Result<LinkPreview> {
+    ensure!(
+        !track.ends_with("Drums") || project.drum_layout() != crate::drum_layout::Layout::FiveLane,
+        "Five-lane drums need a five-pad difficulty reduction; existing notes have been preserved"
+    );
     let (expert_track, _, drums) = family(track)?;
     let base = derive(&project.content, track, timing)?;
     let result = if let Some(link) = project.content.difficulty_links.links.get(track) {
@@ -950,7 +954,8 @@ pub fn snapshot(project: &Project, timing: &TempoMap) -> Snapshot {
             expert_track,
             linked: link.is_some_and(|l| l.enabled),
             has_link: link.is_some(),
-            can_enable: true,
+            can_enable: !track.ends_with("Drums")
+                || project.drum_layout() != crate::drum_layout::Layout::FiveLane,
             generated: project
                 .review
                 .generated_tracks

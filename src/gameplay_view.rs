@@ -13,6 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub enum DrumMode {
     Standard,
     Pro,
+    FiveLane,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -244,7 +245,7 @@ fn classify_with_key_techniques(
         } else {
             note.lane <= 4
                 || if drums {
-                    note.lane == 32
+                    note.lane == 32 || (policy.drums == DrumMode::FiveLane && note.lane == 5)
                 } else {
                     note.lane == 7 || (six_fret && note.lane == 8)
                 }
@@ -268,6 +269,7 @@ fn classify_with_key_techniques(
                     0 => GemShape::Kick,
                     32 => GemShape::DoubleKick,
                     1 => GemShape::Pad,
+                    2 | 4 if policy.drums == DrumMode::FiveLane => GemShape::Cymbal,
                     _ if policy.drums == DrumMode::Pro
                         && positions.contains(&(tick, note.lane + 64)) =>
                     {
@@ -275,11 +277,16 @@ fn classify_with_key_techniques(
                     }
                     _ => GemShape::Tom,
                 };
-                let dynamics = if (1..=4).contains(&note.lane)
+                let pads = if policy.drums == DrumMode::FiveLane {
+                    5
+                } else {
+                    4
+                };
+                let dynamics = if (1..=pads).contains(&note.lane)
                     && positions.contains(&(tick, note.lane + 33))
                 {
                     Dynamics::Accent
-                } else if (1..=4).contains(&note.lane)
+                } else if (1..=pads).contains(&note.lane)
                     && positions.contains(&(tick, note.lane + 39))
                 {
                     Dynamics::Ghost
