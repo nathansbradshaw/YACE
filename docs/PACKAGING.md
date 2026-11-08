@@ -57,3 +57,8 @@ keychain profile rather than putting credentials in commands or files.
 
 Signing, notarization, a clean-machine launch and a musical playtest are separate
 release checks. A successful local bundle build does not complete them.
+
+For isolated native verification, set `YACE_RECENT_PROJECTS` to a disposable
+history file and `YACE_DANCE_RECOVERY_ROOT` to a separate recovery directory in
+the verification process. Keep the bundle name and identifier unchanged. These
+overrides leave the user's normal recent list and older Dance recovery intact.

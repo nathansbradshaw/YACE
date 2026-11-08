@@ -44,6 +44,8 @@ mod shortcuts;
 mod song_overview;
 mod source_choice;
 mod star_power;
+#[cfg(not(feature = "browser"))]
+mod startup;
 pub mod state;
 mod stem_generation;
 mod stems;
@@ -131,13 +133,12 @@ pub(crate) fn App() -> Element {
         use_signal(|| consume_context::<crate::browser::BrowserContext>().start_project);
     use_future(move || async move {
         #[cfg(not(feature = "browser"))]
-        let project = START_PROJECT.get().and_then(|p| p.lock().ok()?.take());
+        {
+            let project = START_PROJECT.get().and_then(|p| p.lock().ok()?.take());
+            startup::open(studio, project).await;
+        }
         #[cfg(feature = "browser")]
-        let project = initial_project();
-        if let Some(path) = project {
-            #[cfg(not(feature = "browser"))]
-            studio.open_library(path).await;
-            #[cfg(feature = "browser")]
+        if let Some(path) = initial_project() {
             studio.open_project(path).await;
         }
         let mut count = 0;

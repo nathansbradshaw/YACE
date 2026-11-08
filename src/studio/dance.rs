@@ -450,7 +450,15 @@ impl Drop for CancelOnDrop {
 }
 #[cfg(not(target_arch = "wasm32"))]
 fn recovery_root() -> PathBuf {
-    std::env::temp_dir().join("yace-stepmania-recovery")
+    std::env::var_os("YACE_DANCE_RECOVERY_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("yace-stepmania-recovery"))
+}
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "browser")))]
+pub async fn restore_legacy() {
+    if let Some(studio) = try_consume_context::<DanceStudio>() {
+        studio.restore().await;
+    }
 }
 fn unique_root() -> PathBuf {
     #[cfg(target_arch = "wasm32")]
@@ -500,7 +508,7 @@ fn audio_url(name: &str, bytes: &[u8]) -> Result<String> {
 pub fn Controller(studio: super::state::Studio) -> Element {
     let mut s = use_context::<DanceStudio>();
     use_future(move || async move {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), feature = "browser"))]
         {
             s.restore().await;
             if studio.snapshot().is_some() {
@@ -1347,13 +1355,11 @@ pub fn remember_recent(mut studio: super::state::Studio) {
             metadata.get("ARTIST").cloned().unwrap_or_default(),
         ),
     ]);
-    let mut history = crate::recent_projects::History::load().unwrap_or_default();
-    history.remember(root.clone(), crate::recent_projects::title(&fields, &root));
-    match history.save() {
-        Ok(()) => studio.recent_projects.set(history),
+    match crate::recent_projects::History::record_open(root.clone(), crate::recent_projects::title(&fields, &root)) {
+        Ok(history) => studio.recent_projects.set(history),
         Err(error) => studio
             .error
-            .set(Some(format!("Could not update recent projects: {error:#}"))),
+            .set(Some(format!("Project opened, but recent history could not be updated: {error:#}. Existing history has been kept."))),
     }
 }
 pub fn after_new() -> bool {

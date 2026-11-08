@@ -21,7 +21,7 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 | Keys MIDI open notes and techniques | Actual hosted four-difficulty export/reopen with Pro Keys and vocals, independent MIDI inspection, edit/Undo/Redo and byte-identical restored export | Browser interchange verified; dedicated Keys authoring and native/game acceptance remain open |
 | Drum accents and ghost notes | Actual native/static single and batch authoring, kick exclusion, cymbal retention, move, clipboard, delete, Undo/Redo, restart/reload and mixed-part MIDI export/reimport | Verified controlled fixture; in-game dynamics judgment remains unqualified |
 | Double kicks and imported MIDI drum editing | Actual native/static placement, movement, clipboard, deletion, duplicate refusal, saved Undo/Redo, retained imported note-off intervals, full-song editing and export/reopen | Both clients verified on controlled fixtures; musical and target-game acceptance remain open |
-| Stem mixer control names | Actual native six-channel and browser eight-channel groups expose individually named Mute/Solo controls; keyboard mute, Undo/Redo, browser solo playback and saved-state recovery exercised | Programmatic names and exercised controls verified; full assistive-technology acceptance remains open |
+| Stem mixer control names | Actual native six-channel and hosted eight-channel groups expose individually named Mute/Solo controls; keyboard mute, Undo/Redo, hosted solo playback and reload recovery exercised | Programmatic names and exercised controls verified; full assistive-technology acceptance remains open |
 | Independent preview and piano-roll tracks | Native and browser Focused/Selected/All choices, stable order, collapse and reopen; actual hosted reload preserves separate choices without changing chart revision | Verified exercised paths; browser preferences stay in that profile/project |
 | Timing, sections and Star Power | Browser edits/Undo and native tempo, section and phrase Add/Undo exercised through their actual dialogs | Verified |
 | Playback, seek, loop, speed and waveform | Full 243.880 s browser playthrough; native whole-song playback; browser loop/speed; all five saved kit components at 75%; native kit backup opened at saved speed/selection | Verified; acoustic synchronization is unmeasured |
@@ -84,10 +84,10 @@ native build completed a 243.880-second recording in both combined and focused
 vocal views. A double-kick edit, clipboard paste, deletion and Undo/Redo worked
 in the full-song chart. A compact backup passed archive checks; quitting,
 restarting and reopening the project retained the accepted edit and Undo/Redo.
-The edited playable export reopened with the added double kick. Startup first
-restored the existing Dance session, so automatically reopening the most recent
-band project is not verified. Eleven articulation regressions cover the core
-rules, including unrelated marker preservation.
+The edited playable export reopened with the added double kick. That earlier
+build first restored an existing Dance session; the separate native startup
+checks below qualify most-recent-workspace recovery. Eleven articulation
+regressions cover the core rules, including unrelated marker preservation.
 
 Native vocal previews now carry the recording and revision metadata expected by
 the display clock. A preview without that identity can still deliver clock ticks;
@@ -293,6 +293,25 @@ history-preserving saves, project isolation, removed chart IDs and damaged
 preference files. Removed or unknown linked charts fall back to band editing;
 damaged preferences are retained rather than overwritten. Standalone selection
 among multiple charts and assistive-technology acceptance remain unqualified.
+
+Native startup uses one route for an explicit open,
+the newest band or Dance project, or legacy Dance recovery when recent history
+is valid and empty. Actual full-feature native debug builds reopened both
+families after confirmed process exits. The latest `325ea8f` build recovered an
+acknowledged note-position edit with byte-identical project data, selected note
+and saved revision intact; Undo/Redo survived restart. Standalone Dance retained
+its saved difficulty and Undo/Redo. A missing newest project displayed an error
+without opening the older valid project; restoring its folder allowed retry.
+
+Native malformed-history checks also refused automatic fallback. Explicitly
+opening either a band or Dance project then succeeded with a visible warning
+while retaining the unreadable history byte-for-byte. Previously, an explicit
+open could replace that file with a new one-entry list. Both clients now use
+the same strict read-before-write history update. Native repair/retry and the
+static browser's ordinary saved-edit/reload/Undo paths were exercised; actual
+browser storage-failure injection remains unqualified. Explicit command-line
+startup priority has routing-test coverage. These controlled fixtures do not
+establish acoustic, target-game or additional platform acceptance.
 
 Browser workspace recovery also keeps a separate project identity for each tab.
 Previously, saving a different project in another tab changed what the first
