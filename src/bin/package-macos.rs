@@ -125,6 +125,32 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn verify_desktop_executable(executable: &std::path::Path) -> Result<()> {
+    let result = Command::new("/usr/bin/otool")
+        .arg("-L")
+        .arg(executable)
+        .output()
+        .context("Inspect the staged native executable with otool")?;
+    ensure!(
+        result.status.success(),
+        "Cannot inspect the staged native executable: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let linked = String::from_utf8_lossy(&result.stdout);
+    let framework = |name: &str| {
+        let prefix = format!("/System/Library/Frameworks/{name}.framework/");
+        linked
+            .lines()
+            .skip(1)
+            .any(|line| line.trim_start().starts_with(&prefix))
+    };
+    ensure!(
+        framework("AppKit") && framework("WebKit"),
+        "The executable does not link the native desktop frameworks (AppKit and WebKit). Build chart-engine with --features editor and select that desktop executable; a headless CLI cannot replace YACE. The existing app and recovery history were kept."
+    );
+    Ok(())
+}
+
 fn build_bundle(args: &Args) -> Result<PathBuf> {
     ensure!(
         cfg!(target_os = "macos"),
@@ -154,10 +180,12 @@ fn build_bundle(args: &Args) -> Result<PathBuf> {
     }
     let stage = tempfile::Builder::new().suffix(".app").tempdir_in(parent)?;
     fs::create_dir_all(stage.path().join("Contents/MacOS"))?;
-    fs::copy(
-        &args.executable,
-        stage.path().join("Contents/MacOS/chart-engine"),
-    )?;
+    let executable = stage.path().join("Contents/MacOS/chart-engine");
+    fs::copy(&args.executable, &executable)?;
+    // A shared Cargo output may change after it is selected. Inspect and hash
+    // the bytes we will publish, before signing or touching the previous app.
+    verify_desktop_executable(&executable)?;
+    let executable_sha256 = chart_engine::models::hash_file(&executable)?;
     let model_output = stage.path().join("Contents/Resources/models");
     fs::create_dir_all(&model_output)?;
     fs::write(
@@ -265,7 +293,7 @@ fn build_bundle(args: &Args) -> Result<PathBuf> {
         stage.path().join("Contents/Resources/build-info.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
             "application":"YACE", "bundle_identifier":"dev.yace.studio", "source_commit":source_commit,
-            "source_dirty":source_dirty, "executable_sha256":chart_engine::models::hash_file(&args.executable)?,
+            "source_dirty":source_dirty, "executable_sha256":executable_sha256,
             "models_included":args.include_models,
             "signing":if args.signing_identity == "-" {"ad-hoc; not notarized"} else {"Developer ID requested; notarization required"},
             "signing_identity":args.signing_identity,
@@ -300,14 +328,39 @@ fn build_bundle(args: &Args) -> Result<PathBuf> {
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
+    fn native_executable(root: &std::path::Path) -> PathBuf {
+        let source = root.join("native.rs");
+        let executable = root.join("native");
+        fs::write(&source, "fn main() {}\n").unwrap();
+        let result = Command::new("rustc")
+            .args([
+                "--edition=2024",
+                "-C",
+                "link-arg=-Wl,-needed_framework,AppKit",
+                "-C",
+                "link-arg=-Wl,-needed_framework,WebKit",
+            ])
+            .arg(&source)
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        executable
+    }
     #[test]
     fn default_bundle_excludes_weights_and_keeps_required_notices() {
         let root = tempfile::tempdir().unwrap();
         let output = root.path().join("new-output/YACE.app");
+        let executable = native_executable(root.path());
         let args = Args::try_parse_from([
             "package-macos",
             "--executable",
-            "/usr/bin/true",
+            executable.to_str().unwrap(),
             "--output",
             output.to_str().unwrap(),
             "--model-dir",
@@ -328,6 +381,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(info["models_included"], false);
+        assert_eq!(
+            info["executable_sha256"],
+            chart_engine::models::hash_file(&executable).unwrap()
+        );
         assert!(
             output
                 .join("Contents/Resources/third-party/candle-core/LICENSE")
@@ -358,6 +415,35 @@ mod tests {
         fs::create_dir_all(path.join("Contents")).unwrap();
         fs::write(path.join("Contents/Info.plist"), format!("<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>{id}</string></dict></plist>")).unwrap();
         fs::write(path.join("marker"), marker).unwrap();
+    }
+    #[test]
+    fn headless_executable_cannot_replace_an_app_or_change_recovery_history() {
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("YACE.app");
+        app(&output, "dev.yace.studio", "accepted app");
+        let before = fs::read(output.join("Contents/Info.plist")).unwrap();
+        let args = Args::try_parse_from([
+            "package-macos",
+            "--executable",
+            "/usr/bin/true",
+            "--output",
+            output.to_str().unwrap(),
+            "--replace",
+        ])
+        .unwrap();
+        let error = build_bundle(&args).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("headless CLI cannot replace YACE")
+        );
+        assert_eq!(fs::read(output.join("marker")).unwrap(), b"accepted app");
+        assert_eq!(
+            fs::read(output.join("Contents/Info.plist")).unwrap(),
+            before
+        );
+        assert!(!root.path().join("YACE-recovery").exists());
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
     }
     #[test]
     fn replacement_keeps_identity_and_recoverable_previous_bytes() {
