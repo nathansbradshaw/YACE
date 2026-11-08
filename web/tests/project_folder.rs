@@ -1,0 +1,299 @@
+//! Exercise the production folder bridge with real browser filesystem handles.
+//! OPFS isolates fixtures from the user's selected folders and permission grants.
+use anyhow::{Context, Result, ensure};
+use std::path::{Path, PathBuf};
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::JsFuture;
+use wasm_bindgen_test::*;
+use web_sys::{
+    FileSystemCreateWritableOptions, FileSystemDirectoryHandle, FileSystemFileHandle,
+    FileSystemGetDirectoryOptions, FileSystemGetFileOptions, FileSystemRemoveOptions,
+    FileSystemWritableFileStream,
+};
+use yace_web::{
+    editor::{Action, Actor, ActorKind, Request, Store},
+    project_folder, song_metadata, storage,
+};
+
+wasm_bindgen_test_configure!(run_in_browser);
+
+fn error(value: wasm_bindgen::JsValue) -> anyhow::Error {
+    anyhow::anyhow!("{value:?}")
+}
+
+struct Fixture {
+    parent: FileSystemDirectoryHandle,
+    folder: FileSystemDirectoryHandle,
+    name: String,
+    root: PathBuf,
+}
+
+impl Fixture {
+    async fn new() -> Result<Self> {
+        let parent: FileSystemDirectoryHandle = JsFuture::from(
+            web_sys::window()
+                .context("Window")?
+                .navigator()
+                .storage()
+                .get_directory(),
+        )
+        .await
+        .map_err(error)?
+        .unchecked_into();
+        let name = format!("yace-folder-test-{}", storage::unique_id());
+        let options = FileSystemGetDirectoryOptions::new();
+        options.set_create(true);
+        let folder = JsFuture::from(parent.get_directory_handle_with_options(&name, &options))
+            .await
+            .map_err(error)?
+            .unchecked_into();
+        let root = yace_web::files::unique_root();
+        let (ini, chart) = song_metadata::blank_song("Folder test", "Synthetic fixture", 120.)?;
+        storage::write(root.join("source/song.ini"), ini)?;
+        storage::write(root.join("source/notes.chart"), chart)?;
+        Store::new(&root).initialize(&root.join("source"), None, 4.)?;
+        Ok(Self {
+            parent,
+            folder,
+            name,
+            root,
+        })
+    }
+
+    async fn cleanup(self) {
+        storage::clear(&self.root);
+        let options = FileSystemRemoveOptions::new();
+        options.set_recursive(true);
+        JsFuture::from(self.parent.remove_entry_with_options(&self.name, &options))
+            .await
+            .expect("Remove this test's OPFS folder");
+    }
+}
+
+async fn handle(folder: &FileSystemDirectoryHandle, name: &str) -> Result<FileSystemFileHandle> {
+    let options = FileSystemGetFileOptions::new();
+    options.set_create(true);
+    Ok(
+        JsFuture::from(folder.get_file_handle_with_options(name, &options))
+            .await
+            .map_err(error)?
+            .unchecked_into(),
+    )
+}
+
+async fn writable(handle: &FileSystemFileHandle) -> Result<FileSystemWritableFileStream> {
+    let options = FileSystemCreateWritableOptions::new();
+    js_sys::Reflect::set(&options, &"mode".into(), &"exclusive".into()).map_err(error)?;
+    Ok(
+        JsFuture::from(handle.create_writable_with_options(&options))
+            .await
+            .map_err(error)?
+            .unchecked_into(),
+    )
+}
+
+async fn read(folder: &FileSystemDirectoryHandle, name: &str) -> Result<Vec<u8>> {
+    let handle = handle(folder, name).await?;
+    let file: web_sys::File = JsFuture::from(handle.get_file())
+        .await
+        .map_err(error)?
+        .unchecked_into();
+    let buffer = JsFuture::from(file.array_buffer()).await.map_err(error)?;
+    Ok(js_sys::Uint8Array::new(&buffer).to_vec())
+}
+
+async fn replace(folder: &FileSystemDirectoryHandle, name: &str, bytes: &[u8]) -> Result<()> {
+    let stream = writable(&handle(folder, name).await?).await?;
+    JsFuture::from(stream.write_with_u8_array(bytes).map_err(error)?)
+        .await
+        .map_err(error)?;
+    JsFuture::from(stream.close()).await.map_err(error)?;
+    Ok(())
+}
+
+fn edit(root: &Path) -> Result<()> {
+    let store = Store::new(root);
+    store.apply(Request {
+        expected_revision: store.load()?.revision,
+        actor: Actor {
+            kind: ActorKind::Human,
+            name: "Folder integration test".into(),
+        },
+        action: Action::AddNote {
+            track: "ExpertSingle".into(),
+            tick: 192,
+            lane: 0,
+            sustain: 0,
+            cymbal: false,
+        },
+    })?;
+    Ok(())
+}
+
+#[wasm_bindgen_test]
+async fn folder_roundtrip_preserves_sources_chunked_assets_and_undo() {
+    let fixture = Fixture::new().await.unwrap();
+    let result = async {
+        let root = &fixture.root;
+        let asset = vec![0x9d; 4 * 1024 * 1024 + 7];
+        storage::write(root.join("chunked.bin"), &asset)?;
+        storage::write(root.join("source/authored.lock"), b"authored companion")?;
+        storage::write(root.join("window.lock"), b"disposable session lock")?;
+        project_folder::attach_new(root, fixture.folder.clone(), "project.json").await?;
+        ensure!(
+            project_folder::linked(root),
+            "The selected folder is linked"
+        );
+        ensure!(
+            read(&fixture.folder, "chunked.bin").await? == asset,
+            "Chunked asset bytes changed"
+        );
+        let source = storage::read(root.join("source/notes.chart"))?;
+        edit(root)?;
+        project_folder::save(root).await?;
+        storage::clear(root);
+        project_folder::open(root, fixture.folder.clone()).await?;
+        let store = Store::new(root);
+        let project = store.load()?;
+        ensure!(
+            project.revision == 1 && project.undo.len() == 1,
+            "Missing saved edit or undo history"
+        );
+        ensure!(
+            storage::read(root.join("source/notes.chart"))? == source,
+            "Immutable source changed"
+        );
+        ensure!(
+            storage::read(root.join("source/authored.lock"))? == b"authored companion",
+            "Source companion missing"
+        );
+        ensure!(
+            !storage::is_file(root.join("window.lock")),
+            "Session lock was copied"
+        );
+        store.apply(Request {
+            expected_revision: project.revision,
+            actor: Actor {
+                kind: ActorKind::Human,
+                name: "Folder integration test".into(),
+            },
+            action: Action::Undo,
+        })?;
+        project_folder::save(root).await?;
+        storage::clear(root);
+        project_folder::open(root, fixture.folder.clone()).await?;
+        ensure!(
+            Store::new(root).load()?.revision == 2,
+            "Undo wasn't saved to the folder"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    fixture.cleanup().await;
+    result.unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn conflicting_document_preserves_both_disk_and_open_edits() {
+    let fixture = Fixture::new().await.unwrap();
+    let result = async {
+        project_folder::attach_new(&fixture.root, fixture.folder.clone(), "project.json").await?;
+        edit(&fixture.root)?;
+        replace(
+            &fixture.folder,
+            "project.json",
+            b"external editor's document",
+        )
+        .await?;
+        let failure = project_folder::save(&fixture.root)
+            .await
+            .expect_err("Refuse the changed disk document");
+        ensure!(
+            format!("{failure:#}").contains("changed outside YACE"),
+            "Missing conflict explanation"
+        );
+        ensure!(
+            read(&fixture.folder, "project.json").await? == b"external editor's document",
+            "External edit overwritten"
+        );
+        ensure!(
+            Store::new(&fixture.root).load()?.revision == 1,
+            "Open edits lost"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    fixture.cleanup().await;
+    result.unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn failed_asset_write_keeps_committed_document_and_can_retry() {
+    let fixture = Fixture::new().await.unwrap();
+    let result = async {
+        storage::write(fixture.root.join("new.bin"), b"old asset")?;
+        project_folder::attach_new(&fixture.root, fixture.folder.clone(), "project.json").await?;
+        let committed = read(&fixture.folder, "project.json").await?;
+        storage::write(fixture.root.join("new.bin"), b"new asset")?;
+        edit(&fixture.root)?;
+        let file = handle(&fixture.folder, "new.bin").await?;
+        let lock = writable(&file).await?;
+        let failed = project_folder::save(&fixture.root).await.is_err();
+        let unchanged = read(&fixture.folder, "project.json").await? == committed;
+        JsFuture::from(lock.abort()).await.map_err(error)?;
+        ensure!(failed, "Locked asset write should fail");
+        ensure!(unchanged, "Published document before its assets");
+        project_folder::save(&fixture.root).await?;
+        ensure!(
+            read(&fixture.folder, "new.bin").await? == b"new asset",
+            "Retry didn't write the asset"
+        );
+        let saved: serde_json::Value =
+            serde_json::from_slice(&read(&fixture.folder, "project.json").await?)?;
+        ensure!(saved["revision"] == 1, "Retry didn't publish the document");
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    fixture.cleanup().await;
+    result.unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn song_folder_opens_and_saves_its_managed_project() {
+    let fixture = Fixture::new().await.unwrap();
+    let result = async {
+        let options = FileSystemGetDirectoryOptions::new();
+        options.set_create(true);
+        let private: FileSystemDirectoryHandle = JsFuture::from(
+            fixture
+                .folder
+                .get_directory_handle_with_options(".yace", &options),
+        )
+        .await
+        .map_err(error)?
+        .unchecked_into();
+        let project: FileSystemDirectoryHandle =
+            JsFuture::from(private.get_directory_handle_with_options("project", &options))
+                .await
+                .map_err(error)?
+                .unchecked_into();
+        project_folder::attach_new(&fixture.root, project.clone(), "project.json").await?;
+        storage::clear(&fixture.root);
+        ensure!(
+            project_folder::open(&fixture.root, fixture.folder.clone()).await? == "project.json",
+            "Didn't find the song's .yace/project"
+        );
+        edit(&fixture.root)?;
+        project_folder::save(&fixture.root).await?;
+        let saved: serde_json::Value =
+            serde_json::from_slice(&read(&project, "project.json").await?)?;
+        ensure!(
+            saved["revision"] == 1,
+            "Saved outside the song's managed project"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    fixture.cleanup().await;
+    result.unwrap();
+}

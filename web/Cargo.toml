@@ -11,6 +11,7 @@ browser = []
 vocal-alignment = []
 studio = []
 separation = []
+browser-tests = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -57,3 +58,10 @@ symphonia-codec-vorbis = { path = "../vendor/symphonia-codec-vorbis" }
 [profile.release]
 lto = "thin"
 opt-level = "s"
+
+[dev-dependencies]
+wasm-bindgen-test = "=0.3.77"
+
+[dev-dependencies.web-sys]
+version = "=0.3.104"
+features = ["StorageManager", "FileSystemRemoveOptions"]

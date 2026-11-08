@@ -197,6 +197,7 @@ pub mod worker;
 pub mod workspace_recovery;
 mod workspace_target;
 
+#[cfg(not(feature = "browser-tests"))]
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
