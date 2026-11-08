@@ -438,6 +438,13 @@ tab reopened tick 2 and retained Undo/Redo. This guidance does not discard the
 rejected draft or bypass revision checks. Browser termination, quota and
 eviction acceptance remain open.
 
+The rejected browser draft's recovery ZIP was also opened in the native app.
+It retained its tick-1 note, Tap technique, 240-tick sustain and four Undo
+checkpoints. Native Undo returned to tick 2; Redo restored tick 1 with identical
+editing content. After an acknowledged save, full Quit and automatic startup
+recovered the same project bytes and revision. This was a controlled chart-only
+fixture; it does not qualify untested storage faults or acoustic behavior.
+
 The browser keeps a desktop workspace at least 1024×600 CSS pixels. A smaller
 window shows an inline notice with per-tab dismissal, without moving focus or
 changing playback. Actual static and hosted checks exercised 1024×600,
