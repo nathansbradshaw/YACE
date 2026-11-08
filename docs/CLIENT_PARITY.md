@@ -294,6 +294,18 @@ preference files. Removed or unknown linked charts fall back to band editing;
 damaged preferences are retained rather than overwritten. Standalone selection
 among multiple charts and assistive-technology acceptance remain unqualified.
 
+The native startup candidate `f4fb58f` uses one route for an explicit open,
+the newest band or Dance project, or legacy Dance recovery when recent history
+is valid and empty. Its full native debug build reopened the legacy Dance
+fixture, saved a new difficulty and manually opened a band project. A committed
+note-position edit reached saved revision 4 and its project bytes remained
+identical after a confirmed process exit. Automatic band restart, Dance restart
+and visible invalid-history/target refusal and retry remain unqualified; these
+checks are required before delivery. The candidate's actual static build
+recovered a keyboard mixer edit after reload and retained Undo/Redo. The original
+browser project was restored. These checks do not establish native automatic
+startup from shared source or browser behavior.
+
 Browser workspace recovery also keeps a separate project identity for each tab.
 Previously, saving a different project in another tab changed what the first
 tab reopened. The documents remained saved, but reload returned to the wrong
