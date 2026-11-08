@@ -17,6 +17,9 @@ Rust project, command validation and recovery history.
   takes priority. If the newest project is missing or history cannot be read,
   YACE reports the problem and keeps the recorded history instead of opening a
   different project. With an empty history, older Dance recovery remains available.
+- If recent history cannot be read, explicitly opening a project still works.
+  YACE shows a separate warning and keeps the unreadable history file instead
+  of replacing it with a new list. Project saves and Undo remain available.
 - On desktop, **Open charting folder** accepts a song, a saved project, or an
   entire collection. YACE searches up to three folders below the chosen folder.
   Pick a chart from the welcome list or the **Charts** selector beside the song

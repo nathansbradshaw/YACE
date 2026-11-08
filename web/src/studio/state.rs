@@ -199,17 +199,15 @@ impl Studio {
         if crate::project_folder::linked(&path) {
             return;
         }
-        let mut history = crate::recent_projects::History::load().unwrap_or_default();
-        history.remember(
+        match crate::recent_projects::History::record_open(
             path.clone(),
             crate::recent_projects::title(&self.metadata.read(), &path),
-        );
-        if let Err(error) = history.save() {
-            self.error.set(Some(format!(
-                "Project saved, but recent history could not be saved: {error:#}"
-            )));
+        ) {
+            Ok(history) => self.recent_projects.set(history),
+            Err(error) => self.error.set(Some(format!(
+                "Project opened, but recent history could not be updated: {error:#}. Existing history has been kept."
+            ))),
         }
-        self.recent_projects.set(history);
     }
 
     pub fn forget_recent(mut self, path: Option<PathBuf>) {
