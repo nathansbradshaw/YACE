@@ -219,3 +219,47 @@ are available through the Rust `vocal-pitch-lab`; its sweep/weighted commands us
 development entries only. Fresh held-out artists must be reserved after tuning;
 failed held-out sets become exposed diagnostics and cannot be reused as fresh
 evidence. Keep all corpus/run files outside public history.
+
+## Source-clock and note-model diagnostics
+
+The Rust examples `vocal_song_probe`, `vocal_contour_audit` and
+`vocal_consensus_replay` separate detector evidence from note assembly. They
+never modify the input song. A prior YACE-generated MIDI is a comparison draft,
+not a trusted reference. Authored game MIDI can supply target-note references;
+it is not a measured continuous performance contour. Keep target MIDI/timestamps
+out of inference and score both selected frames and actual assembled notes.
+
+`vocal_generation::assemble_notes` makes the same acoustic assembly available
+without rerunning a model. It does not establish file/model bindings; callers
+must validate those before supplying frames. Missing lyric text remains allowed.
+
+The initial two-model recovery experiment increased correct coverage but also
+increased wrong-note frames on authored game targets. It is research-only and
+is not called by Standard or High accuracy. Agreement between monophonic
+models does not establish lead-singer identity or prove that a sound belongs
+in the chart. Shortening/deletion still require review.
+
+[ROSVOT Rust evaluation](../tools/rosvot-convert/README.md) evaluates a learned
+note-event model, without running Python or requiring recognized word text.
+`vocal_note_replay` freezes the profile/executable identity, produces all
+predictions before loading annotations, and scores both contours and assembled
+notes. `vocal_pitch_calibrate` is development-only parameter exploration;
+its results cannot establish a held-out promotion gate. Reused evaluation songs
+must be reported as previously exposed. `vocal_note_consensus` corrects only
+existing voiced frames and validates source/model/implementation/PCM identities.
+The first correction profile missed the required validation improvement and
+remains experimental. None of these research profiles changes app defaults.
+
+`vocal_fcpe_probe STEM PINNED_ONNX NEW_JSON` evaluates a pinned community FCPE
+export. Its frontend follows official FCPE revision
+`6a149c1afb1c7e7821b71869dfb31ad50c95b516`; the export is from
+`deiteris/weights` revision `a6317b2f21619f35087d870b37c7a3eeb6bb3b4d`, SHA-256
+`0467e0a627c4dd7e774c2d3a05fb5ca1830af7491451ca0158e62cb2621e0908`.
+[Upstream code/weight license](../examples/support/FCPE-MIT.txt) is MIT;
+the export publisher also declares MIT. This is a research candidate, not an
+endorsed official FCPE ONNX export. The probe changes graph output metadata to
+read raw salience, retains all weights/nodes, uses the embedded cents table and
+implements local-argmax decoding in Rust. It clamps only probability roundoff
+within 1e-6; zero denominator means no pitch, while nonfinite or larger invalid
+outputs fail. Confidence is raw salience, not a correctness probability.
+Preprocessing and chunk conventions are recorded with each private result.

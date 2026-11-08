@@ -105,7 +105,10 @@ pub mod transkun;
 #[cfg(feature = "vocal-alignment")]
 pub mod vocal_alignment;
 pub mod vocal_benchmark;
+pub mod vocal_consensus;
 pub mod vocal_generation;
+pub mod vocal_note_consensus;
+pub mod vocal_note_recipe;
 pub mod vocal_pitch;
 pub mod vocal_pitch_analysis;
 pub mod vocal_pitch_tracking;
