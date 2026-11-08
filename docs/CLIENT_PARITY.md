@@ -21,7 +21,7 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 | Keys MIDI open notes and techniques | Actual hosted four-difficulty export/reopen with Pro Keys and vocals, independent MIDI inspection, edit/Undo/Redo and byte-identical restored export | Browser interchange verified; dedicated Keys authoring and native/game acceptance remain open |
 | Drum accents and ghost notes | Actual native/static single and batch authoring, kick exclusion, cymbal retention, move, clipboard, delete, Undo/Redo, restart/reload and mixed-part MIDI export/reimport | Verified controlled fixture; in-game dynamics judgment remains unqualified |
 | Double kicks and imported MIDI drum editing | Actual native/static placement, movement, clipboard, deletion, duplicate refusal, saved Undo/Redo, retained imported note-off intervals, full-song editing and export/reopen | Both clients verified on controlled fixtures; musical and target-game acceptance remain open |
-| Five-pad drum authoring | Actual static-browser seven-hit fixture: Orange/Green lanes, five-receptor preview, fifth-pad dynamics/movement/clipboard/delete, saved history, reload and complete backup reopen; restored `.chart` matches its source bytes | Browser controlled fixture verified; native controls, independently authored fixture and target-game acceptance remain open. Five-pad MIDI conversion, generation and reduction are unsupported |
+| Five-pad drum authoring | Actual native/static-browser seven-hit fixture: Orange/Green lanes, five-receptor preview, dynamics/movement/clipboard/delete, restart/reload and browser backup restored in native with history; both restored `.chart` exports match source bytes | Both clients verified on controlled fixture; independently authored fixture and target-game acceptance remain open. Five-pad MIDI conversion, generation and reduction are unsupported |
 | Stem mixer control names | Actual native six-channel and hosted eight-channel groups expose individually named Mute/Solo controls; keyboard mute, Undo/Redo, hosted solo playback and reload recovery exercised | Programmatic names and exercised controls verified; full assistive-technology acceptance remains open |
 | Independent preview and piano-roll tracks | Native and browser Focused/Selected/All choices, stable order, collapse and reopen; actual hosted reload preserves separate choices without changing chart revision | Verified exercised paths; browser preferences stay in that profile/project |
 | Timing, sections and Star Power | Browser edits/Undo and native tempo, section and phrase Add/Undo exercised through their actual dialogs | Verified |
@@ -66,9 +66,24 @@ CLI retained the five-pad profile. Undo restored a seven-hit playable export
 whose `notes.chart` was byte-identical to the original. Explicit MIDI export
 refused safely, leaving the saved chart intact. Five-pad MIDI conversion,
 generation replacement and automatic difficulty reduction remain unsupported
-and are explicitly refused. Native GUI, hosted-browser, independently authored
-Moonscraper fixture, acoustic and target-game acceptance remain open; compilation,
-CLI import and this controlled fixture do not close those gates.
+and are explicitly refused.
+
+The actual native app exercised Green Ghost dynamics, a one-tick move, typed
+Copy/Paste and deletion. Moving the last Green hit to Orange retained the profile
+after full process exit and automatic restart. Deleting the last Green hit and
+restarting recovered the exact acknowledged six-note save, all five pad rows and
+its Undo/Redo history. Undo restored the original seven hits; the native playable
+`.chart` export matched both the source and browser export bytes. The browser's
+complete backup reopened through the native ZIP picker with its original audio,
+five-pad profile and Redo history; native Redo removed Green and Undo restored it.
+Opening the browser's no-Green playable copy also retained Orange/Green lane
+semantics. Native explicit MIDI export refused safely without publishing a folder
+or changing the project. These checks used the same `80bc192` native runtime;
+later acceptance documentation did not change its implementation.
+
+Hosted-browser, independently authored Moonscraper fixture, acoustic and
+target-game acceptance remain open. This controlled fixture does not close those
+gates or establish the unsupported conversions and generators.
 
 ## Current integration gate (2026-11-03)
 
