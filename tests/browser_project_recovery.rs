@@ -16,6 +16,10 @@ mod files {
 mod part_analysis {
     pub fn forget_root(_: &std::path::Path) {}
 }
+mod project_folder {
+    // Native working-set tests have no browser folder handles to release.
+    pub fn forget(_: &std::path::Path) {}
+}
 #[path = "support/assistant_project.rs"]
 mod fixture;
 #[path = "../web/src/project_recovery.rs"]

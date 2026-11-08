@@ -1465,7 +1465,9 @@ impl Store {
             }
         }
     }
-    pub(crate) fn portable_stem_paths(&self, content: &mut Content) {
+    /// Make in-project stem references relative before serializing a portable copy.
+    /// External references are preserved, and no source files are changed.
+    pub fn portable_stem_paths(&self, content: &mut Content) {
         #[cfg(not(target_arch = "wasm32"))]
         let root = self
             .root
