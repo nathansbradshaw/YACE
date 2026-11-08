@@ -81,9 +81,14 @@ semantics. Native explicit MIDI export refused safely without publishing a folde
 or changing the project. These checks used the same `80bc192` native runtime;
 later acceptance documentation did not change its implementation.
 
-Hosted-browser, independently authored Moonscraper fixture, acoustic and
-target-game acceptance remain open. This controlled fixture does not close those
-gates or establish the unsupported conversions and generators.
+The deployed `536f22d` browser build also passed fifth-pad Ghost/tick edits,
+typed clipboard copy/paste/delete and reload with the final Green hit moved to
+Orange. Undo restored the original seven notes, and its downloaded YARG `.chart`
+copy passed archive checks with the same original chart bytes and five-pad INI
+profile. The original hosted project was restored after verification.
+Independently authored Moonscraper input, acoustic and target-game acceptance
+remain open; these controlled checks do not establish unsupported conversions
+or generators.
 
 ## Current integration gate (2026-11-03)
 
