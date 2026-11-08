@@ -408,7 +408,7 @@ pub struct AuditEntry {
 #[serde(deny_unknown_fields)]
 pub struct Project {
     pub version: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "crate::drum_layout::is_four_lane")]
     pub drum_layout: Option<crate::drum_layout::Layout>,
     pub revision: u64,
     pub title: String,

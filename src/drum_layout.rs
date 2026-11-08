@@ -11,6 +11,12 @@ pub enum Layout {
     FiveLane,
 }
 
+/// Four-lane projects keep their existing serialized shape. Only the newly
+/// supported profile needs a field older clients cannot interpret safely.
+pub fn is_four_lane(layout: &Option<Layout>) -> bool {
+    layout.is_none_or(|layout| layout == Layout::FourLane)
+}
+
 impl Layout {
     /// Match the source format's present-value bool convention. Explicit false
     /// must not be overridden by a fifth-lane event in contradictory input.

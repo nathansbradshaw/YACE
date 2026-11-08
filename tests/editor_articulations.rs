@@ -164,6 +164,29 @@ fn legacy_drum_profile_comes_from_retained_source_and_is_saved_on_next_action() 
 }
 
 #[test]
+fn four_pad_saves_retain_the_existing_project_schema() {
+    use chart_engine::drum_layout::Layout;
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    assert_eq!(store.load().unwrap().drum_layout(), Layout::FourLane);
+    store
+        .apply(request(
+            &store,
+            Action::SelectTrack {
+                track: "ExpertDrums".into(),
+            },
+        ))
+        .unwrap();
+    let saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.path().join("project.json")).unwrap()).unwrap();
+    assert!(
+        saved.get("drum_layout").is_none(),
+        "ordinary projects must not gain a field older clients reject"
+    );
+    assert_eq!(store.load().unwrap().drum_layout(), Layout::FourLane);
+}
+
+#[test]
 fn five_pad_edits_keep_dynamics_clipboard_history_and_profile_without_the_last_green() {
     use chart_engine::{
         drum_layout::Layout,
