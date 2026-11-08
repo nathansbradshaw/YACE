@@ -22,6 +22,8 @@ mod project_folder {
 }
 #[path = "support/assistant_project.rs"]
 mod fixture;
+#[path = "../web/src/project_integrity.rs"]
+mod project_integrity;
 #[path = "../web/src/project_recovery.rs"]
 mod project_recovery;
 #[path = "../web/src/storage.rs"]
@@ -30,6 +32,76 @@ fn document() -> editor::Project {
     let temp = tempfile::tempdir().unwrap();
     let store = fixture::fixture(temp.path());
     serde_json::from_slice(&std::fs::read(store.root.join("project.json")).unwrap()).unwrap()
+}
+#[test]
+fn active_generated_project_survives_cleanup_until_another_project_owns_the_editor() {
+    let root = Path::new("/generated-open/project");
+    let next = Path::new("/other-open/project");
+    storage::save_project(root, &document());
+    storage::write(root.join("source/song.ogg"), b"recording").unwrap();
+    storage::activate_project(Some(root));
+    storage::clear(root);
+    storage::clear(root.parent().unwrap());
+    assert!(storage::is_file(root.join("project.json")));
+    assert_eq!(
+        storage::read(root.join("source/song.ogg")).unwrap(),
+        b"recording"
+    );
+    // Ordinary file replacement still works inside the protected project.
+    storage::write(root.join("transport.tmp"), b"new").unwrap();
+    storage::rename(root.join("transport.tmp"), root.join("transport.json")).unwrap();
+    assert_eq!(storage::read(root.join("transport.json")).unwrap(), b"new");
+    storage::save_project(next, &document());
+    storage::activate_project(Some(next));
+    storage::clear(root);
+    assert!(!storage::exists(root));
+    assert!(storage::is_file(next.join("project.json")));
+    storage::activate_project(None);
+    storage::clear(next);
+}
+#[test]
+fn incomplete_snapshot_cannot_be_acknowledged_as_a_saved_project() {
+    let root = Path::new("/incomplete-snapshot");
+    let mut doc = document();
+    doc.undo.push("a".repeat(64));
+    storage::save_project(root, &doc);
+    let validate = || {
+        project_integrity::validate(
+            root,
+            doc.revision,
+            &storage::list(root).unwrap(),
+            storage::cached_project(root),
+        )
+    };
+    assert!(
+        validate()
+            .unwrap_err()
+            .to_string()
+            .contains("source/notes.chart")
+    );
+    storage::write(root.join("source/notes.chart"), b"source").unwrap();
+    assert!(
+        validate()
+            .unwrap_err()
+            .to_string()
+            .contains("source/song.ogg")
+    );
+    storage::write(root.join("source/song.ogg"), b"recording").unwrap();
+    assert!(validate().unwrap_err().to_string().contains("checkpoints/"));
+    storage::write(
+        root.join(format!("checkpoints/{}.json", "a".repeat(64))),
+        b"checkpoint",
+    )
+    .unwrap();
+    validate().unwrap();
+    let files = storage::list(root).unwrap();
+    project_integrity::validate(root, doc.revision, &files, None).unwrap();
+    assert!(project_integrity::validate(root, doc.revision + 1, &files, None).is_err());
+    storage::clear(root);
+    assert!(
+        project_integrity::validate(root, doc.revision, &storage::list(root).unwrap(), None)
+            .is_err()
+    );
 }
 #[test]
 fn cached_only_project_materializes_for_reads_archives_and_pending_saves() {

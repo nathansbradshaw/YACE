@@ -17,6 +17,44 @@ use yace_web::{
 
 wasm_bindgen_test_configure!(run_in_browser);
 
+#[wasm_bindgen_test]
+async fn missing_working_files_cannot_replace_a_complete_browser_save() {
+    let fixture = Fixture::new().await.unwrap();
+    let result = async {
+        let root = &fixture.root;
+        yace_web::persistence::save(root, 0, None).await?;
+        storage::clear(root);
+        ensure!(
+            yace_web::persistence::save(root, 0, Some(0)).await.is_err(),
+            "An empty snapshot was accepted"
+        );
+        let restored = yace_web::persistence::load(root)
+            .await?
+            .context("The previous durable save was lost")?;
+        ensure!(
+            restored.1 == 0 && Store::new(root).load()?.revision == 0,
+            "Durable revision changed"
+        );
+        ensure!(
+            storage::shared(root.join("source/notes.chart"))?.len() > 0,
+            "Source chart was lost"
+        );
+        edit(root)?;
+        yace_web::persistence::save(root, 1, Some(0)).await?;
+        storage::activate_project(Some(root));
+        storage::clear(root);
+        ensure!(
+            Store::new(root).load()?.revision == 1,
+            "Cleanup released the open project"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    storage::activate_project(None);
+    fixture.cleanup().await;
+    result.unwrap();
+}
+
 fn error(value: wasm_bindgen::JsValue) -> anyhow::Error {
     anyhow::anyhow!("{value:?}")
 }
