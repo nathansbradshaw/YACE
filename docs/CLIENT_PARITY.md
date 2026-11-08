@@ -202,9 +202,15 @@ Blank-chart checks created all 20 parts; lane and sustain edits, independent
 part/note Undo/Redo, reload and all 20 distinct `.chart` sections passed.
 Older opaque MIDI imports refused all 20 conflicting blank parts without
 changing the saved revision. Their automatic promotion remains unimplemented.
-Native all-part/restart/export, hosted, independent released-Moonscraper and
-game/controller/musical acceptance remain open. Native inspection currently
-confirms the fresh guitar Expert controls and paired six-receptor preview.
+Native checks independently edited all 20 parts and created all 20 blank
+parts through the actual controls. White/open lane and sustain edits,
+clipboard-family refusal and independent part/note Undo/Redo passed. The
+native blank `.chart` export matched the browser byte-for-byte. A full process
+exit/restart retained the acknowledged project bytes and recovered Undo/Redo;
+its edited MIDI and original audio matched the browser export exactly. The
+browser's complete backup reopened natively with all 20 parts and 42 Undo
+entries, including usable recovered note history. Hosted, independent
+released-Moonscraper and game/controller/musical acceptance remain open.
 
 Native and static browser checks created all eight rhythm/co-op parts from a
 blank chart, entered typed five-fret notes and independently undid/redid part
