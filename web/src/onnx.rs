@@ -4,7 +4,16 @@ use js_sys::{Array, Float32Array, Float64Array, Object, Promise, Reflect, Uint8A
 use wasm_bindgen::{JsCast, JsValue, prelude::*};
 use wasm_bindgen_futures::JsFuture;
 
-#[wasm_bindgen(raw_module = "./runtime/ort.wasm.min.mjs")]
+// The test runner gives .mjs files a non-script MIME type. The test-only .js
+// alias packages the same pinned runtime without changing production imports.
+#[cfg_attr(
+    not(feature = "browser-tests"),
+    wasm_bindgen(raw_module = "./runtime/ort.wasm.min.mjs")
+)]
+#[cfg_attr(
+    feature = "browser-tests",
+    wasm_bindgen(module = "/tests/ort-runtime.js")
+)]
 extern "C" {
     #[wasm_bindgen(js_name = InferenceSession)]
     type InferenceSession;

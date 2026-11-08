@@ -50,6 +50,21 @@ failures and starts the module worker. Dioxus and wasm-bindgen generate
 the DOM/browser glue. Application logic stays in Rust, with `web-sys` for browser
 APIs. The static crate imports the shared native Rust editor and chart modules.
 
+To exercise folder saves with real browser filesystem handles, first check that
+port 3032 is free, then run:
+
+```sh
+NO_HEADLESS=1 WASM_BINDGEN_TEST_ADDRESS=127.0.0.1:3032 \
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+cargo test --locked --manifest-path web/Cargo.toml --target wasm32-unknown-unknown \
+  --features browser-tests --test project_folder
+```
+
+Open the runner's local URL in a supported browser. The tests use isolated OPFS
+folders and remove their fixtures. They cover source preservation, chunked
+writes, undo history, external-edit conflicts, and retrying a failed write.
+Stop the runner after verification.
+
 ## Open, edit, save and export
 
 - **New blank chart** creates a manual chart without audio. Its local timeline
