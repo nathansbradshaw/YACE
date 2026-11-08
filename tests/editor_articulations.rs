@@ -53,6 +53,7 @@ fn fixture_with(root: &Path, source: &str) -> Store {
         );
     }
     let project = Project {
+        drum_layout: None,
         recording: None,
         version: 1,
         revision: 0,
@@ -124,6 +125,42 @@ fn request(store: &Store, action: Action) -> Request {
         },
         action,
     }
+}
+
+#[test]
+fn legacy_drum_profile_comes_from_retained_source_and_is_saved_on_next_action() {
+    use chart_engine::drum_layout::Layout;
+    let root = tempfile::tempdir().unwrap();
+    let source = SOURCE.replace(" 1200 = N 12 17", " 1440 = N 5 0\n 1200 = N 12 17");
+    let store = fixture_with(root.path(), &source);
+    let before = fs::read(root.path().join("project.json")).unwrap();
+    let project = store.load().unwrap();
+    assert_eq!(project.drum_layout, Some(Layout::FiveLane));
+    assert_eq!(fs::read(root.path().join("project.json")).unwrap(), before);
+    store
+        .apply(request(
+            &store,
+            Action::SelectTrack {
+                track: "ExpertDrums".into(),
+            },
+        ))
+        .unwrap();
+    let saved: Project =
+        serde_json::from_slice(&fs::read(root.path().join("project.json")).unwrap()).unwrap();
+    assert_eq!(saved.drum_layout, Some(Layout::FiveLane));
+    assert_eq!(
+        fs::read_to_string(root.path().join("source/notes.chart")).unwrap(),
+        source
+    );
+
+    let explicit = tempfile::tempdir().unwrap();
+    let store = fixture_with(explicit.path(), &source);
+    fs::write(
+        explicit.path().join("source/song.ini"),
+        "[song]\nfive_lane_drums = false\n",
+    )
+    .unwrap();
+    assert_eq!(store.load().unwrap().drum_layout, Some(Layout::FourLane));
 }
 
 fn update(tick: u64, lane: u8, cymbal: bool) -> Action {
