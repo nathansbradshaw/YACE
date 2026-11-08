@@ -9,6 +9,7 @@ use std::{
 use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use web_sys::{IdbDatabase, IdbRequest, IdbTransaction, IdbTransactionMode};
 type Sender = Rc<RefCell<Option<futures_channel::oneshot::Sender<Result<JsValue, JsValue>>>>>;
+const STALE_RECOVERY_HELP: &str = "Download a recovery copy, then open YACE in a new tab and use Saved in this browser. Keep this tab open until your recovery copy is safe.";
 thread_local! {static LINKED_BASES:RefCell<std::collections::BTreeMap<PathBuf,Option<u64>>>=RefCell::default();}
 /// Capture the loaded dance revision before any edits. Its revision advances
 /// independently of the band's, so both must be checked in one transaction.
@@ -192,9 +193,7 @@ async fn save_snapshot(
         .map(|v| v as u64);
     if existing != expected {
         let _ = tx.abort();
-        anyhow::bail!(
-            "This project changed in another tab. Export a project ZIP, then reopen the saved project before continuing."
-        );
+        anyhow::bail!("This project changed in another tab. {STALE_RECOVERY_HELP}");
     }
     let files = crate::storage::list(root)?;
     let linked_path = root.join("dance").join(crate::stepmania::bundle::MANIFEST);
@@ -223,7 +222,7 @@ async fn save_snapshot(
             == Some(incoming.encode()?);
         ensure!(
             current.as_ref().map(|p| p.revision) == expected || idempotent,
-            "Dance/4-key parts changed in another tab. Export a project ZIP before reopening the saved project."
+            "Dance/4-key parts changed in another tab. {STALE_RECOVERY_HELP}"
         );
         Some(incoming.revision)
     } else {
