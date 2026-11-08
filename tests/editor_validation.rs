@@ -55,6 +55,7 @@ fn fixture() -> (Project, Chart) {
         })
         .collect();
     let project = Project {
+        drum_layout: None,
         recording: None,
         version: 1,
         revision: 0,

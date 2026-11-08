@@ -280,9 +280,13 @@ pub fn snapshot(project: &Project, timing: &TempoMap) -> Result<Snapshot> {
                 Flags::default()
             } else if drums {
                 Flags {
-                    cymbal: (2..=4).contains(&raw.lane) && has(raw.tick, raw.lane + 64),
-                    accent: (1..=4).contains(&raw.lane) && has(raw.tick, raw.lane + 33),
-                    ghost: (1..=4).contains(&raw.lane) && has(raw.tick, raw.lane + 39),
+                    cymbal: if project.drum_layout() == crate::drum_layout::Layout::FiveLane {
+                        matches!(raw.lane, 2 | 4)
+                    } else {
+                        project.drum_layout().cymbal_flag(raw.lane) && has(raw.tick, raw.lane + 64)
+                    },
+                    accent: project.drum_layout().pad(raw.lane) && has(raw.tick, raw.lane + 33),
+                    ghost: project.drum_layout().pad(raw.lane) && has(raw.tick, raw.lane + 39),
                     double_kick: raw.lane == 32,
                     ..Flags::default()
                 }
@@ -293,11 +297,22 @@ pub fn snapshot(project: &Project, timing: &TempoMap) -> Result<Snapshot> {
                     ..Flags::default()
                 }
             };
-            let projected_lane = if crate::keys::is_pro(key) {
-                editor::playable(key, raw.lane).then(|| crate::keys::pitch_name(raw.lane))
-            } else {
-                lane_name(drums, raw.lane, flags.cymbal)
-            };
+            let projected_lane =
+                if drums && project.drum_layout() == crate::drum_layout::Layout::FiveLane {
+                    project.playable(key, raw.lane).then_some(match raw.lane {
+                        0 => "kick",
+                        1 => "snare",
+                        2 => "yellowCymbal",
+                        3 => "blueTom",
+                        4 => "orangeCymbal",
+                        5 => "greenTom",
+                        _ => "doubleKick",
+                    })
+                } else if crate::keys::is_pro(key) {
+                    editor::playable(key, raw.lane).then(|| crate::keys::pitch_name(raw.lane))
+                } else {
+                    lane_name(drums, raw.lane, flags.cymbal)
+                };
             let Some(lane_name) = projected_lane else {
                 track.preserved_unknown_events.push(PreservedEvent {
                     id: event.id.clone(),
@@ -307,7 +322,7 @@ pub fn snapshot(project: &Project, timing: &TempoMap) -> Result<Snapshot> {
                 });
                 continue;
             };
-            let read_only_reason = if !editor::playable(key, raw.lane) {
+            let read_only_reason = if !project.playable(key, raw.lane) {
                 Some("This preserved lane is not editable by the current command engine".into())
             } else {
                 None

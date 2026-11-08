@@ -21,6 +21,7 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 | Keys MIDI open notes and techniques | Actual hosted four-difficulty export/reopen with Pro Keys and vocals, independent MIDI inspection, edit/Undo/Redo and byte-identical restored export | Browser interchange verified; dedicated Keys authoring and native/game acceptance remain open |
 | Drum accents and ghost notes | Actual native/static single and batch authoring, kick exclusion, cymbal retention, move, clipboard, delete, Undo/Redo, restart/reload and mixed-part MIDI export/reimport | Verified controlled fixture; in-game dynamics judgment remains unqualified |
 | Double kicks and imported MIDI drum editing | Actual native/static placement, movement, clipboard, deletion, duplicate refusal, saved Undo/Redo, retained imported note-off intervals, full-song editing and export/reopen | Both clients verified on controlled fixtures; musical and target-game acceptance remain open |
+| Five-pad drum authoring | Actual static-browser seven-hit fixture: Orange/Green lanes, five-receptor preview, fifth-pad dynamics/movement/clipboard/delete, saved history, reload and complete backup reopen; restored `.chart` matches its source bytes | Browser controlled fixture verified; native controls, independently authored fixture and target-game acceptance remain open. Five-pad MIDI conversion, generation and reduction are unsupported |
 | Stem mixer control names | Actual native six-channel and hosted eight-channel groups expose individually named Mute/Solo controls; keyboard mute, Undo/Redo, hosted solo playback and reload recovery exercised | Programmatic names and exercised controls verified; full assistive-technology acceptance remains open |
 | Independent preview and piano-roll tracks | Native and browser Focused/Selected/All choices, stable order, collapse and reopen; actual hosted reload preserves separate choices without changing chart revision | Verified exercised paths; browser preferences stay in that profile/project |
 | Timing, sections and Star Power | Browser edits/Undo and native tempo, section and phrase Add/Undo exercised through their actual dialogs | Verified |
@@ -39,6 +40,35 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 Do not mark a row passed from compilation alone. Record the revision, fixture,
 actual application actions, downloaded/exported results, and any limitations.
 Keep private recordings, transcripts and generated receipts outside Git.
+
+## Five-pad drum authoring (2026-11-08)
+
+Source revision `80bc192` retains the song's drum profile before validating saved
+selections. Explicit `five_lane_drums` metadata takes precedence; otherwise a
+fifth-pad attack in a drum track identifies five-pad input. Five-pad lane 4 is
+Orange and lane 5 is Green. Four-pad lane 4 remains Green, and ordinary four-pad
+project serialization is unchanged. Deleting or moving the last fifth-pad hit
+does not change the retained profile. Four-pad cymbal flags remain separate
+from five-pad Yellow/Orange cymbal interpretation.
+
+The actual static browser exposed all seven attacks in a ten-second controlled
+fixture, including both kick rows. Its fifth-pad Ghost edit, one-tick move,
+typed clipboard copy/paste, deletion and Undo/Redo survived reload. Moving and
+deleting the last Green attack retained five-pad lane controls and all five
+preview receptors. Pasting that clipboard into a four-pad project was refused
+without changing its three notes or saved revision. A downloaded complete
+project reopened through the normal ZIP picker with its five-pad profile and
+Redo history; Redo removed the last Green attack and Undo restored it.
+
+A `.chart` export with no remaining fifth-pad attacks still wrote
+`five_lane_drums=true`; importing that exact browser download through the native
+CLI retained the five-pad profile. Undo restored a seven-hit playable export
+whose `notes.chart` was byte-identical to the original. Explicit MIDI export
+refused safely, leaving the saved chart intact. Five-pad MIDI conversion,
+generation replacement and automatic difficulty reduction remain unsupported
+and are explicitly refused. Native GUI, hosted-browser, independently authored
+Moonscraper fixture, acoustic and target-game acceptance remain open; compilation,
+CLI import and this controlled fixture do not close those gates.
 
 ## Current integration gate (2026-11-03)
 

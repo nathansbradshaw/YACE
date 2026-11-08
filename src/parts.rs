@@ -158,6 +158,11 @@ mod portable {
     }
     impl Target {
         pub fn capture(store: &Store, project: &Project, track: &str) -> Result<Self> {
+            ensure!(
+                !track.ends_with("Drums")
+                    || project.drum_layout() != crate::drum_layout::Layout::FiveLane,
+                "Drum generation currently produces four-lane charts; keep this five-lane part or generate into a separate project"
+            );
             instrument(track)?;
             Ok(Self {
                 version: 2,
@@ -200,6 +205,11 @@ mod portable {
             Ok(self)
         }
         pub fn validate(&self, store: &Store, project: &Project) -> Result<()> {
+            ensure!(
+                !self.track.ends_with("Drums")
+                    || project.drum_layout() != crate::drum_layout::Layout::FiveLane,
+                "A four-lane generated draft cannot replace this five-lane drum part; both versions have been kept"
+            );
             instrument(&self.track)?;
             if self.version >= 2 {
                 ensure!(

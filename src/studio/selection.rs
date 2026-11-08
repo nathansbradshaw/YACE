@@ -105,7 +105,7 @@ impl Studio {
             group.ids.extend(
                 notes
                     .iter()
-                    .filter(|n| crate::editor::playable(&group.track, n.note.lane))
+                    .filter(|n| doc.playable(&group.track, n.note.lane))
                     .map(|n| n.id.clone()),
             );
         }
@@ -205,7 +205,7 @@ impl Studio {
                         notes
                             .iter()
                             .filter(|n| {
-                                crate::editor::playable(&group.track, n.note.lane)
+                                after.playable(&group.track, n.note.lane)
                                     && before.find_note(&n.id).is_none()
                             })
                             .map(|n| n.id.clone()),

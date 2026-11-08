@@ -408,6 +408,8 @@ pub struct AuditEntry {
 #[serde(deny_unknown_fields)]
 pub struct Project {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "crate::drum_layout::is_four_lane")]
+    pub drum_layout: Option<crate::drum_layout::Layout>,
     pub revision: u64,
     pub title: String,
     pub original_folder: PathBuf,
@@ -445,6 +447,26 @@ fn editable_track(name: &str) -> bool {
 }
 
 impl Project {
+    pub fn drum_layout(&self) -> crate::drum_layout::Layout {
+        self.drum_layout.unwrap_or_default()
+    }
+
+    pub fn playable(&self, track: &str, lane: u8) -> bool {
+        if track.ends_with("Drums") {
+            self.drum_layout().playable(lane)
+        } else {
+            playable(track, lane)
+        }
+    }
+
+    pub fn lane_rows(&self, track: &str) -> Vec<u8> {
+        if track.ends_with("Drums") {
+            self.drum_layout().rows()
+        } else {
+            crate::timeline::lane_rows(track)
+        }
+    }
+
     pub fn has_recording(&self) -> bool {
         self.recording
             .as_ref()
@@ -646,7 +668,7 @@ impl Project {
     }
     pub fn is_cymbal(&self, track: &str, note: &Note) -> bool {
         track.ends_with("Drums")
-            && (2..=4).contains(&note.lane)
+            && self.drum_layout().cymbal_flag(note.lane)
             && self.content.tracks[track]
                 .iter()
                 .any(|n| n.note.tick == note.tick && n.note.lane == note.lane + 64)
@@ -677,7 +699,7 @@ impl Project {
                     .tick
                     .checked_add(n.note.sustain)
                     .context("Note tick overflow")?;
-                if playable(track, n.note.lane) {
+                if self.playable(track, n.note.lane) {
                     ensure!(
                         timing.seconds(end) <= self.duration + 0.1,
                         "Note extends beyond recording"
@@ -696,6 +718,7 @@ impl Project {
         cymbal: bool,
     ) -> Result<()> {
         ensure!(self.content.tracks.contains_key(track), "Unknown track");
+        let layout = self.drum_layout();
         let preserved_midi = id.and_then(|id| self.find_note(id).and_then(|(_, n)| n.midi.clone()));
         let old = id
             .map(|id| {
@@ -706,15 +729,18 @@ impl Project {
             .transpose()?;
         if let Some(old) = &old {
             ensure!(
-                playable(track, old.lane),
+                self.playable(track, old.lane),
                 "Edit the playable note, not its control marker"
             );
         }
         if let Some(note) = &note {
-            ensure!(playable(track, note.lane), "Unsupported lane for {track}");
             ensure!(
-                !cymbal || (track.ends_with("Drums") && (2..=4).contains(&note.lane)),
-                "Cymbals require drum lane 2, 3 or 4"
+                self.playable(track, note.lane),
+                "Unsupported lane for {track}"
+            );
+            ensure!(
+                !cymbal || (track.ends_with("Drums") && layout.cymbal_flag(note.lane)),
+                "Cymbal flags require four-lane drum lane 2, 3 or 4"
             );
             ensure!(
                 !track.ends_with("Drums")
@@ -731,10 +757,10 @@ impl Project {
             let notes = self.content.tracks.get_mut(track).unwrap();
             notes.retain(|n| Some(n.id.as_str()) != id);
             if track.ends_with("Drums") {
-                if (2..=4).contains(&old.lane) {
+                if layout.cymbal_flag(old.lane) {
                     notes.retain(|n| !(n.note.tick == old.tick && n.note.lane == old.lane + 64));
                 }
-                if (1..=4).contains(&old.lane) {
+                if layout.pad(old.lane) {
                     for marker in notes.iter().filter(|n| {
                         n.note.tick == old.tick
                             && [old.lane + 33, old.lane + 39].contains(&n.note.lane)
@@ -779,7 +805,7 @@ impl Project {
                     notes.push(marker);
                 }
             }
-            if track.ends_with("Drums") && (1..=4).contains(&note.lane) {
+            if track.ends_with("Drums") && layout.pad(note.lane) {
                 for (mut marker, offset) in drum_articulations {
                     marker.note.tick = note.tick;
                     marker.note.lane = note.lane + offset;
@@ -1190,6 +1216,10 @@ impl Store {
         .unwrap_or(tracks.keys().next().unwrap())
         .into();
         let mut project = Project {
+            drum_layout: Some(crate::drum_layout::Layout::from_source(
+                &crate::song_metadata::song_ini(&self.root.join("source"))?,
+                &chart,
+            )?),
             recording: audio.is_none().then(|| crate::project_recording::Basis {
                 version: 1,
                 recording: None,
@@ -1288,6 +1318,19 @@ impl Store {
         }
         doc.content.stem_mix.prepare(doc.content.stem_ids())?;
         let chart = self.source_chart(&doc)?;
+        let source_layout = crate::drum_layout::Layout::from_source(
+            &crate::song_metadata::song_ini(&self.root.join("source"))?,
+            &chart,
+        )?;
+        if doc.drum_layout.is_none() {
+            // Infer once from retained source, never from the edited notes.
+            // This runs before selection validation and the browser cache.
+            doc.drum_layout = Some(source_layout);
+        }
+        ensure!(
+            doc.drum_layout == Some(source_layout),
+            "Drum profile differs from the retained source; existing files have been preserved"
+        );
         self.restore_preserved_fret_tracks(&mut doc.content, &chart)?;
         crate::editor_validation::validate(&doc, &chart)?;
         crate::difficulty_links::validate(&doc.content, &doc.timing(self)?, doc.duration)?;
@@ -1887,7 +1930,7 @@ impl Store {
                 if let Some(id) = note_id {
                     let (track, n) = doc.find_note(id).context("Unknown note ID")?;
                     ensure!(
-                        playable(track, n.note.lane),
+                        doc.playable(track, n.note.lane),
                         "Select the playable note, not its control marker"
                     );
                     doc.selected_track = track.into();
@@ -1948,6 +1991,12 @@ impl Store {
                 crate::note_groups::apply(&mut doc, &timing, edit)?;
             }
             Action::EnableDifficultyLink { track, enabled } => {
+                ensure!(
+                    !*enabled
+                        || !track.ends_with("Drums")
+                        || doc.drum_layout() != crate::drum_layout::Layout::FiveLane,
+                    "Five-lane drums need a five-pad difficulty reduction; existing notes have been preserved"
+                );
                 let timing = doc.timing(self)?;
                 crate::difficulty_links::set_enabled(
                     &mut doc.content,
@@ -1958,6 +2007,11 @@ impl Store {
                 )?;
             }
             Action::ClearDifficultyOverrides { track, note_id } => {
+                ensure!(
+                    !track.ends_with("Drums")
+                        || doc.drum_layout() != crate::drum_layout::Layout::FiveLane,
+                    "Five-lane drum reduction is not available; existing notes have been preserved"
+                );
                 let timing = doc.timing(self)?;
                 crate::difficulty_links::clear_overrides(
                     &mut doc.content,
@@ -2268,6 +2322,16 @@ impl Store {
                 && (before_timing.resolution != timing.resolution
                     || before_timing.tempos != timing.tempos)
             {
+                ensure!(
+                    doc.drum_layout() != crate::drum_layout::Layout::FiveLane
+                        || !doc
+                            .content
+                            .difficulty_links
+                            .links
+                            .iter()
+                            .any(|(track, link)| track.ends_with("Drums") && link.enabled),
+                    "Pause four-lane difficulty links before changing five-lane drum timing"
+                );
                 crate::difficulty_links::after_timing_edit(
                     &mut doc.content,
                     &timing,
@@ -2288,6 +2352,21 @@ impl Store {
                     operation: crate::collaboration::Operation::Merge { .. }
                 }
         ) {
+            if doc.drum_layout() == crate::drum_layout::Layout::FiveLane {
+                let previous = before.as_ref().context("Missing note-edit checkpoint")?;
+                ensure!(
+                    !doc.content
+                        .difficulty_links
+                        .links
+                        .iter()
+                        .any(|(track, link)| track.ends_with("Drums")
+                            && link.enabled
+                            && (previous.tracks.get(track) != doc.content.tracks.get(track)
+                                || previous.tracks.get(&link.expert_track)
+                                    != doc.content.tracks.get(&link.expert_track))),
+                    "Pause four-lane difficulty links before editing their five-lane drum notes"
+                );
+            }
             crate::difficulty_links::after_note_edit(
                 &mut doc.content,
                 before.as_ref().context("Missing note-edit checkpoint")?,
@@ -2441,6 +2520,12 @@ impl Store {
         let selected = options.selected(self, doc)?;
         let all_parts = crate::export_options::available(self, doc)?;
         let midi_export = options.midi(self, doc)?;
+        ensure!(
+            !midi_export
+                || doc.drum_layout() != crate::drum_layout::Layout::FiveLane
+                || !selected.iter().any(|track| track.ends_with("Drums")),
+            "Five-lane drums require .chart export; a lossless five-lane MIDI conversion is not available"
+        );
         let text = options.chart(doc.chart_text(self)?)?;
         let mut scoped = doc.clone();
         scoped
@@ -2464,6 +2549,18 @@ impl Store {
         crate::song_files::copy_song_source_with_audio(&source, stage, options.include_audio)?;
         pipeline::organize_song_stage(stage)?;
         song_layout::prepare(stage)?;
+        if doc.drum_layout() == crate::drum_layout::Layout::FiveLane
+            && selected.iter().any(|track| track.ends_with("Drums"))
+        {
+            let ini = pipeline::song_ini(stage)?;
+            fs::write(
+                stage.join("song.ini"),
+                pipeline::update_ini(
+                    &ini,
+                    &BTreeMap::from([("five_lane_drums".into(), "true".into())]),
+                ),
+            )?;
+        }
         if doc.has_recording() && options.include_audio {
             ensure!(
                 models::hash_file(&self.audio_path(doc)?)? == doc.audio_sha256,
@@ -2533,7 +2630,7 @@ impl Store {
             let mut updates = BTreeMap::new();
             for (track, notes) in &doc.content.tracks {
                 if !doc.content.track_origins.contains_key(track)
-                    || !notes.iter().any(|note| playable(track, note.note.lane))
+                    || !notes.iter().any(|note| doc.playable(track, note.note.lane))
                 {
                     continue;
                 }

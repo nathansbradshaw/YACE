@@ -148,7 +148,12 @@ fn preview_policy(studio: Studio, timing: &TempoMap, pro_drums: bool) -> (Policy
             unknown = true;
             Policy::unknown()
         });
-    policy.drums = if pro_drums {
+    policy.drums = if studio
+        .snapshot()
+        .is_some_and(|doc| doc.drum_layout() == crate::drum_layout::Layout::FiveLane)
+    {
+        DrumMode::FiveLane
+    } else if pro_drums {
         DrumMode::Pro
     } else {
         DrumMode::Standard
@@ -176,6 +181,9 @@ fn BandPreview(studio: Studio) -> Element {
     let tracks = super::track_views::visible(studio, super::track_views::Pane::Preview);
     let has_vocals = tracks.iter().any(|id| id == "Vocals");
     let has_drums = tracks.iter().any(|id| id.ends_with("Drums"));
+    let five_drums = studio
+        .snapshot()
+        .is_some_and(|doc| doc.drum_layout() == crate::drum_layout::Layout::FiveLane);
     let bands: Vec<_> = tracks.into_iter().filter(|id| id != "Vocals").collect();
     let multi = bands.len() + usize::from(has_vocals) > 1;
     let overflow = surface_height() > 0.
@@ -198,7 +206,7 @@ fn BandPreview(studio: Studio) -> Element {
         super::practice::PracticeControls{studio,
             super::stems::StemControls{studio}
             div{class:"audition-settings",
-                if has_drums {label{class:"form-check",input{r#type:"checkbox",checked:pro_drums(),onkeydown:move|e|e.stop_propagation(),onchange:move|e|pro_drums.set(e.checked())}span{"Pro Drums"}}}
+                if has_drums {if five_drums {span{"Five-lane drums"}} else {label{class:"form-check",input{r#type:"checkbox",checked:pro_drums(),onkeydown:move|e|e.stop_propagation(),onchange:move|e|pro_drums.set(e.checked())}span{"Pro Drums"}}}}
                 label{class:"game-preview-lookahead",span{"Look ahead"}select{aria_label:"Preview look ahead",value:"{lookahead}",onkeydown:move|e|e.stop_propagation(),onchange:move|e|if let Ok(value)=e.value().parse::<f64>(){lookahead.set(value.clamp(2.,6.));},
                     for seconds in [2.,2.8,3.6,4.5,6.]{option{value:"{seconds}",selected:seconds==lookahead(),"{seconds:.1}s"}}
                 }}
@@ -279,6 +287,7 @@ fn Highway(
                 position,
                 lookahead: lookahead(),
                 drums,
+                drum_layout: doc.drum_layout(),
                 pro_piano: crate::keys::is_pro(&track),
                 pro_drums: pro_drums(),
                 playing: doc.transport.playing && (studio.audio_ready)(),
@@ -338,6 +347,7 @@ struct Scene<'a> {
     position: f64,
     lookahead: f64,
     drums: bool,
+    drum_layout: crate::drum_layout::Layout,
     pro_piano: bool,
     pro_drums: bool,
     playing: bool,
@@ -361,6 +371,13 @@ fn lane_color(drums: bool, lane: u8) -> &'static str {
             4 => "#ffa63f",
             _ => "#c889ff",
         }
+    }
+}
+fn scene_color(scene: &Scene<'_>, lane: u8) -> &'static str {
+    if scene.drums && scene.drum_layout == crate::drum_layout::Layout::FiveLane && lane == 4 {
+        "#ffa63f"
+    } else {
+        lane_color(scene.drums, lane)
     }
 }
 
@@ -495,7 +512,11 @@ fn render_highway(scene: &Scene<'_>) -> String {
     if scene.pro_piano {
         return render_piano_highway(scene);
     }
-    let lanes = if scene.drums { 4 } else { 5 };
+    let lanes = if scene.drums {
+        usize::from(scene.drum_layout.pads())
+    } else {
+        5
+    };
     let activity: Vec<_> = (0..lanes)
         .map(|index| {
             lane_activity(
@@ -549,7 +570,7 @@ fn render_highway(scene: &Scene<'_>) -> String {
         } else {
             index as u8
         };
-        let color = lane_color(scene.drums, lane);
+        let color = scene_color(scene, lane);
         let _ = write!(
             out,
             "<path data-kind='lane-light' data-lane='{lane}' d='M{left:.2} {near:.2}L{far_left:.2} {far:.2}L{far_right:.2} {far:.2}L{right:.2} {near:.2}Z' fill='{color}' opacity='{:.3}'/>",
@@ -618,7 +639,7 @@ fn render_note(out: &mut String, scene: &Scene<'_>, note: &PreviewNote, lanes: u
     };
     let start = (note.start - scene.position).max(0.0);
     let (x, y, scale) = project(fraction, start, scene.lookahead);
-    let color = lane_color(scene.drums, note.lane);
+    let color = scene_color(scene, note.lane);
     if !scene.drums && note.end > note.start && note.end > scene.position {
         let (tx, ty, tail_scale) = project(
             fraction,
@@ -694,7 +715,10 @@ fn render_note(out: &mut String, scene: &Scene<'_>, note: &PreviewNote, lanes: u
     if note.dynamics == Dynamics::Ghost {
         out.push_str("<g data-dynamics='ghost' opacity='.43'>");
     }
-    if scene.drums && scene.pro_drums && note.cymbal {
+    if scene.drums
+        && (scene.pro_drums || scene.drum_layout == crate::drum_layout::Layout::FiveLane)
+        && note.cymbal
+    {
         let _ = write!(
             out,
             "<g data-kind='cymbal' data-lane='{}'><path d='M{x:.2} {:.2}L{:.2} {:.2}L{:.2} {:.2}Z' fill='#020509' stroke='{selected}' stroke-width='{stroke:.2}'/><path d='M{x:.2} {:.2}L{:.2} {:.2}L{:.2} {:.2}Z' fill='{color}'/><path d='M{x:.2} {:.2}L{:.2} {:.2}' stroke='#fff' stroke-width='{:.2}' opacity='.72'/><ellipse cx='{x:.2}' cy='{:.2}' rx='{:.2}' ry='{:.2}' fill='#fff' opacity='.55'/></g>",
@@ -888,7 +912,7 @@ fn render_receptors(out: &mut String, scene: &Scene<'_>, lanes: usize, activity:
             index as u8
         };
         let (x, _, _) = project((index as f64 + 0.5) / lanes as f64, 0.0, scene.lookahead);
-        let color = lane_color(scene.drums, lane);
+        let color = scene_color(scene, lane);
         let rx = HALF_WIDTH / lanes as f64 * 0.81;
         let _ = write!(
             out,
@@ -1021,6 +1045,7 @@ mod tests {
             position: 0.,
             lookahead: 3.6,
             drums: false,
+            drum_layout: Default::default(),
             pro_piano: false,
             pro_drums: true,
             playing: true,
@@ -1063,6 +1088,7 @@ mod tests {
             position: 0.,
             lookahead: 3.6,
             drums: false,
+            drum_layout: Default::default(),
             pro_piano: false,
             pro_drums: false,
             playing: false,
@@ -1100,6 +1126,7 @@ mod tests {
             position: 1.0,
             lookahead: 3.6,
             drums: false,
+            drum_layout: Default::default(),
             pro_piano: true,
             pro_drums: false,
             playing: true,
@@ -1187,6 +1214,7 @@ mod tests {
             position: 1.0,
             lookahead: 3.6,
             drums: false,
+            drum_layout: Default::default(),
             pro_piano: false,
             pro_drums: false,
             playing: true,
@@ -1199,6 +1227,7 @@ mod tests {
             position: 1.0,
             lookahead: 3.6,
             drums: false,
+            drum_layout: Default::default(),
             pro_piano: false,
             pro_drums: false,
             playing: false,
@@ -1221,6 +1250,7 @@ mod tests {
             position: 0.0,
             lookahead: 3.6,
             drums: true,
+            drum_layout: Default::default(),
             pro_piano: false,
             pro_drums: true,
             playing: false,
@@ -1239,6 +1269,29 @@ mod tests {
     }
 
     #[test]
+    fn five_pad_scene_retains_orange_and_green_as_different_receptors() {
+        let notes = [note(0.5, 0.5, 4, true), note(1.0, 1.0, 5, false)];
+        let scene = Scene {
+            notes: &notes,
+            beats: &[],
+            flashes: &[],
+            position: 0.,
+            lookahead: 3.6,
+            drums: true,
+            drum_layout: crate::drum_layout::Layout::FiveLane,
+            pro_piano: false,
+            pro_drums: false,
+            playing: false,
+        };
+        let svg = render_highway(&scene);
+        assert_eq!(svg.matches("data-kind='receptor'").count(), 5);
+        assert!(svg.contains("data-kind='cymbal' data-lane='4'"));
+        assert!(svg.contains("data-kind='tom' data-lane='5'"));
+        assert_eq!(scene_color(&scene, 4), "#ffa63f");
+        assert_eq!(scene_color(&scene, 5), "#52e475");
+    }
+
+    #[test]
     fn held_sustains_remain_visible_after_their_head_passes_the_strike_line() {
         let notes = [note(0.2, 2.0, 0, false), note(1.2, 1.2, 7, false)];
         let scene = Scene {
@@ -1248,6 +1301,7 @@ mod tests {
             position: 1.0,
             lookahead: 3.6,
             drums: false,
+            drum_layout: Default::default(),
             pro_piano: false,
             pro_drums: false,
             playing: true,
