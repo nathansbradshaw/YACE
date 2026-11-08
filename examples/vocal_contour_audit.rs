@@ -1,5 +1,5 @@
 //! Inspect independent contour support without treating a generated chart as truth.
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use chart_engine::{
     vocal_generation::Generation,
     vocals::{self, VocalTone},
@@ -7,7 +7,8 @@ use chart_engine::{
 use clap::Parser;
 use serde::Deserialize;
 use serde_json::json;
-use std::{collections::BTreeMap, fs, path::PathBuf};
+use sha2::{Digest, Sha256};
+use std::{collections::BTreeMap, fs, io::Write, path::PathBuf};
 #[derive(Parser)]
 struct Args {
     report: PathBuf,
@@ -19,7 +20,27 @@ struct Args {
 }
 #[derive(Deserialize)]
 struct Contour {
+    source: Source,
+    pcm_sha256: String,
+    model_sha256: String,
+    implementation_sha256: String,
+    duration_seconds: f64,
+    sample_rate: usize,
+    hop_samples: usize,
     frames: Vec<Frame>,
+}
+#[derive(Deserialize)]
+struct Source {
+    sha256: String,
+}
+fn probe_implementation() -> String {
+    let mut h = Sha256::new();
+    h.update(include_bytes!("../tools/singing-pitch-probe/src/main.rs"));
+    h.update(include_bytes!("../tools/singing-pitch-probe/src/rmvpe.rs"));
+    h.update(include_bytes!("../src/rmvpe_frontend.rs"));
+    h.update(include_bytes!("../tools/singing-pitch-probe/Cargo.toml"));
+    h.update(include_bytes!("../tools/singing-pitch-probe/Cargo.lock"));
+    format!("{:x}", h.finalize())
 }
 #[derive(Deserialize)]
 struct Frame {
@@ -50,6 +71,36 @@ fn main() -> Result<()> {
         .rmvpe_pitch
         .as_ref()
         .context("Report has no independent contour")?;
+    chart_engine::vocal_rmvpe::validate(
+        model,
+        &report.audio_sha256,
+        &report.vocal_stem_sha256,
+        report.duration_seconds,
+    )?;
+    if let Some(c) = &corroborating {
+        ensure!(
+            c.source.sha256 == report.vocal_stem_sha256
+                && c.pcm_sha256 == model.pcm_sha256
+                && (c.duration_seconds - model.duration_seconds).abs() <= 1. / 16000.
+                && c.implementation_sha256 == probe_implementation()
+                && matches!(
+                    c.model_sha256.as_str(),
+                    "119845c72c702e052e5262430f9d120bce46176689aa226c39d09dea5cc3a610"
+                        | "91fc2a0fd10f965dbf7775995daf50e99273caedd7efd00001f23be649da1bc3"
+                )
+                && c.sample_rate == 16000
+                && c.hop_samples == 160
+                && c.frames.len() == model.frames.len()
+                && c.frames
+                    .iter()
+                    .enumerate()
+                    .all(|(i, f)| (f.time_seconds - i as f64 * 0.01).abs() < 1e-9
+                        && f.confidence.is_finite()
+                        && (0. ..=1.).contains(&f.confidence)
+                        && f.frequency_hz.is_none_or(|h| h.is_finite() && h >= 0.)),
+            "Corroborating source, PCM, model, implementation or frame grid differs"
+        )
+    }
     let timing = report.timing.as_ref().context("Missing timing")?;
     let original = vocals::import_midi(&fs::read(args.midi)?)?;
     let mut counts = BTreeMap::<String, usize>::new();
@@ -160,7 +211,11 @@ fn main() -> Result<()> {
         }
     }
     let output = json!({"warning":"Model/detector agreement is diagnostic support, not measured accuracy or lead-singer identity","counts":counts,"per_second":seconds});
-    fs::write(args.output, serde_json::to_vec_pretty(&output)?)?;
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(args.output)?
+        .write_all(&serde_json::to_vec_pretty(&output)?)?;
     println!("{}", serde_json::to_string_pretty(&output["counts"])?);
     Ok(())
 }
