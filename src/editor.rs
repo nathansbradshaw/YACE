@@ -408,6 +408,8 @@ pub struct AuditEntry {
 #[serde(deny_unknown_fields)]
 pub struct Project {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drum_layout: Option<crate::drum_layout::Layout>,
     pub revision: u64,
     pub title: String,
     pub original_folder: PathBuf,
@@ -449,6 +451,18 @@ fn editable_track(name: &str) -> bool {
 }
 
 impl Project {
+    pub fn drum_layout(&self) -> crate::drum_layout::Layout {
+        self.drum_layout.unwrap_or_default()
+    }
+
+    pub fn playable(&self, track: &str, lane: u8) -> bool {
+        if track.ends_with("Drums") {
+            self.drum_layout().playable(lane)
+        } else {
+            playable(track, lane)
+        }
+    }
+
     pub fn has_recording(&self) -> bool {
         self.recording
             .as_ref()
@@ -1194,6 +1208,10 @@ impl Store {
         .unwrap_or(tracks.keys().next().unwrap())
         .into();
         let mut project = Project {
+            drum_layout: Some(crate::drum_layout::Layout::from_source(
+                &crate::song_metadata::song_ini(&self.root.join("source"))?,
+                &chart,
+            )?),
             recording: audio.is_none().then(|| crate::project_recording::Basis {
                 version: 1,
                 recording: None,
@@ -1292,6 +1310,14 @@ impl Store {
         }
         doc.content.stem_mix.prepare(doc.content.stem_ids())?;
         let chart = self.source_chart(&doc)?;
+        if doc.drum_layout.is_none() {
+            // Infer once from retained source, never from the edited notes.
+            // This runs before selection validation and the browser cache.
+            doc.drum_layout = Some(crate::drum_layout::Layout::from_source(
+                &crate::song_metadata::song_ini(&self.root.join("source"))?,
+                &chart,
+            )?);
+        }
         crate::editor_validation::validate(&doc, &chart)?;
         crate::difficulty_links::validate(&doc.content, &doc.timing(self)?, doc.duration)?;
         crate::reanalysis::validate_sources(&doc.content, doc.duration)?;
