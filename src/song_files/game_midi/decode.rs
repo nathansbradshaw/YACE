@@ -58,6 +58,8 @@ pub(super) fn part(name: &str) -> Option<(&'static str, Option<usize>)> {
         "PART RHYTHM GHL" => ("GHLRhythm", None),
         "PART GUITAR COOP GHL" => ("GHLCoop", None),
         "PART KEYS GHL" => ("GHLKeys", None),
+        "PART REAL_GUITAR" => ("ProGuitar17", None),
+        "PART REAL_GUITAR_22" => ("ProGuitar22", None),
         "PART DRUMS" => ("Drums", None),
         "PART KEYS" => ("Keyboard", None),
         "PART REAL_KEYS_E" => ("ProKeys", Some(0)),
@@ -325,9 +327,13 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
         );
         let enhanced = text_enabled(track, "ENHANCED_OPENS");
         let six_fret = crate::six_fret::is_track(suffix);
+        let pro_guitar = crate::pro_guitar::is_track(suffix);
         let dynamics = text_enabled(track, "ENABLE_CHART_DYNAMICS");
         let events = spans(track, |key| {
-            if pro_difficulty.is_some() {
+            if pro_guitar {
+                (0..4u8).any(|d| (24 + d * 24..=30 + d * 24).contains(&key))
+                    || matches!(key, 115 | 116)
+            } else if pro_difficulty.is_some() {
                 (48..=72).contains(&key) || matches!(key, 115 | 116)
             } else if suffix == "Drums" {
                 (0..4u8).any(|d| (60 + d * 12..=64 + d * 12).contains(&key))
@@ -348,7 +354,7 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
             "Zero-length MIDI phrases cannot be represented faithfully; source retained"
         );
         let controls = ranges(&events);
-        let phases = if suffix != "Drums" && pro_difficulty.is_none() {
+        let phases = if suffix != "Drums" && pro_difficulty.is_none() && !pro_guitar {
             phase_ranges(track)?
         } else {
             BTreeMap::new()
@@ -364,7 +370,12 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
             let base = 60 + difficulty as u8 * 12;
             let mut notes = Vec::new();
             for event in &events {
-                let lane = if pro_difficulty.is_some() {
+                let lane = if pro_guitar {
+                    event
+                        .key
+                        .checked_sub(24 + difficulty as u8 * 24)
+                        .filter(|lane| *lane < 6)
+                } else if pro_difficulty.is_some() {
                     (48..=72).contains(&event.key).then_some(event.key)
                 } else if six_fret {
                     crate::six_fret::chart_lane(event.key, base)
@@ -393,6 +404,13 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
                     lane,
                     sustain: event.end - event.start,
                 };
+                if pro_guitar {
+                    let limit = crate::pro_guitar::max_fret(suffix).unwrap();
+                    ensure!(
+                        (100..=100 + limit).contains(&event.velocity),
+                        "Invalid fret velocity in {name}; the original MIDI has been kept"
+                    );
+                }
                 let metadata = NoteAttributes {
                     channel: event.channel,
                     velocity: event.velocity,
@@ -429,6 +447,18 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
                     }
                 }
             }
+            if pro_guitar {
+                let forced: BTreeSet<_> = notes
+                    .iter()
+                    .filter(|n| active(&controls, 30 + difficulty as u8 * 24, n.tick))
+                    .map(|n| n.tick)
+                    .collect();
+                notes.extend(forced.into_iter().map(|tick| Note {
+                    tick,
+                    lane: crate::pro_guitar::HOPO,
+                    sustain: 0,
+                }));
+            }
             notes.sort();
             ensure!(
                 notes
@@ -441,7 +471,7 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
             }
             let tier = ["Easy", "Medium", "Hard", "Expert"][difficulty];
             let name = format!("{tier}{suffix}");
-            if suffix != "Drums" && pro_difficulty.is_none() {
+            if suffix != "Drums" && pro_difficulty.is_none() && !pro_guitar {
                 let chart_policy = gameplay_view::yarg_chart_policy(clock.resolution, &fields)?;
                 let mut midi_policy = chart_policy.clone();
                 let chart_threshold = chart_policy.hopo_threshold_ticks.unwrap();
@@ -506,7 +536,13 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
                         event.end - event.start
                     ));
                 }
-                if event.key == if pro_difficulty.is_some() { 115 } else { 103 } {
+                if event.key
+                    == if pro_difficulty.is_some() || pro_guitar {
+                        115
+                    } else {
+                        103
+                    }
+                {
                     rows.push(format!(
                         "  {} = E solo\n  {} = E soloend\n",
                         event.start, event.end

@@ -177,12 +177,14 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
             "ProKeys" => {
                 crate::keys::midi_track(&section.name).context("Invalid Pro Keys difficulty")?
             }
+            "ProGuitar17" | "ProGuitar22" => crate::pro_guitar::midi_name(suffix).unwrap(),
             _ => bail!("Unsupported chart instrument [{}]", section.name),
         };
         let events = instruments
             .entry(label)
             .or_insert(vec![(0, 1, meta(3, label.as_bytes())?)]);
         let notes = chart.notes(&section.name)?;
+        let pro_guitar = crate::pro_guitar::is_track(suffix);
         let six_fret = matches!(
             suffix,
             "GHLGuitar" | "GHLBass" | "GHLRhythm" | "GHLCoop" | "GHLKeys"
@@ -279,6 +281,22 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
                 ["N", lane, duration] => {
                     let lane = lane.parse::<u8>()?;
                     let duration = duration.parse::<u64>()?;
+                    if pro_guitar {
+                        ensure!(
+                            lane < 6 || lane == crate::pro_guitar::HOPO,
+                            "Unsupported Pro Guitar string or control in {}",
+                            section.name
+                        );
+                        let key = 24
+                            + difficulty as u8 * 24
+                            + if lane == crate::pro_guitar::HOPO {
+                                6
+                            } else {
+                                lane
+                            };
+                        note(events, tick, duration, key, 100)?;
+                        continue;
+                    }
                     let base = 60 + difficulty as u8 * 12;
                     if frets && matches!(lane, 5 | 6) {
                         continue;
@@ -390,7 +408,11 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
                     .with_context(|| format!("Solo end without a start in {}", section.name))?;
                 ensure!(tick > start, "Empty solo in {}", section.name);
                 // Pro Keys uses MIDI 115; other supported instruments use 103.
-                let key = if suffix == "ProKeys" { 115 } else { 103 };
+                let key = if suffix == "ProKeys" || pro_guitar {
+                    115
+                } else {
+                    103
+                };
                 note(events, start, tick - start, key, 100)?;
             }
         }

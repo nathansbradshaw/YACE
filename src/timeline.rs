@@ -59,7 +59,9 @@ impl TimelineTransform {
 /// ordinary-kick (0) and double-kick (32) rows. Control markers have no row.
 /// Rows run from top to bottom; Pro Keys puts higher pitches first.
 pub fn lane_rows(track: &str) -> Vec<u8> {
-    if crate::six_fret::is_track(track) {
+    if crate::pro_guitar::is_track(track) {
+        crate::pro_guitar::ROWS.to_vec()
+    } else if crate::six_fret::is_track(track) {
         crate::six_fret::ROWS.to_vec()
     } else if crate::keys::is_pro(track) {
         (crate::keys::MIN_PITCH..=crate::keys::MAX_PITCH)

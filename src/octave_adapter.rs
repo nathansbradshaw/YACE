@@ -14,6 +14,7 @@ use std::collections::BTreeSet;
 pub enum Instrument {
     Guitar,
     SixFret,
+    ProGuitar,
     Bass,
     Drums,
     Keys,
@@ -51,6 +52,8 @@ pub struct Note {
     pub lane_number: u8,
     /// The source .chart has no measured velocity field.
     pub velocity: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fret: Option<u8>,
     pub flags: Flags,
     pub editable: bool,
     pub read_only_reason: Option<String>,
@@ -175,6 +178,7 @@ fn track_kind(track: &str) -> Result<(Instrument, Difficulty)> {
                 "Drums" => Instrument::Drums,
                 "Keyboard" => Instrument::Keys,
                 "ProKeys" => Instrument::ProKeys,
+                "ProGuitar17" | "ProGuitar22" => Instrument::ProGuitar,
                 _ => continue,
             };
             return Ok((instrument, difficulty));
@@ -266,10 +270,13 @@ pub fn snapshot(project: &Project, timing: &TempoMap) -> Result<Snapshot> {
                 .tick
                 .checked_add(raw.sustain)
                 .context("Note tick overflow")?;
-            if let Some(kind) = (!crate::keys::is_keys(key))
-                .then(|| marker_kind(drums, raw.lane))
-                .flatten()
-            {
+            if let Some(kind) = if crate::pro_guitar::is_track(key) {
+                (raw.lane == crate::pro_guitar::HOPO).then_some(MarkerKind::Forced)
+            } else {
+                (!crate::keys::is_keys(key))
+                    .then(|| marker_kind(drums, raw.lane))
+                    .flatten()
+            } {
                 track.markers.push(Marker {
                     id: event.id.clone(),
                     tick: raw.tick,
@@ -280,7 +287,14 @@ pub fn snapshot(project: &Project, timing: &TempoMap) -> Result<Snapshot> {
                 });
                 continue;
             }
-            let flags = if crate::keys::is_keys(key) {
+            let flags = if crate::pro_guitar::is_track(key) {
+                Flags {
+                    forced: crate::pro_guitar::forced(events, raw.tick),
+                    tap: crate::pro_guitar::channel(event) == 4,
+                    ghost: crate::pro_guitar::channel(event) == 1,
+                    ..Flags::default()
+                }
+            } else if crate::keys::is_keys(key) {
                 Flags::default()
             } else if drums {
                 Flags {
@@ -312,6 +326,8 @@ pub fn snapshot(project: &Project, timing: &TempoMap) -> Result<Snapshot> {
                         5 => "greenTom",
                         _ => "doubleKick",
                     })
+                } else if crate::pro_guitar::is_track(key) {
+                    crate::pro_guitar::string_name(raw.lane)
                 } else if crate::six_fret::is_track(key) {
                     crate::six_fret::name(raw.lane)
                 } else if crate::keys::is_pro(key) {
@@ -342,6 +358,7 @@ pub fn snapshot(project: &Project, timing: &TempoMap) -> Result<Snapshot> {
                 lane_name: lane_name.into(),
                 lane_number: raw.lane,
                 velocity: None,
+                fret: crate::pro_guitar::is_track(key).then(|| crate::pro_guitar::fret(event)),
                 flags,
                 editable: read_only_reason.is_none(),
                 read_only_reason,

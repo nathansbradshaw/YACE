@@ -184,6 +184,9 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
             if let Some(midi) = &item.midi {
                 midi.validate()?;
             }
+            if crate::pro_guitar::is_track(track) {
+                crate::pro_guitar::validate(track, item)?;
+            }
             ensure!(
                 !item.id.is_empty() && note_ids.insert(item.id.as_str()),
                 "Empty or duplicate note ID"
