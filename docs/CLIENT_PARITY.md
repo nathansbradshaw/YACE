@@ -445,6 +445,13 @@ editing content. After an acknowledged save, full Quit and automatic startup
 recovered the same project bytes and revision. This was a controlled chart-only
 fixture; it does not qualify untested storage faults or acoustic behavior.
 
+The hosted browser repeated the conflict with its accepted note at tick 3 and
+rejected draft at tick 1. Reload retained the accepted edit. The actual recovery
+download passed every ZIP CRC check and retained the rejected note and four
+Undo checkpoints; a fresh tab's saved-project picker reopened the accepted copy,
+with Undo returning to tick 2 and Redo restoring tick 3. The served module and
+WASM matched the published artifact, and the original workspace was restored.
+
 The browser keeps a desktop workspace at least 1024×600 CSS pixels. A smaller
 window shows an inline notice with per-tab dismissal, without moving focus or
 changing playback. Actual static and hosted checks exercised 1024×600,
