@@ -18,6 +18,14 @@ read their bundled weights; incomplete bundles use the user cache.
 Missing optional lyric/alignment assets also use that cache. Corrupt bundled
 assets fail verification without changing the app.
 
+The packager inspects the copied executable for the native AppKit and WebKit
+frameworks before signing or replacing a bundle. A headless executable is
+refused, keeping the previous app and recovery history intact. Build with
+`--features editor` when using a custom feature set. When builds share a Cargo
+target directory, copy the completed desktop executable to a stable path and
+pass that path with `--executable`; another build can replace Cargo's output.
+Build metadata hashes the staged executable before signing.
+
 FFmpeg/ffprobe must be installed on the target Mac. They are not included.
 
 ## Private bundles with models

@@ -209,8 +209,12 @@ native blank `.chart` export matched the browser byte-for-byte. A full process
 exit/restart retained the acknowledged project bytes and recovered Undo/Redo;
 its edited MIDI and original audio matched the browser export exactly. The
 browser's complete backup reopened natively with all 20 parts and 42 Undo
-entries, including usable recovered note history. Hosted, independent
-released-Moonscraper and game/controller/musical acceptance remain open.
+entries, including usable recovered note history. Hosted checks imported ordinary
+MIDI and exercised all 20 timing controls, typed paste/delete and Undo/Redo,
+save/reload and the paired preview. Its downloaded MIDI matched native and
+local-browser exports exactly, including unchanged unrelated track chunks.
+Independent released-Moonscraper and game/controller/musical acceptance remain
+open.
 
 Native and static browser checks created all eight rhythm/co-op parts from a
 blank chart, entered typed five-fret notes and independently undid/redid part
