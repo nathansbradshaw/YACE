@@ -428,6 +428,16 @@ than silently substituting another song. Workspace preference failures have a
 separate warning and do not change chart-save acknowledgments or stale-write
 protection. Actual storage eviction/failure-injection acceptance remains open.
 
+Stale-save recovery instructions now direct users to download a recovery copy,
+open YACE in a new tab and use **Saved in this browser**, keeping the rejected
+tab open until its copy is safe. Previously the warning suggested reopening the
+saved project in the same tab; that action retried the rejected save and was
+blocked. A controlled two-tab band edit retained the acknowledged note at tick
+2 and the rejected draft at tick 1 in separate CRC-checked downloads. A fresh
+tab reopened tick 2 and retained Undo/Redo. This guidance does not discard the
+rejected draft or bypass revision checks. Browser termination, quota and
+eviction acceptance remain open.
+
 The browser keeps a desktop workspace at least 1024×600 CSS pixels. A smaller
 window shows an inline notice with per-tab dismissal, without moving focus or
 changing playback. Actual static and hosted checks exercised 1024×600,
