@@ -778,7 +778,7 @@ mod tests {
     }
     type RecentSlot = Rc<RefCell<Option<super::super::state::Studio>>>;
     #[tokio::test]
-    async fn sustain_length_input_changes_the_document_backup_and_undo() {
+    async fn sustain_length_change_commits_to_the_document_backup_and_undo() {
         dioxus::html::set_event_converter(Box::new(dioxus::html::SerializedHtmlEventConverter));
         let slot: Slot = Rc::new(RefCell::new(None));
         let mut dom = VirtualDom::new(app);
@@ -831,7 +831,7 @@ mod tests {
             })
             .expect("Advanced timing offset field");
         dom.runtime().handle_event(
-            "input",
+            "change",
             dioxus::prelude::Event::new(
                 Rc::new(dioxus::html::PlatformEventData::new(Box::new(
                     dioxus::html::SerializedFormData {
