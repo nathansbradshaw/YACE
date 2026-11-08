@@ -68,6 +68,13 @@ pub fn family(track: &str) -> &'static str {
         "frets"
     }
 }
+fn project_family<'a>(project: &Project, track: &'a str) -> &'a str {
+    if track.ends_with("Drums") && project.drum_layout() == crate::drum_layout::Layout::FiveLane {
+        "five_lane_drums"
+    } else {
+        family(track)
+    }
+}
 fn digest(value: &impl Serialize) -> Result<String> {
     Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(value)?)))
 }
@@ -119,7 +126,7 @@ impl Snapshot {
                 .context("Unknown track")?;
             let playable: BTreeSet<_> = notes
                 .iter()
-                .filter(|item| crate::editor::playable(&selected.track, item.note.lane))
+                .filter(|item| project.playable(&selected.track, item.note.lane))
                 .map(|item| &item.id)
                 .collect();
             ensure!(
@@ -151,10 +158,9 @@ impl Snapshot {
     }
 }
 
-fn owns_flag(track: &str, lane: u8, flag: u8) -> bool {
+fn owns_flag(layout: crate::drum_layout::Layout, track: &str, lane: u8, flag: u8) -> bool {
     if track.ends_with("Drums") {
-        ((2..=4).contains(&lane) && flag == lane + 64)
-            || ((1..=4).contains(&lane) && [lane + 33, lane + 39].contains(&flag))
+        layout.owns_flag(lane, flag)
     } else {
         !crate::keys::is_pro(track) && (5..=6).contains(&flag)
     }
@@ -164,7 +170,7 @@ fn gems(project: &Project, snapshot: &Snapshot) -> Vec<Gem> {
     let mut flags: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
     for item in notes
         .iter()
-        .filter(|item| !crate::editor::playable(&snapshot.track, item.note.lane))
+        .filter(|item| !project.playable(&snapshot.track, item.note.lane))
     {
         flags
             .entry(item.note.tick)
@@ -182,7 +188,14 @@ fn gems(project: &Project, snapshot: &Snapshot) -> Vec<Gem> {
                 .into_iter()
                 .flatten()
                 .copied()
-                .filter(|flag| owns_flag(&snapshot.track, item.note.lane, *flag))
+                .filter(|flag| {
+                    owns_flag(
+                        project.drum_layout(),
+                        &snapshot.track,
+                        item.note.lane,
+                        *flag,
+                    )
+                })
                 .collect(),
         })
         .collect()
@@ -243,7 +256,7 @@ pub fn copy(project: &Project, timing: &TempoMap, selection: &Selection) -> Resu
             gem.note.tick -= start;
         }
         Payload::Instrument {
-            family: family(&selection.track).into(),
+            family: project_family(project, &selection.track).into(),
             notes,
         }
     };
@@ -273,7 +286,8 @@ impl Clipboard {
         match &value.payload {
             Payload::Instrument { family, notes } => {
                 ensure!(
-                    ["frets", "drums", "keys", "pro_keys"].contains(&family.as_str())
+                    ["frets", "drums", "five_lane_drums", "keys", "pro_keys"]
+                        .contains(&family.as_str())
                         && !notes.is_empty()
                         && notes.len() <= MAX_NOTES,
                     "Invalid note clipboard"
@@ -319,15 +333,17 @@ fn shifted(tick: u64, delta: i64) -> Result<u64> {
 fn remove_gems(project: &mut Project, selection: &Snapshot) {
     let track = &selection.track;
     let chosen = gems(project, selection);
+    let layout = project.drum_layout();
+    let lanes = project.lane_rows(track);
     let notes = project.content.tracks.get_mut(track).unwrap();
     notes.retain(|item| !selection.ids.contains(&item.id));
     for gem in chosen {
-        let shared = notes.iter().any(|item| {
-            item.note.tick == gem.note.tick && crate::editor::playable(track, item.note.lane)
-        });
+        let shared = notes
+            .iter()
+            .any(|item| item.note.tick == gem.note.tick && lanes.contains(&item.note.lane));
         notes.retain(|item| {
             !(item.note.tick == gem.note.tick
-                && owns_flag(track, gem.note.lane, item.note.lane)
+                && owns_flag(layout, track, gem.note.lane, item.note.lane)
                 && (track.ends_with("Drums") || !shared))
         });
     }
@@ -337,13 +353,13 @@ fn insert_gem(project: &mut Project, track: &str, gem: Gem, id: Option<String>) 
         midi.validate()?;
     }
     ensure!(
-        crate::editor::playable(track, gem.note.lane),
+        project.playable(track, gem.note.lane),
         "This note does not fit the destination track"
     );
     ensure!(
         gem.flags
             .iter()
-            .all(|flag| owns_flag(track, gem.note.lane, *flag)),
+            .all(|flag| owns_flag(project.drum_layout(), track, gem.note.lane, *flag)),
         "This flag does not fit the destination lane"
     );
     let existing = project
@@ -353,7 +369,7 @@ fn insert_gem(project: &mut Project, track: &str, gem: Gem, id: Option<String>) 
         .context("Select an existing destination track")?;
     ensure!(
         !existing.iter().any(|item| item.note.tick == gem.note.tick
-            && crate::editor::playable(track, item.note.lane)
+            && project.playable(track, item.note.lane)
             && (item.note.lane == gem.note.lane
                 || (!track.ends_with("Drums") && ((item.note.lane == 7) != (gem.note.lane == 7))))),
         "Notes already occupy the destination. Nothing was changed."
@@ -413,7 +429,7 @@ pub fn apply(project: &mut Project, timing: &TempoMap, edit: &Edit) -> Result<()
                 let mut bundles = gems(project, selection);
                 remove_gems(project, selection);
                 if let Edit::Move { ticks, rows, .. } = edit {
-                    let lanes = crate::timeline::lane_rows(&selection.track);
+                    let lanes = project.lane_rows(&selection.track);
                     for (item, gem) in selected.iter().zip(&mut bundles) {
                         let row = lanes
                             .iter()
@@ -462,7 +478,7 @@ pub fn apply(project: &mut Project, timing: &TempoMap, edit: &Edit) -> Result<()
                     mut notes,
                 } => {
                     ensure!(
-                        source == family(track) && track != "Vocals",
+                        source == project_family(project, track) && track != "Vocals",
                         "Choose a compatible track before pasting"
                     );
                     let mut first = None;

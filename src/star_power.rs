@@ -145,7 +145,7 @@ pub fn selected(
     let selected: Vec<_> = notes
         .iter()
         .filter(|n| {
-            selection.ids.contains(&n.id) && crate::editor::playable(&selection.track, n.note.lane)
+            selection.ids.contains(&n.id) && project.playable(&selection.track, n.note.lane)
         })
         .collect();
     ensure!(

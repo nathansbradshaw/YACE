@@ -128,6 +128,14 @@ The note lanes mark forced attacks with **F** and taps with **T**. Copy, paste a
 movement keep those flags. The preview follows the song's HOPO settings; MIDI
 exports resolve those settings and keep tap markers separate by difficulty.
 
+Imported five-pad drum charts keep their source layout: lane 4 is Orange and
+lane 5 is Green. The preview has five pad receptors. Pad hits support Normal,
+Accent and Ghost dynamics, and copying between four-pad and five-pad layouts
+is refused. Removing the last Green hit keeps the song's five-pad profile.
+Use `.chart` for playable five-pad export; MIDI conversion, generated drum
+replacement and automatic difficulty reduction are not supported for this
+layout. Four-pad charts retain their existing Green lane and cymbal controls.
+
 Use **Difficulty links** in the selection desk to preview a reduction from Expert.
 Confirm the replacement before linking an existing lower difficulty. Local edits
 to a linked row become overrides; Undo restores the earlier state.

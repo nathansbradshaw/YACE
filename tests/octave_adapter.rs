@@ -49,6 +49,7 @@ fn fixture() -> (Project, Chart) {
     )
     .unwrap();
     let project = Project {
+        drum_layout: None,
         recording: None,
         version: 1,
         revision: 2,

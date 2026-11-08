@@ -43,6 +43,7 @@ fn fixture(root: &Path) -> Store {
         })
         .collect();
     let project = Project {
+        drum_layout: None,
         recording: None,
         version: 1,
         revision: 0,

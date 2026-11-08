@@ -1,10 +1,7 @@
 //! Check project structure on creation and load.
 //! These checks catch invalid edits and mismatched evidence; listening decides
 //! whether the chart follows the music.
-use crate::{
-    chart::Chart,
-    editor::{Project, playable},
-};
+use crate::{chart::Chart, editor::Project};
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -204,7 +201,7 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
                 .tick
                 .checked_add(item.note.sustain)
                 .context("Note tick overflow")?;
-            if playable(track, item.note.lane) {
+            if project.playable(track, item.note.lane) {
                 let end = timing.seconds(end_tick);
                 ensure!(
                     end.is_finite() && end <= project.duration + 0.1,
@@ -224,7 +221,7 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
             .find_note(id)
             .context("Selected note does not exist")?;
         ensure!(
-            track == project.selected_track && playable(track, item.note.lane),
+            track == project.selected_track && project.playable(track, item.note.lane),
             "Selected note is outside the active playable track"
         );
     }

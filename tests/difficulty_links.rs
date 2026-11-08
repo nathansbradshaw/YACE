@@ -131,6 +131,7 @@ fn fixture(root: &Path, generated: bool) -> Store {
     )
     .unwrap();
     let project = Project {
+        drum_layout: None,
         recording: None,
         version: 1,
         revision: 0,

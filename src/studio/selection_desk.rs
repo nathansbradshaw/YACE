@@ -32,6 +32,10 @@ fn update(
 
 #[component]
 fn NoteSelection(studio: Studio, track: String, item: EditorNote) -> Element {
+    let Some(doc) = studio.snapshot() else {
+        return rsx! {};
+    };
+    let layout = doc.drum_layout();
     let tick_reset = super::field_reset::use_field_reset();
     let length_reset = super::field_reset::use_field_reset();
     let lane_reset = super::field_reset::use_field_reset();
@@ -64,7 +68,7 @@ fn NoteSelection(studio: Studio, track: String, item: EditorNote) -> Element {
             div { class: if crate::note_types::supported(&track) || drums {"selection-properties"} else {""},
               label { class: "selection-lane", "Lane"
                 for epoch in [lane_reset.key()] { select { key: "{epoch}", aria_label: "Note lane", value: "{item.note.lane}", onmounted: move |event| lane_reset.mounted(event), onkeydown: move |event| event.stop_propagation(), onchange: {let id=lane_id.clone(); move |event| { if !event.value().parse().ok().is_some_and(|value| update(studio, &id, |note, _| note.lane = value)) { lane_reset.rejected(); } } },
-                    for lane in crate::timeline::lane_rows(&track) { option { value: "{lane}", selected: lane == item.note.lane, "{super::note_canvas::lane_name(&track, lane)}" } }
+                    for lane in doc.lane_rows(&track) { option { value: "{lane}", selected: lane == item.note.lane, "{super::note_canvas::lane_name_in(layout, &track, lane)}" } }
                 } }
               }
               super::note_types::NoteTypes {studio}
@@ -74,7 +78,7 @@ fn NoteSelection(studio: Studio, track: String, item: EditorNote) -> Element {
                 p { class: "field-hint", "MIDI supports double kick on Expert only. Lower difficulties need .chart export, which is unavailable for imported MIDI songs." }
             }
             div { class: "selection-actions",
-                if drums && (2..=4).contains(&item.note.lane) { label { class: "form-check",
+                if drums && layout.cymbal_flag(item.note.lane) { label { class: "form-check",
                     for epoch in [cymbal_reset.key()] { input { key: "{epoch}", r#type: "checkbox", checked: cymbal, onmounted: move |event| cymbal_reset.mounted(event), onkeydown: move |event| event.stop_propagation(), onchange: {let id=cymbal_id.clone(); move |event| { if !update(studio, &id, |_, cymbal| *cymbal = event.checked()) { cymbal_reset.rejected(); } } } } } "Cymbal"
                 } }
                 button { class: "selection-delete", onclick: move |_| studio.dispatch(Action::DeleteNote { note_id: delete_id.clone() }), "Delete note" }
