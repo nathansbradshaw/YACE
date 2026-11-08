@@ -34,6 +34,7 @@ pub mod recording_metadata;
 pub mod review_git;
 pub mod review_repository;
 pub mod sections;
+pub mod six_fret;
 pub mod song_files;
 pub mod song_layout;
 pub mod song_metadata;

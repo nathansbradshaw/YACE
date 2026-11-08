@@ -275,6 +275,8 @@ pub(super) fn gem_key(name: &str, key: u8, enhanced: bool) -> bool {
     }
     (0..4u8).any(|d| {
         (60 + d * 12..=64 + d * 12).contains(&key)
+            || (crate::six_fret::is_track(suffix)
+                && crate::six_fret::chart_lane(key, 60 + d * 12).is_some())
             || (enhanced && suffix != "Drums" && key == 59 + d * 12)
     }) || (suffix == "Drums" && key == 95)
 }
@@ -388,6 +390,11 @@ fn gem_attributes(name: &str, records: &[AttributeRecord]) -> GemAttributes {
         let base = 60 + difficulty as u8 * 12;
         let key = if pro.is_some() && (48..=72).contains(&record.note.lane) {
             record.note.lane
+        } else if crate::six_fret::is_track(suffix) {
+            let Some(key) = crate::six_fret::midi_key(record.note.lane, base) else {
+                continue;
+            };
+            key
         } else if suffix == "Drums" && difficulty == 3 && record.note.lane == 32 {
             95
         } else if record.note.lane <= 4 {

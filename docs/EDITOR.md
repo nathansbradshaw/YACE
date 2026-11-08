@@ -118,6 +118,17 @@ opaque original track, adding a matching blank part is refused to preserve its
 notes. Import the original MIDI into a new project to edit it with the current
 decoder; keep the existing project for its earlier edits and recovery history.
 
+The five six-fret families (guitar, bass, rhythm, co-op and Keys) also support
+manual authoring at all four difficulties. Their rows are White 1–3, Black 1–3
+and Open; Black 3 is source lane 8, while lanes 5 and 6 remain technique markers.
+The preview groups the white and black buttons into three paired columns.
+Six-fret clipboard notes can move between these families, and are refused by
+five-fret destinations. Existing chart sections and fresh MIDI imports retain
+their instrument identity. Older opaque MIDI receipts require reimport into a
+new project before editing. There are no dedicated six-fret generators or
+automatic difficulty links. Six-fret Keys interchange does not establish
+support in a target game.
+
 Choose an instrument and difficulty from **Track** beside the editing tools.
 Audition, selection details and review follow that track.
 

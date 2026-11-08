@@ -189,8 +189,11 @@ judgment remain open.
 
 Export choices distinguish rhythm guitar, co-op guitar and each six-fret
 instrument. Unknown source identifiers remain visible. Rhythm and co-op guitar
-now have manual authoring controls at all four difficulties. Dedicated six-fret
-editing controls remain open.
+now have manual authoring controls at all four difficulties. Six-fret authoring
+has implementation coverage for all five families and four difficulties, with
+white/black/open rows, a distinct clipboard family and fresh MIDI decoding.
+Its native, static browser, hosted, independent Moonscraper and game acceptance
+remain open until the actual controls and exports have been exercised.
 
 Native and static browser checks created all eight rhythm/co-op parts from a
 blank chart, entered typed five-fret notes and independently undid/redid part

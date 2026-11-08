@@ -434,7 +434,9 @@ pub struct Project {
 }
 
 pub fn playable(track: &str, lane: u8) -> bool {
-    if crate::keys::is_pro(track) {
+    if crate::six_fret::is_track(track) {
+        crate::six_fret::ROWS.contains(&lane)
+    } else if crate::keys::is_pro(track) {
         (crate::keys::MIN_PITCH..=crate::keys::MAX_PITCH).contains(&lane)
     } else {
         lane <= 4
@@ -1502,11 +1504,15 @@ impl Store {
             .sections
             .iter()
             .filter(|section| {
-                crate::parts::MANUAL_PARTS.iter().any(|(_, suffix)| {
-                    ["Easy", "Medium", "Hard", "Expert"]
-                        .into_iter()
-                        .any(|tier| section.name == format!("{tier}{suffix}"))
-                }) && !content.tracks.contains_key(&section.name)
+                crate::parts::MANUAL_PARTS
+                    .iter()
+                    .chain(crate::six_fret::PARTS.iter())
+                    .any(|(_, suffix)| {
+                        ["Easy", "Medium", "Hard", "Expert"]
+                            .into_iter()
+                            .any(|tier| section.name == format!("{tier}{suffix}"))
+                    })
+                    && !content.tracks.contains_key(&section.name)
             })
             .collect();
         if missing.is_empty() {
@@ -1792,7 +1798,7 @@ impl Store {
                     .and_then(|part| match part {
                         "DoubleRhythm" => Some("MIDI: PART RHYTHM"),
                         "DoubleGuitar" => Some("MIDI: PART GUITAR COOP"),
-                        _ => None,
+                        suffix => crate::six_fret::midi_name(suffix),
                     });
                 if let Some(name) = legacy_name {
                     ensure!(
@@ -2607,6 +2613,11 @@ impl Store {
             ("DoubleBass", "diff_bass"),
             ("DoubleRhythm", "diff_rhythm"),
             ("DoubleGuitar", "diff_guitar_coop"),
+            ("GHLGuitar", "diff_guitarghl"),
+            ("GHLBass", "diff_bassghl"),
+            ("GHLRhythm", "diff_rhythm_ghl"),
+            ("GHLCoop", "diff_guitar_coop_ghl"),
+            ("GHLKeys", "diff_keys_ghl"),
             ("Drums", "diff_drums"),
             ("Keyboard", "diff_keys"),
             ("ProKeys", "diff_keys_real"),
@@ -2634,7 +2645,9 @@ impl Store {
                 {
                     continue;
                 }
-                let key = if track.ends_with("ProKeys") {
+                let key = if let Some(key) = crate::six_fret::rank(track) {
+                    key
+                } else if track.ends_with("ProKeys") {
                     "diff_keys_real"
                 } else if track.ends_with("Keyboard") {
                     "diff_keys"

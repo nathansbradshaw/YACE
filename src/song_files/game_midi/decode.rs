@@ -53,6 +53,11 @@ pub(super) fn part(name: &str) -> Option<(&'static str, Option<usize>)> {
         "PART BASS" => ("DoubleBass", None),
         "PART RHYTHM" => ("DoubleRhythm", None),
         "PART GUITAR COOP" => ("DoubleGuitar", None),
+        "PART GUITAR GHL" => ("GHLGuitar", None),
+        "PART BASS GHL" => ("GHLBass", None),
+        "PART RHYTHM GHL" => ("GHLRhythm", None),
+        "PART GUITAR COOP GHL" => ("GHLCoop", None),
+        "PART KEYS GHL" => ("GHLKeys", None),
         "PART DRUMS" => ("Drums", None),
         "PART KEYS" => ("Keyboard", None),
         "PART REAL_KEYS_E" => ("ProKeys", Some(0)),
@@ -319,6 +324,7 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
             "Duplicate supported MIDI track {name}; choose an unambiguous source"
         );
         let enhanced = text_enabled(track, "ENHANCED_OPENS");
+        let six_fret = crate::six_fret::is_track(suffix);
         let dynamics = text_enabled(track, "ENABLE_CHART_DYNAMICS");
         let events = spans(track, |key| {
             if pro_difficulty.is_some() {
@@ -328,7 +334,9 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
                     || matches!(key, 95 | 103 | 110..=112 | 116 | 120..=124 | 126 | 127)
             } else {
                 (0..4u8).any(|d| {
-                    (60 + d * 12..=66 + d * 12).contains(&key) || (enhanced && key == 59 + d * 12)
+                    (60 + d * 12..=66 + d * 12).contains(&key)
+                        || (six_fret && crate::six_fret::chart_lane(key, 60 + d * 12).is_some())
+                        || (enhanced && key == 59 + d * 12)
                 }) || matches!(key, 103 | 104 | 116)
             }
         })?;
@@ -358,6 +366,8 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
             for event in &events {
                 let lane = if pro_difficulty.is_some() {
                     (48..=72).contains(&event.key).then_some(event.key)
+                } else if six_fret {
+                    crate::six_fret::chart_lane(event.key, base)
                 } else if suffix == "Drums" && difficulty == 3 && event.key == 95 {
                     Some(32)
                 } else if (base..=base + 4).contains(&event.key) {
@@ -371,6 +381,7 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
                     continue;
                 };
                 if suffix != "Drums"
+                    && !six_fret
                     && pro_difficulty.is_none()
                     && lane == 0
                     && phase_active(&phases, difficulty, 1, event.start)
