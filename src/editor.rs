@@ -443,11 +443,7 @@ pub fn playable(track: &str, lane: u8) -> bool {
     }
 }
 fn editable_track(name: &str) -> bool {
-    ["Easy", "Medium", "Hard", "Expert"].iter().any(|tier| {
-        ["Single", "DoubleBass", "Drums", "Keyboard", "ProKeys"]
-            .iter()
-            .any(|part| name == format!("{tier}{part}"))
-    })
+    crate::parts::editable_track(name)
 }
 
 impl Project {
@@ -1335,6 +1331,7 @@ impl Store {
             doc.drum_layout == Some(source_layout),
             "Drum profile differs from the retained source; existing files have been preserved"
         );
+        self.restore_preserved_fret_tracks(&mut doc.content, &chart)?;
         crate::editor_validation::validate(&doc, &chart)?;
         crate::difficulty_links::validate(&doc.content, &doc.timing(self)?, doc.duration)?;
         crate::reanalysis::validate_sources(&doc.content, doc.duration)?;
@@ -1477,7 +1474,7 @@ impl Store {
         ensure!(models::hash_file(&path)? == id, "Checkpoint changed");
         Ok(id)
     }
-    fn restore(&self, id: &str) -> Result<crate::project_recording::Checkpoint> {
+    fn restore(&self, id: &str, project: &Project) -> Result<crate::project_recording::Checkpoint> {
         ensure!(
             id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()),
             "Invalid checkpoint ID"
@@ -1486,7 +1483,58 @@ impl Store {
         ensure!(hash(&bytes) == id, "Checkpoint checksum mismatch");
         let mut checkpoint = crate::project_recording::Checkpoint::decode(&bytes)?;
         self.resolve_stem_paths(&mut checkpoint.content);
+        self.restore_preserved_fret_tracks(
+            &mut checkpoint.content,
+            self.source_chart(project)?.as_ref(),
+        )?;
         Ok(checkpoint)
+    }
+    /// Older clients preserved these source sections without materializing them
+    /// as editable tracks. Recover only missing tracks, including in old Undo
+    /// checkpoints, without rewriting their immutable files or replacing edits.
+    fn restore_preserved_fret_tracks(
+        &self,
+        content: &mut Content,
+        source: &SourceSnapshot,
+    ) -> Result<()> {
+        let missing: Vec<_> = source
+            .chart
+            .sections
+            .iter()
+            .filter(|section| {
+                crate::parts::MANUAL_PARTS.iter().any(|(_, suffix)| {
+                    ["Easy", "Medium", "Hard", "Expert"]
+                        .into_iter()
+                        .any(|tier| section.name == format!("{tier}{suffix}"))
+                }) && !content.tracks.contains_key(&section.name)
+            })
+            .collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let attributes =
+            crate::song_files::game_midi::attributes(&self.root.join("source"), &source.chart)?;
+        for section in missing {
+            let notes = source
+                .chart
+                .notes(&section.name)?
+                .into_iter()
+                .enumerate()
+                .map(|(i, note)| EditorNote {
+                    midi: attributes
+                        .get(&section.name)
+                        .and_then(|attrs| attrs.get(&(note.tick, note.lane)))
+                        .cloned(),
+                    id: format!(
+                        "note-{}",
+                        hash(format!("{}:{}:{i}:{note:?}", source.sha256, section.name).as_bytes())
+                    ),
+                    note,
+                })
+                .collect();
+            content.tracks.insert(section.name.clone(), notes);
+        }
+        Ok(())
     }
     fn resolve_stem_paths(&self, content: &mut Content) {
         #[cfg(not(target_arch = "wasm32"))]
@@ -1738,6 +1786,21 @@ impl Store {
                 crate::sections::apply(&mut doc, &source, edit)?;
             }
             Action::CreateTrack { track } => {
+                let legacy_name = ["Easy", "Medium", "Hard", "Expert"]
+                    .into_iter()
+                    .find_map(|tier| track.strip_prefix(tier))
+                    .and_then(|part| match part {
+                        "DoubleRhythm" => Some("MIDI: PART RHYTHM"),
+                        "DoubleGuitar" => Some("MIDI: PART GUITAR COOP"),
+                        _ => None,
+                    });
+                if let Some(name) = legacy_name {
+                    ensure!(
+                        !crate::song_files::game_midi::extra_parts(&self.root.join("source"))?
+                            .contains(name),
+                        "This part is preserved in an older MIDI import. Import the original MIDI as a new project before authoring it; existing notes have been kept"
+                    );
+                }
                 crate::parts::create(&mut doc, track)?;
             }
             Action::ApplyGeneratedPart { .. } => {
@@ -2199,7 +2262,7 @@ impl Store {
                 let prior = doc.undo.pop().context("Nothing to undo")?;
                 doc.redo
                     .push(self.checkpoint(&doc.content, doc.recording.as_ref())?);
-                let prior = self.restore(&prior)?;
+                let prior = self.restore(&prior, &doc)?;
                 ensure!(
                     doc.recording.is_some() == prior.recording.is_some(),
                     "Checkpoint recording context is missing or incompatible"
@@ -2213,7 +2276,7 @@ impl Store {
                 let next = doc.redo.pop().context("Nothing to redo")?;
                 doc.undo
                     .push(self.checkpoint(&doc.content, doc.recording.as_ref())?);
-                let next = self.restore(&next)?;
+                let next = self.restore(&next, &doc)?;
                 ensure!(
                     doc.recording.is_some() == next.recording.is_some(),
                     "Checkpoint recording context is missing or incompatible"

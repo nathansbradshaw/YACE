@@ -7,11 +7,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 fn supported_track(name: &str) -> bool {
-    ["Easy", "Medium", "Hard", "Expert"].iter().any(|tier| {
-        ["Single", "DoubleBass", "Drums", "Keyboard", "ProKeys"]
-            .iter()
-            .any(|part| name == format!("{tier}{part}"))
-    })
+    crate::parts::editable_track(name)
 }
 
 fn sha256(value: &str) -> bool {

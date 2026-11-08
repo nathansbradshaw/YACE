@@ -41,7 +41,7 @@ impl Kind {
 }
 pub fn supported(track: &str) -> bool {
     ["Easy", "Medium", "Hard", "Expert"].iter().any(|tier| {
-        ["Single", "DoubleBass"]
+        ["Single", "DoubleBass", "DoubleRhythm", "DoubleGuitar"]
             .iter()
             .any(|part| track == format!("{tier}{part}"))
     })

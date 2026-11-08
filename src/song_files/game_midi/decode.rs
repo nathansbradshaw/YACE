@@ -51,6 +51,8 @@ pub(super) fn part(name: &str) -> Option<(&'static str, Option<usize>)> {
     Some(match name {
         "PART GUITAR" => ("Single", None),
         "PART BASS" => ("DoubleBass", None),
+        "PART RHYTHM" => ("DoubleRhythm", None),
+        "PART GUITAR COOP" => ("DoubleGuitar", None),
         "PART DRUMS" => ("Drums", None),
         "PART KEYS" => ("Keyboard", None),
         "PART REAL_KEYS_E" => ("ProKeys", Some(0)),

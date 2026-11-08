@@ -166,7 +166,7 @@ fn track_kind(track: &str) -> Result<(Instrument, Difficulty)> {
     ] {
         if let Some(suffix) = track.strip_prefix(prefix) {
             let instrument = match suffix {
-                "Single" => Instrument::Guitar,
+                "Single" | "DoubleRhythm" | "DoubleGuitar" => Instrument::Guitar,
                 "DoubleBass" => Instrument::Bass,
                 "Drums" => Instrument::Drums,
                 "Keyboard" => Instrument::Keys,

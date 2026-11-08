@@ -81,9 +81,14 @@ semantics. Native explicit MIDI export refused safely without publishing a folde
 or changing the project. These checks used the same `80bc192` native runtime;
 later acceptance documentation did not change its implementation.
 
-Hosted-browser, independently authored Moonscraper fixture, acoustic and
-target-game acceptance remain open. This controlled fixture does not close those
-gates or establish the unsupported conversions and generators.
+The deployed `536f22d` browser build also passed fifth-pad Ghost/tick edits,
+typed clipboard copy/paste/delete and reload with the final Green hit moved to
+Orange. Undo restored the original seven notes, and its downloaded YARG `.chart`
+copy passed archive checks with the same original chart bytes and five-pad INI
+profile. The original hosted project was restored after verification.
+Independently authored Moonscraper input, acoustic and target-game acceptance
+remain open; these controlled checks do not establish unsupported conversions
+or generators.
 
 ## Current integration gate (2026-11-03)
 
@@ -183,8 +188,30 @@ and technique authoring controls, fresh native acceptance and target-game
 judgment remain open.
 
 Export choices distinguish rhythm guitar, co-op guitar and each six-fret
-instrument. Unknown source identifiers remain visible. These parts retain
-their interchange support; dedicated rhythm/co-op and six-fret editing controls
+instrument. Unknown source identifiers remain visible. Rhythm and co-op guitar
+now have manual authoring controls at all four difficulties. Dedicated six-fret
+editing controls remain open.
+
+Native and static browser checks created all eight rhythm/co-op parts from a
+blank chart, entered typed five-fret notes and independently undid/redid part
+creation and note entry. Duplicate parts were disabled. Reload retained the
+browser edits. Both clients exported the same eight distinct `.chart` sections,
+including Tap markers and 240-tick sustains.
+
+An existing mixed chart and an ordinary MIDI-only reimport exposed all eight
+parts in both clients. Actual note controls retained each difficulty's distinct
+start, sustain, Tap/HOPO/open notes and Star Power. A native timing edit survived
+a full process exit and restart with byte-identical saved project data; its
+recovered Undo/Redo restored the original timing. The native mixed MIDI export
+was byte-identical to the browser export. Independent inspection confirmed ten
+unrelated MIDI chunks and the recording were unchanged. Undoing all browser
+edits restored the original MIDI exactly.
+
+These roles have no dedicated generator or automatic difficulty links. Older
+projects whose rhythm/co-op MIDI was stored only as opaque source chunks retain
+lossless export; creating a conflicting blank role is refused. Reimporting the
+original MIDI as a new project exposes the editable tracks. Automatic promotion
+of those older receipts, target-game/controller judgment and musical acceptance
 remain open.
 
 Actual browser checks used 34 chart choices across four difficulties, including
