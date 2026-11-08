@@ -192,8 +192,19 @@ instrument. Unknown source identifiers remain visible. Rhythm and co-op guitar
 now have manual authoring controls at all four difficulties. Six-fret authoring
 has implementation coverage for all five families and four difficulties, with
 white/black/open rows, a distinct clipboard family and fresh MIDI decoding.
-Its native, static browser, hosted, independent Moonscraper and game acceptance
-remain open until the actual controls and exports have been exercised.
+Static browser checks exercised all 20 parts through individual Black3 timing
+and Tap edits, typed clipboard paste/delete, Undo/Redo and reload. An independent
+MIDI audit verified the exported edits, white/black/open attacks, sustains,
+scoped techniques and Star Power, with seven unrelated raw track chunks
+unchanged. Reimporting only MIDI, INI and audio exposed the same 20 edited
+parts. A complete editable backup retained revision 95 and 42 Undo entries.
+Blank-chart checks created all 20 parts; lane and sustain edits, independent
+part/note Undo/Redo, reload and all 20 distinct `.chart` sections passed.
+Older opaque MIDI imports refused all 20 conflicting blank parts without
+changing the saved revision. Their automatic promotion remains unimplemented.
+Native all-part/restart/export, hosted, independent released-Moonscraper and
+game/controller/musical acceptance remain open. Native inspection currently
+confirms the fresh guitar Expert controls and paired six-receptor preview.
 
 Native and static browser checks created all eight rhythm/co-op parts from a
 blank chart, entered typed five-fret notes and independently undid/redid part
