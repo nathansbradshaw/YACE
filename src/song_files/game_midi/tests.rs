@@ -202,6 +202,70 @@ fn store(root: &Path, bytes: &[u8], delay: i32) -> Store {
     models::write_audio(&song.join("song.wav"), &samples, &samples).unwrap();
     Store::create(&song, None, &root.join("project")).unwrap()
 }
+
+#[test]
+fn legacy_opaque_rhythm_cannot_be_replaced_by_adding_a_blank_part() {
+    let root = tempfile::tempdir().unwrap();
+    let original = fixture();
+    let store = store(root.path(), &original, 0);
+    let song = store.root.join("source");
+    let (mut imported, directory) = source(&song).unwrap().unwrap();
+    let text = fs::read_to_string(directory.join("notes.chart")).unwrap();
+    let chart = Chart::parse(text).unwrap();
+    // Reproduce the retained, checksum-bound representation written before
+    // rhythm became editable. The original MIDI chunk remains untouched.
+    let legacy: String = chart
+        .sections
+        .iter()
+        .filter(|s| !s.name.ends_with("DoubleRhythm"))
+        .map(|s| {
+            format!(
+                "[{}]\n{{\n{}\n}}\n",
+                s.name,
+                &chart.raw[s.body_start..s.body_end]
+            )
+        })
+        .collect();
+    let mut attributes: Vec<AttributeRecord> =
+        serde_json::from_slice(&fs::read(directory.join("attributes.json")).unwrap()).unwrap();
+    attributes.retain(|a| !a.track.ends_with("DoubleRhythm"));
+    imported
+        .attributes
+        .retain(|a| !a.track.ends_with("DoubleRhythm"));
+    fs::write(
+        directory.join("attributes.json"),
+        serde_json::to_vec(&attributes).unwrap(),
+    )
+    .unwrap();
+    fs::write(directory.join("notes.chart"), &legacy).unwrap();
+    fs::write(song.join("notes.chart"), &legacy).unwrap();
+    imported.chart_sha256 = hash(legacy.as_bytes());
+    imported.attributes_chart_sha256 = imported.chart_sha256.clone();
+    imported.baseline_attributes_sha256 =
+        models::hash_file(&directory.join("attributes.json")).unwrap();
+    fs::write(
+        song_layout::resolve(&song, DESCRIPTOR),
+        serde_json::to_vec(&imported).unwrap(),
+    )
+    .unwrap();
+    store
+        .initialize(&root.path().join("song"), None, 12.)
+        .unwrap();
+    assert!(extra_parts(&song).unwrap().contains("MIDI: PART RHYTHM"));
+    let before = fs::read(store.root.join("project.json")).unwrap();
+    for tier in ["Easy", "Medium", "Hard", "Expert"] {
+        let error = apply(
+            &store,
+            Action::CreateTrack {
+                track: format!("{tier}DoubleRhythm"),
+            },
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("older MIDI import"));
+        assert_eq!(fs::read(store.root.join("project.json")).unwrap(), before);
+    }
+    assert_eq!(export(&store, &root.path().join("preserved")), original);
+}
 fn apply(store: &Store, action: Action) -> Result<()> {
     store.apply(Request {
         expected_revision: store.load()?.revision,

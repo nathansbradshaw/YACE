@@ -23,6 +23,29 @@ pub const PARTS: [(&str, &str, &str); 6] = [
     ("Vocals", "Vocals", "vocals"),
 ];
 
+/// These parts have manual authoring and interchange support, but no dedicated
+/// generator. Keep them out of the inference instrument registry.
+pub const MANUAL_PARTS: [(&str, &str); 2] = [
+    ("Rhythm guitar", "DoubleRhythm"),
+    ("Co-op guitar", "DoubleGuitar"),
+];
+
+pub fn authoring_parts() -> impl Iterator<Item = (&'static str, &'static str)> {
+    PARTS
+        .iter()
+        .map(|(label, suffix, _)| (*label, *suffix))
+        .chain(MANUAL_PARTS)
+}
+
+pub fn editable_track(track: &str) -> bool {
+    ["Expert", "Hard", "Medium", "Easy"]
+        .into_iter()
+        .any(|tier| {
+            authoring_parts()
+                .any(|(_, suffix)| suffix != "Vocals" && track == format!("{tier}{suffix}"))
+        })
+}
+
 /// Keyboard review may retain a distinct piano separation. Other parts use
 /// the primary audio; never substitute a different instrument silently.
 pub fn existing_stems(content: &Content, track: &str) -> Option<crate::stem_review::StemManifest> {
@@ -62,7 +85,10 @@ pub enum Origin {
 }
 
 pub fn create(project: &mut Project, track: &str) -> Result<()> {
-    instrument(track)?;
+    ensure!(
+        track == "Vocals" || editable_track(track),
+        "Unsupported chart part"
+    );
     if track == "Vocals" {
         ensure!(
             project.content.vocals.is_none() && !project.content.track_origins.contains_key(track),

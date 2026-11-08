@@ -205,7 +205,15 @@ fn track_check_pitched(notes: &[Note], chart: &Chart, drums: bool, pro_keys: boo
 fn all_track_checks(chart: &Chart) -> Result<BTreeMap<String, TrackCheck>> {
     let mut checks = BTreeMap::new();
     for tier in ["Easy", "Medium", "Hard", "Expert"] {
-        for part in ["Single", "DoubleBass", "Drums", "Keyboard", "ProKeys"] {
+        for part in [
+            "Single",
+            "DoubleBass",
+            "DoubleRhythm",
+            "DoubleGuitar",
+            "Drums",
+            "Keyboard",
+            "ProKeys",
+        ] {
             let name = format!("{tier}{part}");
             checks.insert(
                 name.clone(),

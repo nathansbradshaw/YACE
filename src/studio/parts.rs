@@ -1,4 +1,4 @@
-//! Both authoring paths are available for every supported part.
+//! Show each supported manual part and its available generation workflow.
 use super::{icons::Icon, state::Studio};
 use crate::editor::Action;
 use dioxus::prelude::*;
@@ -46,7 +46,7 @@ pub fn PartsPanel(mut studio: Studio) -> Element {
                         button { aria_label:"Generate {label} from recording",onclick:move |_|super::dance::from_recording(studio,profile,true),"Generate…" }
                     }
                 }
-                if let Some(project)=project{for (label, suffix, _) in crate::parts::PARTS {
+                if let Some(project)=project{for (label, suffix) in crate::parts::authoring_parts() {
                     { let track = if suffix == "Vocals" { "Vocals".to_owned() } else { format!("{}{suffix}", tier()) };
                       let exists = if suffix == "Vocals" { project.content.vocals.is_some() || project.content.track_origins.contains_key("Vocals") } else { project.content.tracks.contains_key(&track) };
                       let blank_track = track.clone(); let generated_track = track.clone();
@@ -59,11 +59,12 @@ pub fn PartsPanel(mut studio: Studio) -> Element {
                                   if studio.snapshot().is_some_and(|doc| doc.selected_track == blank_track) { studio.parts_open.set(false); }
                               }, Icon { name: "plus", size: 14 } "Blank"
                           }
-                          button { title:"Generate this part from the recording", aria_label: "Generate {label} from recording", onclick: move |_| {
+                          if crate::parts::instrument(&track).is_ok() { button { title:"Generate this part from the recording", aria_label: "Generate {label} from recording", onclick: move |_| {
                               super::dance::deactivate();
                               studio.generation_target.set(Some(generated_track.clone()));
                               studio.parts_open.set(false); studio.generation_open.set(true);
-                          }, Icon { name: "music", size: 14 } "Generate…" }
+                          }, Icon { name: "music", size: 14 } "Generate…" } }
+                          else { span { class:"field-hint", "Manual authoring" } }
                       } }
                     }
                 }}
