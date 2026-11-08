@@ -1063,58 +1063,19 @@ fn generate_pcm_cancellable(
             crate::vocal_pitch_tracking::refine(&mut frames, evidence, cancelled)?;
         }
     }
-    let spans = pitch_spans(
+    let NoteAssembly {
+        chart,
+        pitch_candidates: spans,
+        note_evidence,
+    } = assemble_notes(
         &frames,
         duration,
-        policy.minimum_note_seconds,
-        policy.analysis_mode,
-    );
-    let acoustic_boundaries = policy.analysis_mode == AnalysisMode::HighAccuracy;
-    let mut chart = chart_from_spans(
-        &spans,
-        &frames,
-        if acoustic_boundaries {
-            None
-        } else {
-            aligned.as_ref()
-        },
         &timing,
+        aligned.as_ref(),
         policy,
         &mut issues,
     )?;
-    if acoustic_boundaries && let Some(chart) = &mut chart {
-        // Missing-lyric flags are recalculated after optional word attachment.
-        issues.retain(|issue| issue.reason != Reason::MissingLyrics);
-        acoustics::attach_words(chart, aligned.as_ref(), &timing, &mut issues);
-        for note in &chart.notes {
-            if note.lyric == Syllable::Missing {
-                issue(
-                    &mut issues,
-                    timing.seconds(note.start),
-                    timing.seconds(note.end),
-                    Reason::MissingLyrics,
-                    "Acoustic pitch retained without an unambiguous timed word; review or add the lyric.",
-                );
-            }
-        }
-        chart.validate()?;
-    }
-    let note_evidence = acoustics::note_evidence(chart.as_ref(), &frames, &timing);
-    for evidence in note_evidence.iter().filter(|e| e.uncertain) {
-        let start = timing.seconds(evidence.start);
-        let end = timing.seconds(evidence.end);
-        if !issues.iter().any(|i| {
-            i.reason == Reason::PitchDisagreement && i.start_seconds < end && start < i.end_seconds
-        }) {
-            issue(
-                &mut issues,
-                start,
-                end,
-                Reason::PitchDisagreement,
-                "This retained note has recovered, low-clarity or conflicting acoustic evidence. Inspect its pitch alternatives and compare the source before approving.",
-            );
-        }
-    }
+    let acoustic_boundaries = policy.analysis_mode == AnalysisMode::HighAccuracy;
     let status = if spans.is_empty() {
         Status::NoVoicedPitch
     } else if chart.as_ref().is_none_or(|chart| {
@@ -1168,6 +1129,100 @@ fn generate_pcm_cancellable(
         neural_pitch: neural.cloned(),
         vocal_pitch: vocal_pitch.cloned(),
         rmvpe_pitch: rmvpe_pitch.cloned(),
+        note_evidence,
+    })
+}
+
+/// Acoustic note construction, independently reusable for source-bound replay.
+/// File/model bindings are checked by the inference caller. This stage accepts
+/// no authored reference notes; High boundaries and pitches ignore the words.
+pub struct NoteAssembly {
+    pub chart: Option<VocalChart>,
+    pub pitch_candidates: Vec<PitchedSpan>,
+    pub note_evidence: Vec<NoteEvidence>,
+}
+pub fn assemble_notes(
+    frames: &[PitchFrame],
+    duration: f64,
+    timing: &TempoMap,
+    words: Option<&WordTimings>,
+    policy: &Policy,
+    issues: &mut Vec<Issue>,
+) -> Result<NoteAssembly> {
+    policy.validate()?;
+    TempoMap::new(timing.resolution, timing.offset, timing.tempos.clone())?;
+    ensure!(
+        duration.is_finite()
+            && duration > 0.
+            && duration <= 14400.
+            && frames.len() <= 1_500_000
+            && frames.iter().all(|f| f.time_seconds.is_finite()
+                && f.time_seconds >= 0.
+                && f.time_seconds <= duration
+                && f.midi
+                    .is_none_or(|p| p.is_finite() && (35.5..84.5).contains(&p))
+                && f.clarity.is_finite()
+                && (0. ..=1.).contains(&f.clarity)
+                && f.rms.is_finite()
+                && f.rms >= 0.)
+            && frames
+                .windows(2)
+                .all(|w| w[0].time_seconds < w[1].time_seconds),
+        "Invalid acoustic note-construction evidence"
+    );
+    if let Some(words) = words {
+        words.validate()?;
+    }
+    let spans = pitch_spans(
+        frames,
+        duration,
+        policy.minimum_note_seconds,
+        policy.analysis_mode,
+    );
+    let acoustic_boundaries = policy.analysis_mode == AnalysisMode::HighAccuracy;
+    let mut chart = chart_from_spans(
+        &spans,
+        frames,
+        if acoustic_boundaries { None } else { words },
+        timing,
+        policy,
+        issues,
+    )?;
+    if acoustic_boundaries && let Some(chart) = &mut chart {
+        issues.retain(|issue| issue.reason != Reason::MissingLyrics);
+        acoustics::attach_words(chart, words, timing, issues);
+        for note in &chart.notes {
+            if note.lyric == Syllable::Missing {
+                issue(
+                    issues,
+                    timing.seconds(note.start),
+                    timing.seconds(note.end),
+                    Reason::MissingLyrics,
+                    "Acoustic pitch retained without an unambiguous timed word; review or add the lyric.",
+                );
+            }
+        }
+        chart.validate()?;
+    }
+    let note_evidence = acoustics::note_evidence(chart.as_ref(), frames, timing);
+    for evidence in note_evidence.iter().filter(|e| e.uncertain) {
+        let start = timing.seconds(evidence.start);
+        let end = timing.seconds(evidence.end);
+        if !issues.iter().any(|i| {
+            i.reason == Reason::PitchDisagreement && i.start_seconds < end && start < i.end_seconds
+        }) {
+            issue(
+                issues,
+                start,
+                end,
+                Reason::PitchDisagreement,
+                "This retained note has recovered, low-clarity or conflicting acoustic evidence. Inspect its pitch alternatives and compare the source before approving.",
+            );
+        }
+    }
+    Ok(NoteAssembly {
+        chart,
+        pitch_candidates: spans,
         note_evidence,
     })
 }
