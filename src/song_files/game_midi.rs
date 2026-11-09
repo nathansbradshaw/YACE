@@ -468,6 +468,72 @@ pub fn edit_star_power(
     Ok(())
 }
 
+/// One physical instrument MIDI owner shares solos across its difficulties.
+/// Pro Keys uses separate difficulty tracks and keeps independent ranges.
+pub fn shared_solos(
+    project: &crate::editor::Project,
+    source: &Chart,
+    track: &str,
+) -> Result<Option<Vec<crate::solos::Phrase>>> {
+    let suffix = ["Easy", "Medium", "Hard", "Expert"]
+        .iter()
+        .find_map(|tier| track.strip_prefix(tier));
+    let Some(suffix) = suffix.filter(|suffix| *suffix != "ProKeys") else {
+        return Ok(None);
+    };
+    let names: Vec<_> = ["Easy", "Medium", "Hard", "Expert"]
+        .iter()
+        .map(|tier| format!("{tier}{suffix}"))
+        .collect();
+    let mut authored = names
+        .iter()
+        .filter_map(|name| project.content.solos.get(name));
+    if let Some(first) = authored.next() {
+        ensure!(
+            authored.all(|ranges| ranges == first),
+            "Shared MIDI solos disagree; source retained read-only"
+        );
+        return Ok(Some(first.clone()));
+    }
+    let mut ranges = Vec::new();
+    for name in names {
+        ranges.extend(crate::solos::imported(source, &name)?);
+    }
+    ranges.sort_by_key(|phrase| (phrase.start, phrase.end));
+    ranges.dedup();
+    Ok(Some(ranges))
+}
+
+pub fn edit_solos(
+    project: &mut crate::editor::Project,
+    source: &Chart,
+    edit: &crate::solos::Edit,
+) -> Result<()> {
+    use crate::solos::{self, Edit};
+    let (Edit::Put { track, .. } | Edit::Remove { track, .. }) = edit;
+    let suffix = ["Easy", "Medium", "Hard", "Expert"]
+        .iter()
+        .find_map(|tier| track.strip_prefix(tier));
+    let Some(suffix) = suffix.filter(|suffix| *suffix != "ProKeys") else {
+        return solos::apply(project, source, edit);
+    };
+    let tracks: Vec<_> = ["Easy", "Medium", "Hard", "Expert"]
+        .iter()
+        .map(|tier| format!("{tier}{suffix}"))
+        .filter(|name| project.content.tracks.contains_key(name))
+        .collect();
+    let ranges = shared_solos(project, source, track)?.context("Missing shared solo owner")?;
+    let mut candidate = project.clone();
+    candidate.content.solos.insert(track.clone(), ranges);
+    solos::apply(&mut candidate, source, edit)?;
+    let ranges = candidate.content.solos[track].clone();
+    for name in tracks {
+        candidate.content.solos.insert(name, ranges.clone());
+    }
+    project.content.solos = candidate.content.solos;
+    Ok(())
+}
+
 /// Protect opaque activation lanes before saving any authored state. A source
 /// S64 view exists only when the five physical MIDI intervals agree exactly.
 pub fn drum_activation_editable(song: &Path) -> Result<bool> {

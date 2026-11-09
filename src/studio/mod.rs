@@ -45,6 +45,7 @@ mod selection_desk;
 mod session;
 mod sheet;
 mod shortcuts;
+mod solo_editor;
 mod song_overview;
 mod source_choice;
 mod star_power;

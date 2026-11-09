@@ -204,6 +204,13 @@ pub fn SelectionDesk(studio: Studio) -> Element {
         .and_then(|id| document.find_note(id));
     let vocals = document.selected_track == "Vocals";
     let count = studio.selection().len();
+    let solo_key = format!(
+        "{:?}:{}:{}:{}",
+        studio.store.read().as_ref().map(|store| &store.root),
+        document.audio_sha256,
+        document.source_chart_sha256,
+        document.selected_track
+    );
     let tempo = studio
         .timing
         .read()
@@ -238,6 +245,7 @@ pub fn SelectionDesk(studio: Studio) -> Element {
                 div { hidden: !vocals || count > 1, super::vocal_editor::VocalEditor { studio } }
                 ReviewQueue { studio }
                 if !vocals {super::star_power::Controls {key:"{document.selected_track}",studio,track:document.selected_track.clone()}}
+                if !vocals {super::solo_editor::Controls {key:"{solo_key}",studio,track:document.selected_track.clone()}}
                 if document.selected_track.ends_with("Drums") {
                     super::drum_range_editor::Controls {key:"{studio.store.read().as_ref().map(|s|s.root.display().to_string()).unwrap_or_default()}:{document.selected_track}",studio,track:document.selected_track.clone()}
                 }

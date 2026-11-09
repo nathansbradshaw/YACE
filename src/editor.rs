@@ -168,6 +168,8 @@ pub struct Content {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub star_power: crate::star_power::Tracks,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub solos: crate::solos::Tracks,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub drum_ranges: crate::drum_ranges::Tracks,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync: Option<crate::sync_track::SyncTrack>,
@@ -280,6 +282,9 @@ pub enum Action {
     },
     EditStarPower {
         edit: crate::star_power::Edit,
+    },
+    EditSolo {
+        edit: crate::solos::Edit,
     },
     EditDrumRange {
         edit: crate::drum_ranges::Edit,
@@ -574,6 +579,7 @@ impl Project {
             if notes.is_empty()
                 && !self.content.track_origins.contains_key(track)
                 && self.content.star_power.get(track).is_none_or(Vec::is_empty)
+                && self.content.solos.get(track).is_none_or(Vec::is_empty)
                 && self
                     .content
                     .drum_ranges
@@ -594,6 +600,7 @@ impl Project {
         let text = crate::sections::render(text, &self.content.sections)?;
         let text = crate::sync_track::render(text, &self.content.sync)?;
         let text = crate::star_power::render(text, &self.content.star_power)?;
+        let text = crate::solos::render(text, &self.content.solos)?;
         crate::drum_ranges::render(text, &self.content.drum_ranges)
     }
     pub fn chart_hash(&self, store: &Store) -> Result<String> {
@@ -988,6 +995,12 @@ impl Store {
             &self.source_chart(project)?.chart,
         ))
     }
+    pub fn source_solos(&self, project: &Project) -> Result<crate::solos::Source> {
+        Ok(crate::solos::source(
+            project,
+            &self.source_chart(project)?.chart,
+        ))
+    }
     pub fn source_drum_ranges(&self, project: &Project) -> Result<crate::drum_ranges::Source> {
         Ok(crate::drum_ranges::source(
             project,
@@ -1329,6 +1342,7 @@ impl Store {
             review,
             content: Content {
                 star_power: Default::default(),
+                solos: Default::default(),
                 drum_ranges: Default::default(),
                 sync: None,
                 sections: None,
@@ -1803,6 +1817,7 @@ impl Store {
                 | Action::EditSection { .. }
                 | Action::EditSync { .. }
                 | Action::EditStarPower { .. }
+                | Action::EditSolo { .. }
                 | Action::EditDrumRange { .. }
                 | Action::ApplyGeneratedPart { .. }
                 | Action::AddNote { .. }
@@ -1922,6 +1937,14 @@ impl Store {
                     crate::star_power::apply(&mut doc, &source, edit)?;
                 }
             }
+            Action::EditSolo { edit } => {
+                let source = self.source_chart(&doc)?;
+                if crate::song_files::game_midi::exists(&self.root.join("source")) {
+                    crate::song_files::game_midi::edit_solos(&mut doc, &source, edit)?;
+                } else {
+                    crate::solos::apply(&mut doc, &source, edit)?;
+                }
+            }
             Action::EditDrumRange { edit } => {
                 let source = self.source_chart(&doc)?;
                 if crate::song_files::game_midi::exists(&self.root.join("source")) {
@@ -1979,9 +2002,19 @@ impl Store {
                 } else {
                     None
                 };
+                let inherited_solos =
+                    if crate::song_files::game_midi::exists(&self.root.join("source")) {
+                        let source = self.source_chart(&doc)?;
+                        crate::song_files::game_midi::shared_solos(&doc, &source.chart, track)?
+                    } else {
+                        None
+                    };
                 crate::parts::create(&mut doc, track)?;
                 if let Some(ranges) = inherited_drum_ranges {
                     doc.content.drum_ranges.insert(track.clone(), ranges);
+                }
+                if let Some(ranges) = inherited_solos {
+                    doc.content.solos.insert(track.clone(), ranges);
                 }
             }
             Action::ApplyGeneratedPart { .. } => {

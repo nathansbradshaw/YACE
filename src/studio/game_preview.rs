@@ -244,6 +244,9 @@ fn Highway(
     let power = use_memo(use_reactive(&track, move |track| {
         super::star_power::current(studio, &track)
     }));
+    let solos = use_memo(use_reactive(&track, move |track| {
+        super::solo_editor::current(studio, &track)
+    }));
     let animation = use_memo(use_reactive(&track, move |track| {
         let document = studio.doc.read();
         let Some(doc) = document.as_ref() else {
@@ -301,6 +304,9 @@ fn Highway(
             };
             if let Some(phrases) = power.read().as_ref() {
                 geometry.push_str(&render_power(phrases, &timing, position, lookahead()));
+            }
+            if let Some(phrases) = solos.read().as_ref() {
+                geometry.push_str(&render_solos(phrases, &timing, position, lookahead()));
             }
             Some(geometry)
         })
@@ -1132,6 +1138,55 @@ fn render_power(
     out
 }
 
+fn render_solos(
+    phrases: &[crate::solos::Phrase],
+    timing: &TempoMap,
+    position: f64,
+    ahead: f64,
+) -> String {
+    if !position.is_finite() || !ahead.is_finite() || ahead <= 0. {
+        return String::new();
+    }
+    let first = phrases.partition_point(|phrase| timing.seconds(phrase.end) <= position);
+    let mut out = String::new();
+    for phrase in phrases
+        .iter()
+        .skip(first)
+        .take_while(|phrase| timing.seconds(phrase.start) < position + ahead)
+    {
+        let active = timing.seconds(phrase.start) <= position;
+        let start = timing.seconds(phrase.start).max(position);
+        let end = timing.seconds(phrase.end).min(position + ahead);
+        if end <= start {
+            continue;
+        }
+        let _ = write!(
+            out,
+            "<g data-kind='solo' data-start-tick='{}' data-end-tick='{}' data-active='{active}'><title>Solo section</title>",
+            phrase.start, phrase.end
+        );
+        for side in [0., 1.] {
+            let (x, y, scale) = project(side, start - position, ahead);
+            let (tx, ty, tail_scale) = project(side, end - position, ahead);
+            let width = 9. * scale;
+            let tail_width = 9. * tail_scale;
+            let _ = write!(
+                out,
+                "<path d='M{:.2} {y:.2}L{:.2} {ty:.2}L{:.2} {ty:.2}L{:.2} {y:.2}Z' fill='#6c9df5' opacity='.6'/>",
+                x - width,
+                tx - tail_width,
+                tx + tail_width,
+                x + width
+            );
+        }
+        if active {
+            out.push_str("<text x='160' y='31' text-anchor='middle' fill='#bed6ff' font-size='15' font-weight='700'>SOLO</text>");
+        }
+        out.push_str("</g>");
+    }
+    out
+}
+
 fn lane_activity(scene: &Scene<'_>, lane: u8) -> (f64, bool) {
     if !scene.playing {
         return (0., false);
@@ -1318,6 +1373,43 @@ mod tests {
         assert!(render_power(&phrases, &timing, 6., 2.).is_empty());
         assert!(render_power(&phrases, &timing, 0., 0.).is_empty());
         assert!(render_power(&phrases, &timing, f64::NAN, 2.).is_empty());
+    }
+    #[test]
+    fn solo_preview_uses_half_open_source_time_across_tempo_changes() {
+        let timing = TempoMap::new(
+            480,
+            0.,
+            vec![
+                crate::timing::Tempo { tick: 0, bpm: 120. },
+                crate::timing::Tempo {
+                    tick: 1920,
+                    bpm: 60.,
+                },
+            ],
+        )
+        .unwrap();
+        let phrases = [
+            crate::solos::Phrase {
+                start: 0,
+                end: 1920,
+            },
+            crate::solos::Phrase {
+                start: 1920,
+                end: 3840,
+            },
+        ];
+        let at_boundary = render_solos(&phrases, &timing, 2., 2.);
+        assert_eq!(at_boundary.matches("data-kind='solo'").count(), 1);
+        assert!(
+            at_boundary.contains("data-start-tick='1920' data-end-tick='3840' data-active='true'")
+        );
+        assert!(at_boundary.contains(">SOLO</text>"));
+        let ahead = render_solos(&phrases[1..], &timing, 1., 2.);
+        assert!(ahead.contains("data-active='false'"));
+        assert!(!ahead.contains(">SOLO</text>"));
+        assert!(render_solos(&phrases, &timing, 6., 2.).is_empty());
+        assert!(render_solos(&phrases, &timing, 0., 0.).is_empty());
+        assert!(render_solos(&phrases, &timing, f64::NAN, 2.).is_empty());
     }
     #[test]
     fn faceted_guitar_notes_keep_techniques_and_drums_keep_distinct_shapes() {
