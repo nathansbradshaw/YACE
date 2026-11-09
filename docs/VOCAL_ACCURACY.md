@@ -644,6 +644,10 @@ score wrong, missing and falsely voiced raw frames separately. No generated
 chart becomes ground truth. A smaller window is not promoted without the full
 note/contour gate and voiced-recall checks. Keep outputs outside public Git.
 
+## Raw multi-model observations for research
+
+Research callers can use `vocal_independent::extract_observations` to collect the pinned RMVPE, CREPE, FCPE, SwiftF0 and ROSVOT observations without running the legacy fused decoder or lyric recognition. The returned handle holds the exclusive cache lock while its files are inspected. Source, helper, model, preprocessing and runtime identity checks remain in place. This API returns evidence, not a generated chart or an accuracy claim; normal multi-model generation still validates and runs its requested decoder.
+
 ## Recursive audio/MIDI review (experimental)
 
 In **Check pitches against the recording**, enable **Deep rescan gaps and disagreements**, then analyze a phrase, loop, time range or all vocals. This is a slower opt-in review tool; it does not promote a new generation backend or claim the pitch quality gate has passed.
