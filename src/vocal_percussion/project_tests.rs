@@ -422,7 +422,7 @@ fn conflicting_singing_and_unsupported_original_percussion_refuse_without_saving
     );
 }
 #[test]
-fn edited_percussion_refuses_playable_export_until_the_codec_is_connected_to_that_workflow() {
+fn authored_percussion_exports_reopens_and_repeats_without_changing_the_editing_project() {
     let (root, store) = project(false, false);
     apply(
         &store,
@@ -432,20 +432,390 @@ fn edited_percussion_refuses_playable_export_until_the_codec_is_connected_to_tha
     )
     .unwrap();
     let before = fs::read(store.root.join("project.json")).unwrap();
-    let output = root.path().join("must-not-publish");
-    assert!(
-        apply(
-            &store,
-            Action::Export {
-                output: output.clone()
-            }
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("percussion edits")
-    );
-    assert!(!output.exists());
+    let output = root.path().join("playable");
+    apply(
+        &store,
+        Action::Export {
+            output: output.clone(),
+        },
+    )
+    .unwrap();
+    let bytes = fs::read(output.join("notes.mid")).unwrap();
+    let expected = import_midi(&bytes).unwrap().unwrap();
+    assert_eq!(expected.tracks.len(), 2);
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    assert_eq!(authored(&reopened), Some(expected));
+    assert!(reopened.load().unwrap().content.vocal_percussion.is_some());
+    let repeat = root.path().join("repeat");
+    apply(
+        &reopened,
+        Action::Export {
+            output: repeat.clone(),
+        },
+    )
+    .unwrap();
+    assert_eq!(fs::read(repeat.join("notes.mid")).unwrap(), bytes);
     assert_eq!(fs::read(store.root.join("project.json")).unwrap(), before);
+}
+fn export_to(store: &Store, output: &Path, tracks: Option<&[&str]>) -> Vec<u8> {
+    store
+        .export_with_options(
+            &store.load().unwrap(),
+            output,
+            &Actor {
+                kind: ActorKind::Human,
+                name: "Percussion export regression".into(),
+            },
+            &crate::export_options::Options {
+                tracks: tracks.map(|tracks| tracks.iter().map(|name| (*name).to_owned()).collect()),
+                include_audio: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    fs::read(output.join("notes.mid")).unwrap()
+}
+fn first_harmony() -> crate::vocal_harmonies::HarmonyChart {
+    let lead = singing(960);
+    crate::vocal_harmonies::HarmonyChart {
+        version: 1,
+        resolution: 480,
+        source: "Independent first harmony".into(),
+        phrases: lead.phrases,
+        lyric_phrases: vec![],
+        voices: [(
+            crate::vocal_harmonies::Part::Harm1,
+            crate::vocal_harmonies::Voice {
+                source: "Manual HARM1".into(),
+                notes: lead.notes,
+            },
+        )]
+        .into(),
+    }
+}
+fn control_project() -> (tempfile::TempDir, Store) {
+    use midly::{
+        MetaMessage as M, MidiMessage as N, TrackEventKind as K,
+        num::{u4, u7, u28},
+    };
+    let (root, _first) = project(true, false);
+    let path = root.path().join("song/notes.mid");
+    let bytes = fs::read(&path).unwrap();
+    let mut midi = midly::Smf::parse(&bytes).unwrap();
+    for track in &mut midi.tracks {
+        if !track.iter().any(|event| matches!(event.kind, K::Meta(M::TrackName(name)) if std::str::from_utf8(name).ok().and_then(Part::from_midi).is_some())) { continue; }
+        let mut tick = 0;
+        let mut events: Vec<_> = track
+            .iter()
+            .map(|event| {
+                tick += u64::from(event.delta.as_int());
+                (tick, event.kind)
+            })
+            .collect();
+        events.extend([
+            (
+                20,
+                K::Midi {
+                    channel: u4::new(4),
+                    message: N::Controller {
+                        controller: u7::new(11),
+                        value: u7::new(75),
+                    },
+                },
+            ),
+            (22, K::Meta(M::Text(b"[mood_play]"))),
+            (
+                0,
+                K::Midi {
+                    channel: u4::new(5),
+                    message: N::NoteOn {
+                        key: u7::new(116),
+                        vel: u7::new(81),
+                    },
+                },
+            ),
+            (
+                960,
+                K::Midi {
+                    channel: u4::new(5),
+                    message: N::NoteOff {
+                        key: u7::new(116),
+                        vel: u7::new(14),
+                    },
+                },
+            ),
+        ]);
+        // Lead becomes metadata-only after PC stripping; HARM1 retains SP
+        // notes. Exercise both omission branches with the same source song.
+        if track.iter().any(|event| matches!(event.kind, K::Meta(M::TrackName(name)) if std::str::from_utf8(name).ok().and_then(Part::from_midi) == Some(Part::Lead))) {
+            events.retain(|(_, kind)| !matches!(kind, K::Midi { message: N::NoteOn { key, .. } | N::NoteOff { key, .. }, .. } if key.as_int() == 116));
+        }
+        events.sort_by_key(|(tick, kind)| (*tick, matches!(kind, K::Meta(M::EndOfTrack))));
+        let mut previous = 0;
+        *track = events
+            .into_iter()
+            .map(|(tick, kind)| {
+                let delta = u28::new((tick - previous) as u32);
+                previous = tick;
+                midly::TrackEvent { delta, kind }
+            })
+            .collect();
+    }
+    let mut output = Vec::new();
+    midi.write_std(&mut output).unwrap();
+    fs::write(path, output).unwrap();
+    let store = Store::create(
+        &root.path().join("song"),
+        None,
+        &root.path().join("controls"),
+    )
+    .unwrap();
+    (root, store)
+}
+fn controls(bytes: &[u8], part: Part) -> Vec<String> {
+    use midly::{MetaMessage as M, MidiMessage as N, TrackEventKind as K};
+    let midi = midly::Smf::parse(bytes).unwrap();
+    let Some(track)=midi.tracks.iter().find(|track| track.iter().any(|event| matches!(event.kind,K::Meta(M::TrackName(name)) if std::str::from_utf8(name).ok().and_then(Part::from_midi)==Some(part)))) else { return vec![]; };
+    let mut tick = 0;
+    track
+        .iter()
+        .filter_map(|event| {
+            tick += u64::from(event.delta.as_int());
+            let selected = match event.kind {
+                K::Midi {
+                    message: N::Controller { .. },
+                    ..
+                }
+                | K::Meta(M::Text(_)) => true,
+                K::Midi {
+                    message: N::NoteOn { key, .. } | N::NoteOff { key, .. },
+                    ..
+                } => key.as_int() == 116,
+                _ => false,
+            };
+            selected.then(|| format!("{tick}:{:?}", event.kind))
+        })
+        .collect()
+}
+#[test]
+fn logical_omissions_never_revive_original_controls_after_new_singers_and_repeated_exports() {
+    let (root, store) = control_project();
+    let original = fs::read(
+        store
+            .root
+            .join("source/.yace/originals/game-midi/notes.mid"),
+    )
+    .unwrap();
+    let retained = controls(&original, Part::Harm1);
+    assert!(!retained.is_empty());
+    assert!(!controls(&original, Part::Lead).is_empty());
+    apply(
+        &store,
+        Action::SetVocalPercussion {
+            document: authored(&store).unwrap(),
+        },
+    )
+    .unwrap();
+    let output = root.path().join("harmonies");
+    let bytes = export_to(&store, &output, Some(&["ExpertSingle", "Harmonies"]));
+    assert!(controls(&bytes, Part::Lead).is_empty());
+    assert_eq!(controls(&bytes, Part::Harm1), retained);
+    let next = Store::create(&output, None, &root.path().join("next")).unwrap();
+    apply(
+        &next,
+        Action::SetVocals {
+            document: singing(0),
+        },
+    )
+    .unwrap();
+    let later = root.path().join("later");
+    let bytes = export_to(&next, &later, None);
+    assert!(controls(&bytes, Part::Lead).is_empty());
+    assert_eq!(controls(&bytes, Part::Harm1), retained);
+    let again = Store::create(&later, None, &root.path().join("again")).unwrap();
+    let repeated = export_to(&again, &root.path().join("repeated"), None);
+    assert!(controls(&repeated, Part::Lead).is_empty());
+    assert_eq!(controls(&repeated, Part::Harm1), retained);
+    let omitted = root.path().join("omit-harmony");
+    let bytes = export_to(&again, &omitted, Some(&["ExpertSingle", "Vocals"]));
+    assert!(controls(&bytes, Part::Harm1).is_empty());
+    let fresh = Store::create(&omitted, None, &root.path().join("fresh")).unwrap();
+    apply(
+        &fresh,
+        Action::SetHarmonies {
+            document: first_harmony(),
+        },
+    )
+    .unwrap();
+    let new_harmony = root.path().join("new-harmony");
+    let bytes = export_to(&fresh, &new_harmony, None);
+    assert!(controls(&bytes, Part::Harm1).is_empty());
+    assert!(import_midi(&bytes).unwrap().is_none());
+    let last = Store::create(&new_harmony, None, &root.path().join("last")).unwrap();
+    assert!(
+        controls(
+            &export_to(&last, &root.path().join("last-export"), None),
+            Part::Harm1
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        fs::read(
+            store
+                .root
+                .join("source/.yace/originals/game-midi/notes.mid")
+        )
+        .unwrap(),
+        original
+    );
+}
+#[test]
+fn clearing_original_percussion_frees_its_phrase_for_singing_and_stays_cleared_after_export() {
+    let (root, store) = project(true, false);
+    let path = store
+        .root
+        .join("source/.yace/originals/game-midi/notes.mid");
+    let original = fs::read(&path).unwrap();
+    apply(&store, Action::ClearVocalPercussion).unwrap();
+    apply(
+        &store,
+        Action::SetVocals {
+            document: singing(0),
+        },
+    )
+    .unwrap();
+    let output = root.path().join("cleared");
+    let bytes = export_to(&store, &output, None);
+    assert!(import_midi(&bytes).unwrap().is_none());
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    assert_eq!(
+        reopened.load().unwrap().content.vocal_percussion,
+        Some(State::Cleared)
+    );
+    assert!(authored(&reopened).is_none());
+    assert_eq!(
+        reopened.load().unwrap().content.vocals.unwrap().notes[0].start,
+        120
+    );
+    assert!(
+        import_midi(&export_to(&reopened, &root.path().join("repeat"), None))
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(fs::read(path).unwrap(), original);
+}
+#[test]
+fn first_harmony_in_a_percussion_owner_survives_logical_selection_reopen_and_phrase_edits() {
+    let (root, store) = project(true, false);
+    let document = authored(&store).unwrap();
+    apply(&store, Action::SetVocalPercussion { document }).unwrap();
+    apply(
+        &store,
+        Action::SetHarmonies {
+            document: first_harmony(),
+        },
+    )
+    .unwrap();
+    let available = crate::export_options::available(&store, &store.load().unwrap()).unwrap();
+    assert!(available.contains("Harmonies") && available.contains("Vocals"));
+    assert!(!available.iter().any(|name| name.starts_with("MIDI: ")));
+    let output = root.path().join("harmonies");
+    let bytes = export_to(&store, &output, Some(&["ExpertSingle", "Harmonies"]));
+    let pc = import_midi(&bytes).unwrap().unwrap();
+    assert_eq!(pc.tracks.len(), 1);
+    assert!(pc.tracks.contains_key(&Part::Harm1));
+    assert_eq!(
+        crate::vocal_harmonies::import_midi(&bytes)
+            .unwrap()
+            .unwrap()
+            .phrases,
+        first_harmony().phrases
+    );
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    let repeat = export_to(
+        &reopened,
+        &root.path().join("repeat"),
+        Some(&["ExpertSingle", "Harmonies"]),
+    );
+    assert_eq!(repeat, bytes);
+    apply(&reopened, Action::ClearVocalPercussion).unwrap();
+    let mut singing = reopened.load().unwrap().content.harmonies.unwrap();
+    singing.phrases[0].start = 0;
+    apply(&reopened, Action::SetHarmonies { document: singing }).unwrap();
+    let cleared = export_to(&reopened, &root.path().join("cleared"), None);
+    assert!(import_midi(&cleared).unwrap().is_none());
+    assert_eq!(
+        crate::vocal_harmonies::import_midi(&cleared)
+            .unwrap()
+            .unwrap()
+            .phrases[0]
+            .start,
+        0
+    );
+}
+#[test]
+fn omitted_typed_percussion_does_not_return_when_new_singers_are_authored_later() {
+    let (root, store) = project(true, false);
+    apply(
+        &store,
+        Action::SetVocalPercussion {
+            document: authored(&store).unwrap(),
+        },
+    )
+    .unwrap();
+    let output = root.path().join("instruments");
+    assert!(
+        import_midi(&export_to(&store, &output, Some(&["ExpertSingle"])))
+            .unwrap()
+            .is_none()
+    );
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    assert_eq!(
+        reopened.load().unwrap().content.vocal_percussion,
+        Some(State::Cleared)
+    );
+    apply(
+        &reopened,
+        Action::SetVocals {
+            document: singing(0),
+        },
+    )
+    .unwrap();
+    apply(
+        &reopened,
+        Action::SetHarmonies {
+            document: first_harmony(),
+        },
+    )
+    .unwrap();
+    let later = root.path().join("later");
+    assert!(
+        import_midi(&export_to(&reopened, &later, None))
+            .unwrap()
+            .is_none()
+    );
+    let again = Store::create(&later, None, &root.path().join("again")).unwrap();
+    assert!(authored(&again).is_none());
+}
+#[test]
+fn altered_working_percussion_state_refuses_reopen_without_replacing_the_source() {
+    let (root, store) = project(false, false);
+    apply(
+        &store,
+        Action::SetVocalPercussion {
+            document: super::tests::fixture(),
+        },
+    )
+    .unwrap();
+    let output = root.path().join("export");
+    let bytes = export_to(&store, &output, None);
+    let sidecar = crate::song_layout::resolve(&output, "chart-engine-vocal-percussion.json");
+    let mut data: serde_json::Value = serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+    data["state"]["document"]["tracks"]["LEAD"]["hits"][0]["displayed"] = false.into();
+    fs::write(&sidecar, serde_json::to_vec(&data).unwrap()).unwrap();
+    assert!(Store::create(&output, None, &root.path().join("must-not-open")).is_err());
+    assert_eq!(fs::read(output.join("notes.mid")).unwrap(), bytes);
+    assert!(!root.path().join("must-not-open").exists());
 }
 #[test]
 fn portable_percussion_project_retains_content_addressed_history() {
@@ -474,6 +844,10 @@ fn portable_percussion_project_retains_content_addressed_history() {
         },
     )
     .unwrap();
+    let output = root.path().join("bound-export");
+    export_to(&store, &output, None);
+    let store = Store::create(&output, None, &root.path().join("bound-project")).unwrap();
+    let first = authored(&store).unwrap();
     let mut second = first.clone();
     second.tracks.get_mut(&Part::Harm1).unwrap().hits[0].start += 1;
     apply(
@@ -498,5 +872,8 @@ fn portable_percussion_project_retains_content_addressed_history() {
     apply(&moved, Action::Undo).unwrap();
     assert_eq!(authored(&moved), Some(first));
     apply(&moved, Action::Redo).unwrap();
-    assert_eq!(authored(&moved), Some(second));
+    assert_eq!(authored(&moved), Some(second.clone()));
+    let export = tempfile::tempdir().unwrap();
+    let bytes = export_to(&moved, &export.path().join("playable"), None);
+    assert_eq!(import_midi(&bytes).unwrap(), Some(second));
 }

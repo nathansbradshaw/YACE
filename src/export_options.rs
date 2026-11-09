@@ -63,9 +63,27 @@ pub fn available(store: &Store, doc: &Project) -> Result<BTreeSet<String>> {
     {
         tracks.insert("Harmonies".into());
     }
-    tracks.extend(crate::song_files::game_midi::extra_parts(
+    let owners = crate::song_files::game_midi::percussion_owners(
         &store.root.join("source"),
-    )?);
+        doc.content.vocal_percussion.as_ref(),
+    )?;
+    if owners.contains(&crate::vocal_percussion::Part::Lead) {
+        tracks.insert("Vocals".into());
+    }
+    if owners.contains(&crate::vocal_percussion::Part::Harm1) {
+        tracks.insert("Harmonies".into());
+    }
+    tracks.extend(
+        crate::song_files::game_midi::extra_parts(&store.root.join("source"))?
+            .into_iter()
+            .filter(|key| {
+                crate::song_files::game_midi::logical_vocal_owner(
+                    key.strip_prefix("MIDI: "),
+                    &owners,
+                )
+                .is_none()
+            }),
+    );
     Ok(tracks)
 }
 impl Options {

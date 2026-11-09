@@ -96,6 +96,15 @@ pub fn export_harmonies(
     chart: Option<&HarmonyChart>,
     selected: bool,
 ) -> Result<Vec<u8>> {
+    export_harmonies_inner(song, bytes, chart, selected, false)
+}
+pub(super) fn export_harmonies_inner(
+    song: &Path,
+    bytes: Vec<u8>,
+    chart: Option<&HarmonyChart>,
+    selected: bool,
+    retained_owners: bool,
+) -> Result<Vec<u8>> {
     let imported = source(song)?;
     let baseline = imported
         .as_ref()
@@ -123,6 +132,10 @@ pub fn export_harmonies(
         bytes
     };
     match chart {
+        Some(chart) if retained_owners => {
+            use sha2::{Digest, Sha256};
+            vocal_harmonies::author_midi(&bytes, &format!("{:x}", Sha256::digest(&bytes)), chart)
+        }
         Some(chart) => vocal_harmonies::append_midi(&bytes, chart),
         None => Ok(bytes),
     }

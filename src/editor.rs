@@ -1331,7 +1331,9 @@ impl Store {
                         None
                     }
                 },
-                vocal_percussion: None,
+                vocal_percussion: crate::song_files::game_midi::read_percussion_state(
+                    &self.root.join("source"),
+                )?,
                 analysis_sources: Default::default(),
                 difficulty_links: Default::default(),
                 vocal_review: None,
@@ -2241,13 +2243,17 @@ impl Store {
                 if doc.content.harmonies.is_none() {
                     let originals =
                         crate::song_files::game_midi::extra_parts(&self.root.join("source"))?;
-                    ensure!(
-                        !originals.iter().any(|name| name
-                            .strip_prefix("MIDI: ")
+                    if originals.iter().any(|name| {
+                        name.strip_prefix("MIDI: ")
                             .and_then(crate::vocal_harmonies::Part::from_midi)
-                            .is_some()),
-                        "Original harmony tracks need an imported editable baseline before authoring; source retained"
-                    );
+                            .is_some()
+                    }) {
+                        crate::song_files::game_midi::validate_harmony_authoring(
+                            &self.root.join("source"),
+                            doc.content.vocal_percussion.as_ref(),
+                            document,
+                        )?;
+                    }
                 }
                 crate::song_files::game_midi::validate_harmony_edit(
                     &self.root.join("source"),
@@ -2260,19 +2266,24 @@ impl Store {
                 doc.content.harmonies = None;
             }
             Action::EditHarmonies { edit } => {
+                let next =
+                    edit.apply(doc.content.harmonies.as_ref(), doc.timing(self)?.resolution)?;
                 if doc.content.harmonies.is_none() {
                     let originals =
                         crate::song_files::game_midi::extra_parts(&self.root.join("source"))?;
-                    ensure!(
-                        !originals.iter().any(|name| name
-                            .strip_prefix("MIDI: ")
+                    if originals.iter().any(|name| {
+                        name.strip_prefix("MIDI: ")
                             .and_then(crate::vocal_harmonies::Part::from_midi)
-                            .is_some()),
-                        "Original harmony tracks need an imported editable baseline before authoring; source retained"
-                    );
+                            .is_some()
+                    }) && let Some(after) = &next
+                    {
+                        crate::song_files::game_midi::validate_harmony_authoring(
+                            &self.root.join("source"),
+                            doc.content.vocal_percussion.as_ref(),
+                            after,
+                        )?;
+                    }
                 }
-                let next =
-                    edit.apply(doc.content.harmonies.as_ref(), doc.timing(self)?.resolution)?;
                 if let Some(chart) = &next {
                     chart.validate_timing(&doc.timing(self)?, doc.duration)?;
                 }
@@ -2715,10 +2726,6 @@ impl Store {
         actor: &Actor,
         options: &crate::export_options::Options,
     ) -> Result<()> {
-        ensure!(
-            doc.content.vocal_percussion.is_none(),
-            "Playable export of percussion edits is not available yet. Save an editable backup to retain them."
-        );
         let selected = options.selected(self, doc)?;
         let all_parts = crate::export_options::available(self, doc)?;
         let midi_export = options.midi(self, doc)?;
@@ -2924,7 +2931,11 @@ impl Store {
             archive_index += 1;
         }
         fs::create_dir(&archive)?;
-        let mut archived = vec!["chart-engine-vocals.json", "chart-engine-harmonies.json"];
+        let mut archived = vec![
+            "chart-engine-vocals.json",
+            "chart-engine-harmonies.json",
+            "chart-engine-vocal-percussion.json",
+        ];
         if !options.include_audio {
             // These witnesses describe omitted audio. Keep them as history so
             // reopening the chart does not attach checks to a new empty clock.
@@ -2948,23 +2959,19 @@ impl Store {
             let fields = pipeline::ini_fields(&raw);
             let (generated, delay) =
                 crate::game_export::song_with_ini(&chart, doc.content.vocals.as_ref(), &fields)?;
-            let midi = crate::song_files::game_midi::export(
+            let midi = crate::song_files::game_midi::export_vocals(
                 &source,
                 stage,
                 &chart,
-                doc.content.vocals.as_ref(),
                 &doc.content.tracks,
                 &generated,
-            )?
-            .unwrap_or(generated);
-            let midi = crate::song_files::game_midi::export_harmonies(
-                &source,
-                midi,
-                doc.content.harmonies.as_ref(),
-                selected.contains("Harmonies"),
+                crate::song_files::game_midi::VocalExport {
+                    lead: doc.content.vocals.as_ref(),
+                    harmonies: doc.content.harmonies.as_ref(),
+                    percussion: doc.content.vocal_percussion.as_ref(),
+                    selected: &selected,
+                },
             )?;
-            let midi =
-                crate::song_files::game_midi::select_export(&source, stage, midi, &selected)?;
             exported_chart_sha256 = hash(&midi);
             fs::write(stage.join("notes.mid"), midi)?;
             fs::rename(stage.join("notes.chart"), archive.join("notes.chart"))?;
@@ -2981,6 +2988,11 @@ impl Store {
                 serde_json::to_vec_pretty(
                     &serde_json::json!({"version":1,"master_sha256":hash(text.as_bytes()),"midi_sha256":exported_chart_sha256}),
                 )?,
+            )?;
+            crate::song_files::game_midi::write_percussion_state(
+                &source,
+                stage,
+                doc.content.vocal_percussion.as_ref(),
             )?;
             if let Some(vocals) = &doc.content.vocals {
                 fs::write(

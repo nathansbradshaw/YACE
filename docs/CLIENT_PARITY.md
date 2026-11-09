@@ -26,14 +26,18 @@ phrases that overlap the applicable lead or harmony singing phrases. Typed proje
 commands create, move, hide/show and delete hits, and resize, split or merge
 dedicated phrases using exact selected-value guards. They persist authored hits
 or an explicit clear, with content-addressed Undo/Redo and portable project
-relocation. Legacy documents inherit only active
-source parts; reopening an instrument-only export does not revive omitted hits.
+relocation. Legacy documents inherit only active source parts; reopening an
+instrument-only export does not revive omitted hits.
 Singer edits refuse conflicts with supported inherited percussion before saving;
 explicit authored or cleared percussion state governs subsequent edits and Undo.
-Playable export of these edits currently refuses safely until export integration
-is connected. Placement/selection/preview controls and actual native, browser and
-game acceptance remain open. A strict MIDI reader extracts dedicated source
-phrases with original hit and scoring-marker attributes;
+The shared export pipeline stages verified source MIDI without changing its
+archive, rebuilds singers, then writes the selected percussion. A MIDI-bound
+working sidecar preserves authored, cleared and omitted state on reopen.
+Logical Vocals/Harmonies selection replaces duplicate raw percussion owners;
+omitted original controls stay omitted when singers are authored later.
+Placement/selection/preview controls and actual native, browser and game
+acceptance remain open. A strict MIDI reader extracts dedicated source phrases
+with original hit and scoring-marker attributes;
 ambiguous, mixed singing/percussion and uncovered source hits refuse the editable
 view. Shared scoring ranges used by unmanaged harmony percussion also remain
 read-only. The core checks the saved source SHA-256 before selectively adding,
@@ -42,16 +46,17 @@ Unmodified tracks remain byte-identical; singing, lyrics, overdrive and author
 controls are retained. Supported harmony MIDI views exclude verified dedicated
 percussion ranges from singing phrases; singing-phrase rewrites preserve the
 physical percussion markers and reject new scoring conflicts. Project export,
-reopen and explicit harmony omission regressions cover this coexistence path.
-They do not establish export of authored percussion edits. Conflicting candidates
-and invalid owner endings refuse before returning a rewritten song. These core
-checks do not qualify an application workflow.
+reopen, explicit omission, later singer authoring, repeated export and portable
+history regressions cover this backend path. Conflicting candidates and invalid
+owner endings refuse before returning a rewritten song. These checks do not
+qualify an actual application workflow.
 
 A source-hash-bound harmony writer can add first singers to retained
 percussion/control-only owners while preserving aliases, physical hits and
 unrelated tracks. It refuses existing singer content, changed source bytes,
-overlapping opaque percussion and malformed edited-owner endings. This core path
-still needs the ordinary import/export selection bridge before application use.
+overlapping opaque percussion and malformed edited-owner endings. The shared
+pipeline uses it for first singers in managed percussion owners; actual control
+and runtime acceptance remains open.
 
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer

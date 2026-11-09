@@ -20,11 +20,17 @@ mod harmonies;
 pub(crate) use harmonies::harmony_percussion_ranges;
 #[path = "game_midi/merge.rs"]
 mod merge;
+#[path = "game_midi/percussion.rs"]
+mod percussion;
 pub use harmonies::{
     RetainedHarmonyPhrases, export_harmonies, retained_harmony_controls, retained_harmony_phrases,
     validate_harmony_edit,
 };
 pub(crate) use merge::{chunks as midi_chunks, validate_complete as validate_midi_complete};
+pub(crate) use percussion::logical_owner as logical_vocal_owner;
+pub(crate) use percussion::validate_harmony_authoring;
+pub(crate) use percussion::write_percussion_state;
+pub(crate) use percussion::{VocalExport, export_vocals, percussion_owners, read_percussion_state};
 #[cfg(test)]
 #[path = "game_midi/tests.rs"]
 mod tests;
@@ -213,16 +219,28 @@ pub fn select_export(
     bytes: Vec<u8>,
     selected: &std::collections::BTreeSet<String>,
 ) -> Result<Vec<u8>> {
+    select_export_with_owners(song, stage, bytes, selected, &Default::default())
+}
+fn select_export_with_owners(
+    song: &Path,
+    stage: &Path,
+    bytes: Vec<u8>,
+    selected: &std::collections::BTreeSet<String>,
+    owners: &std::collections::BTreeSet<crate::vocal_percussion::Part>,
+) -> Result<Vec<u8>> {
     let original_extras = original_extra_parts(song, false)?;
     let parsed = midly::Smf::parse(&bytes)?;
     let (header, chunks) = merge::chunks(&bytes, parsed.tracks.len())?;
     let mut kept = Vec::new();
     for (index, (track, chunk)) in parsed.tracks.iter().zip(chunks).enumerate() {
         let name = decode::label(track);
+        let logical = percussion::logical_owner(name.as_deref(), owners);
         let raw_key = extra_key(track, index);
-        let keep = if let Some(key) = raw_key
+        let keep = if let Some(logical) = logical {
+            selected.contains(logical)
+        } else if let Some(key) = raw_key
             .as_ref()
-            .filter(|key| original_extras.contains(*key))
+            .filter(|key| logical.is_none() && original_extras.contains(*key))
         {
             selected.contains(key)
         } else if let Some((suffix, difficulty)) = name.as_deref().and_then(decode::part) {
@@ -270,7 +288,7 @@ pub fn select_export(
                 }
             )
         });
-        if keep || metadata_only {
+        if keep || (metadata_only && logical.is_none()) {
             kept.push(chunk);
         } else {
             ensure!(
@@ -291,6 +309,7 @@ pub fn select_export(
     }
     midly::Smf::parse(&output)?;
     if exists(song) {
+        let active_originals = extra_parts(song)?;
         let path = song_layout::resolve(stage, DESCRIPTOR);
         let mut imported: Imported = serde_json::from_slice(&fs::read(&path)?)?;
         imported.retained_extra_parts = Some(
@@ -298,6 +317,16 @@ pub fn select_export(
                 .iter()
                 .filter(|t| t.starts_with("MIDI: "))
                 .cloned()
+                .chain(
+                    original_extras
+                        .iter()
+                        .filter(|key| {
+                            active_originals.contains(*key)
+                                && percussion::logical_owner(key.strip_prefix("MIDI: "), owners)
+                                    .is_some_and(|logical| selected.contains(logical))
+                        })
+                        .cloned(),
+                )
                 .collect(),
         );
         imported.retained_vocal_controls =
@@ -366,6 +395,9 @@ fn percussion_view_with_policy(
     song: &Path,
     strict: bool,
 ) -> Result<Option<crate::vocal_percussion::PercussionChart>> {
+    if let Some(state) = read_percussion_state(song)? {
+        return Ok(state.document().cloned());
+    }
     use crate::vocal_percussion::Part;
     let Some((imported, directory)) = source(song)? else {
         return Ok(None);
@@ -581,6 +613,17 @@ pub fn export(
     tracks: &BTreeMap<String, Vec<EditorNote>>,
     generated: &[u8],
 ) -> Result<Option<Vec<u8>>> {
+    export_inner(song, stage, chart, vocals, tracks, generated, None)
+}
+fn export_inner(
+    song: &Path,
+    stage: &Path,
+    chart: &Chart,
+    vocals: Option<&VocalChart>,
+    tracks: &BTreeMap<String, Vec<EditorNote>>,
+    generated: &[u8],
+    working: Option<&[u8]>,
+) -> Result<Option<Vec<u8>>> {
     let Some((mut imported, directory)) = source(song)? else {
         let records: Vec<_> = tracks
             .iter()
@@ -601,7 +644,10 @@ pub fn export(
             Ok(Some(merge::authored_attributes(generated, &records)?))
         };
     };
-    let original = fs::read(directory.join("notes.mid"))?;
+    let original = match working {
+        Some(working) => working.to_vec(),
+        None => fs::read(directory.join("notes.mid"))?,
+    };
     let retain_vocal_controls = retained_vocal_controls(song)?;
     let original = if imported.baseline_vocals_sha256.is_some() && !retain_vocal_controls {
         omit_original_vocals(&original)?

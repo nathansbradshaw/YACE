@@ -29,7 +29,9 @@ pub fn relative(name: &str) -> PathBuf {
         "game-export.json" | "yace-audio.json" => "export",
         "chart-engine-working" => return Path::new(DIRECTORY).join("working"),
         "chart-engine-history" => return Path::new(DIRECTORY).join("history/generation"),
-        "chart-engine-vocals.json" | "chart-engine-harmonies.json" => "working",
+        "chart-engine-vocals.json"
+        | "chart-engine-harmonies.json"
+        | "chart-engine-vocal-percussion.json" => "working",
         "import-information.json" => "analysis",
         value if value.starts_with("chart-engine-") && value.ends_with(".json") => "analysis",
         _ => return PathBuf::from(name),
