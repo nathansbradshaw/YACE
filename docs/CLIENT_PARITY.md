@@ -13,6 +13,15 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 
 ## Acceptance ledger
 
+Deleting the final pitched lead-vocal notes exposed an export preservation gap:
+the export selector omitted `PART VOCALS`, including untouched percussion,
+overdrive and author controls. The shared Rust fix retains that source part and
+any scoring phrase required by its percussion. Conflicting phrase edits refuse
+export rather than displace the retained percussion. Explicitly deselecting
+Vocals remains durable across export, reopen and later lead-note authoring.
+Regression checks cover these paths, but actual native, static-browser and
+hosted export/reopen acceptance of this fix remains open.
+
 | Workflow | Verification evidence | Result |
 | --- | --- | --- |
 | Start from recording or existing chart | Both OS-picker/manual starts exercised; native setup now reaches Ready after save; identical chart/INI settings and unchanged encoded source | Verified |

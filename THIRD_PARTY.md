@@ -4,6 +4,12 @@ The application code is MIT. Included and downloaded third-party components
 retain their own licenses. No upstream Python program is bundled or invoked.
 Research-only source checkouts and private recordings are not included.
 
+The README's **AI:X / EXECUTE** badge artwork in `assets/0rwx/` is by
+[Namtao Productions](https://0rwx.com/), released into the public domain under
+[CC0](https://creativecommons.org/publicdomain/zero/1.0/). The unmodified light
+and dark SVGs come from
+[`NamtaoProductions/0rwx.com`, revision `066d866e71fa64daa2dbace000b4b8dd6c1b0103`](https://github.com/NamtaoProductions/0rwx.com/tree/066d866e71fa64daa2dbace000b4b8dd6c1b0103/static).
+
 The explicit private desktop multi-model vocal pack uses CREPE full (onnxcrepe
 v1.1.0), the MIT FCPE export pinned in `docs/VOCAL_ACCURACY.md`, and the Rust
 ROSVOT/RWBD conversion. Original notices and pinned model provenance are in
