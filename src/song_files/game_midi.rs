@@ -453,6 +453,13 @@ pub fn prepare(song: &Path) -> Result<()> {
             None
         }
     };
+    if harmonies.is_some() {
+        decoded.warnings.retain(|warning| {
+            !warning
+                .strip_suffix(" is preserved in MIDI but is not editable in this project.")
+                .is_some_and(|name| crate::vocal_harmonies::Part::from_midi(name).is_some())
+        });
+    }
     let mut index = 0u32;
     while fs::exists(archive(song, index)) {
         index = index

@@ -665,6 +665,12 @@ mod tests {
         use crate::editor::{Action, Store};
         let (root, store, original) = imported_project();
         let doc = store.load().unwrap();
+        assert!(
+            !doc.review
+                .coverage_limits
+                .iter()
+                .any(|warning| { warning.contains("HARM") && warning.contains("not editable") })
+        );
         let parts = crate::export_options::available(&store, &doc).unwrap();
         assert!(parts.contains("Harmonies"));
         assert!(
