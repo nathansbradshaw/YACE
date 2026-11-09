@@ -1629,6 +1629,7 @@ impl Studio {
         artist: String,
         bpm: f64,
         duration: f64,
+        _location: super::new_location::Choice,
     ) -> Result<()> {
         let (ini, chart) = crate::project_recording::blank_song(&title, &artist, bpm, duration)?;
         let Some(output) = rfd::AsyncFileDialog::new()
@@ -1846,6 +1847,7 @@ impl Studio {
         artist: String,
         timing: TempoMap,
         info: crate::song_import::SongInfo,
+        _location: super::new_location::Choice,
     ) -> Result<()> {
         let (ini, chart) = crate::song_metadata::blank_song_with_timing(&title, &artist, &timing)?;
         let Some(output) = rfd::AsyncFileDialog::new()

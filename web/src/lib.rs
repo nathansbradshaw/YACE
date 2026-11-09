@@ -121,6 +121,7 @@ mod playback_activity;
 pub mod pro_guitar;
 #[path = "../../src/pro_keys.rs"]
 pub mod pro_keys;
+pub mod project_destination;
 pub mod project_folder;
 mod project_integrity;
 #[path = "../../src/project_portability.rs"]

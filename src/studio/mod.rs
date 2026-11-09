@@ -23,6 +23,7 @@ mod icons;
 mod inline_review;
 mod modal;
 mod new_blank;
+mod new_location;
 mod new_song;
 mod note_canvas;
 mod note_gestures;
