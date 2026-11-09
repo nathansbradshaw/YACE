@@ -458,7 +458,7 @@ the derived lead's accepted pitch. That replacement did not require stronger
 support and caused substantial damage on one recording. An experimental
 revision preserves each accepted original pitch, requires original-source
 neural corroboration for recovered gaps, and blocks recovery in exact
-zero-energy parent frames. Quiet nonzero parent energy is not rejected by
+zero-energy mono parent frames. Quiet nonzero parent energy is not rejected by
 this silence guard. Its threshold and corroboration requirement were selected
 using only leave-one-development-artist-out predictions.
 
@@ -470,6 +470,44 @@ Results on the newly exposed eight artists are regression evidence for the
 revision; they cannot establish its held-out quality gate. Another eight
 previously untested artists were selected and its settings frozen before
 reading their target notes.
+
+That second eight-artist evaluation has now completed. All eight required native
+HTDemucs isolation from their full mixes. Against faster High, missing-plus-wrong
+error fell by 27.22% for contours and 29.51% for exported notes. Exported-note
+pitch accuracy rose from 29.59% to 50.37%, voiced recall from 31.99% to 53.58%,
+and wrong-pitch proportion fell from 6.36% to 5.67%. False voicing rose from
+7.18% to 10.26%, exceeding the two-point limit. The primary gate failed. The
+existing five-model option already had 9.68% false voicing on these recordings;
+merely tightening added-gap thresholds while preserving all its pitches cannot
+remove that baseline error. The revision remains private and experimental.
+Its exact-zero guard measures mono energy: counterphase channels or missing
+energy mappings must be checked before treating it as evidence of stereo silence.
+
+On the four development artists, a separate short-window experiment tried
+512/1024-sample YIN/McLeod probes, at least three fundamental cycles and RMVPE
+agreement. No tested rule met the full development gate. An audit of missing
+High frames found McLeod absent on about 96% of them, while RMVPE at confidence
+0.1 matched about 60% of those missing targets. This identifies a classical
+periodicity bottleneck; removing its veto without another activity check also
+admits leakage and does not establish a safe replacement.
+
+### Speech activity evidence
+
+`tools/vocal-speech-probe` adds a pinned, local Rust Silero VAD experiment
+independent of words and pitch selection. See its README for model revision,
+checksum, MIT terms, preprocessing and runtime requirements. Raw scores retain
+source/PCM/model/implementation identities and the original 32 ms block clock.
+The framing and validation are shared with the browser target; only the native
+research CLI runs the graph. No quality mode or generation filter is enabled.
+
+Four development recordings gave bit-identical scores to an independent local
+protocol implementation. A development-selected veto protecting faster High's
+acoustic voicing was then checked on the already-exposed second eight-artist
+set. Exported-note pitch accuracy was 45.49%, voiced recall 48.27%, wrong-pitch
+proportion 5.44%, and false voicing 9.45% against High's 7.18%. The false-voicing
+limit still failed; this is regression evidence, not a new held-out test.
+Speech activity can reject genuine singing and must not be treated as evidence
+that an unsupported vocal pitch or a missing word is silence.
 
 ### Additional acoustic estimator research
 
