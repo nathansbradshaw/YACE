@@ -24,7 +24,10 @@ document on the feature branch validates displayed/hidden hits and dedicated
 percussion scoring phrases without changing pitched/talkie syllables. It refuses
 phrases that overlap the applicable lead or harmony singing phrases. Project
 persistence, MIDI editing, placement/selection/Undo/preview controls and actual
-native, browser and game acceptance remain open.
+native, browser and game acceptance remain open. A strict MIDI reader extracts
+dedicated source phrases with original hit and scoring-marker attributes;
+ambiguous, mixed singing/percussion and uncovered source hits refuse the editable
+view. This reader does not change the source or qualify an application workflow.
 
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer
