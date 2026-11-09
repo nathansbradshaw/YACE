@@ -117,6 +117,8 @@ pub mod persistence;
 pub mod piano_model;
 pub mod pipeline;
 mod playback_activity;
+#[path = "../../src/pro_guitar.rs"]
+pub mod pro_guitar;
 #[path = "../../src/pro_keys.rs"]
 pub mod pro_keys;
 pub mod project_folder;
@@ -149,8 +151,6 @@ pub mod sections;
 pub mod separation;
 #[path = "../../src/six_fret.rs"]
 pub mod six_fret;
-#[path = "../../src/pro_guitar.rs"]
-pub mod pro_guitar;
 #[path = "../../src/song_files.rs"]
 pub mod song_files;
 pub mod song_import;
