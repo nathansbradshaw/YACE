@@ -189,7 +189,7 @@ events and note-proposal safety. Actual static controls moved/resized ranges,
 created a range from selected notes, kept Pro Keys independent, refused stale
 forms and exercised Undo/Redo, complete-backup reopening and browser restart.
 The source-clock preview displayed SOLO inside a range and cleared it outside.
-Native GUI, hosted controls, recording-loop/current-loop creation, independent
+Native GUI, recording-loop/current-loop creation, independent
 game/controller/musical and broader fault gates remain open.
 
 The integrated `5d49dda` static runtime repeated a concrete late-difficulty case:
@@ -199,6 +199,15 @@ restored the corresponding history. Independent downloaded-MIDI inspection
 confirmed no resurrected solo markers, unchanged other guitar events, exact
 other raw tracks and the original WAV. Twelve solo-related cases, 41 unfiltered
 editor/export integrations and strict native/editor plus WASM Clippy passed.
+
+The deployed `5d49dda` runtime repeated solo creation at ticks 1440–1920 and
+inheritance by a new Medium difficulty using invented MIDI without audio.
+Removing the range, Undo/Redo and adding Easy retained the cleared state.
+Independent authored and cleared MIDI inspection retained every other raw track
+and guitar event. The complete revision-7 backup verified all 15 references,
+four Undo checkpoints and explicit empty solo arrays on Expert, Medium and Easy.
+This qualifies the exercised hosted controls, export and backup subset;
+remaining native, musical/game and broader recovery gates stay open.
 Drum fill/activation and single/double-roll authoring has a shared Rust range
 model and project commands on its feature branch. It uses the existing S64,
 S65 and S66 conversion; S64 retains an activation interval without inventing a
