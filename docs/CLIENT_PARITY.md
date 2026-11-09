@@ -569,6 +569,18 @@ Undo checkpoints; a fresh tab's saved-project picker reopened the accepted copy,
 with Undo returning to tick 2 and Redo restoring tick 3. The served module and
 WASM matched the published artifact, and the original workspace was restored.
 
+On 2026-11-09, an isolated Edge profile repeated this workflow against hosted
+source `f201484e`. A new blank chart saved Green at tick 480. One tab saved tick
+481; a stale tab's tick-479 edit was refused with the recovery instructions.
+Reload retained tick 481. Undo returned to 480 and Redo restored 481, which
+survived another reload. The downloaded recovery ZIP retained the refused
+tick-479 draft and two Undo checkpoints; the independent complete backup
+retained the accepted tick-481 revision. Both downloads passed every ZIP CRC
+check. After forcibly terminating only that verification browser process,
+restarting its profile automatically reopened the accepted revision and note.
+This qualifies that controlled process-exit case; quota, eviction and other
+storage-failure cases still need acceptance evidence.
+
 The browser keeps a desktop workspace at least 1024×600 CSS pixels. A smaller
 window shows an inline notice with per-tab dismissal, without moving focus or
 changing playback. Actual static and hosted checks exercised 1024×600,
