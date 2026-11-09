@@ -388,6 +388,9 @@ pub enum Action {
         document: crate::vocal_percussion::PercussionChart,
     },
     ClearVocalPercussion,
+    EditVocalPercussion {
+        edit: crate::vocal_percussion::Edit,
+    },
     DeleteVocalNote {
         index: usize,
     },
@@ -1769,6 +1772,7 @@ impl Store {
                 | Action::EditHarmonies { .. }
                 | Action::SetVocalPercussion { .. }
                 | Action::ClearVocalPercussion
+                | Action::EditVocalPercussion { .. }
                 | Action::DeleteVocalNote { .. }
                 | Action::SetVocalGeneration { .. }
                 | Action::SetVocalReview { .. }
@@ -2296,6 +2300,17 @@ impl Store {
                     "No editable vocal percussion"
                 );
                 doc.content.vocal_percussion = Some(crate::vocal_percussion::State::Cleared);
+            }
+            Action::EditVocalPercussion { edit } => {
+                let current = self.vocal_percussion(&doc)?;
+                let next = edit.apply(current.as_ref(), doc.timing(self)?.resolution)?;
+                // Preflight the immutable source even when a saved authored
+                // document already supplies the current editing view.
+                crate::song_files::game_midi::percussion_view(&self.root.join("source"))?;
+                doc.content.vocal_percussion = Some(match next {
+                    Some(document) => crate::vocal_percussion::State::Authored { document },
+                    None => crate::vocal_percussion::State::Cleared,
+                });
             }
             Action::DeleteVocalNote { index } => {
                 let chart = doc.content.vocals.as_mut().context("No vocal chart")?;

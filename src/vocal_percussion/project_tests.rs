@@ -196,6 +196,63 @@ fn saved_percussion_edits_reopen_with_undo_redo_and_unchanged_source() {
     );
 }
 #[test]
+fn selected_hit_commands_are_atomic_durable_and_restore_legacy_inheritance_with_undo() {
+    let (_root, store) = project(true, false);
+    let original = authored(&store).unwrap();
+    let expected = original.tracks[&Part::Lead].hits[0].clone();
+    let mut hit = expected.clone();
+    hit.displayed = !hit.displayed;
+    let edit = Edit::PutHit {
+        part: Part::Lead,
+        index: Some(0),
+        expected: Some(expected),
+        hit,
+        phrase: None,
+    };
+    apply(&store, Action::EditVocalPercussion { edit: edit.clone() }).unwrap();
+    let before = fs::read(store.root.join("project.json")).unwrap();
+    assert!(apply(&store, Action::EditVocalPercussion { edit }).is_err());
+    assert_eq!(fs::read(store.root.join("project.json")).unwrap(), before);
+    let reopened = Store::new(&store.root);
+    let changed = authored(&reopened).unwrap();
+    assert_ne!(changed, original);
+    apply(&reopened, Action::Undo).unwrap();
+    assert!(reopened.load().unwrap().content.vocal_percussion.is_none());
+    assert_eq!(authored(&reopened), Some(original));
+    apply(&reopened, Action::Redo).unwrap();
+    assert_eq!(authored(&reopened), Some(changed));
+}
+#[test]
+fn removing_final_source_hits_records_a_clear_instead_of_restoring_the_archive() {
+    let (_root, store) = project(true, false);
+    for part in [Part::Lead, Part::Harm1] {
+        let current = authored(&store).unwrap();
+        apply(
+            &store,
+            Action::EditVocalPercussion {
+                edit: Edit::RemoveHit {
+                    part,
+                    index: 0,
+                    expected: current.tracks[&part].hits[0].clone(),
+                },
+            },
+        )
+        .unwrap();
+    }
+    let reopened = Store::new(&store.root);
+    assert_eq!(
+        reopened.load().unwrap().content.vocal_percussion,
+        Some(State::Cleared)
+    );
+    assert!(authored(&reopened).is_none());
+    apply(&reopened, Action::Undo).unwrap();
+    let last = authored(&reopened).unwrap();
+    assert_eq!(last.tracks.len(), 1);
+    assert!(last.tracks.contains_key(&Part::Harm1));
+    apply(&reopened, Action::Redo).unwrap();
+    assert!(authored(&reopened).is_none());
+}
+#[test]
 fn conflicting_singing_and_unsupported_original_percussion_refuse_without_saving() {
     let (_root, store) = project(false, false);
     apply(

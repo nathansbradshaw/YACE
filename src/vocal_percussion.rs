@@ -15,6 +15,9 @@ use std::collections::BTreeMap;
 #[path = "vocal_percussion/midi.rs"]
 mod midi;
 pub use midi::{append_midi, import_midi, rewrite_midi};
+#[path = "vocal_percussion/edit.rs"]
+mod edit;
+pub use edit::Edit;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
