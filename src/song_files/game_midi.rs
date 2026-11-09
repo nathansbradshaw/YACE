@@ -374,6 +374,68 @@ pub fn drum_activation_editable(song: &Path) -> Result<bool> {
     })
 }
 
+/// Read applicable physical lane scopes without normalizing source attributes.
+/// Conventional MIDI markers always include Expert and optionally Hard at
+/// velocities 41..=50. Dedicated Pro Keys owners retain their own difficulty.
+pub fn lane_ranges(song: &Path) -> Result<Option<crate::lane_ranges::Tracks>> {
+    source(song)?
+        .map(|(_, directory)| decoded_lane_ranges(&fs::read(directory.join("notes.mid"))?))
+        .transpose()
+}
+
+fn decoded_lane_ranges(bytes: &[u8]) -> Result<crate::lane_ranges::Tracks> {
+    use crate::lane_ranges::{self, Kind, Range, Tracks};
+    let midi = midly::Smf::parse(bytes)?;
+    let mut result = Tracks::new();
+    let mut owners = std::collections::BTreeSet::new();
+    for physical in &midi.tracks {
+        let Some(name) = decode::label(physical) else {
+            continue;
+        };
+        let Some((suffix, difficulty)) = decode::part(&name) else {
+            continue;
+        };
+        if !lane_ranges::supports(&format!("Expert{suffix}"), Kind::Trill) {
+            continue;
+        }
+        ensure!(
+            owners.insert(name),
+            "Duplicate MIDI lane owners are ambiguous; source retained"
+        );
+        let keys = difficulty.is_some();
+        let spans = decode::spans(physical, |key| key == 127 || !keys && key == 126)?;
+        for span in spans {
+            let range = Range {
+                start: span.start,
+                end: span.end,
+                kind: if span.key == 127 {
+                    Kind::Trill
+                } else {
+                    Kind::Tremolo
+                },
+            };
+            let targets: Vec<_> = if let Some(difficulty) = difficulty {
+                vec![["Easy", "Medium", "Hard", "Expert"][difficulty]]
+            } else if (41..=50).contains(&span.velocity) {
+                vec!["Expert", "Hard"]
+            } else {
+                vec!["Expert"]
+            };
+            for tier in targets {
+                result
+                    .entry(format!("{tier}{suffix}"))
+                    .or_default()
+                    .push(range.clone());
+            }
+        }
+    }
+    for (track, ranges) in &mut result {
+        ranges.sort_by_key(|r| (r.start, r.kind, r.end));
+        lane_ranges::validate_shape(track, ranges)?;
+    }
+    Ok(result)
+}
+
 pub fn edit_drum_ranges(
     project: &mut crate::editor::Project,
     chart: &Chart,

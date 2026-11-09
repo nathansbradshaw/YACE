@@ -11,6 +11,87 @@ use midly::{
 use std::collections::BTreeSet;
 
 type Event = (u64, TrackEventKind<'static>);
+
+#[test]
+fn instrument_lane_ranges_read_physical_expert_hard_and_dedicated_keys_scopes() {
+    use crate::lane_ranges::{Kind, Range};
+    let guitar = track(
+        b"PART GUITAR",
+        vec![
+            (100, on(4, 126, 89)),
+            (240, off(4, 126, 22)),
+            (300, on(5, 127, 45)),
+            (600, off(5, 127, 33)),
+        ],
+    );
+    let keys = track(
+        b"PART REAL_KEYS_X",
+        vec![
+            (720, on(6, 127, 45)),
+            (960, off(6, 127, 18)),
+            (0, on(3, 126, 100)),
+        ],
+    ); // Opaque glissando is not a tremolo.
+    let hard_keys = track(
+        b"PART REAL_KEYS_H",
+        vec![(0, on(2, 127, 88)), (480, off(2, 127, 12))],
+    );
+    let ghl = track(b"PART GUITAR GHL", vec![(0, on(0, 127, 100))]);
+    let drums = track(b"PART DRUMS", vec![(0, on(0, 126, 100))]);
+    let ranges = decoded_lane_ranges(&encode(vec![guitar, keys, hard_keys, ghl, drums])).unwrap();
+    let tremolo = Range {
+        start: 100,
+        end: 240,
+        kind: Kind::Tremolo,
+    };
+    let trill = Range {
+        start: 300,
+        end: 600,
+        kind: Kind::Trill,
+    };
+    assert_eq!(ranges["ExpertSingle"], vec![tremolo, trill.clone()]);
+    assert_eq!(ranges["HardSingle"], vec![trill]);
+    assert!(!ranges.contains_key("MediumSingle"));
+    assert!(!ranges.contains_key("EasySingle"));
+    assert_eq!(
+        ranges["ExpertProKeys"],
+        vec![Range {
+            start: 720,
+            end: 960,
+            kind: Kind::Trill
+        }]
+    );
+    assert_eq!(
+        ranges["HardProKeys"],
+        vec![Range {
+            start: 0,
+            end: 480,
+            kind: Kind::Trill
+        }]
+    );
+    assert_eq!(ranges.len(), 4);
+}
+
+#[test]
+fn instrument_lane_ranges_refuse_ambiguous_or_incomplete_managed_source() {
+    let incomplete = encode(vec![track(b"PART GUITAR", vec![(0, on(0, 127, 100))])]);
+    assert!(decoded_lane_ranges(&incomplete).is_err());
+    let overlap = encode(vec![track(
+        b"PART BASS",
+        vec![
+            (0, on(0, 126, 100)),
+            (120, on(1, 126, 80)),
+            (240, off(0, 126, 10)),
+            (360, off(1, 126, 20)),
+        ],
+    )]);
+    assert!(decoded_lane_ranges(&overlap).is_err());
+    let duplicate = encode(vec![
+        track(b"PART GUITAR", vec![]),
+        track(b"PART GUITAR", vec![]),
+    ]);
+    assert!(decoded_lane_ranges(&duplicate).is_err());
+}
 fn on(channel: u8, key: u8, velocity: u8) -> TrackEventKind<'static> {
     TrackEventKind::Midi {
         channel: u4::new(channel),
