@@ -269,7 +269,10 @@ fn moving_the_last_hit_to_a_new_phrase_is_atomic_and_does_not_hide_invalid_reque
     };
     let next = edit.apply(Some(&chart), 480).unwrap().unwrap();
     assert_eq!(next.tracks[&Part::Lead].phrases, [phrase(960, 1920)]);
-    assert_eq!(chart.tracks[&Part::Lead].hits, [original.clone()]);
+    assert_eq!(
+        chart.tracks[&Part::Lead].hits.as_slice(),
+        std::slice::from_ref(&original)
+    );
     assert!(edit.apply(Some(&next), 480).is_err());
     assert!(
         Edit::PutHit {

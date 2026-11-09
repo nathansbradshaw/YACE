@@ -1127,11 +1127,10 @@ mod tests {
                 if matches!(kind, K::Meta(M::TrackName(_))) {
                     *kind = K::Meta(M::TrackName(b"PART HARM2"));
                 }
-                if let K::Midi { channel, message } = kind {
-                    if matches!(message,N::NoteOn {key,..}|N::NoteOff {key,..} if key.as_int()==105)
-                    {
-                        *channel = u4::new(7);
-                    }
+                if let K::Midi { channel, message } = kind
+                    && matches!(message,N::NoteOn {key,..}|N::NoteOff {key,..} if key.as_int()==105)
+                {
+                    *channel = u4::new(7);
                 }
             }
             events.extend([
