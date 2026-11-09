@@ -46,6 +46,13 @@ jobs:
         run: cargo test --locked --no-default-features --features browser --lib --test browser_host
       - name: Lint the core
         run: cargo clippy --locked --no-default-features --all-targets -- -D warnings
+      - name: Verify the local speech activity probe without models
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: |
+          cargo fmt --manifest-path tools/vocal-speech-probe/Cargo.toml --all -- --check
+          cargo test --locked --manifest-path tools/vocal-speech-probe/Cargo.toml
+          cargo clippy --locked --manifest-path tools/vocal-speech-probe/Cargo.toml --all-targets -- -D warnings
       - name: Test the archive converter
         run: cargo test --locked --manifest-path tools/larsnet-convert/Cargo.toml
 

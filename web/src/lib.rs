@@ -181,6 +181,8 @@ pub mod timing;
 pub mod track_names;
 pub mod transcription;
 mod unload;
+#[path = "../../src/vocal_activity.rs"]
+pub mod vocal_activity;
 #[path = "../../src/vocal_alignment.rs"]
 pub mod vocal_alignment;
 #[path = "../../src/vocal_generation.rs"]
