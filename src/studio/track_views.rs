@@ -348,7 +348,10 @@ pub fn available(studio: Studio) -> Vec<String> {
         .into_iter()
         .filter(|id| tier(id) == Some(difficulty))
         .collect();
-    if doc.content.vocals.is_some() || doc.selected_track == "Vocals" {
+    if doc.content.vocals.is_some()
+        || doc.content.harmonies.is_some()
+        || doc.selected_track == "Vocals"
+    {
         tracks.push("Vocals".into());
     }
     tracks

@@ -819,6 +819,33 @@ fn adaptive_feedback_recovers_supported_gaps_without_words_and_preserves_authore
     assert_eq!(store.load().unwrap().content.vocals, before.content.vocals);
     apply(&store, Action::Redo).unwrap();
     assert_eq!(store.load().unwrap().content.vocals, after.content.vocals);
+    // Updating the adaptive recipe must not make previously added drafts
+    // appear certain. Old proposals cannot be applied, but their witnesses
+    // remain visible and survive a subsequent current check.
+    let mut earlier = after.clone();
+    earlier
+        .content
+        .vocal_pitch_analysis
+        .as_mut()
+        .unwrap()
+        .adaptive
+        .as_mut()
+        .unwrap()
+        .implementation_sha256 = "a".repeat(64);
+    fixture::save(&store, &earlier);
+    for note in chart
+        .notes
+        .iter()
+        .filter(|n| !before.content.vocals.as_ref().unwrap().notes.contains(n))
+    {
+        let e = analysis::current_evidence(&earlier, &timing, note).unwrap();
+        assert!(
+            e.uncertain
+                && e.reasons
+                    .iter()
+                    .any(|r| r.contains("earlier analysis implementation"))
+        );
+    }
     // A normal phrase check must not erase uncertainty from deep repairs.
     let next = analysis::propose(
         &after,
@@ -837,6 +864,73 @@ fn adaptive_feedback_recovers_supported_gaps_without_words_and_preserves_authore
         .iter()
         .filter(|n| !before.content.vocals.as_ref().unwrap().notes.contains(n))
     {
-        assert!(analysis::current_evidence(&checked, &timing, note).is_some_and(|e| e.uncertain));
+        assert!(
+            analysis::current_evidence(&checked, &timing, note).is_some_and(|e| {
+                e.uncertain
+                    && e.reasons
+                        .iter()
+                        .any(|r| r.contains("earlier analysis implementation"))
+            })
+        );
     }
+}
+
+#[test]
+fn adaptive_short_clip_cannot_confirm_itself_by_changing_output_boundaries() {
+    let temp = tempfile::tempdir().unwrap();
+    let (store, mut generation) = setup(temp.path());
+    let mut p = store.load().unwrap();
+    p.duration = 0.5;
+    let chart = p.content.vocals.as_mut().unwrap();
+    chart.notes.truncate(1);
+    chart.notes[0].start = 432;
+    chart.notes[0].end = 470;
+    chart.phrases[0].end = 480;
+    p.content.stems.as_mut().unwrap().frames = 22050;
+    let timing = p.timing(&store).unwrap();
+    generation.duration_seconds = 0.5;
+    observations(&mut generation, &[(0.1, 0.4, 57.)], false);
+    generation.pitch_frames.truncate(51);
+    let pcm = (0..8000)
+        .map(|i| {
+            let t = i as f64 / 16000.;
+            if (0.1..0.4).contains(&t) {
+                (0.2 * (std::f64::consts::TAU * 220. * t).sin()) as f32
+            } else {
+                0.
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut old = generation.rmvpe_pitch.take().unwrap();
+    old.frames.truncate(51);
+    let mut raw = chart_engine::vocal_rmvpe::finish_pcm(&pcm, old.frames).unwrap();
+    raw.audio_sha256 = old.audio_sha256;
+    raw.vocal_stem_sha256 = old.vocal_stem_sha256;
+    generation.rmvpe_pitch = Some(raw);
+    let stereo = pcm.iter().flat_map(|s| [*s, *s]).collect::<Vec<_>>();
+    let mut review = chart_engine::vocal_adaptive::Review::new(
+        &p,
+        &timing,
+        &generation,
+        None,
+        pcm,
+        &stereo,
+        &stereo,
+    )
+    .unwrap();
+    let mut calls = 0;
+    while let Some(w) = review.next_window().unwrap() {
+        assert_eq!((w.context_start, w.context_end), (0, 51));
+        review
+            .complete(
+                &w,
+                generation.rmvpe_pitch.as_ref().unwrap().frames[w.start..w.end].to_vec(),
+            )
+            .unwrap();
+        calls += 1;
+    }
+    let result = review.finish().unwrap();
+    assert!(calls > 1);
+    assert!(result.section.repairs.is_empty());
+    assert!(result.adaptive.unwrap().remaining_residual_frames > 0);
 }

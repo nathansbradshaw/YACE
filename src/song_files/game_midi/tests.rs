@@ -719,13 +719,161 @@ fn vocal_edits_preserve_talkie_pitch_channels_percussion_overdrive_and_phrase_at
     ] {
         assert!(notes.contains(&event), "{event:?}");
     }
-    let smf = Smf::parse(&bytes).unwrap();
-    let view = merge::vocal_view(&smf).unwrap().unwrap();
+    let view = merge::vocal_view(&bytes).unwrap().unwrap();
     assert_eq!(
         crate::vocals::import_midi(&view).unwrap().notes[1].start,
         750
     );
     assert_eq!(chunk(&bytes, "HARM1"), chunk(&original, "HARM1"));
+}
+
+fn vocal_dedicated_percussion_source(uncovered: bool) -> Vec<u8> {
+    encode(vec![
+        track(
+            b"TEMPO",
+            vec![(
+                0,
+                TrackEventKind::Meta(MetaMessage::Tempo(u24::new(500000))),
+            )],
+        ),
+        track(
+            b"PART VOCALS",
+            vec![
+                (0, on(7, 105, 90)),
+                (960, off(7, 105, 7)),
+                (0, on(0, 116, 100)),
+                (960, off(0, 116, 11)),
+                (0, TrackEventKind::Meta(MetaMessage::Text(b"[mood_play]"))),
+                (240, TrackEventKind::Meta(MetaMessage::Lyric(b"Hello"))),
+                (240, on(3, 60, 86)),
+                (360, off(3, 60, 9)),
+                (720, TrackEventKind::Meta(MetaMessage::Lyric(b"World#"))),
+                (720, on(5, 67, 74)),
+                (840, on(5, 67, 0)),
+                (2000, on(10, 106, 84)),
+                (2960, off(10, 106, 11)),
+                (2160, on(2, 96, 93)),
+                (2160, on(2, 96, 0)),
+                (if uncovered { 3000 } else { 2400 }, on(5, 97, 72)),
+                (if uncovered { 3048 } else { 2448 }, off(5, 97, 17)),
+            ],
+        ),
+        track(
+            b"PART GUITAR",
+            vec![(960, on(0, 96, 100)), (1080, off(0, 96, 17))],
+        ),
+        track(
+            b"VENUE",
+            vec![(
+                123,
+                TrackEventKind::Meta(MetaMessage::Text(b"Keep independent sentinel")),
+            )],
+        ),
+    ])
+}
+
+#[test]
+fn vocal_dedicated_percussion_import_keeps_singers_editable_and_preserves_both_on_export() {
+    let original = vocal_dedicated_percussion_source(false);
+    let expected_pc = crate::vocal_percussion::import_midi(&original)
+        .unwrap()
+        .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    let doc = store.load().unwrap();
+    let mut vocals = doc
+        .content
+        .vocals
+        .clone()
+        .expect("Dedicated PC must not hide singing");
+    assert_eq!(vocals.notes.len(), 2);
+    assert_eq!(vocals.phrases.len(), 1);
+    assert_eq!(vocals.phrases[0].end, 960);
+    assert!(doc.content.vocal_percussion.is_none());
+    assert_eq!(
+        store.vocal_percussion(&doc).unwrap(),
+        Some(expected_pc.clone())
+    );
+    vocals.notes[0].start = 300;
+    vocals.notes[0].end = 420;
+    apply(
+        &store,
+        Action::SetVocals {
+            document: vocals.clone(),
+        },
+    )
+    .unwrap();
+    let bytes = export(&store, &root.path().join("edited"));
+    assert_eq!(
+        crate::vocal_percussion::import_midi(&bytes).unwrap(),
+        Some(expected_pc.clone())
+    );
+    let notes = events(&bytes, "PART VOCALS");
+    for event in [
+        (300, on(3, 60, 86)),
+        (420, off(3, 60, 9)),
+        (2000, on(10, 106, 84)),
+        (2960, off(10, 106, 11)),
+        (2160, on(2, 96, 93)),
+        (2160, on(2, 96, 0)),
+        (2400, on(5, 97, 72)),
+        (2448, off(5, 97, 17)),
+    ] {
+        assert!(notes.contains(&event), "{event:?}");
+    }
+    for name in ["TEMPO", "PART GUITAR", "VENUE"] {
+        assert_eq!(chunk(&bytes, name), chunk(&original, name));
+    }
+    let reopened = Store::create(
+        &root.path().join("edited"),
+        None,
+        &root.path().join("reopened"),
+    )
+    .unwrap();
+    assert_eq!(reopened.load().unwrap().content.vocals, Some(vocals));
+    assert_eq!(
+        reopened
+            .vocal_percussion(&reopened.load().unwrap())
+            .unwrap(),
+        Some(expected_pc.clone())
+    );
+    apply(&store, Action::DeleteVocalNote { index: 1 }).unwrap();
+    apply(&store, Action::DeleteVocalNote { index: 0 }).unwrap();
+    let cleared = export(&store, &root.path().join("cleared-singers"));
+    assert_eq!(
+        crate::vocal_percussion::import_midi(&cleared).unwrap(),
+        Some(expected_pc)
+    );
+    assert!(
+        !events(&cleared, "PART VOCALS")
+            .iter()
+            .any(|(_, kind)| matches!(kind,
+        TrackEventKind::Midi {message: MidiMessage::NoteOn {key, vel}, ..}
+        if (36..=84).contains(&key.as_int()) && vel.as_int()>0))
+    );
+    let (_, archived) = source(&store.root.join("source")).unwrap().unwrap();
+    assert_eq!(fs::read(archived.join("notes.mid")).unwrap(), original);
+    assert_eq!(
+        fs::read(root.path().join("song/notes.mid")).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn vocal_dedicated_percussion_import_does_not_guess_scoring_for_uncovered_source_hits() {
+    let original = vocal_dedicated_percussion_source(true);
+    assert!(crate::vocal_percussion::import_midi(&original).is_err());
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    let doc = store.load().unwrap();
+    assert!(doc.content.vocals.is_none());
+    assert!(
+        doc.review
+            .coverage_limits
+            .iter()
+            .any(|warning| warning.contains("Empty scoring phrase"))
+    );
+    assert_eq!(export(&store, &root.path().join("retained")), original);
 }
 
 #[test]

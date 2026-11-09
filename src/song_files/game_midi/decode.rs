@@ -280,7 +280,7 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
     let mut names = BTreeSet::new();
     let mut attributes = Vec::new();
     let mut warnings = vec!["Original MIDI retained for export. Unsupported tracks and events are preserved; their controls are not editable here.".into(),
-        "MIDI Star Power is shared across an instrument's difficulties. Pro Keys range markers, harmonies, venue events and other unsupported controls are retained in the source; they are not editable here.".into()];
+        "MIDI Star Power is shared across an instrument's difficulties. Pro Keys range markers, venue events and other unsupported controls are retained in the source; they are not editable here.".into()];
     let mut has_game_track = false;
     for track in &smf.tracks {
         let name = label(track).unwrap_or_default();
@@ -594,7 +594,7 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
     let chart = Chart::parse(raw)?;
     // Filter only a supported lead-vocal view; its other original events remain
     // in the immutable source for export rather than failing the entire song.
-    let vocals = super::merge::vocal_view(&smf)?
+    let vocals = super::merge::vocal_view(bytes)?
         .map(|bytes| crate::vocals::import_midi(&bytes))
         .transpose();
     let vocals = match vocals {

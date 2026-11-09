@@ -213,6 +213,11 @@ fn decoded(raw: &[vocal_pitch::Frame]) -> Result<Vec<PitchFrame>> {
     crate::vocal_pitch_tracking::weighted_note_path(&mut frames, 3.2, &weights, &|| false)?;
     Ok(frames)
 }
+// Match rmvpe_frontend::input: identify the PCM and padding seen by the
+// network, rather than the subsection of its output retained by the caller.
+fn model_context(start: usize, end: usize, frames: usize) -> (usize, usize) {
+    (start.saturating_sub(100), (end + 100).min(frames))
+}
 pub struct Review<'a> {
     project: &'a Project,
     timing: &'a TempoMap,
@@ -292,12 +297,8 @@ impl<'a> Review<'a> {
             .enumerate()
             .map(|(i, f)| {
                 let a = i / 3000 * 3000;
-                (
-                    pitch(f),
-                    a,
-                    (a + 3000).min(n),
-                    usize::from(pitch(f).is_some()),
-                )
+                let (left, right) = model_context(a, (a + 3000).min(n), n);
+                (pitch(f), left, right, usize::from(pitch(f).is_some()))
             })
             .collect();
         Ok(Self {
@@ -385,13 +386,16 @@ impl<'a> Review<'a> {
             let i = w.start + j;
             let p = pitch(new);
             let old = self.contexts[i];
-            let different = (old.1, old.2) != (w.start, w.end);
+            // Core boundaries only select output frames. They do not identify
+            // the model's input: multiple short cores can see identical PCM.
+            let context = (w.context_start, w.context_end);
+            let different = (old.1, old.2) != context;
             let count = if p.is_some() && old.0.zip(p).is_some_and(|(a, b)| (a - b).abs() <= 0.5) {
                 (old.3 + usize::from(different)).min(2)
             } else {
                 usize::from(p.is_some())
             };
-            self.contexts[i] = (p, w.start, w.end, count);
+            self.contexts[i] = (p, context.0, context.1, count);
         }
         // Decode across the full clock, rather than independently segmenting
         // every window. A sustained note may cross any number of chunk edges.

@@ -165,6 +165,8 @@ pub mod song_layout;
 pub mod song_metadata;
 #[path = "../../src/star_power.rs"]
 pub mod star_power;
+#[path = "../../src/solos.rs"]
+pub mod solos;
 pub mod stem_import;
 #[path = "../../src/stem_review.rs"]
 pub mod stem_review;
@@ -218,6 +220,10 @@ pub mod vocal_singing;
 pub mod vocal_singing_tracking;
 #[path = "../../src/vocals.rs"]
 pub mod vocals;
+#[path = "../../src/vocal_harmonies.rs"]
+pub mod vocal_harmonies;
+#[path = "../../src/vocal_percussion.rs"]
+pub mod vocal_percussion;
 #[path = "../../src/waveform.rs"]
 pub mod waveform;
 pub mod worker;
