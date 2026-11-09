@@ -301,8 +301,22 @@ establish complete transcription, listening, GUI or game acceptance.
 five Rust helpers and checksum-pinned local model pack explicitly. Missing tools
 or models stop this requested profile; they never select Standard or faster
 High. Native packaging adds `--vocal-tools RELEASE_TARGET --vocal-models
-PINNED_LOCAL_MODEL_CACHE` alongside `--include-models`. No new weights are
+PINNED_LOCAL_MODEL_CACHE --vocal-runtime ONNXRUNTIME_PUBLISHER_DIRECTORY`
+alongside `--include-models`. No new weights are
 downloaded implicitly by the multi-model pack.
+
+The private macOS arm64 pack includes ONNX Runtime 1.24.4 and its license notices.
+The publisher directory contains `capi/libonnxruntime.1.24.4.dylib`, `LICENSE`
+and `ThirdPartyNotices.txt`; all three source checksums are pinned in
+`vocal_runtime.rs`. Packaging signs the copied library and records its packaged
+checksum in the resource seal. Helpers receive that absolute path per child
+process, so launching from the Dock requires no developer environment setting.
+Missing or replaced packaged resources fail explicitly. Runtime identity also
+separates model caches; known compatible results survive app updates, while old
+results with unknown runtime provenance remain preserved in their prior folder.
+Research replay tools can point `--cache` at the corresponding
+`onnx-runtime-SOURCE_SHA256` directory. The bundled runtime supports macOS arm64;
+no other platform runtime is silently substituted.
 
 Source/model/implementation-bound salience and note-event caches are shared
 across repeat runs of the recording. Cancellation terminates the owned worker
