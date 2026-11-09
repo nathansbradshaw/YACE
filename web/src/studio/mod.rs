@@ -29,6 +29,10 @@ mod generation_actions;
 mod generation_jobs;
 #[path = "../../../src/studio/generation_status.rs"]
 mod generation_status;
+#[path = "../../../src/studio/harmony_editor.rs"]
+mod harmony_editor;
+#[path = "../../../src/studio/percussion_editor.rs"]
+mod percussion_editor;
 pub mod github;
 #[path = "../../../src/studio/icons.rs"]
 mod icons;

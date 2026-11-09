@@ -136,6 +136,21 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
             "Vocal review requires a vocal chart"
         );
     }
+    if let Some(harmonies) = &project.content.harmonies {
+        harmonies.validate_timing(&timing, project.duration)?;
+    }
+    if let Some(percussion) = project
+        .content
+        .vocal_percussion
+        .as_ref()
+        .and_then(|state| state.document())
+    {
+        percussion.validate_timing(&timing, project.duration)?;
+        percussion.validate_with_singing(
+            project.content.vocals.as_ref(),
+            project.content.harmonies.as_ref(),
+        )?;
+    }
     if let Some(vocals) = &project.content.vocals {
         vocals.validate()?;
         ensure!(

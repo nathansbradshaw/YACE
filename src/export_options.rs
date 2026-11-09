@@ -58,9 +58,32 @@ pub fn available(store: &Store, doc: &Project) -> Result<BTreeSet<String>> {
     {
         tracks.insert("Vocals".into());
     }
-    tracks.extend(crate::song_files::game_midi::extra_parts(
+    if doc.content.harmonies.is_some()
+        || crate::song_files::game_midi::retained_harmony_controls(&store.root.join("source"))?
+    {
+        tracks.insert("Harmonies".into());
+    }
+    let owners = crate::song_files::game_midi::percussion_owners(
         &store.root.join("source"),
-    )?);
+        doc.content.vocal_percussion.as_ref(),
+    )?;
+    if owners.contains(&crate::vocal_percussion::Part::Lead) {
+        tracks.insert("Vocals".into());
+    }
+    if owners.contains(&crate::vocal_percussion::Part::Harm1) {
+        tracks.insert("Harmonies".into());
+    }
+    tracks.extend(
+        crate::song_files::game_midi::extra_parts(&store.root.join("source"))?
+            .into_iter()
+            .filter(|key| {
+                crate::song_files::game_midi::logical_vocal_owner(
+                    key.strip_prefix("MIDI: "),
+                    &owners,
+                )
+                .is_none()
+            }),
+    );
     Ok(tracks)
 }
 impl Options {
@@ -92,19 +115,23 @@ impl Options {
         );
         if self.target == Target::CloneHero {
             ensure!(
-                !selected.iter().any(|t| t == "Vocals"
-                    || crate::keys::is_pro(t)
-                    || crate::pro_guitar::is_track(t)
-                    || t.starts_with("MIDI: ")),
-                "For Clone Hero, deselect vocals, Pro Keys, Pro Guitar, Pro Bass and other original MIDI parts, or choose Preserve all parts"
+                !selected
+                    .iter()
+                    .any(|t| matches!(t.as_str(), "Vocals" | "Harmonies")
+                        || crate::keys::is_pro(t)
+                        || crate::pro_guitar::is_track(t)
+                        || t.starts_with("MIDI: ")),
+                "For Clone Hero, deselect vocals, harmonies, Pro Keys, Pro Guitar, Pro Bass and other original MIDI parts, or choose Preserve all parts"
             );
         }
         if self.format == Format::Chart {
             ensure!(
-                !selected.iter().any(|t| t == "Vocals"
-                    || crate::keys::is_pro(t)
-                    || crate::pro_guitar::is_track(t)),
-                "Vocals, Pro Keys, Pro Guitar and Pro Bass require MIDI; choose Automatic or MIDI"
+                !selected
+                    .iter()
+                    .any(|t| matches!(t.as_str(), "Vocals" | "Harmonies")
+                        || crate::keys::is_pro(t)
+                        || crate::pro_guitar::is_track(t)),
+                "Vocals, harmonies, Pro Keys, Pro Guitar and Pro Bass require MIDI; choose Automatic or MIDI"
             );
             ensure!(
                 !imported_midi,
@@ -126,7 +153,9 @@ impl Options {
             Format::Midi => true,
             Format::Automatic => {
                 selected.iter().any(|t| {
-                    t == "Vocals" || crate::keys::is_pro(t) || crate::pro_guitar::is_track(t)
+                    matches!(t.as_str(), "Vocals" | "Harmonies")
+                        || crate::keys::is_pro(t)
+                        || crate::pro_guitar::is_track(t)
                 }) || imported_midi
             }
         }

@@ -129,8 +129,46 @@ fn completed_project_job(root: &Path, store: &Store, instruments: &[&str]) -> st
 
 #[test]
 fn whole_vocal_generation_updates_the_existing_project_with_undo_and_unchanged_source() {
+    use chart_engine::{
+        vocal_harmonies::{HarmonyChart, Part, Voice as HarmonyVoice},
+        vocals::{Syllable, VocalNote, VocalPhrase, VocalTone},
+    };
     let root = tempfile::tempdir().unwrap();
     let store = fixture(root.path());
+    let phrase = VocalPhrase {
+        start: 0,
+        end: 1920,
+        player: 1,
+    };
+    let harmonies = HarmonyChart {
+        version: 1,
+        resolution: 960,
+        source: "Authored harmony before lead generation".into(),
+        phrases: vec![phrase.clone()],
+        lyric_phrases: vec![phrase],
+        voices: std::collections::BTreeMap::from([(
+            Part::Harm3,
+            HarmonyVoice {
+                source: "Independent third singer".into(),
+                notes: vec![VocalNote {
+                    start: 480,
+                    end: 960,
+                    tone: VocalTone::Pitched { midi: 72 },
+                    lyric: Syllable::Missing,
+                    midi: None,
+                }],
+            },
+        )]),
+    };
+    store
+        .apply(Edit {
+            expected_revision: 0,
+            actor: human(),
+            action: Action::SetHarmonies {
+                document: harmonies.clone(),
+            },
+        })
+        .unwrap();
     let before = store.load().unwrap();
     let chart = fs::read(store.root.join("source/notes.chart")).unwrap();
     let audio = fs::read(store.audio_path(&before).unwrap()).unwrap();
@@ -145,6 +183,7 @@ fn whole_vocal_generation_updates_the_existing_project_with_undo_and_unchanged_s
     let after = Store::new(&store.root).load().unwrap();
     assert_eq!(after.revision, before.revision + 1);
     assert_eq!(after.content.vocals.as_ref().unwrap().notes.len(), 1);
+    assert_eq!(after.content.harmonies.as_ref(), Some(&harmonies));
     assert_eq!(after.undo.len(), before.undo.len() + 1);
     assert_eq!(
         serde_json::to_value(&after.content.tracks).unwrap(),
@@ -171,7 +210,18 @@ fn whole_vocal_generation_updates_the_existing_project_with_undo_and_unchanged_s
         .unwrap();
     assert_eq!(
         serde_json::to_value(store.load().unwrap().content).unwrap(),
-        serde_json::to_value(before.content).unwrap()
+        serde_json::to_value(&before.content).unwrap()
+    );
+    store
+        .apply(Edit {
+            expected_revision: store.load().unwrap().revision,
+            actor: human(),
+            action: Action::Redo,
+        })
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().content).unwrap(),
+        serde_json::to_value(after.content).unwrap()
     );
 }
 
