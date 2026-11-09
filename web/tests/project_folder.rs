@@ -18,6 +18,123 @@ use yace_web::{
 wasm_bindgen_test_configure!(run_in_browser);
 
 #[wasm_bindgen_test]
+async fn new_project_requires_an_explicit_destination() {
+    use yace_web::project_destination::Choice;
+    let fixture = Fixture::new().await.unwrap();
+    let result = async {
+        let unchosen = Choice::default();
+        ensure!(!unchosen.ready(), "New project silently chose a location");
+        ensure!(
+            unchosen.save(&fixture.root).await.is_err(),
+            "Unchosen destination accepted"
+        );
+        ensure!(
+            !project_folder::linked(&fixture.root),
+            "Rejected choice linked a folder"
+        );
+        ensure!(
+            Choice::Browser.ready(),
+            "Explicit browser choice is unavailable"
+        );
+        Choice::Browser.save(&fixture.root).await?;
+        ensure!(
+            !project_folder::linked(&fixture.root),
+            "Browser choice linked a folder"
+        );
+        ensure!(
+            Store::new(&fixture.root).load()?.revision == 0,
+            "Choosing a location changed the chart"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    fixture.cleanup().await;
+    result.unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn new_project_folder_contains_the_initial_document_and_subsequent_edits() {
+    use yace_web::project_destination::Choice;
+    let fixture = Fixture::new().await.unwrap();
+    let result = async {
+        let choice = Choice::Folder(fixture.folder.clone());
+        ensure!(choice.ready(), "Folder choice wasn't accepted");
+        choice.save(&fixture.root).await?;
+        ensure!(
+            project_folder::linked(&fixture.root),
+            "New project isn't linked to its chosen folder"
+        );
+        let initial = read(&fixture.folder, "project.json").await?;
+        let source = storage::read(fixture.root.join("source/notes.chart"))?;
+        ensure!(
+            serde_json::from_slice::<serde_json::Value>(&initial)?["revision"] == 0,
+            "Initial document wasn't published"
+        );
+        edit(&fixture.root)?;
+        yace_web::persistence::save(&fixture.root, 1, Some(0)).await?;
+        ensure!(
+            serde_json::from_slice::<serde_json::Value>(
+                &read(&fixture.folder, "project.json").await?
+            )?["revision"]
+                == 1,
+            "Edit wasn't autosaved to the selected folder"
+        );
+        storage::clear(&fixture.root);
+        project_folder::open(&fixture.root, fixture.folder.clone()).await?;
+        let reopened = Store::new(&fixture.root).load()?;
+        ensure!(
+            storage::read(fixture.root.join("source/notes.chart"))? == source,
+            "Folder reopen lost the source"
+        );
+        ensure!(
+            reopened.revision == 1 && !reopened.undo.is_empty(),
+            "Folder reopen lost the edit or undo history"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    fixture.cleanup().await;
+    result.unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn rejected_new_project_folder_never_falls_back_to_browser_storage() {
+    use yace_web::project_destination::Choice;
+    let fixture = Fixture::new().await.unwrap();
+    let result = async {
+        let marker = handle(&fixture.folder, "existing.txt").await?;
+        let writer = writable(&marker).await?;
+        JsFuture::from(writer.write_with_str("keep this file"))
+            .await
+            .map_err(error)?;
+        JsFuture::from(writer.close()).await.map_err(error)?;
+        ensure!(
+            Choice::Folder(fixture.folder.clone())
+                .save(&fixture.root)
+                .await
+                .is_err(),
+            "Nonempty folder accepted"
+        );
+        ensure!(
+            !project_folder::linked(&fixture.root),
+            "Rejected folder became active"
+        );
+        ensure!(
+            read(&fixture.folder, "existing.txt").await? == b"keep this file",
+            "Existing file changed"
+        );
+        ensure!(
+            Store::new(&fixture.root).load()?.revision == 0,
+            "Prepared chart wasn't retained for retry"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    fixture.cleanup().await;
+    result.unwrap();
+}
+
+#[wasm_bindgen_test]
 async fn missing_working_files_cannot_replace_a_complete_browser_save() {
     let fixture = Fixture::new().await.unwrap();
     let result = async {
