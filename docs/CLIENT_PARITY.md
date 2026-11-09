@@ -8,11 +8,13 @@ rules; it does not establish that both applications expose working controls.
 Harmony authoring remains an implementation gap in both clients. The isolated
 Rust model and MIDI codec support three independent voices, shared phrase
 ownership and edits that preserve unrelated source tracks and controls. Harmony
-documents now persist in editor saves and Undo/Redo history through a guarded manual
-command. Ordinary MIDI import/export integration and app controls remain
-unavailable; game export refuses projects containing this new editable harmony
-state until that integration is complete. No native, browser or target-game
-harmony workflow is qualified by these core checks.
+documents persist in editor saves and Undo/Redo history through guarded manual
+commands. The shared core imports a supported ordinary MIDI subset, exports
+independent voices and preserves unrelated source tracks and controls. Clearing
+the voices retains source controls; explicitly omitted harmonies stay omitted
+when reopening or authoring new notes later. Unsupported imports remain opaque.
+App controls and actual native, browser and target-game harmony acceptance
+remain open; these core checks do not qualify those workflows.
 
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer

@@ -378,6 +378,7 @@ pub enum Action {
     SetHarmonies {
         document: crate::vocal_harmonies::HarmonyChart,
     },
+    ClearHarmonies,
     DeleteVocalNote {
         index: usize,
     },
@@ -1745,6 +1746,7 @@ impl Store {
                 | Action::SetStemMix { .. }
                 | Action::SetVocals { .. }
                 | Action::SetHarmonies { .. }
+                | Action::ClearHarmonies
                 | Action::DeleteVocalNote { .. }
                 | Action::SetVocalGeneration { .. }
                 | Action::SetVocalReview { .. }
@@ -2223,6 +2225,10 @@ impl Store {
                 }
                 doc.content.harmonies = Some(document.clone());
             }
+            Action::ClearHarmonies => {
+                ensure!(doc.content.harmonies.is_some(), "No editable harmonies");
+                doc.content.harmonies = None;
+            }
             Action::DeleteVocalNote { index } => {
                 let chart = doc.content.vocals.as_mut().context("No vocal chart")?;
                 ensure!(*index < chart.notes.len(), "Unknown vocal note");
@@ -2613,10 +2619,6 @@ impl Store {
         actor: &Actor,
         options: &crate::export_options::Options,
     ) -> Result<()> {
-        ensure!(
-            doc.content.harmonies.is_none(),
-            "Harmony game export is not integrated yet; retain the complete editing project instead"
-        );
         let selected = options.selected(self, doc)?;
         let all_parts = crate::export_options::available(self, doc)?;
         let midi_export = options.midi(self, doc)?;
@@ -2639,6 +2641,9 @@ impl Store {
         if !selected.contains("Vocals") {
             scoped.content.vocals = None;
             scoped.content.vocal_review = None;
+        }
+        if !selected.contains("Harmonies") {
+            scoped.content.harmonies = None;
         }
         let doc = &scoped;
         let source = self.root.join("source");
@@ -2729,6 +2734,9 @@ impl Store {
         if !selected.contains("Vocals") && all_parts.contains("Vocals") {
             ranks.insert("diff_vocals".into(), "-1".into());
         }
+        if all_parts.contains("Harmonies") && !selected.contains("Harmonies") {
+            ranks.insert("diff_vocals_harm".into(), "-1".into());
+        }
         if !ranks.is_empty() {
             let ini = pipeline::song_ini(stage)?;
             fs::write(stage.join("song.ini"), pipeline::update_ini(&ini, &ranks))?;
@@ -2785,6 +2793,28 @@ impl Store {
                 serde_json::to_vec_pretty(&doc.content.track_origins)?,
             )?;
         }
+        if doc
+            .content
+            .harmonies
+            .as_ref()
+            .is_some_and(|chart| chart.voices.values().any(|voice| !voice.notes.is_empty()))
+        {
+            let raw = pipeline::song_ini(stage)?;
+            let fields = pipeline::ini_fields(&raw);
+            if fields
+                .get("diff_vocals_harm")
+                .and_then(|rank| rank.parse::<i32>().ok())
+                .is_none_or(|rank| rank < 0)
+            {
+                fs::write(
+                    stage.join("song.ini"),
+                    pipeline::update_ini(
+                        &raw,
+                        &BTreeMap::from([("diff_vocals_harm".into(), "0".into())]),
+                    ),
+                )?;
+            }
+        }
         // Preserve source generation evidence, but don't present it as a fresh
         // audit of edited notes. Export decisions separately with fingerprints.
         let mut archive = stage.join(".yace/history/editor-source");
@@ -2794,7 +2824,7 @@ impl Store {
             archive_index += 1;
         }
         fs::create_dir(&archive)?;
-        let mut archived = vec!["chart-engine-vocals.json"];
+        let mut archived = vec!["chart-engine-vocals.json", "chart-engine-harmonies.json"];
         if !options.include_audio {
             // These witnesses describe omitted audio. Keep them as history so
             // reopening the chart does not attach checks to a new empty clock.
@@ -2827,6 +2857,12 @@ impl Store {
                 &generated,
             )?
             .unwrap_or(generated);
+            let midi = crate::song_files::game_midi::export_harmonies(
+                &source,
+                midi,
+                doc.content.harmonies.as_ref(),
+                selected.contains("Harmonies"),
+            )?;
             let midi =
                 crate::song_files::game_midi::select_export(&source, stage, midi, &selected)?;
             exported_chart_sha256 = hash(&midi);
@@ -2850,6 +2886,12 @@ impl Store {
                 fs::write(
                     song_layout::path(stage, "chart-engine-vocals.json"),
                     serde_json::to_vec_pretty(vocals)?,
+                )?;
+            }
+            if let Some(harmonies) = &doc.content.harmonies {
+                fs::write(
+                    song_layout::path(stage, "chart-engine-harmonies.json"),
+                    serde_json::to_vec_pretty(harmonies)?,
                 )?;
             }
         }

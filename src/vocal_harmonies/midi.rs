@@ -358,6 +358,34 @@ fn same_content(a: &HarmonyChart, b: &HarmonyChart) -> bool {
             .all(|part| notes(a, part) == notes(b, part))
 }
 
+/// Remove editable singer notes and lyrics while retaining source percussion,
+/// scoring/lyric ranges, overdrive and author controls. An empty editable
+/// document must never restore the original pitched singers on later export.
+pub fn clear_midi(original: &[u8], before: &HarmonyChart) -> Result<Vec<u8>> {
+    before.validate()?;
+    let baseline = import_midi(original)?.context("No editable source harmonies")?;
+    ensure!(
+        same_content(&baseline, before),
+        "Harmony baseline differs from the retained source; reopen before exporting"
+    );
+    let source = Smf::parse(original)?;
+    let (header, chunks) = midi_chunks(original, source.tracks.len())?;
+    let mut result = original[..header].to_vec();
+    for (track, raw) in source.tracks.iter().zip(chunks) {
+        if part(track)?.is_none() {
+            result.extend(raw);
+            continue;
+        }
+        let body = absolute(track)?
+            .into_iter()
+            .filter(|(_, kind)| !note_or_lyric(*kind))
+            .collect();
+        let encoded = encode_events(source.header, body)?;
+        result.extend(midi_chunks(&encoded, 1)?.1[0]);
+    }
+    Ok(result)
+}
+
 /// Rewrite only explicitly edited harmony components. Lead, unknown tracks,
 /// original controls and unchanged singer chunks stay in their original form.
 /// The baseline must describe this exact source view, never another revision.
@@ -574,6 +602,262 @@ mod tests {
                 assert_eq!(a, b);
             }
         }
+    }
+    fn project_command(store: &crate::editor::Store, action: crate::editor::Action) {
+        store
+            .apply(crate::editor::Request {
+                expected_revision: store.load().unwrap().revision,
+                actor: crate::editor::Actor {
+                    kind: crate::editor::ActorKind::Human,
+                    name: "Harmony interchange fixture".into(),
+                },
+                action,
+            })
+            .unwrap();
+    }
+    fn imported_project() -> (tempfile::TempDir, crate::editor::Store, Vec<u8>) {
+        let root = tempfile::tempdir().unwrap();
+        let song = root.path().join("song");
+        std::fs::create_dir(&song).unwrap();
+        let bytes = controlled_source();
+        std::fs::write(song.join("notes.mid"), &bytes).unwrap();
+        std::fs::write(
+            song.join("song.ini"),
+            "[song]\nname = Independent harmony interchange\nsong_length = 4000\n",
+        )
+        .unwrap();
+        let store =
+            crate::editor::Store::create(&song, None, &root.path().join("project")).unwrap();
+        (root, store, bytes)
+    }
+    fn export_project(store: &crate::editor::Store, path: &std::path::Path) -> Vec<u8> {
+        project_command(
+            store,
+            crate::editor::Action::Export {
+                output: path.into(),
+            },
+        );
+        std::fs::read(path.join("notes.mid")).unwrap()
+    }
+    fn raw_track(bytes: &[u8], name: &[u8]) -> Vec<u8> {
+        let midi = Smf::parse(bytes).unwrap();
+        let chunks = midi_chunks(bytes, midi.tracks.len()).unwrap().1;
+        midi.tracks
+            .iter()
+            .zip(chunks)
+            .find(|(events, _)| {
+                events
+                    .iter()
+                    .any(|e| matches!(e.kind,K::Meta(M::TrackName(n)) if n==name))
+            })
+            .unwrap()
+            .1
+            .to_vec()
+    }
+    #[test]
+    fn ordinary_midi_project_import_edit_export_and_plain_reimport_keep_independent_singers() {
+        use crate::editor::{Action, Store};
+        let (root, store, original) = imported_project();
+        let doc = store.load().unwrap();
+        let parts = crate::export_options::available(&store, &doc).unwrap();
+        assert!(parts.contains("Harmonies"));
+        assert!(
+            !parts
+                .iter()
+                .any(|p| p.starts_with("MIDI: HARM") || p.starts_with("MIDI: PART HARM"))
+        );
+        let lead = doc.content.vocals.clone();
+        let mut harmonies = doc.content.harmonies.unwrap();
+        let note = &mut harmonies.voices.get_mut(&Part::Harm2).unwrap().notes[0];
+        note.start += 1;
+        note.tone = VocalTone::Pitched { midi: 65 };
+        note.lyric = crate::vocals::Syllable::Missing;
+        project_command(
+            &store,
+            Action::SetHarmonies {
+                document: harmonies.clone(),
+            },
+        );
+        let output = root.path().join("export");
+        let bytes = export_project(&store, &output);
+        assert!(
+            std::fs::read_to_string(output.join("song.ini"))
+                .unwrap()
+                .contains("diff_vocals_harm = 0")
+        );
+        assert_other_chunks_identical(&original, &bytes, Part::Harm2);
+        let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+        assert_eq!(
+            reopened.load().unwrap().content.harmonies,
+            Some(harmonies.clone())
+        );
+        assert_eq!(reopened.load().unwrap().content.vocals, lead);
+        let plain = root.path().join("plain");
+        std::fs::create_dir(&plain).unwrap();
+        for name in ["notes.mid", "song.ini"] {
+            std::fs::copy(output.join(name), plain.join(name)).unwrap();
+        }
+        let imported = Store::create(&plain, None, &root.path().join("plain-project")).unwrap();
+        let actual = imported.load().unwrap().content.harmonies.unwrap();
+        assert!(same_content(&actual, &harmonies));
+        assert_eq!(
+            raw_track(&bytes, b"PART VOCALS"),
+            raw_track(&original, b"PART VOCALS")
+        );
+    }
+    #[test]
+    fn clearing_all_harmony_notes_keeps_controls_without_restoring_singers_after_reopen() {
+        use crate::editor::{Action, Store};
+        let (root, store, original) = imported_project();
+        project_command(&store, Action::ClearHarmonies);
+        assert!(store.load().unwrap().content.harmonies.is_none());
+        assert!(
+            crate::export_options::available(&store, &store.load().unwrap())
+                .unwrap()
+                .contains("Harmonies")
+        );
+        let output = root.path().join("cleared");
+        let bytes = export_project(&store, &output);
+        assert!(import_midi(&bytes).unwrap().is_none());
+        let midi = Smf::parse(&bytes).unwrap();
+        for track in &midi.tracks {
+            if let Some(p) = part(track).unwrap() {
+                assert!(track.iter().all(|e| !note_or_lyric(e.kind)));
+                if p == Part::Harm2 {
+                    assert!(
+                        track
+                            .iter()
+                            .any(|e| matches!(e.kind, K::Meta(M::Text(b"[mood_play]"))))
+                    );
+                    for key in [96, 116] {
+                        assert!(track.iter().any(|e|matches!(e.kind,K::Midi{message:N::NoteOn {key:k,vel},..} if k.as_int()==key&&vel.as_int()>0)));
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            raw_track(&original, b"PART VOCALS"),
+            raw_track(&bytes, b"PART VOCALS")
+        );
+        let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+        assert!(reopened.load().unwrap().content.harmonies.is_none());
+        assert_eq!(export_project(&reopened, &root.path().join("again")), bytes);
+        project_command(&store, Action::Undo);
+        assert!(store.load().unwrap().content.harmonies.is_some());
+    }
+    #[test]
+    fn explicit_harmony_omission_is_durable_when_new_notes_are_authored_later() {
+        use crate::{
+            editor::{Action, Actor, ActorKind, Store},
+            export_options::{self, Options},
+        };
+        let (root, store, original) = imported_project();
+        let doc = store.load().unwrap();
+        let mut authored = doc.content.harmonies.clone().unwrap();
+        authored.voices.get_mut(&Part::Harm2).unwrap().notes[0].tone =
+            VocalTone::Pitched { midi: 66 };
+        let selected = export_options::available(&store, &doc)
+            .unwrap()
+            .into_iter()
+            .filter(|part| part != "Harmonies")
+            .collect();
+        let output = root.path().join("omitted");
+        store
+            .export_with_options(
+                &doc,
+                &output,
+                &Actor {
+                    kind: ActorKind::Human,
+                    name: "Explicit harmony omission".into(),
+                },
+                &Options {
+                    tracks: Some(selected),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let bytes = std::fs::read(output.join("notes.mid")).unwrap();
+        assert!(
+            std::fs::read_to_string(output.join("song.ini"))
+                .unwrap()
+                .contains("diff_vocals_harm = -1")
+        );
+        assert!(
+            Smf::parse(&bytes)
+                .unwrap()
+                .tracks
+                .iter()
+                .all(|t| part(t).unwrap().is_none())
+        );
+        let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+        assert!(reopened.load().unwrap().content.harmonies.is_none());
+        assert!(
+            !export_options::available(&reopened, &reopened.load().unwrap())
+                .unwrap()
+                .iter()
+                .any(|p| p == "Harmonies" || p.contains("HARM"))
+        );
+        project_command(
+            &reopened,
+            Action::SetHarmonies {
+                document: authored.clone(),
+            },
+        );
+        let new_output = root.path().join("new-notes");
+        let bytes = export_project(&reopened, &new_output);
+        assert!(same_content(
+            &import_midi(&bytes).unwrap().unwrap(),
+            &authored
+        ));
+        for track in &Smf::parse(&bytes).unwrap().tracks {
+            if part(track).unwrap().is_some() {
+                assert!(
+                    !track
+                        .iter()
+                        .any(|e| matches!(e.kind, K::Meta(M::Text(b"[mood_play]"))))
+                );
+                assert!(!track.iter().any(|e|matches!(e.kind,K::Midi{message:N::NoteOn{key,vel},..} if matches!(key.as_int(),96|116)&&vel.as_int()>0)));
+            }
+        }
+        assert_eq!(
+            raw_track(&original, b"PART VOCALS"),
+            raw_track(&bytes, b"PART VOCALS")
+        );
+        let again = Store::create(&new_output, None, &root.path().join("again-project")).unwrap();
+        assert_eq!(
+            export_project(&again, &root.path().join("again-export")),
+            bytes
+        );
+    }
+    #[test]
+    fn altered_imported_harmony_baseline_refuses_export_without_mutating_project() {
+        let (root, store, _) = imported_project();
+        let doc = store.load().unwrap();
+        let project = std::fs::read(store.root.join("project.json")).unwrap();
+        let baseline = store
+            .root
+            .join("source/.yace/originals/game-midi/harmonies.json");
+        let mut bytes = std::fs::read(&baseline).unwrap();
+        bytes.push(b' ');
+        std::fs::write(&baseline, bytes).unwrap();
+        let output = root.path().join("refused");
+        let error = store
+            .export_with_options(
+                &doc,
+                &output,
+                &crate::editor::Actor {
+                    kind: crate::editor::ActorKind::Human,
+                    name: "Altered baseline refusal fixture".into(),
+                },
+                &Default::default(),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("harmony baseline changed"));
+        assert!(!output.exists());
+        assert_eq!(
+            std::fs::read(store.root.join("project.json")).unwrap(),
+            project
+        );
     }
     #[test]
     fn source_aware_edits_keep_other_singers_lead_alias_and_unedited_controls() {

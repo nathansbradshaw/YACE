@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 #[path = "vocal_harmonies/midi.rs"]
 mod midi;
-pub use midi::{append_midi, import_midi, rewrite_midi};
+pub use midi::{append_midi, clear_midi, import_midi, rewrite_midi};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -191,11 +191,25 @@ mod tests {
         if midi {
             let clock = crate::chart::Chart::parse(text.into()).unwrap();
             let original = crate::game_export::song(&clock, None).unwrap().0;
-            std::fs::write(
-                source.join("notes.mid"),
-                append_midi(&original, &fixture()).unwrap(),
-            )
-            .unwrap();
+            let bytes = append_midi(&original, &fixture()).unwrap();
+            let mut midi = midly::Smf::parse(&bytes).unwrap();
+            let duplicate = midi
+                .tracks
+                .iter()
+                .find(|track| {
+                    track.iter().any(|event| {
+                        matches!(
+                            event.kind,
+                            midly::TrackEventKind::Meta(midly::MetaMessage::TrackName(b"HARM3"))
+                        )
+                    })
+                })
+                .unwrap()
+                .clone();
+            midi.tracks.push(duplicate);
+            let mut opaque = Vec::new();
+            midi.write_std(&mut opaque).unwrap();
+            std::fs::write(source.join("notes.mid"), opaque).unwrap();
         } else {
             std::fs::write(source.join("notes.chart"), text).unwrap();
         }
@@ -254,7 +268,7 @@ mod tests {
         assert!(!String::from_utf8(bytes).unwrap().contains("harmonies"));
     }
     #[test]
-    fn invalid_timing_and_unintegrated_game_export_leave_harmony_project_intact() {
+    fn invalid_timing_and_chart_conversion_leave_harmony_project_intact() {
         use crate::editor::Action;
         let (root, store) = project(false);
         apply(
@@ -278,17 +292,21 @@ mod tests {
         );
         assert_eq!(std::fs::read(&path).unwrap(), before);
         let output = root.path().join("export");
-        assert!(
-            apply(
-                &store,
-                Action::Export {
-                    output: output.clone()
-                }
+        let error = store
+            .export_with_options(
+                &store.load().unwrap(),
+                &output,
+                &crate::editor::Actor {
+                    kind: crate::editor::ActorKind::Human,
+                    name: "Explicit chart conversion fixture".into(),
+                },
+                &crate::export_options::Options {
+                    format: crate::export_options::Format::Chart,
+                    ..Default::default()
+                },
             )
-            .unwrap_err()
-            .to_string()
-            .contains("not integrated yet")
-        );
+            .unwrap_err();
+        assert!(error.to_string().contains("require MIDI"));
         assert!(!output.exists());
         assert_eq!(std::fs::read(path).unwrap(), before);
     }
@@ -366,6 +384,36 @@ mod tests {
         assert_eq!(moved.load().unwrap().content.harmonies, Some(before));
         apply(&moved, Action::Redo).unwrap();
         assert_eq!(moved.load().unwrap().content.harmonies, Some(after));
+    }
+    #[test]
+    fn manually_authored_harmonies_export_as_midi_and_reopen_without_an_original_midi() {
+        use crate::editor::{Action, Store};
+        let (root, store) = project(false);
+        let expected = fixture();
+        apply(
+            &store,
+            Action::SetHarmonies {
+                document: expected.clone(),
+            },
+        )
+        .unwrap();
+        let output = root.path().join("new-harmony-song");
+        apply(
+            &store,
+            Action::Export {
+                output: output.clone(),
+            },
+        )
+        .unwrap();
+        assert!(output.join("notes.mid").is_file());
+        assert!(!output.join("notes.chart").exists());
+        assert!(
+            std::fs::read_to_string(output.join("song.ini"))
+                .unwrap()
+                .contains("diff_vocals_harm = 0")
+        );
+        let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+        assert_eq!(reopened.load().unwrap().content.harmonies, Some(expected));
     }
     pub(super) fn fixture() -> HarmonyChart {
         HarmonyChart {

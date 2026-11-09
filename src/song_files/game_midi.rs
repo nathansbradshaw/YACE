@@ -15,8 +15,11 @@ use std::{
 
 #[path = "game_midi/decode.rs"]
 mod decode;
+#[path = "game_midi/harmonies.rs"]
+mod harmonies;
 #[path = "game_midi/merge.rs"]
 mod merge;
+pub use harmonies::{export_harmonies, retained_harmony_controls};
 pub(crate) use merge::{chunks as midi_chunks, validate_complete as validate_midi_complete};
 #[cfg(test)]
 #[path = "game_midi/tests.rs"]
@@ -85,6 +88,10 @@ struct Imported {
     baseline_vocals_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     retained_vocal_controls: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    baseline_harmonies_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retained_harmony_controls: Option<bool>,
     attributes_chart_sha256: String,
     attributes: Vec<AttributeRecord>,
     warnings: Vec<String>,
@@ -157,7 +164,14 @@ fn original_extra_parts(
         .enumerate()
         .filter_map(|(i, track)| {
             let name = decode::label(track);
-            let managed = if name.as_deref() == Some("PART VOCALS") {
+            let managed = if name
+                .as_deref()
+                .and_then(crate::vocal_harmonies::Part::from_midi)
+                .is_some()
+                && imported.baseline_harmonies_sha256.is_some()
+            {
+                true
+            } else if name.as_deref() == Some("PART VOCALS") {
                 imported.baseline_vocals_sha256.is_some()
             } else {
                 name.as_deref()
@@ -215,6 +229,12 @@ pub fn select_export(
                     difficulty.is_none_or(|d| d == i)
                         && selected.contains(&format!("{tier}{suffix}"))
                 })
+        } else if name
+            .as_deref()
+            .and_then(crate::vocal_harmonies::Part::from_midi)
+            .is_some()
+        {
+            selected.contains("Harmonies")
         } else if name.as_deref() == Some("PART VOCALS") {
             selected.contains("Vocals")
         } else if let Some(key) = extra_key(track, index) {
@@ -278,6 +298,8 @@ pub fn select_export(
         );
         imported.retained_vocal_controls =
             Some(retained_vocal_controls(song)? && selected.contains("Vocals"));
+        imported.retained_harmony_controls =
+            Some(retained_harmony_controls(song)? && selected.contains("Harmonies"));
         fs::write(path, serde_json::to_vec_pretty(&imported)?)?;
     }
     Ok(output)
@@ -294,6 +316,13 @@ fn source(song: &Path) -> Result<Option<(Imported, PathBuf)>> {
         "Unsupported game MIDI import version"
     );
     let directory = archive(song, imported.archive_index);
+    ensure!(
+        match &imported.baseline_harmonies_sha256 {
+            Some(expected) => models::hash_file(&directory.join("harmonies.json"))? == *expected,
+            None => !fs::exists(directory.join("harmonies.json")),
+        },
+        "Imported harmony baseline changed; recover the original project before export"
+    );
     let vocal_path = directory.join("vocals.json");
     ensure!(
         match &imported.baseline_vocals_sha256 {
@@ -404,9 +433,22 @@ pub fn prepare(song: &Path) -> Result<()> {
         !fs::exists(song_layout::resolve(song, "chart-engine-vocals.json")),
         "Unbound MIDI has an existing vocal sidecar; recover its editable-master binding before importing"
     );
+    ensure!(
+        !fs::exists(song_layout::resolve(song, "chart-engine-harmonies.json")),
+        "Unbound MIDI has an existing harmony sidecar; recover its editable-master binding before importing"
+    );
     let bytes = fs::read(song.join("notes.mid"))?;
     let ini = song_ini(song)?;
-    let decoded = decode::import(&bytes, &ini)?;
+    let mut decoded = decode::import(&bytes, &ini)?;
+    let harmonies = match crate::vocal_harmonies::import_midi(&bytes) {
+        Ok(chart) => chart,
+        Err(error) => {
+            decoded.warnings.push(format!(
+                "Original harmony data retained read-only: {error:#}"
+            ));
+            None
+        }
+    };
     let mut index = 0u32;
     while fs::exists(archive(song, index)) {
         index = index
@@ -427,6 +469,14 @@ pub fn prepare(song: &Path) -> Result<()> {
         fs::write(directory.join("vocals.json"), &value)?;
         fs::write(song_layout::path(song, "chart-engine-vocals.json"), value)?;
     }
+    if let Some(harmonies) = &harmonies {
+        let value = serde_json::to_vec_pretty(harmonies)?;
+        fs::write(directory.join("harmonies.json"), &value)?;
+        fs::write(
+            song_layout::path(song, "chart-engine-harmonies.json"),
+            value,
+        )?;
+    }
     let imported = Imported {
         version: 1,
         archive_index: index,
@@ -439,6 +489,11 @@ pub fn prepare(song: &Path) -> Result<()> {
             .map(|_| models::hash_file(&directory.join("vocals.json")))
             .transpose()?,
         retained_vocal_controls: None,
+        baseline_harmonies_sha256: harmonies
+            .as_ref()
+            .map(|_| models::hash_file(&directory.join("harmonies.json")))
+            .transpose()?,
+        retained_harmony_controls: None,
         attributes_chart_sha256: hash(decoded.chart.raw.as_bytes()),
         attributes: decoded.attributes,
         warnings: decoded.warnings,
