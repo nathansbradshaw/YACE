@@ -5,6 +5,55 @@ use anyhow::{Context, Result, ensure};
 use dioxus::prelude::*;
 
 impl Studio {
+    pub fn copy_drum_range(mut self, range: crate::drum_ranges::Range) {
+        let text = match super::drum_range_editor::copy_text(self, &range) {
+            Ok(text) => text,
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                return;
+            }
+        };
+        spawn(async move {
+            let result = async {
+                let script = format!(
+                    "await navigator.clipboard.writeText({}); return true;",
+                    serde_json::to_string(&text)?
+                );
+                dioxus_document::eval(&script).await?;
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+            match result {
+                Ok(()) => self.status.set("Drum range copied".into()),
+                Err(error) => self.error.set(Some(format!("Clipboard: {error:#}"))),
+            }
+        });
+    }
+    pub fn paste_drum_ranges(mut self) {
+        let (bound, at) = match super::drum_range_editor::prepare_paste(self) {
+            Ok(value) => value,
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                return;
+            }
+        };
+        spawn(async move {
+            let result = async {
+                let text =
+                    dioxus_document::eval("return await navigator.clipboard.readText();").await?;
+                super::drum_range_editor::finish_paste(
+                    self,
+                    bound,
+                    at,
+                    text.as_str().context("Clipboard text unavailable")?,
+                )
+            }
+            .await;
+            if let Err(error) = result {
+                self.error.set(Some(format!("Clipboard: {error:#}")));
+            }
+        });
+    }
     pub fn copy_selection(mut self, cut: bool) {
         let prepared = (|| -> Result<_> {
             let project = self.snapshot().context("Open a chart first")?;

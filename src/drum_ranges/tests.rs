@@ -262,6 +262,13 @@ fn drum_range_witnesses_preserve_drafts_and_invalid_edits_do_not_save() {
 #[test]
 fn drum_midi_shared_difficulties_do_not_resurrect_removed_activation_ranges() {
     let (root, store) = project(true, false);
+    assert!(store.drum_activation_editable());
+    assert_eq!(
+        store.source_drum_ranges(&store.load().unwrap()).unwrap()["ExpertDrums"]
+            .as_ref()
+            .unwrap(),
+        &current_ranges(&store, "ExpertDrums")
+    );
     let old = range(0, 480, Kind::FillActivation);
     assert!(current_ranges(&store, "HardDrums").contains(&old));
     apply(
@@ -296,6 +303,14 @@ fn drum_midi_shared_difficulties_do_not_resurrect_removed_activation_ranges() {
 #[test]
 fn opaque_asymmetric_midi_activation_refuses_before_save_but_rolls_preserve_it() {
     let (root, store) = project(true, true);
+    assert!(!store.drum_activation_editable());
+    assert!(
+        store.source_drum_ranges(&store.load().unwrap()).unwrap()["ExpertDrums"]
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|range| range.kind == Kind::SingleRoll)
+    );
     let before = fs::read(store.root.join("project.json")).unwrap();
     let activation = range(0, 480, Kind::FillActivation);
     assert!(

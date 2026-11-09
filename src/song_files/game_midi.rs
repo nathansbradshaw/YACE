@@ -353,34 +353,38 @@ pub fn edit_star_power(
 
 /// Protect opaque activation lanes before saving any authored state. A source
 /// S64 view exists only when the five physical MIDI intervals agree exactly.
+pub fn drum_activation_editable(song: &Path) -> Result<bool> {
+    let Some((_, directory)) = source(song)? else {
+        return Ok(true);
+    };
+    let bytes = fs::read(directory.join("notes.mid"))?;
+    let midi = midly::Smf::parse(&bytes)?;
+    let drums: Vec<_> = midi
+        .tracks
+        .iter()
+        .filter(|track| decode::label(track).as_deref() == Some("PART DRUMS"))
+        .collect();
+    ensure!(
+        drums.len() <= 1,
+        "Duplicate drum MIDI owners are ambiguous; source retained"
+    );
+    drums.first().map_or(Ok(true), |track| {
+        let spans = decode::spans(track, |key| (120..=124).contains(&key))?;
+        Ok(decode::fills_representable(&decode::ranges(&spans)))
+    })
+}
+
 pub fn edit_drum_ranges(
     project: &mut crate::editor::Project,
     chart: &Chart,
     song: &Path,
     edit: &crate::drum_ranges::Edit,
 ) -> Result<()> {
-    if let Some((_, directory)) = source(song)? {
-        let bytes = fs::read(directory.join("notes.mid"))?;
-        let midi = midly::Smf::parse(&bytes)?;
-        let drums: Vec<_> = midi
-            .tracks
-            .iter()
-            .filter(|track| decode::label(track).as_deref() == Some("PART DRUMS"))
-            .collect();
-        ensure!(
-            drums.len() <= 1,
-            "Duplicate drum MIDI owners are ambiguous; source retained"
-        );
-        if edit.touches_activation()
-            && let Some(track) = drums.first()
-        {
-            let spans = decode::spans(track, |key| (120..=124).contains(&key))?;
-            ensure!(
-                decode::fills_representable(&decode::ranges(&spans)),
-                "Original activation/fill lanes are not fully represented; source retained read-only"
-            );
-        }
-    }
+    let activation_editable = drum_activation_editable(song)?;
+    ensure!(
+        !edit.touches_activation() || activation_editable,
+        "Original activation/fill lanes are not fully represented; source retained read-only"
+    );
     let tracks: Vec<_> = ["EasyDrums", "MediumDrums", "HardDrums", "ExpertDrums"]
         .into_iter()
         .filter(|name| project.content.tracks.contains_key(*name))

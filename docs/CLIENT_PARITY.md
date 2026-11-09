@@ -66,8 +66,13 @@ range clipboard retains relative intervals and requires a matching chart
 resolution. MIDI edits update the shared drum owner across difficulties;
 asymmetric source activation lanes remain read-only while safe roll edits keep
 their original events. Regressions cover explicit clears, export/reopen,
-clipboard refusal and note-proposal safety. Shared controls/preview/system
-clipboard and actual native/static-browser/hosted workflows remain unqualified.
+clipboard refusal and note-proposal safety. Shared inspector controls now expose
+typed range bounds, current-loop bounds, removal and Undo/Redo, with separate
+colored timeline bands and current-range preview labels. Native and browser
+clipboard adapters use the same bounded format; asynchronous paste refuses a
+changed project, track or revision. The inspector disables activation edits for
+opaque source lanes. Actual native/static-browser/hosted control, clipboard,
+recording-loop, recovery and export workflows remain unqualified.
 
 ## Pro Guitar strings and frets (2026-11-08)
 

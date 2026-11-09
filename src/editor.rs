@@ -970,6 +970,16 @@ impl Store {
             &self.source_chart(project)?.chart,
         ))
     }
+    pub fn source_drum_ranges(&self, project: &Project) -> Result<crate::drum_ranges::Source> {
+        Ok(crate::drum_ranges::source(
+            project,
+            &self.source_chart(project)?.chart,
+        ))
+    }
+    pub fn drum_activation_editable(&self) -> bool {
+        crate::song_files::game_midi::drum_activation_editable(&self.root.join("source"))
+            .unwrap_or(false)
+    }
     fn source_chart(&self, project: &Project) -> Result<Arc<SourceSnapshot>> {
         let bytes = fs::read(self.root.join("source/notes.chart"))?;
         let mut cache = self
