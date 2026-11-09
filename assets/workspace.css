@@ -253,6 +253,7 @@
 }
 .selection-properties{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .selection-note-types{min-width:0}
+.selection-pro-guitar{display:grid;gap:8px}
 
 .selection-timing {
   display:grid;
@@ -260,7 +261,7 @@
   gap:8px;
 }
 
-.selection-note :is(.selection-timing label,.selection-lane) {
+.selection-note :is(.selection-timing label,.selection-lane,.selection-pro-guitar>label:not(.form-check)) {
   display:grid;
   gap:4px;
   min-width:0;
