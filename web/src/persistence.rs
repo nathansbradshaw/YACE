@@ -142,6 +142,37 @@ impl Drop for TransactionGuard {
     }
 }
 struct Database(IdbDatabase);
+/// Used only by the opt-in, synthetic project-open lifecycle fixture.
+#[cfg(feature = "lifetime-fixture")]
+pub(crate) async fn remove_lifetime_fixtures(roots: &[PathBuf]) -> Result<()> {
+    let db = Database(open().await?);
+    let tx =
+        db.0.transaction_with_str_and_mode("files", IdbTransactionMode::Readwrite)
+            .map_err(error)?;
+    let mut transaction = TransactionGuard::new(tx.clone());
+    let store = tx.object_store("files").map_err(error)?;
+    let keys = request(store.get_all_keys().map_err(error)?).await?;
+    for key in js_sys::Array::from(&keys)
+        .iter()
+        .filter_map(|key| key.as_string())
+    {
+        if ["file:", "manifest:", "revision:"].iter().any(|prefix| {
+            key.strip_prefix(prefix)
+                .is_some_and(|path| roots.iter().any(|root| Path::new(path).starts_with(root)))
+        }) {
+            store.delete(&key.into()).map_err(error)?;
+        }
+    }
+    for key in ["last", "last-generation"] {
+        let value = request(store.get(&key.into()).map_err(error)?)
+            .await?
+            .as_string();
+        if value.is_some_and(|path| roots.iter().any(|root| Path::new(&path).starts_with(root))) {
+            store.delete(&key.into()).map_err(error)?;
+        }
+    }
+    transaction.finish().await
+}
 impl Drop for Database {
     fn drop(&mut self) {
         self.0.close();
