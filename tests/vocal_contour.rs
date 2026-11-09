@@ -8,7 +8,7 @@ use chart_engine::{
 const RATE: usize = 22050;
 
 #[test]
-fn acoustic_pitch_and_high_accuracy_boundaries_are_independent_of_wrong_or_missing_lyrics() {
+fn acoustic_pitch_and_note_boundaries_are_independent_of_wrong_or_missing_lyrics() {
     use chart_engine::vocal_generation::AnalysisMode;
     let signal = vowel(2., 0.25, 1.65, 57., 2.);
     let timing = TempoMap::constant(120.).unwrap();
@@ -44,7 +44,7 @@ fn acoustic_pitch_and_high_accuracy_boundaries_are_independent_of_wrong_or_missi
             serde_json::to_value(&no_words.pitch_frames).unwrap(),
             serde_json::to_value(&with_words.pitch_frames).unwrap()
         );
-        if mode == AnalysisMode::HighAccuracy {
+        {
             let notes = |report: &vocal_generation::Generation| {
                 report
                     .chart

@@ -28,6 +28,9 @@ struct Args {
     prepared_prefix: String,
     #[arg(long)]
     id_prefix: String,
+    /// Verify a UVR lead receipt and parent generation beside each prepared stem.
+    #[arg(long)]
+    derived_lead: bool,
 }
 fn read(p: &Path) -> Result<Value> {
     Ok(serde_json::from_slice(&fs::read(p)?)?)
@@ -78,7 +81,31 @@ fn main() -> Result<()> {
             stem.exists(),
             "Prepare the explicit zero-padded source-clock vocal stem first"
         );
-        let binding=StemAlignment{audio_sha256:models::hash_file(&audio)?,stem_sha256:models::hash_file(&stem)?,evidence:"Direct vocal channel from checksum-frozen official archive, zero-padding only on the original recording clock; target notes and timestamps excluded".into()};
+        let mut binding=StemAlignment{audio_sha256:models::hash_file(&audio)?,stem_sha256:models::hash_file(&stem)?,evidence:"Direct vocal channel from checksum-frozen official archive, zero-padding only on the original recording clock; target notes and timestamps excluded".into()};
+        if a.derived_lead {
+            let split = read(&out.join("separation.json"))?;
+            let parent: vg::Generation =
+                serde_json::from_slice(&fs::read(out.join("parent-generation.json"))?)?;
+            ensure!(
+                parent.audio_sha256 == binding.audio_sha256
+                    && split["vocal_stem_sha256"] == parent.vocal_stem_sha256
+                    && split["lead_sha256"] == binding.stem_sha256
+                    && split["model_sha256"]
+                        == "bf32e15105a09c0f7dddd2b67346146334d6f3ecb399ed7638eba2ab07cbf5f4"
+                    && split["sample_rate"] == 44100
+                    && split["channels"] == 2
+                    && split["frames"]
+                        .as_f64()
+                        .is_some_and(
+                            |n| (n / 44100. - parent.duration_seconds).abs() <= 1. / 44100.
+                        ),
+                "Derived lead parent/model/source clock differs"
+            );
+            binding.evidence = format!(
+                "Derived UVR karaoke lead; parent stem {}; separator bf32e15105a09c0f7dddd2b67346146334d6f3ecb399ed7638eba2ab07cbf5f4; original recording clock retained; no lyrics or target pitches",
+                parent.vocal_stem_sha256
+            );
+        }
         let cache = a.root.join(format!("raw-rmvpe-{id}"));
         let raw_path = cache.join("evidence.json");
         if !raw_path.exists() {

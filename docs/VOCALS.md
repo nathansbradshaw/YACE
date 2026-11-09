@@ -5,13 +5,16 @@ Vocals can be empty while you build a part; missing lyrics do not need filler.
 
 ## Generate a draft
 
-Choose **Vocals** in Auto-Chart and select the vocal language. English, Spanish
-and automatic detection are available for recognition. Listen carefully to
-sung words, backing vocals and rapid syllables: recognition can miss them.
+Choose **Vocals** in Auto-Chart. Generation starts with pitch analysis; lyric
+transcription and online lyric lookup are off by default. On desktop,
+**Transcribe lyrics** is a separate optional step with English, Spanish and
+automatic language selection. Disabling it keeps all pitch assistance enabled.
 
-Pitch estimates and recognized lyrics are separate. A note can keep its pitch
-while its word remains unknown. Review those gaps rather than assuming the
-draft contains every sung word.
+Both analysis modes construct note pitches and boundaries from acoustic evidence
+before attaching any recognized words. Missing, incorrect or unavailable lyrics
+cannot remove notes or split a sustained pitch at word boundaries. Words without
+supported pitches remain review findings. Review acoustic gaps too: the draft
+can still miss singing or choose a wrong pitch.
 
 Choose **Standard** or **High accuracy (experimental)** for vocal analysis.
 The experimental mode requires the separately downloaded, checksum-verified

@@ -362,7 +362,18 @@ Both passes use the original energy reference. It cannot be combined with
 research overrides. `vocal_accuracy_batch --mode short-consensus --predictor
 EXPLICIT_HELPER` checks the returned profile, executable identity and source
 bindings and verifies MIDI round-trip. This candidate is not the production
-profile until validation and acceptance are reported explicitly.
+profile. On eight validation artists, it reduced missing-plus-wrong frame error
+by about 1.85% and exported-note frame error by about 2.20% relative to the prior
+multi-model recipe. Voiced recall and wrong-pitch proportion improved, but the
+required 20% reduction failed. These artists were previously exposed regression
+material, not fresh held-out evidence. This candidate remains unpromoted.
+
+Note assembly now follows each detector's actual frame clock in High accuracy.
+Using the DSP hop for 10 ms, 16 ms or PESTO frames previously introduced artificial
+gaps; short fragments could all disappear at the note-duration filter. Adjacent
+cells now meet at their midpoint; absent frames and breaths still leave gaps.
+Both modes fix acoustic boundaries before optional word attachment. Neither
+these assembly fixes nor successful tests establish musical acceptance.
 
 Keep every corpus, recording, reference, salience cache and detailed report in a
 private directory outside Git. Use distinct development/validation artists;

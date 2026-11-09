@@ -26,7 +26,8 @@ pub const FROZEN_PROFILE: &str = "rust-vocal-ensemble-v11-experimental;v10-voici
 /// Frozen after development-only gap recovery experiments; no held-out scores.
 pub const FROZEN_RECOVERY_PROFILE: &str = "rust-vocal-ensemble-v12-experimental;v11-centres;gap-recovery-ROSVOT-Swift-plus2of3-RMVPE-CREPEfull-FCPE;band-cost-contrast0.25;local-RMS-floor0.0015;stable180ms-including-existing-voicing-context;retain-all-original-voicing;no-lyrics-key-scale-or-octave-fold";
 pub const FROZEN_ENERGY_PROFILE: &str = "rust-vocal-ensemble-v14-experimental;v13-pitch-and-voicing;v12-recovery;addition-energy-floor-max0.0015-or-half-median-existing-voiced-local-RMS;quiet-existing-voice-retained;assembly-v2-coalesce-touching-same-pitch-subminimum-attack-fragments-without-bridging-gaps;no-lyric-or-reference-input";
-/// Selected on four development artists; validation and acceptance pending.
+/// Development candidate; failed the 20% gate on eight validation artists.
+/// Kept reproducible for research. Never selected by the production workflow.
 pub const FROZEN_SHORT_PROFILE: &str = "rust-vocal-ensemble-v15-experimental;v13-centres-and-base180ms-two-vote-recovery;short-additions-ROSVOT-Swift-plus3of3-RMVPE-CREPEfull-FCPE;stable100ms;runner-up-band-cost-margin0.5;both-energy-floors-from-original-voice-max0.0015-or-half-median-local-RMS;retain-original-voicing;assembly-v2-coalesce-touching-same-pitch-subminimum-attack-fragments-without-bridging-gaps;no-lyric-key-scale-octave-fold-or-reference-input";
 
 /// Both recovery passes inspect original frames. Cancellation is atomic.
@@ -47,6 +48,7 @@ pub fn recover_short_consensus(
             relative_floor: 0.5,
             context_seconds: None,
             minimum_pitch_margin: 0.5,
+            maximum_contour_step: None,
         },
         cancelled,
     )?;
@@ -199,6 +201,7 @@ pub fn recover_energy(
             relative_floor: energy_ratio,
             context_seconds: None,
             minimum_pitch_margin: 0.,
+            maximum_contour_step: None,
         },
         cancelled,
     )
@@ -210,6 +213,8 @@ pub struct RecoveryEnergy {
     pub context_seconds: Option<f64>,
     /// Required cost advantage over the next-best semitone; not a probability.
     pub minimum_pitch_margin: f64,
+    /// Continue a voiced run across supported pitch changes up to this interval.
+    pub maximum_contour_step: Option<f64>,
 }
 pub fn recover_energy_context(
     frames: &mut [PitchFrame],
@@ -235,6 +240,9 @@ pub fn recover_energy_context(
                 .is_none_or(|s| s.is_finite() && (0.25..=10.).contains(&s))
             && energy.minimum_pitch_margin.is_finite()
             && (0.0..=2.).contains(&energy.minimum_pitch_margin)
+            && energy
+                .maximum_contour_step
+                .is_none_or(|s| s.is_finite() && (0.0..=12.).contains(&s))
             && bands
                 .iter()
                 .flat_map(|b| b.iter().flatten())
@@ -326,7 +334,12 @@ pub fn recover_energy_context(
         let start = i;
         i += 1;
         while i < frames.len()
-            && seed[i] == Some(p)
+            && match energy.maximum_contour_step {
+                Some(step) => seed[i]
+                    .zip(seed[i - 1])
+                    .is_some_and(|(a, b)| (a - b).abs() <= step),
+                None => seed[i] == Some(p),
+            }
             && frames[i].time_seconds - frames[i - 1].time_seconds <= 0.0201
         {
             i += 1;
@@ -338,11 +351,11 @@ pub fn recover_energy_context(
         };
         if frames[i - 1].time_seconds - frames[start].time_seconds + hop + 1e-9 >= minimum_duration
         {
-            for f in &mut draft[start..i] {
+            for (f, target) in draft[start..i].iter_mut().zip(&seed[start..i]) {
                 if f.midi.is_some() {
                     continue;
                 }
-                f.midi = Some(p);
+                f.midi = *target;
                 f.support = PitchSupport::AcousticAlternative;
                 f.clarity = f.clarity.min(0.5);
                 recovered += 1;

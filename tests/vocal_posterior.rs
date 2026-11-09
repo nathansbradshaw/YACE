@@ -219,6 +219,7 @@ fn local_dynamics_require_nearby_original_voice_and_preserve_distant_gaps() {
                 relative_floor: 0.5,
                 context_seconds: Some(0.5),
                 minimum_pitch_margin: 0.,
+                maximum_contour_step: None,
             },
             &|| false
         )
@@ -245,6 +246,7 @@ fn local_dynamics_require_nearby_original_voice_and_preserve_distant_gaps() {
                 relative_floor: 0.5,
                 context_seconds: Some(f64::NAN),
                 minimum_pitch_margin: 0.,
+                maximum_contour_step: None,
             },
             &|| false
         )
@@ -262,6 +264,7 @@ fn local_dynamics_require_nearby_original_voice_and_preserve_distant_gaps() {
                 relative_floor: 0.5,
                 context_seconds: Some(0.5),
                 minimum_pitch_margin: 0.,
+                maximum_contour_step: None,
             },
             &|| true
         )
@@ -293,7 +296,8 @@ fn short_consensus_requires_separation_from_the_runner_up_pitch() {
             vp::RecoveryEnergy {
                 relative_floor: 0.5,
                 context_seconds: None,
-                minimum_pitch_margin: 0.25
+                minimum_pitch_margin: 0.25,
+                maximum_contour_step: None,
             },
             &|| false
         )
@@ -312,7 +316,8 @@ fn short_consensus_requires_separation_from_the_runner_up_pitch() {
             vp::RecoveryEnergy {
                 relative_floor: 0.5,
                 context_seconds: None,
-                minimum_pitch_margin: 0.25
+                minimum_pitch_margin: 0.25,
+                maximum_contour_step: None,
             },
             &|| false
         )
@@ -367,5 +372,102 @@ fn frozen_short_recovery_preserves_the_base_and_rejects_ambiguous_short_notes() 
     assert_eq!(
         serde_json::to_vec(&original).unwrap(),
         serde_json::to_vec(&cancelled).unwrap()
+    );
+}
+
+#[test]
+fn supported_contour_can_change_pitch_but_cannot_bridge_a_breath_or_octave_jump() {
+    let mut original = frames();
+    for f in &mut original {
+        f.midi = None;
+    }
+    let mut notes = vec![None; original.len()];
+    notes[20..26].fill(Some(60.));
+    notes[26..32].fill(Some(62.));
+    notes[32..38].fill(Some(64.));
+    let cost_for = |notes: &[Option<f64>]| {
+        notes
+            .iter()
+            .map(|p| std::array::from_fn(|s| if Some((s + 36) as f64) == *p { 0. } else { 2. }))
+            .collect::<Vec<_>>()
+    };
+    let costs = cost_for(&notes);
+    let mut f = original.clone();
+    assert_eq!(
+        vp::recover_energy(
+            &mut f,
+            [&costs, &costs, &costs],
+            &notes,
+            3,
+            0.18,
+            0.5,
+            &|| false
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        vp::recover_energy_context(
+            &mut f,
+            [&costs, &costs, &costs],
+            &notes,
+            3,
+            0.18,
+            vp::RecoveryEnergy {
+                relative_floor: 0.5,
+                context_seconds: None,
+                minimum_pitch_margin: 0.5,
+                maximum_contour_step: Some(2.)
+            },
+            &|| false
+        )
+        .unwrap(),
+        18
+    );
+    for (frame, expected) in f[20..38].iter().zip(&notes[20..38]) {
+        assert_eq!(frame.midi, *expected);
+    }
+    notes[28] = None;
+    let costs = cost_for(&notes);
+    let mut breath = original.clone();
+    assert_eq!(
+        vp::recover_energy_context(
+            &mut breath,
+            [&costs, &costs, &costs],
+            &notes,
+            3,
+            0.18,
+            vp::RecoveryEnergy {
+                relative_floor: 0.5,
+                context_seconds: None,
+                minimum_pitch_margin: 0.5,
+                maximum_contour_step: Some(2.)
+            },
+            &|| false
+        )
+        .unwrap(),
+        0
+    );
+    notes[28] = Some(62.);
+    notes[26..38].fill(Some(72.));
+    let costs = cost_for(&notes);
+    let mut jump = original.clone();
+    assert_eq!(
+        vp::recover_energy_context(
+            &mut jump,
+            [&costs, &costs, &costs],
+            &notes,
+            3,
+            0.18,
+            vp::RecoveryEnergy {
+                relative_floor: 0.5,
+                context_seconds: None,
+                minimum_pitch_margin: 0.5,
+                maximum_contour_step: Some(2.)
+            },
+            &|| false
+        )
+        .unwrap(),
+        0
     );
 }

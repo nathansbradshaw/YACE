@@ -32,6 +32,18 @@ struct Args {
     short_pitch_margin: Option<f64>,
     #[arg(long, requires = "consensus_extension")]
     acoustic_consensus: bool,
+    #[arg(long, requires = "consensus_extension")]
+    contour_step: Option<f64>,
+    #[arg(
+        long,
+        requires = "consensus_extension",
+        conflicts_with = "acoustic_consensus"
+    )]
+    spectral_consensus: bool,
+    #[arg(long)]
+    dense_rmvpe_threshold: Option<f64>,
+    #[arg(long, requires = "dense_rmvpe_threshold")]
+    dense_energy_ratio: Option<f64>,
     #[arg(
         long,
         value_delimiter = ',',
@@ -104,6 +116,22 @@ fn main() -> Result<()> {
                 (minimum * 1000.).round() as u32
             ));
             let mut command = Command::new(&a.predictor);
+            if let Some(ratio) = a.dense_energy_ratio {
+                command
+                    .arg("--research-dense-energy-ratio")
+                    .arg(ratio.to_string());
+            }
+            if let Some(threshold) = a.dense_rmvpe_threshold {
+                command
+                    .arg("--research-dense-rmvpe-threshold")
+                    .arg(threshold.to_string());
+            }
+            if a.spectral_consensus {
+                command.arg("--research-spectral-consensus");
+            }
+            if let Some(step) = a.contour_step {
+                command.arg("--research-contour-step").arg(step.to_string());
+            }
             if a.acoustic_consensus {
                 command.arg("--research-acoustic-consensus");
             }
