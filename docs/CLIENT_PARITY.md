@@ -135,9 +135,28 @@ The browser also created all eight Bass profiles from a blank chart and placed
 all six strings in the 22-fret Expert part with frets 0, 3, 7, 12, 17 and 22.
 Articulation and forced HOPO survived reload at revision 47 and independently
 checked MIDI export. Pasting a 22-fret clipboard into the separate 17-fret part
-refused without changing revision 40. Direct native placement, native blank-part
-creation and browser-backup restoration, hosted verification, and independent
-target-game/controller and musical acceptance remain open.
+refused without changing revision 40. The normal native project ZIP picker
+restored the browser's complete revision 20 backup, including source and history;
+native Undo at revision 21 and Redo at 22 restored matching editing content.
+Native blank creation added separate 17- and 22-fret Expert parts at revision 2.
+Direct native pointer placement remains unqualified because the desktop tool
+could not target the piano roll. Independent target-game/controller and musical
+acceptance remain open.
+
+PR122 normally merged as `0fabf13`, including the concurrent browser project
+lifetime fix. Pages run `42545458799` completed all three jobs successfully.
+The actual custom-domain module loaded that immutable release and the served
+WASM matched the rebuilt artifact
+(`24fc94f6c5fe860a3c030ab3223f309be77538350abef0f424c31ea8313da268`).
+The hosted editor opened the complete backup, changed fret 21 to 22, saved
+revision 23 and retained it after reload. Undo restored fret 21 at accepted
+revision 24. A second tab's tick 6601/fret 22 draft was refused with recovery
+guidance. Its actual recovery ZIP passed archive checks and retained revision
+24, ten Undo checkpoints, fret/channel/note-off attributes and no missing source
+or history entries. After browser control became unavailable, the user confirmed
+the final authoritative reload retained tick 6600/fret 21 and restored the
+original hosted project. A fresh playable export from this hosted revision
+remains an open check; the native/static MIDI comparison above is separate.
 
 ## Five-pad drum authoring (2026-11-08)
 
