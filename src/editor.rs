@@ -2605,6 +2605,19 @@ impl Store {
             doc.kit_audition = None;
         }
         if !session_action {
+            if doc.content.vocal_percussion.is_none()
+                && before.as_ref().is_some_and(|old| {
+                    old.vocals != doc.content.vocals || old.harmonies != doc.content.harmonies
+                })
+                && let Some(percussion) = crate::song_files::game_midi::supported_percussion_view(
+                    &self.root.join("source"),
+                )?
+            {
+                percussion.validate_with_singing(
+                    doc.content.vocals.as_ref(),
+                    doc.content.harmonies.as_ref(),
+                )?;
+            }
             doc.validate_notes(self)?;
             for manifest in doc
                 .content

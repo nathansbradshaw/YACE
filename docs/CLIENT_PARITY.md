@@ -28,10 +28,12 @@ dedicated phrases using exact selected-value guards. They persist authored hits
 or an explicit clear, with content-addressed Undo/Redo and portable project
 relocation. Legacy documents inherit only active
 source parts; reopening an instrument-only export does not revive omitted hits.
+Singer edits refuse conflicts with supported inherited percussion before saving;
+explicit authored or cleared percussion state governs subsequent edits and Undo.
 Playable export of these edits currently refuses safely until export integration
 is connected. Placement/selection/preview controls and actual native, browser and
-game acceptance remain open. A strict MIDI reader extracts
-dedicated source phrases with original hit and scoring-marker attributes;
+game acceptance remain open. A strict MIDI reader extracts dedicated source
+phrases with original hit and scoring-marker attributes;
 ambiguous, mixed singing/percussion and uncovered source hits refuse the editable
 view. Shared scoring ranges used by unmanaged harmony percussion also remain
 read-only. The core checks the saved source SHA-256 before selectively adding,
@@ -41,9 +43,9 @@ controls are retained. Supported harmony MIDI views exclude verified dedicated
 percussion ranges from singing phrases; singing-phrase rewrites preserve the
 physical percussion markers and reject new scoring conflicts. Project export,
 reopen and explicit harmony omission regressions cover this coexistence path.
-They do not establish export of authored percussion edits. Conflicting candidates and invalid owner endings refuse
-before returning a rewritten song. These core checks do not qualify an
-application workflow.
+They do not establish export of authored percussion edits. Conflicting candidates
+and invalid owner endings refuse before returning a rewritten song. These core
+checks do not qualify an application workflow.
 
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer

@@ -740,6 +740,26 @@ mod tests {
         let store = Store::create(&song, None, &root.path().join("project")).unwrap();
         let mut changed = store.load().unwrap().content.harmonies.unwrap();
         assert_eq!(changed.phrases, fixture().phrases);
+        let before = std::fs::read(store.root.join("project.json")).unwrap();
+        changed.phrases[0].end = 1000;
+        assert!(
+            store
+                .apply(crate::editor::Request {
+                    expected_revision: store.load().unwrap().revision,
+                    actor: crate::editor::Actor {
+                        kind: crate::editor::ActorKind::Human,
+                        name: "Conflicting singer preflight".into()
+                    },
+                    action: Action::SetHarmonies {
+                        document: changed.clone()
+                    },
+                })
+                .is_err()
+        );
+        assert_eq!(
+            std::fs::read(store.root.join("project.json")).unwrap(),
+            before
+        );
         changed.phrases[0].end = 900;
         project_command(
             &store,

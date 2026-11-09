@@ -352,13 +352,31 @@ pub fn warnings(song: &Path) -> Result<Vec<String>> {
 /// Read a percussion view only after the ordinary immutable source receipt has
 /// validated. Unsupported source data stays read-only; never invent a baseline.
 pub fn percussion_view(song: &Path) -> Result<Option<crate::vocal_percussion::PercussionChart>> {
+    percussion_view_with_policy(song, true)
+}
+/// Legacy singer edits can retain unsupported percussion as opaque source.
+/// Receipt/hash failures still propagate; only an unsupported editable view is
+/// omitted from this additional dedicated-phrase preflight.
+pub(crate) fn supported_percussion_view(
+    song: &Path,
+) -> Result<Option<crate::vocal_percussion::PercussionChart>> {
+    percussion_view_with_policy(song, false)
+}
+fn percussion_view_with_policy(
+    song: &Path,
+    strict: bool,
+) -> Result<Option<crate::vocal_percussion::PercussionChart>> {
     use crate::vocal_percussion::Part;
     let Some((imported, directory)) = source(song)? else {
         return Ok(None);
     };
-    let Some(mut chart) =
-        crate::vocal_percussion::import_midi(&fs::read(directory.join("notes.mid"))?)?
-    else {
+    let parsed = crate::vocal_percussion::import_midi(&fs::read(directory.join("notes.mid"))?);
+    let document = match parsed {
+        Ok(document) => document,
+        Err(error) if strict => return Err(error),
+        Err(_) => None,
+    };
+    let Some(mut chart) = document else {
         return Ok(None);
     };
     // The immutable archive also contains explicitly omitted parts. Inherit

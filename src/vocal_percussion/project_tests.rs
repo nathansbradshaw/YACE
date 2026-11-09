@@ -96,6 +96,126 @@ fn apply(store: &Store, action: Action) -> anyhow::Result<()> {
 fn authored(store: &Store) -> Option<PercussionChart> {
     store.vocal_percussion(&store.load().unwrap()).unwrap()
 }
+fn singing(start: u64) -> crate::vocals::VocalChart {
+    crate::vocals::VocalChart {
+        version: 1,
+        resolution: 480,
+        source: "Independent singer preflight".into(),
+        phrases: vec![VocalPhrase {
+            start,
+            end: start + 960,
+            player: 1,
+        }],
+        notes: vec![crate::vocals::VocalNote {
+            start: start + 120,
+            end: start + 240,
+            tone: crate::vocals::VocalTone::Pitched { midi: 60 },
+            lyric: crate::vocals::Syllable::Missing,
+            midi: None,
+        }],
+    }
+}
+#[test]
+fn inherited_dedicated_percussion_refuses_conflicting_singer_drafts_before_saving() {
+    let (_root, store) = project(true, false);
+    let before = fs::read(store.root.join("project.json")).unwrap();
+    let error = apply(
+        &store,
+        Action::SetVocals {
+            document: singing(0),
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("dedicated phrase"));
+    assert_eq!(fs::read(store.root.join("project.json")).unwrap(), before);
+    assert!(store.load().unwrap().content.vocals.is_none());
+    assert!(authored(&store).is_some());
+}
+#[test]
+fn singer_preflight_honors_explicit_clear_and_current_authored_percussion_with_history() {
+    let (_root, store) = project(true, false);
+    apply(&store, Action::ClearVocalPercussion).unwrap();
+    apply(
+        &store,
+        Action::SetVocals {
+            document: singing(0),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        store.load().unwrap().content.vocal_percussion,
+        Some(State::Cleared)
+    );
+    apply(&store, Action::Undo).unwrap();
+    apply(&store, Action::Undo).unwrap();
+    assert!(authored(&store).is_some());
+    assert!(store.load().unwrap().content.vocals.is_none());
+    apply(&store, Action::Redo).unwrap();
+    apply(&store, Action::Redo).unwrap();
+    assert!(authored(&store).is_none());
+    assert_eq!(store.load().unwrap().content.vocals, Some(singing(0)));
+    let (_other, moved) = project(true, false);
+    let mut document = authored(&moved).unwrap();
+    for track in document.tracks.values_mut() {
+        for phrase in &mut track.phrases {
+            phrase.range.start += 1920;
+            phrase.range.end += 1920;
+        }
+        for hit in &mut track.hits {
+            hit.start += 1920;
+            hit.end += 1920;
+        }
+    }
+    apply(&moved, Action::SetVocalPercussion { document }).unwrap();
+    apply(
+        &moved,
+        Action::SetVocals {
+            document: singing(0),
+        },
+    )
+    .unwrap();
+    let before = fs::read(moved.root.join("project.json")).unwrap();
+    assert!(
+        apply(
+            &moved,
+            Action::SetVocals {
+                document: singing(1920)
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(moved.root.join("project.json")).unwrap(), before);
+}
+#[test]
+fn opaque_legacy_percussion_stays_retained_but_source_integrity_errors_are_not_ignored() {
+    let (_root, store) = project(true, true);
+    assert!(crate::song_files::game_midi::percussion_view(&store.root.join("source")).is_err());
+    apply(
+        &store,
+        Action::SetVocals {
+            document: singing(0),
+        },
+    )
+    .unwrap();
+    let (_other, corrupt) = project(true, false);
+    // This fresh disposable fixture has one retained original (archive zero).
+    let archived = corrupt
+        .root
+        .join("source/.yace/originals/game-midi/notes.mid");
+    let mut bytes = fs::read(&archived).unwrap();
+    bytes.push(0);
+    fs::write(archived, bytes).unwrap();
+    let before = fs::read(corrupt.root.join("project.json")).unwrap();
+    let error = apply(
+        &corrupt,
+        Action::SetVocals {
+            document: singing(0),
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("changed"));
+    assert_eq!(fs::read(corrupt.root.join("project.json")).unwrap(), before);
+}
 #[test]
 fn neutral_content_keeps_the_legacy_serialization_and_inherits_original_hits_without_writes() {
     let (_root, store) = project(true, false);
