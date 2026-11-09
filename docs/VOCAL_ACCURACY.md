@@ -643,3 +643,17 @@ leakage. Optional reviewed references are loaded only after predictions and
 score wrong, missing and falsely voiced raw frames separately. No generated
 chart becomes ground truth. A smaller window is not promoted without the full
 note/contour gate and voiced-recall checks. Keep outputs outside public Git.
+
+## Recursive audio/MIDI review (experimental)
+
+In **Check pitches against the recording**, enable **Deep rescan gaps and disagreements**, then analyze a phrase, loop, time range or all vocals. This is a slower opt-in review tool; it does not promote a new generation backend or claim the pitch quality gate has passed.
+
+The shared Rust planner compares the actual current vocal note intervals with isolated-vocal pitch evidence at 100 Hz. It checks uncovered pitches, pitch disagreements, MIDI without detected pitch, and vocal-stem sound without reliable pitch. Six-second cores retain one second of surrounding original audio, then unresolved cores split into overlapping halves. Stable forty-millisecond residuals are identified before partitioning so chunk boundaries cannot hide a short sound. Audio stays on the original recording clock; note decoding and boundaries use the full contour rather than independently cutting notes at chunk edges.
+
+The loop stops on resolution, unchanged evidence below one second, a 250 ms subdivision floor, depth six, 1,024 inference calls, or a bounded decoded-audio budget. The report shows scan counts, initial and remaining disagreements, retained pitch alternatives and an explicit processing-limit message. Unresolved sound remains a finding. A smaller selection can be reviewed again. Coverage is a scheduling signal, not a correctness score.
+
+Missing-note proposals still need stable pitch and acoustic support. Deep review additionally tests the actual source waveform at the proposed period and both octave alternatives, requiring normalized periodicity at least 0.85, a half-period margin at least 0.03, a double-period advantage no more than 0.1, and matching estimates in two distinct model contexts. Repeating RMVPE is **not** a second independent detector. Periodic instrumental leakage or a backing singer can satisfy these conditions; singer identity and musical correctness remain review gates. This experimental support rule has not passed held-out musical acceptance or the backend promotion gate.
+
+Existing notes, lyrics, talkies and authored intervals are retained when a detector becomes unvoiced. Lack of model pitch is not proof of silence. Exact silence checks use squared **stereo** channel energy in both the original recording and vocal stem, so opposite channel phases cannot masquerade as silence. Suspected extra or long notes are flagged for review. Proposed additions use unknown lyrics, remain uncertain, export as ordinary playable vocal MIDI, and apply through the existing selected-repair action with one Undo batch.
+
+Native and browser clients use the same planner, physical support, decoder and evidence profile. Native uses its installed ONNX Runtime; browser requires its explicitly checked ONNX WASM runtime and pinned RMVPE resource. Unavailable resources fail the request rather than silently selecting a faster quality mode. Cancellation leaves the project unchanged. Source, chart, timing and implementation witnesses invalidate stale reports.

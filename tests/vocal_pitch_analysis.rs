@@ -718,3 +718,95 @@ fn model_identity_clock_and_nonfinite_evidence_are_explicit_errors() {
     fs::write(model_dir.join("rmvpe.onnx"), b"incorrect weight bytes").unwrap();
     assert!(chart_engine::vocal_rmvpe::prepare(&model_dir, false, &|| false).is_err());
 }
+
+#[test]
+fn adaptive_feedback_recovers_supported_gaps_without_words_and_preserves_authored_notes() {
+    let temp = tempfile::tempdir().unwrap();
+    let (store, mut generation) = setup(temp.path());
+    let before = store.load().unwrap();
+    let timing = before.timing(&store).unwrap();
+    observations(
+        &mut generation,
+        &[(0.1, 0.45, 57.), (3.25, 3.65, 57.)],
+        false,
+    );
+    let pcm = (0..64000)
+        .map(|i| {
+            let t = i as f64 / 16000.;
+            if (0.1..0.45).contains(&t) || (3.25..3.65).contains(&t) {
+                (0.2 * (std::f64::consts::TAU * 220. * t).sin()) as f32
+            } else {
+                0.
+            }
+        })
+        .collect::<Vec<_>>();
+    let old = generation.rmvpe_pitch.take().unwrap();
+    let mut raw = chart_engine::vocal_rmvpe::finish_pcm(&pcm, old.frames).unwrap();
+    raw.audio_sha256 = old.audio_sha256;
+    raw.vocal_stem_sha256 = old.vocal_stem_sha256;
+    generation.rmvpe_pitch = Some(raw);
+    let stereo = pcm.iter().flat_map(|s| [*s, *s]).collect::<Vec<_>>();
+    let base = analysis::propose(&before, &timing, &generation, None).unwrap();
+    assert!(base.section.repairs.is_empty());
+    let mut review = chart_engine::vocal_adaptive::Review::new(
+        &before,
+        &timing,
+        &generation,
+        None,
+        pcm,
+        &stereo,
+        &stereo,
+    )
+    .unwrap();
+    let mut calls = 0;
+    while let Some(window) = review.next_window().unwrap() {
+        let frames =
+            generation.rmvpe_pitch.as_ref().unwrap().frames[window.start..window.end].to_vec();
+        // A caller cannot inject a different source-clock window.
+        if calls == 0 {
+            let mut bad = window.clone();
+            bad.end += 1;
+            assert!(review.complete(&bad, frames.clone()).is_err());
+        }
+        review.complete(&window, frames).unwrap();
+        calls += 1;
+        assert!(calls <= 100);
+    }
+    let result = review.finish().unwrap();
+    assert!(calls > 1);
+    assert!(!result.section.repairs.is_empty());
+    assert!(result.adaptive.as_ref().unwrap().remaining_residual_frames > 0);
+    let mut forged = result.clone();
+    forged.adaptive.as_mut().unwrap().implementation_sha256 = "0".repeat(64);
+    assert!(forged.validate(&before, &timing).is_err());
+    let restored: analysis::Analysis =
+        serde_json::from_slice(&serde_json::to_vec(&result).unwrap()).unwrap();
+    restored.validate(&before, &timing).unwrap();
+    let indices = (0..result.section.repairs.len()).collect();
+    apply(&store, Action::SetVocalPitchAnalysis { analysis: result }).unwrap();
+    apply(
+        &store,
+        Action::ApplyVocalSectionRepairs {
+            indices,
+            include_pitch: false,
+        },
+    )
+    .unwrap();
+    let after = store.load().unwrap();
+    let chart = after.content.vocals.as_ref().unwrap();
+    for authored in &before.content.vocals.as_ref().unwrap().notes {
+        assert!(chart.notes.contains(authored));
+    }
+    assert!(chart.notes.len() > before.content.vocals.as_ref().unwrap().notes.len());
+    let bytes = chart_engine::vocals::append_midi(
+        &chart_engine::midi::new_midi(&timing, &Default::default()).unwrap(),
+        chart,
+    )
+    .unwrap();
+    let imported = chart_engine::vocals::import_midi(&bytes).unwrap();
+    assert_eq!(imported.notes, chart.notes);
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(store.load().unwrap().content.vocals, before.content.vocals);
+    apply(&store, Action::Redo).unwrap();
+    assert_eq!(store.load().unwrap().content.vocals, after.content.vocals);
+}
