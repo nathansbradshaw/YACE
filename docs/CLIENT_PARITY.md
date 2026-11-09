@@ -29,6 +29,21 @@ without restoring the omitted controls. Both repeated MIDI exports were
 byte-identical. Native GUI and hosted checks on the integrated revision remain
 separate acceptance gates.
 
+An actual hosted MIDI export exposed another preservation gap: adding a new
+Star Power phrase normalized an untouched phrase's channel and velocities.
+The merge now matches complete unchanged physical marker intervals and retains
+their original note-on and note-off events. New, resized or removed intervals
+remain editable. Regressions cover adding/removing a phrase, Undo/Redo and
+reopen, plus unchanged Star Power, instrument/Pro Keys solo and drum fill/roll
+edges during each component rewrite. The actual static editor repeated the
+hosted reproduction and retained channel 4, velocity 89 and release velocity 22
+on the untouched phrase. Its export matched the native executable byte for
+byte. The downloaded song reopened, a second phrase moved, Undo/Redo and reload
+retained the acknowledged edit, and a final repeat export was byte-identical.
+Native executable checks independently passed Add, Undo/Redo, reopen and repeat
+export. Native GUI, hosted fixed-runtime and game interpretation remain separate
+acceptance gates.
+
 | Workflow | Verification evidence | Result |
 | --- | --- | --- |
 | Start from recording or existing chart | Both OS-picker/manual starts exercised; native setup now reaches Ready after save; identical chart/INI settings and unchanged encoded source | Verified |
