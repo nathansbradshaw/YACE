@@ -47,6 +47,12 @@ They do not establish export of authored percussion edits. Conflicting candidate
 and invalid owner endings refuse before returning a rewritten song. These core
 checks do not qualify an application workflow.
 
+A source-hash-bound harmony writer can add first singers to retained
+percussion/control-only owners while preserving aliases, physical hits and
+unrelated tracks. It refuses existing singer content, changed source bytes,
+overlapping opaque percussion and malformed edited-owner endings. This core path
+still needs the ordinary import/export selection bridge before application use.
+
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer
 closes this work. No application service is substituted. Browser generation,

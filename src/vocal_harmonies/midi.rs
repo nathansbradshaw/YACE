@@ -41,6 +41,20 @@ fn absolute<'a>(events: &[TrackEvent<'a>]) -> Result<Vec<(u64, K<'a>)>> {
         })
         .collect()
 }
+fn complete_owner(events: &[TrackEvent<'_>]) -> Result<()> {
+    ensure!(
+        events
+            .last()
+            .is_some_and(|event| matches!(event.kind, K::Meta(M::EndOfTrack)))
+            && events
+                .iter()
+                .filter(|event| matches!(event.kind, K::Meta(M::EndOfTrack)))
+                .count()
+                == 1,
+        "Harmony owner has missing, repeated or non-final end-of-track data; source retained"
+    );
+    Ok(())
+}
 fn phrase_key(kind: K<'_>) -> bool {
     matches!(kind,K::Midi{message:N::NoteOn{key,..}|N::NoteOff{key,..},..} if matches!(key.as_int(),105|106))
 }
@@ -293,6 +307,100 @@ pub fn append_midi(original: &[u8], chart: &HarmonyChart) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+/// Author singers into a source with no editable harmony singers, retaining
+/// control-only owners and their aliases. The hash must describe a verified
+/// source binding (or an internally verified working stage), not excuse changed
+/// external bytes. Unsupported notes/lyrics and new percussion conflicts refuse.
+pub fn author_midi(
+    original: &[u8],
+    expected_midi_sha256: &str,
+    after: &HarmonyChart,
+) -> Result<Vec<u8>> {
+    use sha2::{Digest, Sha256};
+    ensure!(
+        format!("{:x}", Sha256::digest(original)) == expected_midi_sha256,
+        "Harmony source MIDI changed; recover the verified source before authoring"
+    );
+    after.validate()?;
+    ensure!(
+        import_midi(original)?.is_none(),
+        "Existing harmony singers need their imported editing baseline"
+    );
+    let percussion = crate::vocal_percussion::import_midi(original)?;
+    if let Some(percussion) = &percussion {
+        percussion.validate_with_singing(None, Some(after))?;
+    }
+    let source = Smf::parse(original)?;
+    for track in &source.tracks {
+        if part(track)?.is_none() {
+            continue;
+        }
+        for (start, end) in crate::song_files::game_midi::harmony_percussion_ranges(track)? {
+            ensure!(
+                !after.phrases.iter().any(|phrase| {
+                    if start == end {
+                        phrase.start <= start && start < phrase.end
+                    } else {
+                        start < phrase.end && phrase.start < end
+                    }
+                }),
+                "New singing scoring would overlap retained harmony percussion; source retained"
+            );
+        }
+    }
+    let generated_bytes = append_midi(&empty_midi(source.header)?, after)?;
+    let generated = Smf::parse(&generated_bytes)?;
+    let mut additions = BTreeMap::new();
+    for track in &generated.tracks {
+        if let Some(part) = part(track)? {
+            additions.insert(part, track);
+        }
+    }
+    let (header, raw) = midi_chunks(original, source.tracks.len())?;
+    let mut chunks = Vec::new();
+    for (track, raw) in source.tracks.iter().zip(raw) {
+        let Some(part) = part(track)? else {
+            chunks.push(raw.to_vec());
+            continue;
+        };
+        let Some(new_track) = additions.remove(&part) else {
+            chunks.push(raw.to_vec());
+            continue;
+        };
+        complete_owner(track)?;
+        let mut body = absolute(track)?;
+        body.extend(
+            absolute(new_track)?
+                .into_iter()
+                .filter(|(_, kind)| note_or_lyric(*kind) || phrase_key(*kind)),
+        );
+        let bytes = encode_events(source.header, body)?;
+        chunks.push(midi_chunks(&bytes, 1)?.1[0].to_vec());
+    }
+    for (_, track) in additions {
+        let bytes = encode_events(source.header, absolute(track)?)?;
+        chunks.push(midi_chunks(&bytes, 1)?.1[0].to_vec());
+    }
+    let mut output = original[..header].to_vec();
+    if chunks.len() > 1 {
+        output[8..10].copy_from_slice(&1u16.to_be_bytes());
+    }
+    output[10..12].copy_from_slice(&u16::try_from(chunks.len())?.to_be_bytes());
+    for chunk in chunks {
+        output.extend(chunk);
+    }
+    let actual = import_midi(&output)?.context("Authored MIDI lost its harmony view")?;
+    ensure!(
+        same_content(&actual, after),
+        "Authored MIDI differs from the requested harmony document"
+    );
+    ensure!(
+        crate::vocal_percussion::import_midi(&output)? == percussion,
+        "Harmony authoring changed retained percussion; source retained"
+    );
+    Ok(output)
+}
+
 /// Read a supported editable view while callers retain the immutable MIDI.
 /// Unknown controls/percussion/Star Power stay in that original, never invented
 /// as singer notes. Ambiguous or unsupported lyrics refuse the view.
@@ -432,6 +540,7 @@ pub fn clear_midi(original: &[u8], before: &HarmonyChart) -> Result<Vec<u8>> {
             result.extend(raw);
             continue;
         }
+        complete_owner(track)?;
         let body = absolute(track)?
             .into_iter()
             .filter(|(_, kind)| !note_or_lyric(*kind))
@@ -491,6 +600,7 @@ pub fn rewrite_midi(
             chunks.push(raw.to_vec());
             continue;
         }
+        complete_owner(track)?;
         let events = absolute(track)?;
         let owned = if phrases_changed {
             owned_phrase_events(&events, owned_phrases(before, part))?
@@ -637,6 +747,186 @@ mod tests {
             Some(&chart),
         )
         .unwrap()
+    }
+    fn percussion_only_owner() -> Vec<u8> {
+        use crate::vocal_percussion as percussion;
+        let both = dedicated_percussion_source();
+        let pc = percussion::import_midi(&both).unwrap().unwrap();
+        let bytes = percussion::append_midi(&original(&fixture()), &pc).unwrap();
+        let mut midi = Smf::parse(&bytes).unwrap();
+        let track = midi
+            .tracks
+            .iter_mut()
+            .find(|track| part(track).unwrap() == Some(Part::Harm1))
+            .unwrap();
+        for event in track.iter_mut() {
+            if matches!(event.kind, K::Meta(M::TrackName(_))) {
+                event.kind = K::Meta(M::TrackName(b"PART HARM1"));
+            }
+        }
+        track.insert(
+            1,
+            TrackEvent {
+                delta: u28::new(0),
+                kind: K::Meta(M::Text(b"[mood_play]")),
+            },
+        );
+        track.insert(
+            2,
+            TrackEvent {
+                delta: u28::new(0),
+                kind: K::Midi {
+                    channel: u4::new(3),
+                    message: N::Controller {
+                        controller: u7::new(11),
+                        value: u7::new(73),
+                    },
+                },
+            },
+        );
+        let mut output = Vec::new();
+        midi.write_std(&mut output).unwrap();
+        output
+    }
+    fn digest(bytes: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(bytes))
+    }
+    #[test]
+    fn first_singers_can_use_retained_percussion_owners_without_dropping_controls_or_aliases() {
+        use crate::vocal_percussion as percussion;
+        let original = percussion_only_owner();
+        assert!(import_midi(&original).unwrap().is_none());
+        let pc = percussion::import_midi(&original).unwrap();
+        let output = author_midi(&original, &digest(&original), &fixture()).unwrap();
+        assert!(same_content(
+            &import_midi(&output).unwrap().unwrap(),
+            &fixture()
+        ));
+        assert_eq!(percussion::import_midi(&output).unwrap(), pc);
+        assert_eq!(
+            raw_track(&output, b"PART VOCALS"),
+            raw_track(&original, b"PART VOCALS")
+        );
+        let source = Smf::parse(&original).unwrap();
+        let result = Smf::parse(&output).unwrap();
+        let controls = |midi: &Smf<'_>| {
+            absolute(
+                midi.tracks
+                    .iter()
+                    .find(|track| part(track).unwrap() == Some(Part::Harm1))
+                    .unwrap(),
+            )
+            .unwrap()
+            .into_iter()
+            .filter(|(_, kind)| {
+                matches!(
+                    kind,
+                    K::Midi {
+                        message: N::Controller { .. },
+                        ..
+                    } | K::Meta(M::Text(_) | M::TrackName(_))
+                )
+            })
+            .map(|event| format!("{event:?}"))
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(controls(&source), controls(&result));
+        assert!(author_midi(&original, &"0".repeat(64), &fixture()).is_err());
+        assert!(author_midi(&output, &digest(&output), &fixture()).is_err());
+    }
+    #[test]
+    fn first_singer_scoring_cannot_capture_opaque_secondary_percussion() {
+        let original = percussion_only_owner();
+        let mut source = Smf::parse(&original).unwrap();
+        let secondary = encode_track(
+            source.header,
+            "HARM2",
+            vec![
+                (
+                    480,
+                    K::Midi {
+                        channel: u4::new(6),
+                        message: N::NoteOn {
+                            key: u7::new(96),
+                            vel: u7::new(89),
+                        },
+                    },
+                ),
+                (
+                    500,
+                    K::Midi {
+                        channel: u4::new(6),
+                        message: N::NoteOff {
+                            key: u7::new(96),
+                            vel: u7::new(9),
+                        },
+                    },
+                ),
+            ],
+            &[],
+        )
+        .unwrap();
+        let parsed = Smf::parse(&secondary).unwrap();
+        source.tracks.push(parsed.tracks[0].clone());
+        let mut bytes = Vec::new();
+        source.write_std(&mut bytes).unwrap();
+        assert!(import_midi(&bytes).unwrap().is_none());
+        let error = author_midi(&bytes, &digest(&bytes), &fixture()).unwrap_err();
+        assert!(error.to_string().contains("retained harmony percussion"));
+    }
+    #[test]
+    fn edited_harmony_owners_refuse_nonfinal_end_events_instead_of_activating_the_tail() {
+        let original = append_midi(&original(&fixture()), &fixture()).unwrap();
+        let mut source = Smf::parse(&original).unwrap();
+        let tail = TrackEvent {
+            delta: u28::new(1),
+            kind: K::Midi {
+                channel: u4::new(2),
+                message: N::Controller {
+                    controller: u7::new(11),
+                    value: u7::new(74),
+                },
+            },
+        };
+        source
+            .tracks
+            .iter_mut()
+            .find(|track| part(track).unwrap() == Some(Part::Harm2))
+            .unwrap()
+            .push(tail);
+        let mut malformed = Vec::new();
+        source.write_std(&mut malformed).unwrap();
+        let before = import_midi(&malformed).unwrap().unwrap();
+        let mut after = before.clone();
+        after.voices.get_mut(&Part::Harm2).unwrap().notes[0].start += 1;
+        for error in [
+            clear_midi(&malformed, &before).unwrap_err(),
+            rewrite_midi(&malformed, &before, &after).unwrap_err(),
+        ] {
+            assert!(error.to_string().contains("end-of-track"));
+        }
+        let pc = percussion_only_owner();
+        let mut source = Smf::parse(&pc).unwrap();
+        source.tracks.push(vec![
+            TrackEvent {
+                delta: u28::new(0),
+                kind: K::Meta(M::TrackName(b"HARM2")),
+            },
+            TrackEvent {
+                delta: u28::new(0),
+                kind: K::Meta(M::EndOfTrack),
+            },
+            tail,
+        ]);
+        let mut bytes = Vec::new();
+        source.write_std(&mut bytes).unwrap();
+        assert!(
+            author_midi(&bytes, &digest(&bytes), &fixture())
+                .unwrap_err()
+                .to_string()
+                .contains("end-of-track")
+        );
     }
     #[test]
     fn dedicated_percussion_scoring_is_not_an_empty_singing_phrase() {
