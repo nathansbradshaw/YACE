@@ -37,7 +37,11 @@ view. Shared scoring ranges used by unmanaged harmony percussion also remain
 read-only. The core checks the saved source SHA-256 before selectively adding,
 editing or clearing percussion and its dedicated markers in existing owners.
 Unmodified tracks remain byte-identical; singing, lyrics, overdrive and author
-controls are retained. Conflicting candidates and invalid owner endings refuse
+controls are retained. Supported harmony MIDI views exclude verified dedicated
+percussion ranges from singing phrases; singing-phrase rewrites preserve the
+physical percussion markers and reject new scoring conflicts. Project export,
+reopen and explicit harmony omission regressions cover this coexistence path.
+They do not establish export of authored percussion edits. Conflicting candidates and invalid owner endings refuse
 before returning a rewritten song. These core checks do not qualify an
 application workflow.
 

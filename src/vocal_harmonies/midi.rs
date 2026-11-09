@@ -9,7 +9,7 @@ use midly::{
     Format, Header, MetaMessage as M, MidiMessage as N, Smf, TrackEvent, TrackEventKind as K,
     num::{u4, u7, u28},
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn part(events: &[TrackEvent<'_>]) -> Result<Option<Part>> {
     let names: Vec<_> = events
@@ -181,6 +181,57 @@ fn read_phrases(events: &[(u64, K<'_>)]) -> Result<Vec<VocalPhrase>> {
     phrases.sort_by_key(|phrase| (phrase.start, phrase.end, phrase.player));
     Ok(phrases)
 }
+/// Select physical edges by paired marker identity, not just their tick/key:
+/// adjacent singing and percussion ranges can share a boundary and channel.
+fn owned_phrase_events(
+    events: &[(u64, K<'_>)],
+    phrases: &[VocalPhrase],
+) -> Result<BTreeSet<usize>> {
+    let ranges: BTreeSet<_> = phrases.iter().map(|p| (p.start, p.end, p.player)).collect();
+    let mut active = BTreeMap::new();
+    let mut owned = BTreeSet::new();
+    for (index, &(tick, kind)) in events.iter().enumerate() {
+        let K::Midi { channel, message } = kind else {
+            continue;
+        };
+        let (key, on) = match message {
+            N::NoteOn { key, vel } => (key.as_int(), vel.as_int() > 0),
+            N::NoteOff { key, .. } => (key.as_int(), false),
+            _ => continue,
+        };
+        if !matches!(key, 105 | 106) {
+            continue;
+        }
+        let identity = (channel.as_int(), key);
+        if on {
+            ensure!(
+                active.insert(identity, (tick, index)).is_none(),
+                "Overlapping harmony phrase markers"
+            );
+        } else {
+            let (start, first) = active
+                .remove(&identity)
+                .context("Unmatched harmony phrase marker")?;
+            let range = VocalPhrase {
+                start,
+                end: tick,
+                player: if key == 106 { 2 } else { 1 },
+            };
+            if ranges.contains(&(range.start, range.end, range.player)) {
+                owned.extend([first, index]);
+            }
+        }
+    }
+    ensure!(active.is_empty(), "Unterminated harmony phrase marker");
+    Ok(owned)
+}
+
+/// Only a completely verified dedicated percussion view can remove scoring
+/// ranges from the singing document. Unsupported controls keep the old opaque
+/// behavior; they are never guessed into an editable percussion baseline.
+fn dedicated_percussion(bytes: &[u8]) -> Option<crate::vocal_percussion::PercussionChart> {
+    crate::vocal_percussion::import_midi(bytes).ok().flatten()
+}
 fn empty_midi(header: Header) -> Result<Vec<u8>> {
     encode_track(header, "TEMPO", Vec::new(), &[])
 }
@@ -264,11 +315,16 @@ pub fn import_midi(bytes: &[u8]) -> Result<Option<HarmonyChart>> {
     if tracks.is_empty() {
         return Ok(None);
     }
-    let phrases = tracks
+    let mut phrases = tracks
         .get(&Part::Harm1)
         .map(|events| read_phrases(events))
         .transpose()?
         .unwrap_or_default();
+    if let Some(percussion) = dedicated_percussion(bytes)
+        && let Some(track) = percussion.tracks.get(&crate::vocal_percussion::Part::Harm1)
+    {
+        phrases.retain(|range| !track.phrases.iter().any(|phrase| phrase.range == *range));
+    }
     let lyric_phrases = tracks
         .get(&Part::Harm2)
         .map(|events| read_phrases(events))
@@ -411,6 +467,9 @@ pub fn rewrite_midi(
     let source = Smf::parse(original)?;
     let (header, original_chunks) = midi_chunks(original, source.tracks.len())?;
     validate_percussion_scoring(&source, before, after)?;
+    if let Some(percussion) = dedicated_percussion(original) {
+        percussion.validate_with_singing(None, Some(after))?;
+    }
     let generated_bytes = append_midi(&empty_midi(source.header)?, after)?;
     let generated = Smf::parse(&generated_bytes)?;
     let mut generated_tracks = BTreeMap::new();
@@ -432,18 +491,24 @@ pub fn rewrite_midi(
             chunks.push(raw.to_vec());
             continue;
         }
-        let replace =
-            |kind| (notes_changed && note_or_lyric(kind)) || (phrases_changed && phrase_key(kind));
-        let mut body: Vec<_> = absolute(track)?
+        let events = absolute(track)?;
+        let owned = if phrases_changed {
+            owned_phrase_events(&events, owned_phrases(before, part))?
+        } else {
+            BTreeSet::new()
+        };
+        let mut body: Vec<_> = events
             .into_iter()
-            .filter(|(_, kind)| !replace(*kind))
+            .enumerate()
+            .filter(|(index, (_, kind))| {
+                !(notes_changed && note_or_lyric(*kind)) && !owned.contains(index)
+            })
+            .map(|(_, event)| event)
             .collect();
         if let Some(new_track) = new_track {
-            body.extend(
-                absolute(new_track)?
-                    .into_iter()
-                    .filter(|(_, kind)| replace(*kind)),
-            );
+            body.extend(absolute(new_track)?.into_iter().filter(|(_, kind)| {
+                (notes_changed && note_or_lyric(*kind)) || (phrases_changed && phrase_key(*kind))
+            }));
         }
         let encoded = encode_events(source.header, body)?;
         chunks.push(midi_chunks(&encoded, 1)?.1[0].to_vec());
@@ -461,6 +526,11 @@ pub fn rewrite_midi(
         result.extend(chunk);
     }
     validate_midi_complete(&result)?;
+    let imported = import_midi(&result)?.context("Edited MIDI lost its harmony view")?;
+    ensure!(
+        same_content(&imported, after),
+        "Edited MIDI differs from the requested harmony document"
+    );
     Ok(result)
 }
 
@@ -515,6 +585,221 @@ mod tests {
     }
     fn fixture() -> HarmonyChart {
         crate::vocal_harmonies::tests::fixture()
+    }
+    fn dedicated_percussion_source() -> Vec<u8> {
+        use crate::vocal_percussion::{self as percussion, Hit, PercussionChart, Phrase, Track};
+        use sha2::{Digest, Sha256};
+        let harmony = fixture();
+        let bytes = append_midi(&original(&harmony), &harmony).unwrap();
+        let chart = PercussionChart {
+            version: 1,
+            resolution: 480,
+            source: "Independent dedicated percussion".into(),
+            tracks: BTreeMap::from([(
+                percussion::Part::Harm1,
+                Track {
+                    source: "Manual HARM1 percussion".into(),
+                    phrases: vec![Phrase {
+                        range: VocalPhrase {
+                            start: 960,
+                            end: 1920,
+                            player: 1,
+                        },
+                        midi: Some(NoteAttributes {
+                            channel: 0,
+                            velocity: 83,
+                            off_velocity: 11,
+                            off_as_note_on: false,
+                            zero_length: false,
+                            talkie_pitch: None,
+                        }),
+                    }],
+                    hits: vec![Hit {
+                        start: 1200,
+                        end: 1220,
+                        displayed: false,
+                        midi: Some(NoteAttributes {
+                            channel: 7,
+                            velocity: 88,
+                            off_velocity: 12,
+                            off_as_note_on: false,
+                            zero_length: false,
+                            talkie_pitch: None,
+                        }),
+                    }],
+                },
+            )]),
+        };
+        percussion::rewrite_midi(
+            &bytes,
+            &format!("{:x}", Sha256::digest(&bytes)),
+            None,
+            Some(&chart),
+        )
+        .unwrap()
+    }
+    #[test]
+    fn dedicated_percussion_scoring_is_not_an_empty_singing_phrase() {
+        let bytes = dedicated_percussion_source();
+        let chart = import_midi(&bytes).unwrap().unwrap();
+        assert!(same_content(&chart, &fixture()));
+        assert_eq!(chart.phrases, fixture().phrases);
+        assert_eq!(rewrite_midi(&bytes, &chart, &chart).unwrap(), bytes);
+    }
+    #[test]
+    fn harmony_phrase_edits_preserve_adjacent_percussion_edges_and_physical_attributes() {
+        use crate::vocal_percussion as percussion;
+        let bytes = dedicated_percussion_source();
+        let before = import_midi(&bytes).unwrap().unwrap();
+        let retained = percussion::import_midi(&bytes).unwrap();
+        let mut after = before.clone();
+        after.phrases[0].end = 900;
+        let output = rewrite_midi(&bytes, &before, &after).unwrap();
+        assert!(same_content(
+            &import_midi(&output).unwrap().unwrap(),
+            &after
+        ));
+        assert_eq!(percussion::import_midi(&output).unwrap(), retained);
+        assert_other_chunks_identical(&bytes, &output, Part::Harm1);
+        after.phrases[0].end = 1000;
+        assert!(rewrite_midi(&bytes, &before, &after).is_err());
+        let cleared = clear_midi(&bytes, &before).unwrap();
+        assert!(import_midi(&cleared).unwrap().is_none());
+        assert_eq!(percussion::import_midi(&cleared).unwrap(), retained);
+    }
+    #[test]
+    fn verified_working_stage_can_clear_percussion_before_singer_edits_and_reinsert_it() {
+        use crate::vocal_percussion as percussion;
+        use sha2::{Digest, Sha256};
+        let bytes = dedicated_percussion_source();
+        let before = import_midi(&bytes).unwrap().unwrap();
+        let pc = percussion::import_midi(&bytes).unwrap();
+        let working = percussion::rewrite_midi(
+            &bytes,
+            &format!("{:x}", Sha256::digest(&bytes)),
+            pc.as_ref(),
+            None,
+        )
+        .unwrap();
+        assert!(same_content(
+            &import_midi(&working).unwrap().unwrap(),
+            &before
+        ));
+        let mut after = before.clone();
+        after.phrases[0].end = 1100;
+        let singing = rewrite_midi(&working, &before, &after).unwrap();
+        assert!(
+            percussion::rewrite_midi(
+                &singing,
+                &format!("{:x}", Sha256::digest(&singing)),
+                None,
+                pc.as_ref()
+            )
+            .is_err()
+        );
+        let mut moved = pc.unwrap();
+        moved
+            .tracks
+            .get_mut(&percussion::Part::Harm1)
+            .unwrap()
+            .phrases[0]
+            .range
+            .start = 1100;
+        let output = percussion::rewrite_midi(
+            &singing,
+            &format!("{:x}", Sha256::digest(&singing)),
+            None,
+            Some(&moved),
+        )
+        .unwrap();
+        assert!(same_content(
+            &import_midi(&output).unwrap().unwrap(),
+            &after
+        ));
+        assert_eq!(percussion::import_midi(&output).unwrap(), Some(moved));
+        // The immutable source was only borrowed, never rewritten in place.
+        assert_eq!(dedicated_percussion_source(), bytes);
+    }
+    #[test]
+    fn project_harmony_exports_reopen_with_dedicated_percussion_and_keep_omissions_durable() {
+        use crate::{
+            editor::{Action, Store},
+            vocal_percussion as percussion,
+        };
+        let root = tempfile::tempdir().unwrap();
+        let song = root.path().join("source");
+        std::fs::create_dir(&song).unwrap();
+        let original = dedicated_percussion_source();
+        let pc = percussion::import_midi(&original).unwrap();
+        std::fs::write(song.join("notes.mid"), &original).unwrap();
+        std::fs::write(
+            song.join("song.ini"),
+            "[song]\nname = Dedicated harmony percussion\nsong_length = 4000\n",
+        )
+        .unwrap();
+        let store = Store::create(&song, None, &root.path().join("project")).unwrap();
+        let mut changed = store.load().unwrap().content.harmonies.unwrap();
+        assert_eq!(changed.phrases, fixture().phrases);
+        changed.phrases[0].end = 900;
+        project_command(
+            &store,
+            Action::SetHarmonies {
+                document: changed.clone(),
+            },
+        );
+        let exported = root.path().join("exported");
+        let bytes = export_project(&store, &exported);
+        assert_eq!(percussion::import_midi(&bytes).unwrap(), pc);
+        let reopened = Store::create(&exported, None, &root.path().join("reopened")).unwrap();
+        assert!(same_content(
+            &reopened.load().unwrap().content.harmonies.unwrap(),
+            &changed
+        ));
+        assert_eq!(
+            reopened
+                .vocal_percussion(&reopened.load().unwrap())
+                .unwrap(),
+            pc
+        );
+        let omitted = root.path().join("omitted");
+        let doc = reopened.load().unwrap();
+        let options = crate::export_options::Options {
+            tracks: Some(["ExpertSingle".into(), "Vocals".into()].into()),
+            include_audio: false,
+            ..Default::default()
+        };
+        reopened
+            .export_with_options(
+                &doc,
+                &omitted,
+                &crate::editor::Actor {
+                    kind: crate::editor::ActorKind::Human,
+                    name: "Dedicated percussion omission".into(),
+                },
+                &options,
+            )
+            .unwrap();
+        let fresh = Store::create(&omitted, None, &root.path().join("fresh")).unwrap();
+        assert!(fresh.load().unwrap().content.harmonies.is_none());
+        assert!(
+            fresh
+                .vocal_percussion(&fresh.load().unwrap())
+                .unwrap()
+                .is_none()
+        );
+        project_command(
+            &fresh,
+            Action::SetHarmonies {
+                document: fixture(),
+            },
+        );
+        let later = export_project(&fresh, &root.path().join("later"));
+        assert!(percussion::import_midi(&later).unwrap().is_none());
+        assert!(same_content(
+            &import_midi(&later).unwrap().unwrap(),
+            &fixture()
+        ));
+        assert_eq!(std::fs::read(song.join("notes.mid")).unwrap(), original);
     }
     fn controlled_source() -> Vec<u8> {
         let chart = fixture();
