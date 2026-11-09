@@ -42,6 +42,7 @@ pub async fn generate_language(
         analysis_mode,
         evidence_output,
         lyrics,
+        false,
         Default::default(),
         progress,
     )
@@ -56,6 +57,7 @@ pub async fn generate_language_configured(
     analysis_mode: crate::vocal_generation::AnalysisMode,
     evidence_output: Option<&Path>,
     lyrics: Option<&crate::vocal_generation::LyricSource>,
+    recognize_lyrics: bool,
     settings: crate::detection_settings::Settings,
     progress: &mut impl FnMut(String),
 ) -> Result<crate::vocal_generation::Generation> {
@@ -76,8 +78,8 @@ pub async fn generate_language_configured(
         evidence: manifest.alignment.details.clone(),
     };
     let mut alignment_warning = None;
-    let acoustic = if let Some(lyrics) =
-        lyrics.filter(|lyrics| language.use_english_alignment(&lyrics.text))
+    let acoustic = if recognize_lyrics
+        && let Some(lyrics) = lyrics.filter(|lyrics| language.use_english_alignment(&lyrics.text))
     {
         match crate::acoustic_alignment::align(audio, &stem.path, &binding, lyrics, progress).await
         {
@@ -118,7 +120,7 @@ pub async fn generate_language_configured(
         None
     };
     let mut recognition_warning = None;
-    let recognized = if acoustic.is_none() {
+    let recognized = if recognize_lyrics && acoustic.is_none() {
         match crate::recognition::analyze(audio, Some((&stem.path, &binding)), language, progress)
             .await
         {

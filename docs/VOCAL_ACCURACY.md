@@ -286,13 +286,15 @@ authored pitch or reference timestamp enters the decoder. A short dropout can
 use surrounding supported singing for context instead of being rejected as an
 isolated short sound. Silence and unsupported evidence remain gaps.
 
-The profile was selected using the four development recordings. Its initial
-recovery variant failed the false-voicing check; the energy-filtered variant
-passed the private automated contour and exported-note gates. The second run
-uses previously exposed validation artists, with parameters selected only on
-development material. Private audio, references, exposure history and detailed
-reports stay outside Git. This does not establish complete transcription,
-listening, GUI interaction or game acceptance.
+The profile was selected using four development recordings. Its initial recovery
+variant failed the false-voicing check; an energy-filtered variant passed an
+earlier private automated gate. That result did not generalize to the rebuilt
+12-recording regression corpus: on its eight validation artists, the error
+reduction relative to faster High was about 11.46% for contours and 12.06% for
+exported-note frames, below the required 20%. Previously evaluated artists are
+explicitly marked as exposed. The option remains experimental. Private audio,
+references, exposure history and detailed reports stay outside Git. Tests do not
+establish complete transcription, listening, GUI or game acceptance.
 
 `vocals generate-project PROJECT --analysis-mode high-accuracy
 --independent-pitch` selects the same desktop workflow. Install the matching
@@ -346,6 +348,34 @@ contours. Both passes calculate energy support from the original frames. All
 overrides enter the saved recipe and algorithm identity, so the production
 profile check cannot silently accept them. None of these experiments promotes
 a backend or proves the added notes correct.
+
+Further explicit research overrides compare transition cost, an energy reference
+from nearby original accepted voice, and the winning pitch band's advantage
+over its runner-up. The local-energy experiment requires at least ten nearby
+accepted frames and otherwise retains the original song-wide floor. The
+runner-up margin is a log-cost difference, not a probability. An acoustic-only
+consensus trial requires SwiftF0 plus all three spectral estimators without
+requiring a note-model event. These remain separate experimental recipes.
+
+`vocal_posterior_replay --predict-short-consensus` freezes a development-selected
+candidate: retain the original 180 ms two-vote recovery and add 100 ms contours
+only with three spectral votes, ROSVOT/Swift agreement and runner-up margin 0.5.
+Both passes use the original energy reference. It cannot be combined with
+research overrides. `vocal_accuracy_batch --mode short-consensus --predictor
+EXPLICIT_HELPER` checks the returned profile, executable identity and source
+bindings and verifies MIDI round-trip. This candidate is not the production
+profile. On eight validation artists, it reduced missing-plus-wrong frame error
+by about 1.85% and exported-note frame error by about 2.20% relative to the prior
+multi-model recipe. Voiced recall and wrong-pitch proportion improved, but the
+required 20% reduction failed. These artists were previously exposed regression
+material, not fresh held-out evidence. This candidate remains unpromoted.
+
+Note assembly now follows each detector's actual frame clock in High accuracy.
+Using the DSP hop for 10 ms, 16 ms or PESTO frames previously introduced artificial
+gaps; short fragments could all disappear at the note-duration filter. Adjacent
+cells now meet at their midpoint; absent frames and breaths still leave gaps.
+Both modes fix acoustic boundaries before optional word attachment. Neither
+these assembly fixes nor successful tests establish musical acceptance.
 
 Keep every corpus, recording, reference, salience cache and detailed report in a
 private directory outside Git. Use distinct development/validation artists;

@@ -11,6 +11,7 @@ enum Mode {
     Analyze,
     Reassemble,
     Seed,
+    ShortConsensus,
 }
 #[derive(Parser)]
 struct Args {
@@ -29,6 +30,9 @@ struct Args {
     raw_rmvpe: Option<PathBuf>,
     #[arg(long)]
     held_out: bool,
+    /// Explicit frozen candidate helper; does not change the production profile.
+    #[arg(long, required_if_eq("mode", "short-consensus"))]
+    predictor: Option<PathBuf>,
 }
 fn main() -> Result<()> {
     let mut a = Args::parse();
@@ -57,10 +61,10 @@ fn main() -> Result<()> {
         serde_json::to_vec_pretty(&json!({
             "source_corpus_sha256":models::hash_file(&a.corpus)?,
             "executable_sha256":models::hash_file(&std::env::current_exe()?)?,
-            "analysis_profile":chart_engine::vocal_posterior::FROZEN_ENERGY_PROFILE,
+            "analysis_profile":if matches!(a.mode,Mode::ShortConsensus){chart_engine::vocal_posterior::FROZEN_SHORT_PROFILE}else{chart_engine::vocal_posterior::FROZEN_ENERGY_PROFILE},
             "assembly_algorithm":vg::ALGORITHM,
             "references_read":false,"held_out":a.held_out,
-            "condition":match a.mode {Mode::Analyze=>"same production independent model analysis",Mode::Reassemble=>"note assembly only; raw detector frames unchanged",Mode::Seed=>"verified existing RMVPE salience hardlinked into source-bound caches"}
+            "condition":match a.mode {Mode::Analyze=>"same production independent model analysis",Mode::Reassemble=>"note assembly only; raw detector frames unchanged",Mode::Seed=>"verified existing RMVPE salience hardlinked into source-bound caches",Mode::ShortConsensus=>"frozen development-selected candidate; no backend promotion"}
         }))?,
     )?;
     let mut outputs = vec![];
@@ -185,6 +189,60 @@ fn main() -> Result<()> {
                     a.cache.as_deref().context("Cache directory required")?,
                     Arc::new(Control::default()),
                 )?
+            }
+            Mode::ShortConsensus => {
+                let cache = a
+                    .cache
+                    .as_ref()
+                    .context("Cache required")?
+                    .join(chart_engine::vocal_independent::cache_key(&old)?);
+                let helper = a
+                    .predictor
+                    .as_ref()
+                    .context("Explicit candidate helper required")?;
+                let helper_sha = models::hash_file(helper)?;
+                let work = tempfile::tempdir_in(&a.output)?;
+                let predicted = work.path().join("predicted");
+                let status = std::process::Command::new(helper)
+                    .arg(cache.join("input.json"))
+                    .arg(&cache)
+                    .arg(&cache)
+                    .arg(&predicted)
+                    .arg("--notes-root")
+                    .arg(&cache)
+                    .arg("--swift-root")
+                    .arg(&cache)
+                    .args([
+                        "--predict-only",
+                        "--predict-recovery",
+                        "--predict-energy",
+                        "--predict-short-consensus",
+                        "--held-out",
+                        "--crepe-prefix",
+                        "fresh-full-",
+                    ])
+                    .status()?;
+                ensure!(status.success(), "Frozen candidate prediction failed");
+                let recipe: serde_json::Value =
+                    serde_json::from_slice(&fs::read(predicted.join("frozen-profile.json"))?)?;
+                ensure!(
+                    recipe["profile"] == chart_engine::vocal_posterior::FROZEN_SHORT_PROFILE
+                        && recipe["executable_sha256"] == helper_sha,
+                    "Candidate helper/profile differs"
+                );
+                let result: vg::Generation =
+                    serde_json::from_slice(&fs::read(predicted.join("source.generation.json"))?)?;
+                ensure!(
+                    result.audio_sha256 == old.audio_sha256
+                        && result.vocal_stem_sha256 == old.vocal_stem_sha256
+                        && result.duration_seconds == old.duration_seconds,
+                    "Candidate source binding differs"
+                );
+                fs::write(
+                    a.output.join(format!("{}.prediction-recipe.json", r.id)),
+                    serde_json::to_vec_pretty(&recipe)?,
+                )?;
+                result
             }
             Mode::Reassemble => {
                 let mut result = old.clone();

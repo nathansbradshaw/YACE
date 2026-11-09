@@ -103,11 +103,12 @@ jobs:
           cargo fmt --manifest-path web/Cargo.toml -- --check
           cargo fmt --manifest-path web/tools/Cargo.toml -- --check
       - name: Install browser fixture and optimizer tools
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes ffmpeg
-          curl --fail --location --retry 3 https://github.com/WebAssembly/binaryen/releases/download/version_132/binaryen-version_132-x86_64-linux.tar.gz --output "$RUNNER_TEMP/binaryen.tar.gz"
-          printf '%s  %s\n' 195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572 "$RUNNER_TEMP/binaryen.tar.gz" | sha256sum --check -
+          cargo run --locked --manifest-path web/tools/Cargo.toml -- fetch-optimizer "$RUNNER_TEMP/binaryen.tar.gz"
           tar --extract --gzip --file "$RUNNER_TEMP/binaryen.tar.gz" --directory "$RUNNER_TEMP"
           "$RUNNER_TEMP/binaryen-version_132/bin/wasm-opt" --version
           echo "$RUNNER_TEMP/binaryen-version_132/bin" >> "$GITHUB_PATH"
