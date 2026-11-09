@@ -35,6 +35,41 @@ pub struct Range {
 }
 pub type Tracks = BTreeMap<String, Vec<Range>>;
 
+pub fn current(
+    project: &crate::editor::Project,
+    source: &Chart,
+    track: &str,
+) -> Result<Vec<Range>> {
+    project
+        .content
+        .lane_ranges
+        .get(track)
+        .cloned()
+        .map_or_else(|| imported(source, track), Ok)
+}
+
+pub fn apply(
+    project: &mut crate::editor::Project,
+    source: &Chart,
+    track: &str,
+    edit: &Edit,
+) -> Result<()> {
+    ensure!(
+        project.content.tracks.contains_key(track),
+        "Choose an existing instrument track"
+    );
+    imported(source, track)?;
+    let next = edited(track, &current(project, source, track)?, edit)?;
+    validate(
+        track,
+        &next,
+        &crate::sync_track::effective(project, &source.timing)?,
+        project.duration,
+    )?;
+    project.content.lane_ranges.insert(track.to_owned(), next);
+    Ok(())
+}
+
 pub fn supports(track: &str, kind: Kind) -> bool {
     let Some(suffix) = ["Expert", "Hard", "Medium", "Easy"]
         .into_iter()
@@ -220,6 +255,179 @@ pub fn render(text: String, tracks: &Tracks) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::editor::{Action, Actor, ActorKind, Request, Store};
+    fn command(store: &Store, action: Action) -> Result<()> {
+        store.apply(Request {
+            expected_revision: store.load()?.revision,
+            actor: Actor {
+                kind: ActorKind::Human,
+                name: "Lane range regression".into(),
+            },
+            action,
+        })?;
+        Ok(())
+    }
+    fn project(midi: bool) -> (tempfile::TempDir, Store) {
+        let temp = tempfile::tempdir().unwrap();
+        let song = temp.path().join("song");
+        std::fs::create_dir(&song).unwrap();
+        let text = "[Song]\n{\nResolution = 480\n}\n[SyncTrack]\n{\n0 = B 120000\n}\n[ExpertSingle]\n{\n0 = N 0 120\n240 = S 65 480\n}\n";
+        if midi {
+            std::fs::write(
+                song.join("notes.mid"),
+                crate::game_export::song(
+                    &Chart::parse(text.replace("240 = S 65 480\n", "")).unwrap(),
+                    None,
+                )
+                .unwrap()
+                .0,
+            )
+            .unwrap();
+        } else {
+            std::fs::write(song.join("notes.chart"), text).unwrap();
+        }
+        std::fs::write(
+            song.join("song.ini"),
+            "[song]\nname = Lane range regression\nsong_length = 10000\n",
+        )
+        .unwrap();
+        let store = Store::create(&song, None, &temp.path().join("project")).unwrap();
+        (temp, store)
+    }
+    #[test]
+    fn lane_range_project_commands_keep_history_witnesses_and_explicit_clear() {
+        let (temp, store) = project(false);
+        let old = range(240, 720, Kind::Tremolo);
+        let next = range(480, 960, Kind::Tremolo);
+        command(
+            &store,
+            Action::EditLaneRange {
+                track: "ExpertSingle".into(),
+                edit: Edit::Put {
+                    previous: Some(old.clone()),
+                    range: next.clone(),
+                },
+            },
+        )
+        .unwrap();
+        let before = std::fs::read(store.root.join("project.json")).unwrap();
+        assert!(
+            command(
+                &store,
+                Action::EditLaneRange {
+                    track: "ExpertSingle".into(),
+                    edit: Edit::Remove { range: old }
+                }
+            )
+            .is_err()
+        );
+        assert_eq!(
+            before,
+            std::fs::read(store.root.join("project.json")).unwrap()
+        );
+        command(&store, Action::Undo).unwrap();
+        assert!(store.load().unwrap().content.lane_ranges.is_empty());
+        command(&store, Action::Redo).unwrap();
+        assert_eq!(
+            store.load().unwrap().content.lane_ranges["ExpertSingle"],
+            vec![next.clone()]
+        );
+        command(
+            &store,
+            Action::EditLaneRange {
+                track: "ExpertSingle".into(),
+                edit: Edit::Remove { range: next },
+            },
+        )
+        .unwrap();
+        let output = temp.path().join("export");
+        command(
+            &store,
+            Action::Export {
+                output: output.clone(),
+            },
+        )
+        .unwrap();
+        let reopened = Store::create(&output, None, &temp.path().join("reopened")).unwrap();
+        let doc = reopened.load().unwrap();
+        let chart = Chart::parse(doc.chart_text(&reopened).unwrap()).unwrap();
+        assert!(current(&doc, &chart, "ExpertSingle").unwrap().is_empty());
+    }
+    #[test]
+    fn lane_range_midi_commands_refuse_until_scope_writer_is_available() {
+        let (_temp, store) = project(true);
+        let before = std::fs::read(store.root.join("project.json")).unwrap();
+        assert!(
+            command(
+                &store,
+                Action::EditLaneRange {
+                    track: "ExpertSingle".into(),
+                    edit: Edit::Put {
+                        previous: None,
+                        range: range(960, 1440, Kind::Trill)
+                    }
+                }
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("MIDI lane-range authoring")
+        );
+        assert_eq!(
+            before,
+            std::fs::read(store.root.join("project.json")).unwrap()
+        );
+    }
+    #[test]
+    fn lane_range_note_proposals_bind_ranges_without_dropping_them() {
+        let (_temp, store) = project(false);
+        let base = store.load().unwrap();
+        let mut edited = base.clone();
+        edited.content.tracks.get_mut("ExpertSingle").unwrap()[0]
+            .note
+            .tick += 120;
+        let author = Actor {
+            kind: ActorKind::Human,
+            name: "Lane proposal regression".into(),
+        };
+        let legacy = crate::collaboration::Proposal::between(
+            &base,
+            &edited,
+            "legacy".into(),
+            "Notes".into(),
+            "Independent notes".into(),
+            author.clone(),
+        )
+        .unwrap();
+        edited
+            .content
+            .lane_ranges
+            .insert("ExpertSingle".into(), vec![range(480, 960, Kind::Trill)]);
+        assert!(
+            crate::collaboration::Proposal::between(
+                &base,
+                &edited,
+                "refuse".into(),
+                "Notes".into(),
+                "Independent notes".into(),
+                author.clone()
+            )
+            .is_err()
+        );
+        let mut same = base;
+        same.content.lane_ranges = edited.content.lane_ranges.clone();
+        let bound = crate::collaboration::Proposal::between(
+            &same,
+            &edited,
+            "bound".into(),
+            "Notes".into(),
+            "Independent notes".into(),
+            author,
+        )
+        .unwrap();
+        assert!(legacy.star_power_sha256.is_none());
+        assert!(bound.star_power_sha256.is_some());
+        assert_ne!(legacy.fingerprint().unwrap(), bound.fingerprint().unwrap());
+    }
     fn range(start: u64, end: u64, kind: Kind) -> Range {
         Range { start, end, kind }
     }

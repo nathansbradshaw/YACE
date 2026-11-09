@@ -171,6 +171,8 @@ pub struct Content {
     pub solos: crate::solos::Tracks,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub drum_ranges: crate::drum_ranges::Tracks,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub lane_ranges: crate::lane_ranges::Tracks,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync: Option<crate::sync_track::SyncTrack>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -288,6 +290,10 @@ pub enum Action {
     },
     EditDrumRange {
         edit: crate::drum_ranges::Edit,
+    },
+    EditLaneRange {
+        track: String,
+        edit: crate::lane_ranges::Edit,
     },
     EditSync {
         edit: crate::sync_track::Edit,
@@ -582,6 +588,11 @@ impl Project {
                 && self.content.solos.get(track).is_none_or(Vec::is_empty)
                 && self
                     .content
+                    .lane_ranges
+                    .get(track)
+                    .is_none_or(Vec::is_empty)
+                && self
+                    .content
                     .drum_ranges
                     .get(track)
                     .is_none_or(Vec::is_empty)
@@ -601,7 +612,8 @@ impl Project {
         let text = crate::sync_track::render(text, &self.content.sync)?;
         let text = crate::star_power::render(text, &self.content.star_power)?;
         let text = crate::solos::render(text, &self.content.solos)?;
-        crate::drum_ranges::render(text, &self.content.drum_ranges)
+        let text = crate::drum_ranges::render(text, &self.content.drum_ranges)?;
+        crate::lane_ranges::render(text, &self.content.lane_ranges)
     }
     pub fn chart_hash(&self, store: &Store) -> Result<String> {
         Ok(hash(self.chart_text(store)?.as_bytes()))
@@ -1344,6 +1356,7 @@ impl Store {
                 star_power: Default::default(),
                 solos: Default::default(),
                 drum_ranges: Default::default(),
+                lane_ranges: Default::default(),
                 sync: None,
                 sections: None,
                 track_origins: Default::default(),
@@ -1819,6 +1832,7 @@ impl Store {
                 | Action::EditStarPower { .. }
                 | Action::EditSolo { .. }
                 | Action::EditDrumRange { .. }
+                | Action::EditLaneRange { .. }
                 | Action::ApplyGeneratedPart { .. }
                 | Action::AddNote { .. }
                 | Action::UpdateNote { .. }
@@ -1957,6 +1971,14 @@ impl Store {
                 } else {
                     crate::drum_ranges::apply(&mut doc, &source, edit)?;
                 }
+            }
+            Action::EditLaneRange { track, edit } => {
+                ensure!(
+                    !crate::song_files::game_midi::exists(&self.root.join("source")),
+                    "MIDI lane-range authoring is not available yet; original markers retained read-only"
+                );
+                let source = self.source_chart(&doc)?;
+                crate::lane_ranges::apply(&mut doc, &source.chart, track, edit)?;
             }
             Action::EditSync { edit } => {
                 let source = self.source_chart(&doc)?;

@@ -42,6 +42,14 @@ pub(crate) fn is_link_created_track(project: &Project, chart: &Chart, track: &st
 
 pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
     let timing = crate::sync_track::effective(project, &chart.timing)?;
+    for (track, ranges) in &project.content.lane_ranges {
+        ensure!(
+            project.content.tracks.contains_key(track),
+            "Lane ranges belong to an unknown instrument track"
+        );
+        crate::lane_ranges::imported(chart, track)?;
+        crate::lane_ranges::validate(track, ranges, &timing, project.duration)?;
+    }
     for (track, phrases) in &project.content.solos {
         ensure!(
             supported_track(track) && project.content.tracks.contains_key(track),

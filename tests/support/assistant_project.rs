@@ -77,6 +77,7 @@ pub(crate) fn fixture(root: &Path) -> Store {
             star_power: Default::default(),
             solos: Default::default(),
             drum_ranges: Default::default(),
+            lane_ranges: Default::default(),
             sync: None,
             sections: None,
             track_origins: Default::default(),
