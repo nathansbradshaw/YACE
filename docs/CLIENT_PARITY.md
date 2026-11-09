@@ -27,7 +27,9 @@ persistence, MIDI editing, placement/selection/Undo/preview controls and actual
 native, browser and game acceptance remain open. A strict MIDI reader extracts
 dedicated source phrases with original hit and scoring-marker attributes;
 ambiguous, mixed singing/percussion and uncovered source hits refuse the editable
-view. This reader does not change the source or qualify an application workflow.
+view. The core can encode new percussion owners while keeping every original
+MIDI chunk unchanged; it refuses existing owners until preservation-aware editing
+is integrated. These core checks do not qualify an application workflow.
 
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer

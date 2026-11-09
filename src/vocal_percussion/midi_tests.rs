@@ -189,3 +189,83 @@ fn a_singing_only_source_creates_no_percussion_document() {
     lead.extend([(0, note(0, 105, 100, true)), (960, note(0, 105, 0, false))]);
     assert!(import_midi(&encode(vec![lead])).unwrap().is_none());
 }
+
+#[test]
+fn append_round_trips_independent_parts_and_retains_all_original_chunks_exactly() {
+    let original = encode(vec![
+        singing("PART GUITAR", 240, 480),
+        vec![
+            (0, K::Meta(M::TrackName(b"VENUE"))),
+            (123, K::Meta(M::Text(b"Unknown stage event stays intact"))),
+            (1920, K::Meta(M::EndOfTrack)),
+        ],
+    ]);
+    let mut chart = crate::vocal_percussion::tests::fixture();
+    chart.tracks.get_mut(&Part::Lead).unwrap().hits.push(Hit {
+        start: 480,
+        end: 480,
+        displayed: false,
+        midi: Some(NoteAttributes {
+            channel: 6,
+            velocity: 87,
+            off_velocity: 0,
+            off_as_note_on: true,
+            zero_length: true,
+            talkie_pitch: None,
+        }),
+    });
+    let bytes = append_midi(&original, &chart).unwrap();
+    let imported = import_midi(&bytes).unwrap().unwrap();
+    for part in [Part::Lead, Part::Harm1] {
+        assert_eq!(imported.tracks[&part].hits, chart.tracks[&part].hits);
+        assert_eq!(imported.tracks[&part].phrases, chart.tracks[&part].phrases);
+    }
+    let before = Smf::parse(&original).unwrap();
+    let after = Smf::parse(&bytes).unwrap();
+    let before_chunks = midi_chunks(&original, before.tracks.len()).unwrap().1;
+    let after_chunks = midi_chunks(&bytes, after.tracks.len()).unwrap().1;
+    assert_eq!(after.tracks.len(), before.tracks.len() + 2);
+    assert_eq!(before_chunks, after_chunks[..before.tracks.len()]);
+}
+#[test]
+fn append_refuses_existing_vocal_owners_shared_harmony_sources_and_clock_changes() {
+    let chart = crate::vocal_percussion::tests::fixture();
+    for source in [
+        vec![percussion("PART VOCALS")],
+        vec![percussion("PART HARM1")],
+        vec![singing("HARM3", 1200, 1440)],
+    ] {
+        assert!(
+            append_midi(&encode(source), &chart)
+                .unwrap_err()
+                .to_string()
+                .contains("preservation-aware")
+        );
+    }
+    let original = encode(vec![singing("PART GUITAR", 240, 480)]);
+    let mut other_clock = chart;
+    other_clock.resolution = 960;
+    assert!(
+        append_midi(&original, &other_clock)
+            .unwrap_err()
+            .to_string()
+            .contains("resolutions")
+    );
+}
+#[test]
+fn appended_zero_length_hit_at_phrase_start_has_a_paired_on_and_off() {
+    let original = encode(Vec::new());
+    let mut chart = crate::vocal_percussion::tests::fixture();
+    chart.tracks.remove(&Part::Harm1);
+    let hit = &mut chart.tracks.get_mut(&Part::Lead).unwrap().hits[0];
+    hit.start = 0;
+    hit.end = 0;
+    let bytes = append_midi(&original, &chart).unwrap();
+    let imported = import_midi(&bytes).unwrap().unwrap();
+    let hit = &imported.tracks[&Part::Lead].hits[0];
+    assert_eq!((hit.start, hit.end, hit.key()), (0, 0, 96));
+    let attributes = hit.midi.as_ref().unwrap();
+    assert!(attributes.zero_length);
+    assert!(!attributes.off_as_note_on);
+    assert_eq!(attributes.off_velocity, 0);
+}

@@ -3,7 +3,7 @@ use crate::{
     vocal_harmonies::{Part as HarmonyPart, Voice},
     vocals::{Syllable, VocalNote, VocalTone},
 };
-fn fixture() -> PercussionChart {
+pub(super) fn fixture() -> PercussionChart {
     let track = Track {
         source: "Manual percussion".into(),
         phrases: vec![Phrase {
