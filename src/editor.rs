@@ -251,6 +251,7 @@ impl Transport {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
+    #[serde(alias = "edit_pro_bass_note")]
     EditProGuitarNote {
         note_id: String,
         fret: u8,
@@ -2680,6 +2681,8 @@ impl Store {
             ("ProKeys", "diff_keys_real"),
             ("ProGuitar17", "diff_guitar_real"),
             ("ProGuitar22", "diff_guitar_real_22"),
+            ("ProBass17", "diff_bass_real"),
+            ("ProBass22", "diff_bass_real_22"),
         ] {
             if all_parts.iter().any(|t| t.ends_with(suffix))
                 && !selected.iter().any(|t| t.ends_with(suffix))

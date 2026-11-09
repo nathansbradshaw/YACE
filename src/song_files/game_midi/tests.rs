@@ -206,18 +206,32 @@ fn store(root: &Path, bytes: &[u8], delay: i32) -> Store {
 #[test]
 fn legacy_opaque_manual_parts_cannot_be_replaced_by_adding_a_blank_part() {
     let root = tempfile::tempdir().unwrap();
-    let original = fixture();
+    let bytes = fixture();
+    let mut midi = Smf::parse(&bytes).unwrap();
+    for name in [b"PART REAL_BASS".as_slice(), b"PART REAL_BASS_22"] {
+        midi.tracks.push(track(
+            name,
+            vec![(240, on(6, 101, 117)), (960, off(6, 101, 28))],
+        ));
+    }
+    let mut original = Vec::new();
+    midi.write_std(&mut original).unwrap();
     let store = store(root.path(), &original, 0);
     let song = store.root.join("source");
     let (mut imported, directory) = source(&song).unwrap().unwrap();
     let text = fs::read_to_string(directory.join("notes.chart")).unwrap();
     let chart = Chart::parse(text).unwrap();
     // Reproduce the retained, checksum-bound representation written before
-    // rhythm became editable. The original MIDI chunk remains untouched.
+    // manual parts became editable. The original MIDI chunks remain untouched.
+    let legacy_part = |name: &str| {
+        ["DoubleRhythm", "GHLGuitar", "ProBass17", "ProBass22"]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
+    };
     let legacy: String = chart
         .sections
         .iter()
-        .filter(|s| !s.name.ends_with("DoubleRhythm") && !s.name.ends_with("GHLGuitar"))
+        .filter(|s| !legacy_part(&s.name))
         .map(|s| {
             format!(
                 "[{}]\n{{\n{}\n}}\n",
@@ -228,10 +242,8 @@ fn legacy_opaque_manual_parts_cannot_be_replaced_by_adding_a_blank_part() {
         .collect();
     let mut attributes: Vec<AttributeRecord> =
         serde_json::from_slice(&fs::read(directory.join("attributes.json")).unwrap()).unwrap();
-    attributes.retain(|a| !a.track.ends_with("DoubleRhythm") && !a.track.ends_with("GHLGuitar"));
-    imported
-        .attributes
-        .retain(|a| !a.track.ends_with("DoubleRhythm") && !a.track.ends_with("GHLGuitar"));
+    attributes.retain(|a| !legacy_part(&a.track));
+    imported.attributes.retain(|a| !legacy_part(&a.track));
     fs::write(
         directory.join("attributes.json"),
         serde_json::to_vec(&attributes).unwrap(),
@@ -255,7 +267,9 @@ fn legacy_opaque_manual_parts_cannot_be_replaced_by_adding_a_blank_part() {
     let before = fs::read(store.root.join("project.json")).unwrap();
     for (tier, suffix) in ["Easy", "Medium", "Hard", "Expert"]
         .into_iter()
-        .flat_map(|tier| ["DoubleRhythm", "GHLGuitar"].map(|suffix| (tier, suffix)))
+        .flat_map(|tier| {
+            ["DoubleRhythm", "GHLGuitar", "ProBass17", "ProBass22"].map(|suffix| (tier, suffix))
+        })
     {
         let error = apply(
             &store,

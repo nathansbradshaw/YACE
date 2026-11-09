@@ -69,15 +69,16 @@ fn ProGuitarProperties(studio: Studio, track: String, item: EditorNote) -> Eleme
     let fret_id = item.id.clone();
     let channel_id = item.id.clone();
     let hopo_id = item.id.clone();
-    rsx! {div {class:"selection-pro-guitar", aria_label:"Pro Guitar properties",
+    let part = crate::pro_guitar::label(&track);
+    rsx! {div {class:"selection-pro-guitar", aria_label:"{part} properties",
         label {"Fret"
-            for epoch in [fret_reset.key()] {input {key:"{epoch}", aria_label:"Pro Guitar fret", r#type:"number", min:"0", max:"{limit}", value:"{fret}",
+            for epoch in [fret_reset.key()] {input {key:"{epoch}", aria_label:"{part} fret", r#type:"number", min:"0", max:"{limit}", value:"{fret}",
                 onmounted:move |event|fret_reset.mounted(event), onkeydown:move |event|event.stop_propagation(),
                 onchange:{let id=fret_id.clone();move |event|{if !event.value().parse::<u8>().ok().is_some_and(|value|update_pro(studio,&id,|f,_,_|*f=value)){fret_reset.rejected();}}}
             }}
         }
         label {"Articulation"
-            for epoch in [channel_reset.key()] {select {key:"{epoch}", aria_label:"Pro Guitar articulation", value:"{channel}",
+            for epoch in [channel_reset.key()] {select {key:"{epoch}", aria_label:"{part} articulation", value:"{channel}",
                 onmounted:move |event|channel_reset.mounted(event), onkeydown:move |event|event.stop_propagation(),
                 onchange:{let id=channel_id.clone();move |event|{if !event.value().parse::<u8>().ok().is_some_and(|value|update_pro(studio,&id,|_,c,_|*c=value)){channel_reset.rejected();}}},
                 for value in 0..=6u8 {option {value:"{value}", selected:value==channel,"{crate::pro_guitar::articulation(value)}"}}
@@ -85,7 +86,7 @@ fn ProGuitarProperties(studio: Studio, track: String, item: EditorNote) -> Eleme
             }}
         }
         label {class:"form-check",
-            for epoch in [hopo_reset.key()] {input {key:"{epoch}",r#type:"checkbox",aria_label:"Pro Guitar forced HOPO",checked:forced,
+            for epoch in [hopo_reset.key()] {input {key:"{epoch}",r#type:"checkbox",aria_label:"{part} forced HOPO",checked:forced,
                 onmounted:move |event|hopo_reset.mounted(event),onkeydown:move |event|event.stop_propagation(),
                 onchange:{let id=hopo_id.clone();move |event|{if !update_pro(studio,&id,|_,_,h|*h=event.checked()){hopo_reset.rejected();}}}
             }} "Force HOPO for this attack"

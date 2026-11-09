@@ -1,4 +1,4 @@
-//! Pro Guitar strings and frets keep their ordinary MIDI note attributes.
+//! Pro Guitar and Pro Bass share ordinary MIDI string/fret note attributes.
 //! String rows are independent of five-fret colors and six-fret button pairs.
 use crate::{
     editor::{EditorNote, Project},
@@ -6,9 +6,11 @@ use crate::{
 };
 use anyhow::{Context, Result, ensure};
 
-pub const PARTS: [(&str, &str); 2] = [
+pub const PARTS: [(&str, &str); 4] = [
     ("Pro Guitar (17 fret)", "ProGuitar17"),
     ("Pro Guitar (22 fret)", "ProGuitar22"),
+    ("Pro Bass (17 fret)", "ProBass17"),
+    ("Pro Bass (22 fret)", "ProBass22"),
 ];
 /// A dedicated attack marker; lane 5 is the sixth string, never a forced flag.
 pub const HOPO: u8 = 32;
@@ -20,24 +22,38 @@ pub fn max_fret(track: &str) -> Option<u8> {
         .find_map(|tier| track.strip_prefix(tier))
         .unwrap_or(track);
     match suffix {
-        "ProGuitar17" => Some(17),
-        "ProGuitar22" => Some(22),
+        "ProGuitar17" | "ProBass17" => Some(17),
+        "ProGuitar22" | "ProBass22" => Some(22),
         _ => None,
     }
 }
 pub fn is_track(track: &str) -> bool {
     max_fret(track).is_some()
 }
+pub fn is_bass(track: &str) -> bool {
+    max_fret(track).is_some() && (track.ends_with("ProBass17") || track.ends_with("ProBass22"))
+}
+pub fn label(track: &str) -> &'static str {
+    if is_bass(track) {
+        "Pro Bass"
+    } else {
+        "Pro Guitar"
+    }
+}
 pub fn midi_name(track: &str) -> Option<&'static str> {
-    match max_fret(track)? {
-        17 => Some("PART REAL_GUITAR"),
-        _ => Some("PART REAL_GUITAR_22"),
+    match (is_bass(track), max_fret(track)?) {
+        (true, 17) => Some("PART REAL_BASS"),
+        (true, _) => Some("PART REAL_BASS_22"),
+        (false, 17) => Some("PART REAL_GUITAR"),
+        (false, _) => Some("PART REAL_GUITAR_22"),
     }
 }
 pub fn rank(track: &str) -> Option<&'static str> {
-    Some(match max_fret(track)? {
-        17 => "diff_guitar_real",
-        _ => "diff_guitar_real_22",
+    Some(match (is_bass(track), max_fret(track)?) {
+        (true, 17) => "diff_bass_real",
+        (true, _) => "diff_bass_real_22",
+        (false, 17) => "diff_guitar_real",
+        (false, _) => "diff_guitar_real_22",
     })
 }
 pub fn string_name(lane: u8) -> Option<&'static str> {
@@ -81,29 +97,29 @@ pub fn articulation(channel: u8) -> &'static str {
     }
 }
 pub fn validate(track: &str, note: &EditorNote) -> Result<()> {
-    max_fret(track).context("Choose a Pro Guitar track")?;
+    max_fret(track).context("Choose a Pro Guitar or Pro Bass track")?;
     if note.note.lane == HOPO {
         ensure!(
             note.note.sustain == 0 && note.midi.is_none(),
-            "Invalid Pro Guitar HOPO attack marker"
+            "Invalid Pro Guitar or Pro Bass HOPO attack marker"
         );
     } else {
-        ensure!(note.note.lane < 6, "Invalid Pro Guitar string");
+        ensure!(note.note.lane < 6, "Invalid Pro Guitar or Pro Bass string");
         validate_attributes(track, note.midi.as_ref())?;
     }
     Ok(())
 }
 pub fn validate_attributes(track: &str, attributes: Option<&NoteAttributes>) -> Result<()> {
-    let limit = max_fret(track).context("Choose a Pro Guitar track")?;
+    let limit = max_fret(track).context("Choose a Pro Guitar or Pro Bass track")?;
     if let Some(attributes) = attributes {
         attributes.validate()?;
         ensure!(
             (100..=100 + limit).contains(&attributes.velocity),
-            "Pro Guitar fret exceeds this {limit}-fret part; existing notes have been kept"
+            "Fret exceeds this {limit}-fret part; existing notes have been kept"
         );
         ensure!(
             attributes.talkie_pitch.is_none(),
-            "Vocal attributes cannot become Pro Guitar frets"
+            "Vocal attributes cannot become string frets"
         );
     }
     Ok(())
@@ -121,8 +137,10 @@ pub fn edit(
     channel: u8,
     forced_hopo: bool,
 ) -> Result<()> {
-    let (track, original) = project.find_note(id).context("Select a Pro Guitar note")?;
-    let limit = max_fret(track).context("Select a Pro Guitar note")?;
+    let (track, original) = project
+        .find_note(id)
+        .context("Select a Pro Guitar or Pro Bass note")?;
+    let limit = max_fret(track).context("Select a Pro Guitar or Pro Bass note")?;
     ensure!(
         original.note.lane < 6 && fret <= limit && channel < 16,
         "Choose a string note, fret 0–{limit} and valid MIDI channel"

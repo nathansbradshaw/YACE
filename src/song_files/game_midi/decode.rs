@@ -60,6 +60,8 @@ pub(super) fn part(name: &str) -> Option<(&'static str, Option<usize>)> {
         "PART KEYS GHL" => ("GHLKeys", None),
         "PART REAL_GUITAR" => ("ProGuitar17", None),
         "PART REAL_GUITAR_22" => ("ProGuitar22", None),
+        "PART REAL_BASS" => ("ProBass17", None),
+        "PART REAL_BASS_22" => ("ProBass22", None),
         "PART DRUMS" => ("Drums", None),
         "PART KEYS" => ("Keyboard", None),
         "PART REAL_KEYS_E" => ("ProKeys", Some(0)),

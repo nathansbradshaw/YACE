@@ -94,7 +94,7 @@ impl Options {
                     || crate::keys::is_pro(t)
                     || crate::pro_guitar::is_track(t)
                     || t.starts_with("MIDI: ")),
-                "For Clone Hero, deselect vocals, Pro Keys, Pro Guitar and other original MIDI parts, or choose Preserve all parts"
+                "For Clone Hero, deselect vocals, Pro Keys, Pro Guitar, Pro Bass and other original MIDI parts, or choose Preserve all parts"
             );
         }
         if self.format == Format::Chart {
@@ -102,7 +102,7 @@ impl Options {
                 !selected.iter().any(|t| t == "Vocals"
                     || crate::keys::is_pro(t)
                     || crate::pro_guitar::is_track(t)),
-                "Vocals, Pro Keys and Pro Guitar require MIDI; choose Automatic or MIDI"
+                "Vocals, Pro Keys, Pro Guitar and Pro Bass require MIDI; choose Automatic or MIDI"
             );
             ensure!(
                 !imported_midi,

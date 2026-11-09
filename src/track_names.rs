@@ -20,6 +20,8 @@ pub fn title(track: &str) -> String {
             "ProKeys" => "Pro Piano",
             "ProGuitar17" => "Pro Guitar (17 fret)",
             "ProGuitar22" => "Pro Guitar (22 fret)",
+            "ProBass17" => "Pro Bass (17 fret)",
+            "ProBass22" => "Pro Bass (22 fret)",
             _ => return track.to_owned(),
         };
         return format!("{instrument} · {tier}");
