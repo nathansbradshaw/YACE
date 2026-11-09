@@ -221,6 +221,21 @@ pub fn propose(
     })
 }
 impl Analysis {
+    // Old applied evidence still explains why a note is an uncertain draft.
+    // This does not authorize applying a stale proposal: validate remains
+    // strict about the current recipe and source identity.
+    fn evidence_profile(&self) -> bool {
+        self.version == 1
+            && ((self.algorithm == ANALYSIS_ALGORITHM && self.adaptive.is_none())
+                || (self.algorithm == crate::vocal_adaptive::ALGORITHM
+                    && self.adaptive.as_ref().is_some_and(|r| {
+                        r.algorithm == crate::vocal_adaptive_planner::ALGORITHM
+                            && r.implementation_sha256.len() == 64
+                            && r.implementation_sha256
+                                .bytes()
+                                .all(|b| b.is_ascii_hexdigit())
+                    })))
+    }
     fn current_profile(&self) -> bool {
         static ADAPTIVE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
         (self.algorithm == ANALYSIS_ALGORITHM && self.adaptive.is_none())
@@ -393,7 +408,7 @@ impl Analysis {
 pub(crate) fn retain_prior_evidence(project: &Project, next: &mut Analysis) -> Result<()> {
     let Some(prior) = project.content.vocal_pitch_analysis.as_ref().filter(|a| {
         a.version == next.version
-            && a.current_profile()
+            && a.evidence_profile()
             && next.current_profile()
             && a.audio_sha256 == next.audio_sha256
             && a.stem_sha256 == next.stem_sha256
@@ -419,7 +434,7 @@ pub(crate) fn retain_prior_evidence(project: &Project, next: &mut Analysis) -> R
         })
         .collect();
     let mut retained = std::collections::BTreeMap::new();
-    for e in prior
+    for mut e in prior
         .retained_evidence
         .iter()
         .cloned()
@@ -442,6 +457,9 @@ pub(crate) fn retain_prior_evidence(project: &Project, next: &mut Analysis) -> R
     {
         let key = (e.start, e.end, e.selected_midi);
         if keys.contains(&key) {
+            if !prior.current_profile() {
+                mark_earlier_implementation(&mut e);
+            }
             retained.insert(key, e);
         }
     }
@@ -451,6 +469,13 @@ pub(crate) fn retain_prior_evidence(project: &Project, next: &mut Analysis) -> R
     );
     next.retained_evidence = retained.into_values().collect();
     Ok(())
+}
+fn mark_earlier_implementation(e: &mut crate::vocal_generation::NoteEvidence) {
+    const REASON: &str = "Applied by an earlier analysis implementation; still an uncertain draft. Recheck against the recording.";
+    e.uncertain = true;
+    if !e.reasons.iter().any(|r| r == REASON) {
+        e.reasons.push(REASON.into());
+    }
 }
 fn correction_evidence(c: &Correction) -> crate::vocal_generation::NoteEvidence {
     crate::vocal_generation::NoteEvidence {
@@ -477,7 +502,7 @@ pub fn current_evidence(
     static IMPLEMENTATION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let implementation = IMPLEMENTATION.get_or_init(crate::vocal_rmvpe::implementation_hash);
     if let Some(a) = project.content.vocal_pitch_analysis.as_ref().filter(|a| {
-        a.current_profile()
+        a.evidence_profile()
             && a.audio_sha256 == project.audio_sha256
             && a.timing == *timing
             && a.model_sha256 == crate::vocal_rmvpe::SHA256
@@ -488,6 +513,12 @@ pub fn current_evidence(
                 })
             })
     }) {
+        let historical = |mut e: crate::vocal_generation::NoteEvidence| {
+            if !a.current_profile() {
+                mark_earlier_implementation(&mut e);
+            }
+            e
+        };
         if let Some(c) = a
             .corrections
             .iter()
@@ -498,7 +529,7 @@ pub fn current_evidence(
                     && note.tone == VocalTone::Pitched { midi: c.after }
             })
         {
-            return Some(correction_evidence(c));
+            return Some(historical(correction_evidence(c)));
         }
         if a.applied {
             for r in a
@@ -515,7 +546,7 @@ pub fn current_evidence(
                                 midi: e.selected_midi,
                             }
                 }) {
-                    return Some(e);
+                    return Some(historical(e));
                 }
             }
         }
@@ -526,7 +557,7 @@ pub fn current_evidence(
                     (e.start, e.end, e.selected_midi)
                 })
         {
-            return Some(a.retained_evidence[index].clone());
+            return Some(historical(a.retained_evidence[index].clone()));
         }
     }
     project
