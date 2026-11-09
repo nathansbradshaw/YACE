@@ -149,6 +149,13 @@ pub(super) fn attach_words(
                 {
                     Syllable::Continue
                 } else {
+                    issue(
+                        issues,
+                        timing.seconds(chart.notes[index - 1].end),
+                        start,
+                        Reason::UnsupportedPitchGap,
+                        "The word continues across an acoustic gap. The gap and supported pitches were preserved.",
+                    );
                     Syllable::ContinueWord
                 }
             } else {

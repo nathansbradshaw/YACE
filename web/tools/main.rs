@@ -25,6 +25,7 @@ mod compact_backup;
 #[cfg(test)]
 #[path = "../../src/media_clock.rs"]
 mod media_clock;
+mod optimizer_download;
 #[cfg(test)]
 #[path = "../src/playback_activity.rs"]
 mod playback_activity;
@@ -263,6 +264,10 @@ fn main() -> Result<()> {
     let root = source_root()?;
     let args: Vec<_> = env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("fetch-optimizer") => {
+            if args.len() != 2 { return Err("Use fetch-optimizer OUTPUT_ARCHIVE".into()); }
+            optimizer_download::fetch(Path::new(&args[1]))
+        }
         Some("build") => build(&root),
         Some("recognition-build") => recognition_build::build(&root, &args[1..]),
         Some("stage") => {

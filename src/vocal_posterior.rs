@@ -26,6 +26,44 @@ pub const FROZEN_PROFILE: &str = "rust-vocal-ensemble-v11-experimental;v10-voici
 /// Frozen after development-only gap recovery experiments; no held-out scores.
 pub const FROZEN_RECOVERY_PROFILE: &str = "rust-vocal-ensemble-v12-experimental;v11-centres;gap-recovery-ROSVOT-Swift-plus2of3-RMVPE-CREPEfull-FCPE;band-cost-contrast0.25;local-RMS-floor0.0015;stable180ms-including-existing-voicing-context;retain-all-original-voicing;no-lyrics-key-scale-or-octave-fold";
 pub const FROZEN_ENERGY_PROFILE: &str = "rust-vocal-ensemble-v14-experimental;v13-pitch-and-voicing;v12-recovery;addition-energy-floor-max0.0015-or-half-median-existing-voiced-local-RMS;quiet-existing-voice-retained;assembly-v2-coalesce-touching-same-pitch-subminimum-attack-fragments-without-bridging-gaps;no-lyric-or-reference-input";
+/// Development candidate; failed the 20% gate on eight validation artists.
+/// Kept reproducible for research. Never selected by the production workflow.
+pub const FROZEN_SHORT_PROFILE: &str = "rust-vocal-ensemble-v15-experimental;v13-centres-and-base180ms-two-vote-recovery;short-additions-ROSVOT-Swift-plus3of3-RMVPE-CREPEfull-FCPE;stable100ms;runner-up-band-cost-margin0.5;both-energy-floors-from-original-voice-max0.0015-or-half-median-local-RMS;retain-original-voicing;assembly-v2-coalesce-touching-same-pitch-subminimum-attack-fragments-without-bridging-gaps;no-lyric-key-scale-octave-fold-or-reference-input";
+
+/// Both recovery passes inspect original frames. Cancellation is atomic.
+pub fn recover_short_consensus(
+    frames: &mut [PitchFrame],
+    bands: [&[[f64; STATES]]; 3],
+    note_swift: &[Option<f64>],
+    cancelled: &dyn Fn() -> bool,
+) -> Result<usize> {
+    let mut strong = frames.to_vec();
+    recover_energy_context(
+        &mut strong,
+        bands,
+        note_swift,
+        3,
+        0.1,
+        RecoveryEnergy {
+            relative_floor: 0.5,
+            context_seconds: None,
+            minimum_pitch_margin: 0.5,
+            maximum_contour_step: None,
+        },
+        cancelled,
+    )?;
+    let mut draft = frames.to_vec();
+    let mut recovered = recover_energy(&mut draft, bands, note_swift, 2, 0.18, 0.5, cancelled)?;
+    for (frame, supported) in draft.iter_mut().zip(strong) {
+        if frame.midi.is_none() && supported.midi.is_some() {
+            *frame = supported;
+            recovered += 1;
+        }
+    }
+    ensure!(!cancelled(), "Vocal generation cancelled");
+    frames.clone_from_slice(&draft);
+    Ok(recovered)
+}
 pub struct ModelFrames {
     pub id: String,
     pub model_sha256: String,
@@ -153,6 +191,41 @@ pub fn recover_energy(
     energy_ratio: f64,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<usize> {
+    recover_energy_context(
+        frames,
+        bands,
+        note_swift,
+        minimum_votes,
+        minimum_duration,
+        RecoveryEnergy {
+            relative_floor: energy_ratio,
+            context_seconds: None,
+            minimum_pitch_margin: 0.,
+            maximum_contour_step: None,
+        },
+        cancelled,
+    )
+}
+/// Development-only local dynamics experiment. Context uses accepted original
+/// voice, never newly recovered frames, lyrics or reference annotations.
+pub struct RecoveryEnergy {
+    pub relative_floor: f64,
+    pub context_seconds: Option<f64>,
+    /// Required cost advantage over the next-best semitone; not a probability.
+    pub minimum_pitch_margin: f64,
+    /// Continue a voiced run across supported pitch changes up to this interval.
+    pub maximum_contour_step: Option<f64>,
+}
+pub fn recover_energy_context(
+    frames: &mut [PitchFrame],
+    bands: [&[[f64; STATES]]; 3],
+    note_swift: &[Option<f64>],
+    minimum_votes: usize,
+    minimum_duration: f64,
+    energy: RecoveryEnergy,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<usize> {
+    let energy_ratio = energy.relative_floor;
     ensure!(
         frames.len() <= 400_000
             && bands.iter().all(|b| b.len() == frames.len())
@@ -162,6 +235,14 @@ pub fn recover_energy(
             && (0.04..=0.3).contains(&minimum_duration)
             && energy_ratio.is_finite()
             && (0. ..=1.).contains(&energy_ratio)
+            && energy
+                .context_seconds
+                .is_none_or(|s| s.is_finite() && (0.25..=10.).contains(&s))
+            && energy.minimum_pitch_margin.is_finite()
+            && (0.0..=2.).contains(&energy.minimum_pitch_margin)
+            && energy
+                .maximum_contour_step
+                .is_none_or(|s| s.is_finite() && (0.0..=12.).contains(&s))
             && bands
                 .iter()
                 .flat_map(|b| b.iter().flatten())
@@ -189,10 +270,33 @@ pub fn recover_energy(
         .get(energies.len() / 2)
         .map_or(0.0015, |e| (e * energy_ratio).max(0.0015));
     let mut seed = vec![None; frames.len()];
+    let mut context_floor = floor;
+    let mut next_context = f64::NEG_INFINITY;
     for (i, f) in frames.iter().enumerate() {
         ensure!(!cancelled(), "Vocal generation cancelled");
+        if let Some(seconds) = energy.context_seconds
+            && f.time_seconds >= next_context
+        {
+            let a = frames.partition_point(|v| v.time_seconds < f.time_seconds - seconds);
+            let b = frames.partition_point(|v| v.time_seconds <= f.time_seconds + seconds);
+            let mut local: Vec<_> = frames[a..b]
+                .iter()
+                .filter(|v| v.midi.is_some())
+                .map(|v| v.local_rms.unwrap_or(v.rms))
+                .filter(|v| v.is_finite() && *v > 0.)
+                .collect();
+            // A nearby accepted phrase is required. Without one, retain the
+            // established global floor rather than normalize instrumental noise.
+            context_floor = if local.len() >= 10 {
+                local.sort_by(f64::total_cmp);
+                floor.min((local[local.len() / 2] * energy_ratio).max(0.0015))
+            } else {
+                floor
+            };
+            next_context = f.time_seconds + 0.1;
+        }
         if !f.local_rms.unwrap_or(f.rms).is_finite()
-            || (f.local_rms.unwrap_or(f.rms) < floor && f.midi.is_none())
+            || (f.local_rms.unwrap_or(f.rms) < context_floor && f.midi.is_none())
         {
             continue;
         }
@@ -206,7 +310,13 @@ pub fn recover_energy(
                     .min_by(|&a, &b| row[a].total_cmp(&row[b]))
                     .unwrap();
                 let peak = row.iter().copied().fold(0., f64::max);
-                peak - row[best] > 0.25 && ((best + 36) as f64 - target).abs() < 0.5
+                let runner_up = (0..STATES)
+                    .filter(|s| *s != best)
+                    .map(|s| row[s])
+                    .fold(f64::INFINITY, f64::min);
+                peak - row[best] > 0.25
+                    && ((best + 36) as f64 - target).abs() < 0.5
+                    && runner_up - row[best] >= energy.minimum_pitch_margin
             })
             .count();
         if votes >= minimum_votes {
@@ -224,7 +334,12 @@ pub fn recover_energy(
         let start = i;
         i += 1;
         while i < frames.len()
-            && seed[i] == Some(p)
+            && match energy.maximum_contour_step {
+                Some(step) => seed[i]
+                    .zip(seed[i - 1])
+                    .is_some_and(|(a, b)| (a - b).abs() <= step),
+                None => seed[i] == Some(p),
+            }
             && frames[i].time_seconds - frames[i - 1].time_seconds <= 0.0201
         {
             i += 1;
@@ -236,11 +351,11 @@ pub fn recover_energy(
         };
         if frames[i - 1].time_seconds - frames[start].time_seconds + hop + 1e-9 >= minimum_duration
         {
-            for f in &mut draft[start..i] {
+            for (f, target) in draft[start..i].iter_mut().zip(&seed[start..i]) {
                 if f.midi.is_some() {
                     continue;
                 }
-                f.midi = Some(p);
+                f.midi = *target;
                 f.support = PitchSupport::AcousticAlternative;
                 f.clarity = f.clarity.min(0.5);
                 recovered += 1;

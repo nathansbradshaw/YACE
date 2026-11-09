@@ -21,7 +21,7 @@ impl Stage {
             Self::Separate => "Separate vocals and instruments",
             Self::Keyboard => "Separate higher-quality piano",
             Self::Transcribe => "Detect instrument parts",
-            Self::Vocals => "Generate vocals and lyrics",
+            Self::Vocals => "Generate vocal notes",
             Self::Build => "Build review project",
         }
     }
@@ -459,6 +459,7 @@ pub async fn run_stage(
                 request.vocal_analysis_mode,
                 Some(&root.join("vocals/recognition.json")),
                 input.lyrics.as_ref(),
+                request.lyrics,
                 request.detection,
                 progress,
             )

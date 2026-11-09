@@ -232,12 +232,24 @@ fn words_and_multiple_pitches_keep_word_ownership_and_tempo_changes() {
     }
     assert!((timing.seconds(chart.notes[1].start) - 0.7).abs() < 0.05);
     assert!((timing.seconds(chart.notes[1].end) - 1.3).abs() < 0.05);
-    assert!(
-        generated
-            .issues
+    let without_words = vocal_generation::generate_pcm(
+        &signal,
+        &identity(),
+        &identity(),
+        2.,
+        &timing,
+        None,
+        None,
+        &Policy::default(),
+    )
+    .unwrap();
+    let shape = |c: &vocals::VocalChart| {
+        c.notes
             .iter()
-            .any(|i| i.reason == Reason::WordLevelAlignment)
-    );
+            .map(|n| (n.start, n.end, n.tone.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(shape(&chart), shape(without_words.chart.as_ref().unwrap()));
 }
 #[test]
 fn exact_lyrics_reconciliation_preserves_unknown_boundaries() {
@@ -386,7 +398,7 @@ fn differing_spelling_never_borrows_a_recognized_timestamp() {
 }
 
 #[test]
-fn repeated_words_rearticulate_without_turning_vibrato_into_extra_notes() {
+fn repeated_words_do_not_invent_an_attack_in_a_sustained_vibrato_note() {
     let signal: Vec<_> = (0..RATE)
         .map(|index| {
             let time = index as f64 / RATE as f64;
@@ -417,7 +429,8 @@ fn repeated_words_rearticulate_without_turning_vibrato_into_extra_notes() {
         .iter()
         .filter(|note| note.lyric != Syllable::Missing)
         .collect();
-    assert_eq!(named.len(), 2);
+    assert_eq!(chart.notes.len(), 1);
+    assert!(named.len() <= 1);
     assert!(
         named
             .iter()
@@ -559,13 +572,33 @@ fn out_of_range_and_conflicting_word_ownership_are_reviewed_not_transposed() {
         &Policy::default(),
     )
     .unwrap();
-    assert!(
-        result
-            .chart
-            .unwrap()
+    let without_words = vocal_generation::generate_pcm(
+        &normal,
+        &identity(),
+        &identity(),
+        1.,
+        &timing,
+        None,
+        None,
+        &Policy::default(),
+    )
+    .unwrap();
+    let shape = |chart: &vocals::VocalChart| {
+        chart
             .notes
             .iter()
-            .all(|note| note.lyric == Syllable::Missing)
+            .map(|n| (n.start, n.end, n.tone.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        shape(result.chart.as_ref().unwrap()),
+        shape(without_words.chart.as_ref().unwrap())
+    );
+    assert!(
+        result
+            .issues
+            .iter()
+            .any(|i| i.reason == Reason::WordLevelAlignment)
     );
 }
 

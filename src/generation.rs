@@ -1279,8 +1279,7 @@ fn run_inner(root: &Path) -> Result<()> {
                 transcription: &transcription,
                 meta,
                 pro: !request.standard_drums,
-                lookup_lyrics: (request.lyrics
-                    || request.instruments.iter().any(|s| s == "vocals"))
+                lookup_lyrics: request.lyrics
                     && request
                         .song_info
                         .as_ref()
@@ -1325,7 +1324,11 @@ fn run_inner(root: &Path) -> Result<()> {
             root,
             State::Running,
             "vocals",
-            "Estimating sung pitches and aligning lyrics",
+            if request.lyrics {
+                "Estimating sung pitches; optional lyric transcription"
+            } else {
+                "Estimating sung pitches"
+            },
             None,
         )?;
         let vocal_dir = root.join("vocals");
@@ -1408,7 +1411,7 @@ fn run_inner(root: &Path) -> Result<()> {
                     timing: &timing,
                     words: None,
                     lyrics: lyrics.as_ref(),
-                    recognize: true,
+                    recognize: request.lyrics,
                     language: request.vocal_language,
                     neural_pitch: true,
                     model_dir: &request.model_dir,

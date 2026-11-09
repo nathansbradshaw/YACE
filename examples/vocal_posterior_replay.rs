@@ -30,6 +30,9 @@ struct Args {
     predict_recovery: bool,
     #[arg(long, requires = "predict_recovery")]
     predict_energy: bool,
+    /// Development-selected candidate; does not promote the app profile.
+    #[arg(long, requires = "predict_energy", conflicts_with_all = ["research_minimum_duration", "research_note_minimum", "research_consensus_extension", "research_change_cost", "research_energy_context", "research_short_pitch_margin", "research_acoustic_consensus", "research_contour_step"])]
+    predict_short_consensus: bool,
     /// Development experiment only; never identifies itself as a frozen app profile.
     #[arg(long, requires_all = ["predict_only", "predict_recovery"])]
     research_minimum_duration: Option<f64>,
@@ -39,6 +42,30 @@ struct Args {
     /// Development-only assembly experiment, recorded in policy and identity.
     #[arg(long, requires = "predict_only")]
     research_note_minimum: Option<f64>,
+    /// Development-only temporal transition penalty; never a frozen app profile.
+    #[arg(long, requires = "predict_only")]
+    research_change_cost: Option<f64>,
+    /// Seconds of original accepted voice on either side for local dynamics.
+    #[arg(long, requires = "predict_energy")]
+    research_energy_context: Option<f64>,
+    #[arg(long, requires = "research_consensus_extension")]
+    research_short_pitch_margin: Option<f64>,
+    /// Four pitch estimators can support additions without a ROSVOT note event.
+    #[arg(long, requires = "research_consensus_extension")]
+    research_acoustic_consensus: bool,
+    #[arg(long, requires = "research_consensus_extension")]
+    research_contour_step: Option<f64>,
+    #[arg(long, requires = "research_consensus_extension", conflicts_with_all = ["research_acoustic_consensus", "predict_short_consensus"])]
+    research_spectral_consensus: bool,
+    /// Preserve the base recovery and let confident RMVPE evidence voice gaps.
+    #[arg(
+        long,
+        requires = "predict_energy",
+        conflicts_with = "predict_short_consensus"
+    )]
+    research_dense_rmvpe_threshold: Option<f64>,
+    #[arg(long, requires = "research_dense_rmvpe_threshold")]
+    research_dense_energy_ratio: Option<f64>,
     #[arg(long, requires = "predict_only")]
     held_out: bool,
     #[arg(long, default_value = "")]
@@ -226,7 +253,45 @@ fn main() -> Result<()> {
             "Invalid research note minimum"
         );
     }
-    let frozen_profile = if a.predict_energy {
+    if let Some(cost) = a.research_change_cost {
+        ensure!(
+            cost.is_finite() && (0.0..=32.0).contains(&cost),
+            "Invalid research transition cost"
+        );
+    }
+    if let Some(seconds) = a.research_energy_context {
+        ensure!(
+            seconds.is_finite() && (0.25..=10.).contains(&seconds),
+            "Invalid energy context"
+        );
+    }
+    if let Some(margin) = a.research_short_pitch_margin {
+        ensure!(
+            margin.is_finite() && (0.0..=2.).contains(&margin),
+            "Invalid pitch margin"
+        );
+    }
+    if let Some(step) = a.research_contour_step {
+        ensure!(
+            step.is_finite() && (0.0..=12.).contains(&step),
+            "Invalid contour step"
+        );
+    }
+    if let Some(threshold) = a.research_dense_rmvpe_threshold {
+        ensure!(
+            threshold.is_finite() && (0.03..=1.).contains(&threshold),
+            "Invalid dense RMVPE threshold"
+        );
+    }
+    if let Some(ratio) = a.research_dense_energy_ratio {
+        ensure!(
+            ratio.is_finite() && (0.0..=1.).contains(&ratio),
+            "Invalid dense energy ratio"
+        );
+    }
+    let frozen_profile = if a.predict_short_consensus {
+        vp::FROZEN_SHORT_PROFILE
+    } else if a.predict_energy {
         vp::FROZEN_ENERGY_PROFILE
     } else if a.predict_recovery {
         vp::FROZEN_RECOVERY_PROFILE
@@ -243,6 +308,41 @@ fn main() -> Result<()> {
     }
     if a.research_consensus_extension {
         profile.push_str(";research-only-retain180ms-two-votes-plus-short-three-votes");
+    }
+    if let Some(cost) = a.research_change_cost {
+        profile.push_str(&format!(";research-only-change-cost={cost:.6}"));
+    }
+    if let Some(seconds) = a.research_energy_context {
+        profile.push_str(&format!(
+            ";research-only-original-voice-energy-context-seconds={seconds:.6}"
+        ));
+    }
+    if let Some(margin) = a.research_short_pitch_margin {
+        profile.push_str(&format!(
+            ";research-only-short-three-vote-runner-up-margin={margin:.6}"
+        ));
+    }
+    if a.research_acoustic_consensus {
+        profile
+            .push_str(";research-only-short-recovery-Swift-plus3spectral-without-note-model-gate");
+    }
+    if let Some(step) = a.research_contour_step {
+        profile.push_str(&format!(
+            ";research-only-voiced-contour-maximum-step-semitones={step:.6}"
+        ));
+    }
+    if a.research_spectral_consensus {
+        profile.push_str(";research-only-short-recovery-three-spectral-estimators-without-Swift-or-note-event-gate");
+    }
+    if let Some(threshold) = a.research_dense_rmvpe_threshold {
+        profile.push_str(&format!(
+            ";research-only-RMVPE-gap-voicing-salience>{threshold:.6}-RMS>=0.0015-base-retained"
+        ));
+    }
+    if let Some(ratio) = a.research_dense_energy_ratio {
+        profile.push_str(&format!(
+            ";research-only-dense-original-voice-relative-RMS={ratio:.6}"
+        ));
     }
     ensure!(!a.output.exists(), "Output exists");
     let c: Corpus = serde_json::from_slice(&fs::read(&a.corpus)?)?;
@@ -468,14 +568,16 @@ fn main() -> Result<()> {
                                 })
                             })
                             .collect();
-                        for change in [0.5, 1., 3.2, 8.] {
+                        for change in if a.predict_only {
+                            vec![a.research_change_cost.unwrap_or(8.)]
+                        } else {
+                            vec![0.5, 1., 3.2, 8.]
+                        } {
                             if a.recover && change != 8. {
                                 continue;
                             }
-                            if a.predict_only && change != 8. {
-                                continue;
-                            }
-                            if targets.is_some() && change != 3.2 && change != 8. {
+                            if !a.predict_only && targets.is_some() && change != 3.2 && change != 8.
+                            {
                                 continue;
                             }
                             for recovery_votes in if a.predict_recovery || a.energy_recovery {
@@ -524,41 +626,173 @@ fn main() -> Result<()> {
                                                         })
                                                     })
                                                     .collect();
-                                                let mut strong = candidate.pitch_frames.clone();
-                                                if a.research_consensus_extension {
-                                                    vp::recover_energy(
-                                                        &mut strong,
+                                                if a.predict_short_consensus {
+                                                    vp::recover_short_consensus(
+                                                        &mut candidate.pitch_frames,
                                                         [&rc, &cc, &fc],
                                                         &filtered,
-                                                        3,
-                                                        recovery_duration,
-                                                        energy_ratio,
                                                         &|| false,
                                                     )?;
-                                                }
-                                                vp::recover_energy(
-                                                    &mut candidate.pitch_frames,
-                                                    [&rc, &cc, &fc],
-                                                    &filtered,
-                                                    recovery_votes,
+                                                } else {
+                                                    let mut strong = candidate.pitch_frames.clone();
                                                     if a.research_consensus_extension {
-                                                        0.18
-                                                    } else {
-                                                        recovery_duration
-                                                    },
-                                                    energy_ratio,
-                                                    &|| false,
-                                                )?;
-                                                if a.research_consensus_extension {
-                                                    for (frame, supported) in candidate
-                                                        .pitch_frames
-                                                        .iter_mut()
-                                                        .zip(strong)
-                                                    {
-                                                        if frame.midi.is_none()
-                                                            && supported.midi.is_some()
+                                                        let acoustic_targets: Vec<_> = observations
+                                                            .iter()
+                                                            .find(|m| m.id == "SwiftF0")
+                                                            .context("Swift observations")?
+                                                            .midi
+                                                            .iter()
+                                                            .map(|p| {
+                                                                p.map(f64::round).filter(|p| {
+                                                                    (36.0..=84.).contains(p)
+                                                                })
+                                                            })
+                                                            .collect();
+                                                        let spectral_targets: Vec<_> = (0
+                                                            ..candidate.pitch_frames.len())
+                                                            .map(|i| {
+                                                                let best = [&rc[i], &cc[i], &fc[i]]
+                                                                    .map(|row| {
+                                                                        (0..vp::STATES)
+                                                                            .min_by(|a, b| {
+                                                                                row[*a].total_cmp(
+                                                                                    &row[*b],
+                                                                                )
+                                                                            })
+                                                                            .unwrap()
+                                                                    });
+                                                                (best[0] == best[1]
+                                                                    && best[0] == best[2])
+                                                                    .then_some(
+                                                                        (best[0] + 36) as f64,
+                                                                    )
+                                                            })
+                                                            .collect();
+                                                        let short_targets = if a
+                                                            .research_spectral_consensus
                                                         {
-                                                            *frame = supported;
+                                                            spectral_targets.as_slice()
+                                                        } else if a.research_acoustic_consensus {
+                                                            acoustic_targets.as_slice()
+                                                        } else {
+                                                            filtered.as_slice()
+                                                        };
+                                                        vp::recover_energy_context(
+                                                            &mut strong,
+                                                            [&rc, &cc, &fc],
+                                                            short_targets,
+                                                            3,
+                                                            recovery_duration,
+                                                            vp::RecoveryEnergy {
+                                                                relative_floor: energy_ratio,
+                                                                context_seconds: a
+                                                                    .research_energy_context,
+                                                                minimum_pitch_margin: a
+                                                                    .research_short_pitch_margin
+                                                                    .unwrap_or(0.),
+                                                                maximum_contour_step: a
+                                                                    .research_contour_step,
+                                                            },
+                                                            &|| false,
+                                                        )?;
+                                                    }
+                                                    vp::recover_energy_context(
+                                                        &mut candidate.pitch_frames,
+                                                        [&rc, &cc, &fc],
+                                                        &filtered,
+                                                        recovery_votes,
+                                                        if a.research_consensus_extension {
+                                                            0.18
+                                                        } else {
+                                                            recovery_duration
+                                                        },
+                                                        vp::RecoveryEnergy {
+                                                            relative_floor: energy_ratio,
+                                                            context_seconds: a
+                                                                .research_energy_context,
+                                                            minimum_pitch_margin: 0.,
+                                                            maximum_contour_step: None,
+                                                        },
+                                                        &|| false,
+                                                    )?;
+                                                    if a.research_consensus_extension {
+                                                        for (frame, supported) in candidate
+                                                            .pitch_frames
+                                                            .iter_mut()
+                                                            .zip(strong)
+                                                        {
+                                                            if frame.midi.is_none()
+                                                                && supported.midi.is_some()
+                                                            {
+                                                                *frame = supported;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            if let Some(threshold) =
+                                                a.research_dense_rmvpe_threshold
+                                            {
+                                                let mut energy: Vec<_> = report
+                                                    .pitch_frames
+                                                    .iter()
+                                                    .filter(|f| f.midi.is_some())
+                                                    .map(|f| f.local_rms.unwrap_or(f.rms))
+                                                    .filter(|v| v.is_finite() && *v > 0.)
+                                                    .collect();
+                                                energy.sort_by(f64::total_cmp);
+                                                let floor = energy.get(energy.len() / 2).map_or(
+                                                    0.0015,
+                                                    |r| {
+                                                        (r * a
+                                                            .research_dense_energy_ratio
+                                                            .unwrap_or(0.))
+                                                        .max(0.0015)
+                                                    },
+                                                );
+                                                let neural = &report
+                                                    .rmvpe_pitch
+                                                    .as_ref()
+                                                    .context("RMVPE evidence")?
+                                                    .frames;
+                                                for frame in &mut candidate.pitch_frames {
+                                                    if frame.midi.is_some() {
+                                                        continue;
+                                                    }
+                                                    let at = neural.partition_point(|f| {
+                                                        f.time_seconds < frame.time_seconds
+                                                    });
+                                                    let nearest = [
+                                                        at.saturating_sub(1),
+                                                        at.min(neural.len() - 1),
+                                                    ]
+                                                    .into_iter()
+                                                    .min_by(|a, b| {
+                                                        (neural[*a].time_seconds
+                                                            - frame.time_seconds)
+                                                            .abs()
+                                                            .total_cmp(
+                                                                &(neural[*b].time_seconds
+                                                                    - frame.time_seconds)
+                                                                    .abs(),
+                                                            )
+                                                    })
+                                                    .unwrap();
+                                                    let f = &neural[nearest];
+                                                    if (f.time_seconds - frame.time_seconds).abs()
+                                                        <= 0.0051
+                                                        && f64::from(f.confidence) > threshold
+                                                        && f.rms >= floor
+                                                    {
+                                                        frame.midi = f
+                                                            .frequency_hz
+                                                            .map(|hz| {
+                                                                69. + 12. * (hz / 440.).log2()
+                                                            })
+                                                            .filter(|p| (35.5..84.5).contains(p));
+                                                        if frame.midi.is_some() {
+                                                            frame.clarity = frame.clarity.min(0.5);
+                                                            frame.support=vg::PitchSupport::AcousticAlternative;
                                                         }
                                                     }
                                                 }
