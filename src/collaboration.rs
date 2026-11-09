@@ -125,6 +125,10 @@ impl Proposal {
             "Star Power changes are not supported in note proposals; share the saved project instead"
         );
         ensure!(
+            base.content.drum_ranges == edited.content.drum_ranges,
+            "Drum range changes are not supported in note proposals; share the saved project instead"
+        );
+        ensure!(
             sync_fingerprint(base)? == sync_fingerprint(edited)?,
             "Timing changes are not supported in note proposals; share the saved project instead"
         );
@@ -167,13 +171,15 @@ fn sync_fingerprint(project: &Project) -> Result<Option<String>> {
         .transpose()
 }
 fn power_fingerprint(project: &Project) -> Result<Option<String>> {
-    if project.content.star_power.is_empty() {
+    if project.content.star_power.is_empty() && project.content.drum_ranges.is_empty() {
         return Ok(None);
     }
-    Ok(Some(format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&project.content.star_power)?)
-    )))
+    let bytes = if project.content.drum_ranges.is_empty() {
+        serde_json::to_vec(&project.content.star_power)?
+    } else {
+        serde_json::to_vec(&(&project.content.star_power, &project.content.drum_ranges))?
+    };
+    Ok(Some(format!("{:x}", Sha256::digest(bytes))))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

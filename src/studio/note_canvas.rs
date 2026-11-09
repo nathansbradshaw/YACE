@@ -568,6 +568,7 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
         header{class:"lane-track-header",button{aria_pressed:active.to_string(),onclick:{let track=track.clone();move |_|studio.dispatch(Action::SelectTrack{track:track.clone()})},"{super::track_picker::title(&track)}"}super::difficulty::TrackLinkBadge{track:track.clone()}span{"{note_count(doc.content.tracks[&track].iter().filter(|n|doc.playable(&track,n.note.lane)).count())}"}}
         InstrumentWaveform{studio,track:track.clone()}
         super::star_power::Lane {studio,track:track.clone()}
+        if track.ends_with("Drums") {super::drum_range_editor::Lane {studio,track:track.clone()}}
         InlineReview{studio,track:track.clone(),show_hidden,plot_width:width()}
         div{class:"lane-surface",ol{class:"lane-labels",for lane in rows.clone(){li{class:"lane-label",style:"color:{color_in(layout,&track,lane)}","{lane_name_in(layout,&track,lane)}"}}}
             div{class:"lane-plot",onresize:move|e|{if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.0));}},
