@@ -55,15 +55,7 @@ fn commit(mut studio: Studio, expected: &Witness, action: Action) -> bool {
 }
 pub(super) fn current(studio: Studio, track: &str) -> Option<Vec<Range>> {
     let doc = studio.doc.read();
-    if let Some(ranges) = doc.as_ref()?.content.drum_ranges.get(track) {
-        return Some(ranges.clone());
-    }
-    studio
-        .source_drum_ranges
-        .read()
-        .get(track)
-        .cloned()
-        .unwrap_or_else(|| Some(Vec::new()))
+    crate::drum_ranges::view(doc.as_ref()?, &studio.source_drum_ranges.read(), track)
 }
 fn at_cursor(studio: Studio, kind: Kind) -> Range {
     let Some(map) = (studio.timing)() else {
@@ -103,7 +95,7 @@ pub(super) fn prepare_paste(studio: Studio) -> Result<(Witness, u64)> {
         .context("Paste point is outside the chart")?;
     Ok((bound, at))
 }
-pub(super) fn finish_paste(studio: Studio, bound: Witness, at: u64, text: &str) -> Result<()> {
+pub(super) fn finish_paste(mut studio: Studio, bound: Witness, at: u64, text: &str) -> Result<()> {
     ensure!(
         witness(studio) == Some(bound.clone()),
         "The chart changed while reading the clipboard. Paste again."
@@ -124,6 +116,7 @@ pub(super) fn finish_paste(studio: Studio, bound: Witness, at: u64, text: &str) 
         "{}",
         (studio.error)().unwrap_or_else(|| "Drum paste refused".into())
     );
+    studio.status.set("Drum ranges pasted".into());
     Ok(())
 }
 #[derive(Clone)]
@@ -171,7 +164,7 @@ pub fn Controls(mut studio: Studio, track: String) -> Element {
         return rsx! {};
     };
     let Some(ranges) = current(studio, &track) else {
-        return rsx! {details {class:"context-fold",summary {"Drum fills and rolls"}p {class:"field-hint","This source has unsupported drum range boundaries. Its original markers remain read-only."}}};
+        return rsx! {details {class:"context-fold",summary {"Drum fills and rolls"}p {class:"field-hint","These drum ranges cannot be safely represented. Their original events remain read-only."}}};
     };
     let selected = chosen();
     let value = draft.read().clone();

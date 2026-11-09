@@ -37,7 +37,12 @@ pub struct Range {
     pub kind: Kind,
 }
 pub type Tracks = BTreeMap<String, Vec<Range>>;
-pub type Source = BTreeMap<String, Option<Vec<Range>>>;
+pub const TRACKS: [&str; 4] = ["EasyDrums", "MediumDrums", "HardDrums", "ExpertDrums"];
+#[derive(Clone, Debug, Default)]
+pub struct Source {
+    pub tracks: BTreeMap<String, Option<Vec<Range>>>,
+    pub shared: bool,
+}
 fn order(range: &Range) -> (u64, Kind, u64) {
     (range.start, range.kind, range.end)
 }
@@ -113,14 +118,69 @@ pub fn current(project: &Project, source: &Chart, track: &str) -> Result<Vec<Ran
         .cloned()
         .map_or_else(|| imported(source, track), Ok)
 }
-pub fn source(project: &Project, chart: &Chart) -> Source {
-    project
+fn authored_shared(project: &Project) -> Result<Option<&Vec<Range>>> {
+    let mut authored = project
         .content
+        .drum_ranges
+        .iter()
+        .filter(|(track, _)| is_track(track) && project.content.tracks.contains_key(*track))
+        .map(|(_, ranges)| ranges);
+    let Some(first) = authored.next() else {
+        return Ok(None);
+    };
+    validate_shape(first)?;
+    ensure!(
+        authored.all(|ranges| ranges == first),
+        "Shared MIDI drum ranges disagree; source retained read-only"
+    );
+    Ok(Some(first))
+}
+fn shared_source(chart: &Chart) -> Result<Vec<Range>> {
+    let mut ranges = Vec::new();
+    for track in TRACKS {
+        ranges.extend(imported(chart, track)?);
+    }
+    ranges.sort_by_key(order);
+    ranges.dedup();
+    validate_shape(&ranges)?;
+    Ok(ranges)
+}
+pub fn shared_current(project: &Project, chart: &Chart) -> Result<Vec<Range>> {
+    authored_shared(project)?
+        .cloned()
+        .map_or_else(|| shared_source(chart), Ok)
+}
+pub fn view(project: &Project, source: &Source, track: &str) -> Option<Vec<Range>> {
+    if source.shared {
+        if let Some(ranges) = authored_shared(project).ok()? {
+            return Some(ranges.clone());
+        }
+    } else if let Some(ranges) = project.content.drum_ranges.get(track) {
+        return Some(ranges.clone());
+    }
+    source
         .tracks
-        .keys()
-        .filter(|track| is_track(track))
-        .map(|track| (track.clone(), imported(chart, track).ok()))
-        .collect()
+        .get(track)
+        .cloned()
+        .unwrap_or_else(|| Some(Vec::new()))
+}
+pub fn source(project: &Project, chart: &Chart, shared: bool) -> Source {
+    let tracks = if shared {
+        let ranges = shared_source(chart).ok();
+        TRACKS
+            .into_iter()
+            .map(|track| (track.to_owned(), ranges.clone()))
+            .collect()
+    } else {
+        project
+            .content
+            .tracks
+            .keys()
+            .filter(|track| is_track(track))
+            .map(|track| (track.clone(), imported(chart, track).ok()))
+            .collect()
+    };
+    Source { tracks, shared }
 }
 pub fn validate(ranges: &[Range], timing: &TempoMap, duration: f64) -> Result<()> {
     validate_shape(ranges)?;

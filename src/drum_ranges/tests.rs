@@ -260,11 +260,140 @@ fn drum_range_witnesses_preserve_drafts_and_invalid_edits_do_not_save() {
     assert_eq!(current_ranges(&store, "ExpertDrums").len(), 2);
 }
 #[test]
+fn shared_view_handles_preexisting_late_difficulties_and_clear_without_resurrection() {
+    let (_root, store) = project(true, false);
+    apply(
+        &store,
+        Edit::Remove {
+            track: "ExpertDrums".into(),
+            range: range(0, 480, Kind::FillActivation),
+        },
+    )
+    .unwrap();
+    let mut legacy = store.load().unwrap();
+    let source = store.source_drum_ranges(&legacy).unwrap();
+    assert!(source.shared);
+    let expected = legacy.content.drum_ranges["ExpertDrums"].clone();
+    crate::parts::create(&mut legacy, "MediumDrums").unwrap();
+    assert!(!legacy.content.drum_ranges.contains_key("MediumDrums"));
+    assert_eq!(view(&legacy, &source, "MediumDrums"), Some(expected));
+    for ranges in legacy.content.drum_ranges.values_mut() {
+        ranges.clear();
+    }
+    assert_eq!(view(&legacy, &source, "MediumDrums"), Some(Vec::new()));
+    legacy
+        .content
+        .drum_ranges
+        .insert("HardDrums".into(), vec![range(240, 480, Kind::SingleRoll)]);
+    assert!(
+        view(&legacy, &source, "MediumDrums").is_none(),
+        "Conflicting shared owners must remain read-only"
+    );
+}
+
+#[test]
+fn later_midi_difficulties_inherit_current_ranges_and_explicit_clears_with_history() {
+    let (root, store) = project(true, false);
+    apply(
+        &store,
+        Edit::Remove {
+            track: "ExpertDrums".into(),
+            range: range(0, 480, Kind::FillActivation),
+        },
+    )
+    .unwrap();
+    let expected = current_ranges(&store, "ExpertDrums");
+    action(
+        &store,
+        Action::CreateTrack {
+            track: "MediumDrums".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        store.load().unwrap().content.drum_ranges.get("MediumDrums"),
+        Some(&expected)
+    );
+    action(&store, Action::Undo).unwrap();
+    assert!(
+        !store
+            .load()
+            .unwrap()
+            .content
+            .tracks
+            .contains_key("MediumDrums")
+    );
+    action(&store, Action::Redo).unwrap();
+    assert_eq!(
+        store.load().unwrap().content.drum_ranges.get("MediumDrums"),
+        Some(&expected)
+    );
+    for value in expected {
+        apply(
+            &store,
+            Edit::Remove {
+                track: "MediumDrums".into(),
+                range: value,
+            },
+        )
+        .unwrap();
+    }
+    action(
+        &store,
+        Action::CreateTrack {
+            track: "EasyDrums".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        store.load().unwrap().content.drum_ranges.get("EasyDrums"),
+        Some(&Vec::new())
+    );
+    let output = root.path().join("cleared-new-difficulty");
+    action(
+        &store,
+        Action::Export {
+            output: output.clone(),
+        },
+    )
+    .unwrap();
+    let bytes = fs::read(output.join("notes.mid")).unwrap();
+    for key in [120, 121, 122, 123, 124, 126, 127] {
+        assert!(physical(&bytes, key).is_empty());
+    }
+}
+
+#[test]
+fn later_chart_difficulties_keep_independent_ranges() {
+    let (_root, store) = project(false, false);
+    action(
+        &store,
+        Action::CreateTrack {
+            track: "MediumDrums".into(),
+        },
+    )
+    .unwrap();
+    assert!(
+        !store
+            .load()
+            .unwrap()
+            .content
+            .drum_ranges
+            .contains_key("MediumDrums")
+    );
+    assert!(current_ranges(&store, "MediumDrums").is_empty());
+    assert_eq!(current_ranges(&store, "ExpertDrums").len(), 3);
+}
+
+#[test]
 fn drum_midi_shared_difficulties_do_not_resurrect_removed_activation_ranges() {
     let (root, store) = project(true, false);
     assert!(store.drum_activation_editable());
     assert_eq!(
-        store.source_drum_ranges(&store.load().unwrap()).unwrap()["ExpertDrums"]
+        store
+            .source_drum_ranges(&store.load().unwrap())
+            .unwrap()
+            .tracks["ExpertDrums"]
             .as_ref()
             .unwrap(),
         &current_ranges(&store, "ExpertDrums")
@@ -305,7 +434,10 @@ fn opaque_asymmetric_midi_activation_refuses_before_save_but_rolls_preserve_it()
     let (root, store) = project(true, true);
     assert!(!store.drum_activation_editable());
     assert!(
-        store.source_drum_ranges(&store.load().unwrap()).unwrap()["ExpertDrums"]
+        store
+            .source_drum_ranges(&store.load().unwrap())
+            .unwrap()
+            .tracks["ExpertDrums"]
             .as_ref()
             .unwrap()
             .iter()

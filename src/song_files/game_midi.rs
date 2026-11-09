@@ -385,17 +385,12 @@ pub fn edit_drum_ranges(
         !edit.touches_activation() || activation_editable,
         "Original activation/fill lanes are not fully represented; source retained read-only"
     );
-    let tracks: Vec<_> = ["EasyDrums", "MediumDrums", "HardDrums", "ExpertDrums"]
+    let tracks: Vec<_> = crate::drum_ranges::TRACKS
         .into_iter()
         .filter(|name| project.content.tracks.contains_key(*name))
         .map(str::to_owned)
         .collect();
-    let mut ranges = Vec::new();
-    for name in &tracks {
-        ranges.extend(crate::drum_ranges::current(project, chart, name)?);
-    }
-    ranges.sort_by_key(|range| (range.start, range.kind, range.end));
-    ranges.dedup();
+    let ranges = crate::drum_ranges::shared_current(project, chart)?;
     let mut candidate = project.clone();
     candidate
         .content

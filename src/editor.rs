@@ -974,6 +974,7 @@ impl Store {
         Ok(crate::drum_ranges::source(
             project,
             &self.source_chart(project)?.chart,
+            crate::song_files::game_midi::exists(&self.root.join("source")),
         ))
     }
     pub fn drum_activation_editable(&self) -> bool {
@@ -1896,7 +1897,18 @@ impl Store {
                         "This part is preserved in an older MIDI import. Import the original MIDI as a new project before authoring it; existing notes have been kept"
                     );
                 }
+                let inherited_drum_ranges = if track.ends_with("Drums")
+                    && crate::song_files::game_midi::exists(&self.root.join("source"))
+                {
+                    let source = self.source_chart(&doc)?;
+                    crate::drum_ranges::shared_current(&doc, &source.chart).ok()
+                } else {
+                    None
+                };
                 crate::parts::create(&mut doc, track)?;
+                if let Some(ranges) = inherited_drum_ranges {
+                    doc.content.drum_ranges.insert(track.clone(), ranges);
+                }
             }
             Action::ApplyGeneratedPart { .. } => {
                 generated_part

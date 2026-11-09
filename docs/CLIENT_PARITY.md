@@ -89,6 +89,11 @@ changed project, track or revision. The inspector disables activation edits for
 opaque source lanes. Actual native/static-browser/hosted control, clipboard,
 recording-loop, recovery and export workflows remain unqualified.
 
+New MIDI drum difficulties inherit the current shared ranges, including explicit
+clears. Earlier projects with a later-added difficulty use the same authored
+view. Conflicting shared copies refuse range edits instead of restoring source
+markers. Chart-based projects retain independent per-difficulty ranges.
+
 ## Pro Guitar strings and frets (2026-11-08)
 
 The shared editor supports separate 17- and 22-fret Pro Guitar parts at Easy,
