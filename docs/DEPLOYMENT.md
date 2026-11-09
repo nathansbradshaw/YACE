@@ -46,6 +46,31 @@ the custom-domain application and the feature's actual browser workflow.
    editing, audio, recovery and exports run locally in the browser; no charting
    API or model service is configured.
 
+### Controlled Pages publication
+
+`Deploy verified static YACE` publishes the existing prebuilt assets branch;
+it does not compile Rust or infer feature acceptance. Keep its workflow file
+identical on `main` and `codex/yace-public-assets`. After pushing a verified
+asset commit, dispatch it with:
+
+```sh
+gh workflow run deploy-static-pages.yml --ref codex/yace-public-assets
+```
+
+The workflow runs only on that publication branch and retains the existing
+`github-pages` environment restriction. Its deployment action has a bounded
+20-minute client timeout, within a 25-minute job. This permits an observable
+longer file-sync attempt after the built-in publisher repeatedly cancelled at
+its default 10-minute timeout. It does not establish the cause of a stalled
+sync, override GitHub's service limits, or qualify the release as live. Do not
+loop retries or delete immutable releases to make a failed attempt appear done.
+Record the actual deployment result and exercise the served feature afterward.
+
+Enable GitHub Actions as the Pages build source only after the reviewed workflow
+is present on the publication branch. Preserve the custom domain, HTTPS and
+environment policies. Manual dispatch also permits the repository's skip-CI
+commit convention without silently skipping publication.
+
 Workers resolve their URL from the generated module's `import.meta.url` through
 a Rust wasm-bindgen binding. A tab loaded from one release therefore keeps using
 that release's worker, WASM and inference runtime after a later publish. No extra
