@@ -67,6 +67,24 @@ jobs:
           cargo test --locked --manifest-path tools/performance-probe/Cargo.toml
           cargo clippy --locked --manifest-path tools/performance-probe/Cargo.toml --all-targets -- -D warnings
 
+  pesto-probe:
+    name: Rust PESTO research probe (no weights)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - name: Verify research tooling without native runtime or downloads
+        run: |
+          cargo fmt --manifest-path tools/vocal-pesto-probe/Cargo.toml -- --check
+          cargo test --locked --manifest-path tools/vocal-pesto-probe/Cargo.toml
+          cargo clippy --locked --manifest-path tools/vocal-pesto-probe/Cargo.toml --all-targets -- -D warnings
+
   static-web:
     name: Static Dioxus WebAssembly
     runs-on: ubuntu-latest
