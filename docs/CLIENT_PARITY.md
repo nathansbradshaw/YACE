@@ -105,7 +105,7 @@ again without restoring the ranges. Independent inspection retained original
 drum notes, solo events, channels and velocities, every unrelated raw MIDI track
 and original recording. A pinned native executable repeated authoring,
 late-difficulty inheritance, clearing and Undo/Redo; authored and cleared MIDI
-matched the browser byte for byte. Native GUI, hosted controls, clipboard OS
+matched the browser byte for byte. Native GUI, clipboard OS
 integration, game interpretation and musical acceptance remain open.
 An actual asymmetric-activation fixture disabled the fill option while allowing
 a single roll at ticks 960–1440. Its downloaded MIDI retained the opaque key-120
@@ -113,6 +113,17 @@ interval's channel 6, velocity 77 and release velocity 33 exactly, along with
 the other tracks and recording. Chart-based projects retain independent
 per-difficulty ranges: adding a double roll to Hard left Expert unchanged in
 both the rendered controls and downloaded `.chart`.
+
+The deployed `8fa1be97` runtime repeated drum authoring with an invented
+chart-only MIDI fixture. Adding a double roll at ticks 1920–2400 and a new
+Medium part retained the shared range view. Undo/Redo removed and restored
+both edits. The complete downloaded backup passed all 14 manifest size/hash
+references and retained three explicit range maps and both Undo checkpoints.
+The playable MIDI retained the original activation and single-roll channels,
+attack/release velocities and unrelated raw tracks. Reopening that downloaded
+song and exporting again passed the same independent inspection and produced
+byte-identical MIDI. This qualifies the exercised hosted controls and file
+workflow; it does not establish target-game difficulty interpretation.
 
 ## Pro Guitar strings and frets (2026-11-08)
 

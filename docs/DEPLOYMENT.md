@@ -71,6 +71,22 @@ is present on the publication branch. Preserve the custom domain, HTTPS and
 environment policies. Manual dispatch also permits the repository's skip-CI
 commit convention without silently skipping publication.
 
+On 2026-11-09 the built-in publisher abandoned one attempt before building;
+one documented rebuild then uploaded successfully but cancelled while syncing
+files after ten minutes. The reviewed manual workflow published asset commit
+`b8e87689` successfully in run `42677080916`. Its job completed in 119 seconds,
+so that success does not establish that the longer timeout caused recovery.
+The domain and HTTPS setting stayed configured, and the original two allowed
+deployment branches were restored after GitHub automatically added `main`
+when the build source changed. No immutable release was removed.
+
+Actual hosted acceptance loaded source `8fa1be97`, its release-local module
+and the exact 21,808,005-byte WASM with SHA-256
+`5c33c71e8af4214adb87964facbdf2476669a93d02591d4a746545351ee1d400`.
+Drum authoring, Undo/Redo, late-part inheritance, editable backup and repeated
+MIDI export/reopen passed. This is a verified publication increment; future
+deployments still require their own result and live workflow checks.
+
 Workers resolve their URL from the generated module's `import.meta.url` through
 a Rust wasm-bindgen binding. A tab loaded from one release therefore keeps using
 that release's worker, WASM and inference runtime after a later publish. No extra
