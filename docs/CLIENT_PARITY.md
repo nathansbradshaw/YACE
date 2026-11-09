@@ -87,8 +87,19 @@ revision 24 and its source/history; native Undo and Redo retained the edited
 frets and articulation. Native blank creation added both profiles, pasted a
 typed 17-fret note into the empty 17-fret part and edited it to fret 17. Pasting
 that clipboard into the separate 22-fret part refused without changing it.
-Direct native piano-roll placement, hosted release and independent
-target-game/controller and musical acceptance remain open.
+Direct native piano-roll placement and independent target-game/controller and
+musical acceptance remain open.
+
+PR119 merged as `b241cfe` and its Pages deployment completed successfully.
+The live custom-domain module and served WASM matched the tested artifact
+(`5883eacd594c1b5aca3f0de446b089ea6340b88086c84a3de2340080fce7b14f`).
+The actual hosted editor reopened the complete backup, changed fret 21 to 22
+and retained it after reload. Undo restored fret 21. A second tab's stale
+tick/fret edit was refused with recovery guidance; its downloaded recovery ZIP
+passed archive checks and retained tick 6601, fret 22, articulation and history.
+The authoritative project reloaded with tick 6600 and fret 21. Its downloaded
+MIDI matched the native and static-browser hash above. The original hosted
+project was restored after verification; temporary tabs and previews were closed.
 
 ## Five-pad drum authoring (2026-11-08)
 
