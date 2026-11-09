@@ -168,6 +168,19 @@ official distribution, conversion hashes and attribution are recorded in
 The frontend/converter do not import or execute upstream Python/TorchScript or
 copy the unrelated LARS plugin implementation.
 
+## Private native vocal runtime
+
+The optional macOS arm64 vocal pack copies the native C library from Microsoft's
+[ONNX Runtime 1.24.4 publisher package](https://pypi.org/project/onnxruntime/1.24.4/),
+under MIT and its accompanying third-party notices. The pinned publisher archive
+`onnxruntime-1.24.4-cp312-cp312-macosx_14_0_arm64.whl` has SHA-256
+`cad1c2b3f455c55678ab2a8caa51fb420c25e6e3cf10f4c23653cdabedc8de78`.
+Its native library has SHA-256
+`f958c8c8f50a787f64cd13aa5f07710b97075d9869c6983dc0001d2452100eaa`.
+Only the native library and verified `LICENSE`/`ThirdPartyNotices.txt` enter the
+private app. Package modules are not run or included. The app records the signed
+copy's checksum separately and passes its path only to its own model workers.
+
 ## Dance authoring
 
 The shared Rust StepMania core adapts SMEditor's before/note/after timing-cache

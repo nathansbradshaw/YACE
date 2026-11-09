@@ -118,6 +118,7 @@ pub mod vocal_pitch_tracking;
 pub mod vocal_posterior;
 pub mod vocal_review;
 pub mod vocal_rmvpe;
+pub mod vocal_runtime;
 pub mod vocal_section_analysis;
 pub mod vocal_section_audio;
 pub mod vocal_workflow;
