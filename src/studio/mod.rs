@@ -13,6 +13,7 @@ mod diagnostics;
 mod dialogs;
 mod difficulty;
 mod drum_dynamics;
+mod drum_range_editor;
 mod export;
 mod field_reset;
 mod frame_pacing;

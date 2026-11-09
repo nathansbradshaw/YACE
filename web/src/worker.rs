@@ -38,6 +38,8 @@ pub enum Task {
         project: Box<crate::editor::Project>,
         audio: PathBuf,
         range: Option<crate::editor::TimeRange>,
+        #[serde(default)]
+        adaptive: bool,
     },
     ExportChartOnly {
         root: PathBuf,
@@ -716,6 +718,7 @@ async fn process(input: JsValue) -> Result<JsValue> {
         project,
         audio,
         range,
+        adaptive,
     } = &task
     {
         let store = crate::editor::Store::new(root);
@@ -728,12 +731,20 @@ async fn process(input: JsValue) -> Result<JsValue> {
         let generation =
             crate::vocal_inference::pitch_comparison(audio, manifest, &timing, &mut progress)
                 .await?;
-        serde_json::to_value(crate::vocal_pitch_analysis::propose(
-            project,
-            &timing,
-            &generation,
-            *range,
-        )?)?
+        let analysis = if *adaptive {
+            crate::vocal_inference::adaptive_comparison(
+                project,
+                audio,
+                &timing,
+                &generation,
+                *range,
+                &mut progress,
+            )
+            .await?
+        } else {
+            crate::vocal_pitch_analysis::propose(project, &timing, &generation, *range)?
+        };
+        serde_json::to_value(analysis)?
     } else if let Task::Vocals {
         audio,
         manifest,

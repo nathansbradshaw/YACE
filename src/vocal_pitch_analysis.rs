@@ -47,6 +47,8 @@ pub struct Analysis {
     pub retained_evidence: Vec<crate::vocal_generation::NoteEvidence>,
     #[serde(default)]
     pub section: crate::vocal_section_analysis::Section,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adaptive: Option<Box<crate::vocal_adaptive::Report>>,
 }
 pub fn chart_hash(chart: &VocalChart) -> Result<String> {
     Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(chart)?)))
@@ -215,13 +217,26 @@ pub fn propose(
         applied: false,
         retained_evidence: vec![],
         section,
+        adaptive: None,
     })
 }
 impl Analysis {
+    fn current_profile(&self) -> bool {
+        static ADAPTIVE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        (self.algorithm == ANALYSIS_ALGORITHM && self.adaptive.is_none())
+            || (self.algorithm == crate::vocal_adaptive::ALGORITHM
+                && self.adaptive.as_ref().is_some_and(|r| {
+                    r.algorithm == crate::vocal_adaptive_planner::ALGORITHM
+                        && &r.implementation_sha256
+                            == ADAPTIVE.get_or_init(crate::vocal_adaptive::implementation_hash)
+                }))
+    }
     pub fn validate(&self, project: &Project, timing: &TempoMap) -> Result<()> {
         ensure!(
             self.version == 1
-                && self.algorithm == ANALYSIS_ALGORITHM
+                && ((self.algorithm == ANALYSIS_ALGORITHM && self.adaptive.is_none())
+                    || (self.algorithm == crate::vocal_adaptive::ALGORITHM
+                        && self.adaptive.is_some()))
                 && self.generation_sha256.len() == 64
                 && self
                     .generation_sha256
@@ -304,7 +319,12 @@ impl Analysis {
         );
         if !self.section.algorithm.is_empty() {
             ensure!(
-                self.section.algorithm == crate::vocal_section_analysis::ALGORITHM,
+                self.section.algorithm
+                    == if self.adaptive.is_some() {
+                        crate::vocal_section_analysis::ADAPTIVE_ALGORITHM
+                    } else {
+                        crate::vocal_section_analysis::ALGORITHM
+                    },
                 "Unknown section comparison algorithm"
             );
         } else {
@@ -314,6 +334,9 @@ impl Analysis {
                     && self.section.contour.is_empty(),
                 "Missing section algorithm"
             );
+        }
+        if let Some(report) = &self.adaptive {
+            report.validate(self.range, project.duration)?;
         }
         ensure!(
             self.section.voiced_seconds.is_finite()
@@ -370,7 +393,8 @@ impl Analysis {
 pub(crate) fn retain_prior_evidence(project: &Project, next: &mut Analysis) -> Result<()> {
     let Some(prior) = project.content.vocal_pitch_analysis.as_ref().filter(|a| {
         a.version == next.version
-            && a.algorithm == next.algorithm
+            && a.current_profile()
+            && next.current_profile()
             && a.audio_sha256 == next.audio_sha256
             && a.stem_sha256 == next.stem_sha256
             && a.model_sha256 == next.model_sha256
@@ -453,7 +477,7 @@ pub fn current_evidence(
     static IMPLEMENTATION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let implementation = IMPLEMENTATION.get_or_init(crate::vocal_rmvpe::implementation_hash);
     if let Some(a) = project.content.vocal_pitch_analysis.as_ref().filter(|a| {
-        a.algorithm == ANALYSIS_ALGORITHM
+        a.current_profile()
             && a.audio_sha256 == project.audio_sha256
             && a.timing == *timing
             && a.model_sha256 == crate::vocal_rmvpe::SHA256
@@ -531,6 +555,26 @@ pub fn analyze(
     model_directory: &std::path::Path,
     control: std::sync::Arc<crate::clean_recognition::Control>,
 ) -> Result<Analysis> {
+    analyze_configured(
+        project,
+        audio,
+        timing,
+        range,
+        model_directory,
+        control,
+        false,
+    )
+}
+#[cfg(not(target_arch = "wasm32"))]
+pub fn analyze_configured(
+    project: &Project,
+    audio: &std::path::Path,
+    timing: &TempoMap,
+    range: Option<TimeRange>,
+    model_directory: &std::path::Path,
+    control: std::sync::Arc<crate::clean_recognition::Control>,
+    adaptive: bool,
+) -> Result<Analysis> {
     let manifest = project
         .content
         .stems
@@ -571,5 +615,59 @@ pub fn analyze(
         },
         &|| control.is_cancelled(),
     )?;
-    propose(project, timing, &g, range)
+    if !adaptive {
+        return propose(project, timing, &g, range);
+    }
+    let pcm = crate::models::decode(&stem.path, 16000, 1)?;
+    let source = crate::models::decode(audio, 16000, 2)?;
+    let vocals = crate::models::decode(&stem.path, 16000, 2)?;
+    let mut review =
+        crate::vocal_adaptive::Review::new(project, timing, &g, range, pcm, &source, &vocals)?;
+    drop(source);
+    drop(vocals);
+    let mut session = adaptive_session(&model)?;
+    while let Some(window) = review.next_window()? {
+        ensure!(
+            !control.is_cancelled(),
+            "Vocal comparison cancelled; current notes were kept"
+        );
+        if review.pass_count() > 0
+            && review
+                .pass_count()
+                .is_multiple_of(crate::vocal_adaptive::INFERENCE_BATCH)
+        {
+            drop(session);
+            session = adaptive_session(&model)?;
+        }
+        control.update(format!(
+            "Deep vocal review · pass {} · {:.2}–{:.2}s · depth {}",
+            review.pass_count() + 1,
+            window.start as f64 * 0.01,
+            (window.end as f64 * 0.01).min(project.duration),
+            window.depth
+        ));
+        let values =
+            crate::rmvpe_frontend::infer(&mut session, review.pcm(), window.start, window.end)?;
+        let frames = crate::vocal_rmvpe::decode_chunk(review.pcm(), window.start, &values)?;
+        review.complete(&window, frames)?;
+    }
+    ensure!(
+        !control.is_cancelled()
+            && crate::models::hash_file(audio)? == project.audio_sha256
+            && crate::models::hash_file(&stem.path)? == stem.sha256
+            && crate::models::hash_file(&model)? == crate::vocal_rmvpe::SHA256,
+        "Vocal sources changed or comparison cancelled"
+    );
+    review.finish()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn adaptive_session(model: &std::path::Path) -> Result<ort::session::Session> {
+    Ok(ort::session::Session::builder()?
+        .with_intra_threads(2)?
+        .with_memory_pattern(false)?
+        .with_execution_providers([ort::execution_providers::CPUExecutionProvider::default()
+            .with_arena_allocator(false)
+            .build()])?
+        .commit_from_file(model)?)
 }

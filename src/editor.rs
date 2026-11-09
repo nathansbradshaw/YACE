@@ -167,6 +167,8 @@ pub struct Content {
     pub analysis_sources: crate::reanalysis::Sources,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub star_power: crate::star_power::Tracks,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub drum_ranges: crate::drum_ranges::Tracks,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync: Option<crate::sync_track::SyncTrack>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -278,6 +280,9 @@ pub enum Action {
     },
     EditStarPower {
         edit: crate::star_power::Edit,
+    },
+    EditDrumRange {
+        edit: crate::drum_ranges::Edit,
     },
     EditSync {
         edit: crate::sync_track::Edit,
@@ -569,6 +574,11 @@ impl Project {
             if notes.is_empty()
                 && !self.content.track_origins.contains_key(track)
                 && self.content.star_power.get(track).is_none_or(Vec::is_empty)
+                && self
+                    .content
+                    .drum_ranges
+                    .get(track)
+                    .is_none_or(Vec::is_empty)
             {
                 continue;
             }
@@ -583,7 +593,8 @@ impl Project {
         }
         let text = crate::sections::render(text, &self.content.sections)?;
         let text = crate::sync_track::render(text, &self.content.sync)?;
-        crate::star_power::render(text, &self.content.star_power)
+        let text = crate::star_power::render(text, &self.content.star_power)?;
+        crate::drum_ranges::render(text, &self.content.drum_ranges)
     }
     pub fn chart_hash(&self, store: &Store) -> Result<String> {
         Ok(hash(self.chart_text(store)?.as_bytes()))
@@ -977,6 +988,17 @@ impl Store {
             &self.source_chart(project)?.chart,
         ))
     }
+    pub fn source_drum_ranges(&self, project: &Project) -> Result<crate::drum_ranges::Source> {
+        Ok(crate::drum_ranges::source(
+            project,
+            &self.source_chart(project)?.chart,
+            crate::song_files::game_midi::exists(&self.root.join("source")),
+        ))
+    }
+    pub fn drum_activation_editable(&self) -> bool {
+        crate::song_files::game_midi::drum_activation_editable(&self.root.join("source"))
+            .unwrap_or(false)
+    }
     fn source_chart(&self, project: &Project) -> Result<Arc<SourceSnapshot>> {
         let bytes = fs::read(self.root.join("source/notes.chart"))?;
         let mut cache = self
@@ -1307,6 +1329,7 @@ impl Store {
             review,
             content: Content {
                 star_power: Default::default(),
+                drum_ranges: Default::default(),
                 sync: None,
                 sections: None,
                 track_origins: Default::default(),
@@ -1780,6 +1803,7 @@ impl Store {
                 | Action::EditSection { .. }
                 | Action::EditSync { .. }
                 | Action::EditStarPower { .. }
+                | Action::EditDrumRange { .. }
                 | Action::ApplyGeneratedPart { .. }
                 | Action::AddNote { .. }
                 | Action::UpdateNote { .. }
@@ -1898,6 +1922,19 @@ impl Store {
                     crate::star_power::apply(&mut doc, &source, edit)?;
                 }
             }
+            Action::EditDrumRange { edit } => {
+                let source = self.source_chart(&doc)?;
+                if crate::song_files::game_midi::exists(&self.root.join("source")) {
+                    crate::song_files::game_midi::edit_drum_ranges(
+                        &mut doc,
+                        &source,
+                        &self.root.join("source"),
+                        edit,
+                    )?;
+                } else {
+                    crate::drum_ranges::apply(&mut doc, &source, edit)?;
+                }
+            }
             Action::EditSync { edit } => {
                 let source = self.source_chart(&doc)?;
                 crate::sync_track::apply(&mut doc, &source, edit)?;
@@ -1934,7 +1971,18 @@ impl Store {
                         "This part is preserved in an older MIDI import. Import the original MIDI as a new project before authoring it; existing notes have been kept"
                     );
                 }
+                let inherited_drum_ranges = if track.ends_with("Drums")
+                    && crate::song_files::game_midi::exists(&self.root.join("source"))
+                {
+                    let source = self.source_chart(&doc)?;
+                    crate::drum_ranges::shared_current(&doc, &source.chart).ok()
+                } else {
+                    None
+                };
                 crate::parts::create(&mut doc, track)?;
+                if let Some(ranges) = inherited_drum_ranges {
+                    doc.content.drum_ranges.insert(track.clone(), ranges);
+                }
             }
             Action::ApplyGeneratedPart { .. } => {
                 generated_part

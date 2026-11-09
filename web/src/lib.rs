@@ -37,6 +37,8 @@ pub mod drum_dynamics;
 pub mod drum_layout;
 #[path = "../../src/drum_parts.rs"]
 pub mod drum_parts;
+#[path = "../../src/drum_ranges.rs"]
+pub mod drum_ranges;
 #[path = "../../src/editor.rs"]
 pub mod editor;
 #[path = "../../src/editor_validation.rs"]
@@ -183,6 +185,10 @@ pub mod transcription;
 mod unload;
 #[path = "../../src/vocal_activity.rs"]
 pub mod vocal_activity;
+#[path = "../../src/vocal_adaptive.rs"]
+pub mod vocal_adaptive;
+#[path = "../../src/vocal_adaptive_planner.rs"]
+pub mod vocal_adaptive_planner;
 #[path = "../../src/vocal_alignment.rs"]
 pub mod vocal_alignment;
 #[path = "../../src/vocal_generation.rs"]
@@ -204,6 +210,10 @@ pub mod vocal_rmvpe;
 pub mod vocal_section_analysis;
 #[path = "../../src/vocal_section_audio.rs"]
 pub mod vocal_section_audio;
+#[path = "../../src/vocal_singing.rs"]
+pub mod vocal_singing;
+#[path = "../../src/vocal_singing_tracking.rs"]
+pub mod vocal_singing_tracking;
 #[path = "../../src/vocals.rs"]
 pub mod vocals;
 #[path = "../../src/vocal_harmonies.rs"]

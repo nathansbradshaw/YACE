@@ -579,6 +579,8 @@ pub struct Studio {
     pub timing_target: Signal<Option<(bool, u64)>>,
     pub source_sync: Signal<Option<crate::sync_track::SyncTrack>>,
     pub source_star_power: Signal<crate::star_power::Source>,
+    pub source_drum_ranges: Signal<crate::drum_ranges::Source>,
+    pub drum_activation_editable: Signal<bool>,
     pub star_power_open: Signal<bool>,
     pub star_power_target: Signal<Option<crate::star_power::Phrase>>,
     pub generation_target: Signal<Option<String>>,
@@ -2262,6 +2264,8 @@ impl Studio {
             let sections = store.source_sections(&doc)?;
             let sync = store.source_sync(&doc).ok();
             let star_power = store.source_star_power(&doc)?;
+            let drum_ranges = store.source_drum_ranges(&doc)?;
+            let drum_activation = store.drum_activation_editable();
             let audio = doc
                 .has_recording()
                 .then(|| store.audio_path(&doc))
@@ -2300,6 +2304,8 @@ impl Studio {
                 sections,
                 sync,
                 star_power,
+                drum_ranges,
+                drum_activation,
             ))
         })
         .await;
@@ -2316,6 +2322,8 @@ impl Studio {
             sections,
             sync,
             star_power,
+            drum_ranges,
+            drum_activation,
         ) = match loaded {
             Ok(Ok(value)) => value,
             Err(e) => {
@@ -2362,6 +2370,8 @@ impl Studio {
         self.source_sections.set(sections);
         self.source_sync.set(sync);
         self.source_star_power.set(star_power);
+        self.source_drum_ranges.set(drum_ranges);
+        self.drum_activation_editable.set(drum_activation);
         self.star_power_open.set(false);
         self.star_power_target.set(None);
         self.timing_open.set(false);
@@ -2653,6 +2663,8 @@ pub fn use_studio() -> Studio {
         timing_target: use_signal(|| None),
         source_sync: use_signal(|| None),
         source_star_power: use_signal(Default::default),
+        source_drum_ranges: use_signal(Default::default),
+        drum_activation_editable: use_signal(|| false),
         star_power_open: use_signal(|| false),
         star_power_target: use_signal(|| None),
         generation_target: use_signal(|| None),

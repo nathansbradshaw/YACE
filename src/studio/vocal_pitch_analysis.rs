@@ -24,6 +24,7 @@ pub fn VocalPitchAnalyzer(mut studio: Studio, range: Option<TimeRange>) -> Eleme
     let mut selection_start = use_signal(|| "0".to_string());
     let mut selection_end = use_signal(String::new);
     let mut range_open = use_signal(|| false);
+    let mut adaptive = use_signal(|| false);
     use_drop(move || {
         if let Some(stop) = stop.read().as_ref() {
             cancel(stop);
@@ -71,22 +72,35 @@ pub fn VocalPitchAnalyzer(mut studio: Studio, range: Option<TimeRange>) -> Eleme
         div{class:"form-heading","Check pitches against the recording"}
         p{class:"field-hint","Compare pitch, gaps, short sounds and note lengths. Preview section repairs and choose which to apply. New notes keep unknown lyrics."}
         p{class:"field-hint","Uses the High accuracy model (362 MB, downloaded once). Phrase checks use the full recording for context."}
+        label{class:"field-hint",input{r#type:"checkbox",checked:adaptive(),disabled:busy(),onchange:move|e|adaptive.set(e.checked())} "Deep rescan gaps and disagreements (experimental, slower)"}
+        if adaptive(){p{class:"field-hint","Rechecks smaller overlapping sections against vocal audio, without lyrics. Supported additions remain draft notes for review. Sound coverage does not guarantee correct pitches or singer identity."}}
         div{class:"vocal-file-actions",
-            button{class:"studio-tool",disabled:busy()||!ready||range.is_none(),onclick:move |_|start(studio,range,busy,status,stop),Icon{name:"music",size:13}"Analyze phrase"}
-            button{class:"studio-tool",disabled:busy()||!ready||doc.transport.loop_range.is_none(),onclick:{let loop_range=doc.transport.loop_range;move |_|start(studio,loop_range,busy,status,stop)},"Analyze loop"}
-            button{class:"studio-tool",disabled:busy()||!ready,onclick:move |_|start(studio,None,busy,status,stop),"Analyze all vocals"}
+            button{class:"studio-tool",disabled:busy()||!ready||range.is_none(),onclick:move |_|start(studio,range,busy,status,stop,adaptive()),Icon{name:"music",size:13}"Analyze phrase"}
+            button{class:"studio-tool",disabled:busy()||!ready||doc.transport.loop_range.is_none(),onclick:{let loop_range=doc.transport.loop_range;move |_|start(studio,loop_range,busy,status,stop,adaptive())},"Analyze loop"}
+            button{class:"studio-tool",disabled:busy()||!ready,onclick:move |_|start(studio,None,busy,status,stop,adaptive()),"Analyze all vocals"}
             if busy(){button{class:"studio-tool",onclick:move |_|{if let Some(s)=stop.read().as_ref(){cancel(s);}status.set("Cancelling comparison…".into());},"Cancel"}}
         }
         button{class:"studio-tool",aria_expanded:range_open(),onclick:move |_|range_open.set(!range_open()),"Choose time range"}
         if range_open(){div{class:"review-evidence",onkeydown:move|e|e.stop_propagation(),
             label{span{"Start (seconds)"}input{r#type:"number",min:"0",step:"0.01",aria_label:"Vocal analysis start seconds",value:selection_start(),oninput:move|e|selection_start.set(e.value())}}
             label{span{"End (seconds)"}input{r#type:"number",min:"0",step:"0.01",aria_label:"Vocal analysis end seconds",placeholder:"{doc.duration:.2}",value:selection_end(),oninput:move|e|selection_end.set(e.value())}}
-            button{class:"studio-tool",disabled:busy()||!ready||custom_range.is_none(),onclick:move |_|start(studio,custom_range,busy,status,stop),"Analyze time range"}
+            button{class:"studio-tool",disabled:busy()||!ready||custom_range.is_none(),onclick:move |_|start(studio,custom_range,busy,status,stop,adaptive()),"Analyze time range"}
             if custom_range.is_none(){p{class:"field-hint","Choose a start before the end, within the recording."}}
         }}
         if !ready{p{class:"field-hint","Attach a vocal stem to compare these notes with the recording."}}
         if busy(){p{role:"status","{status}"}}
         if let Some(a)=analysis {
+            if let Some(deep)=&a.adaptive{p{role:"status","Deep review: {deep.passes.len()} scans · {deep.initial_residual_frames as f64*0.01:.2}s initial disagreement · {deep.remaining_residual_frames as f64*0.01:.2}s unresolved"}
+                if deep.budget_exhausted{p{class:"field-hint","Processing limit reached. Unresolved sections remain flagged; select a shorter range to continue."}}
+                if !deep.alternatives.is_empty(){details{class:"review-evidence",summary{"Pitch alternatives from rescans"}
+                    p{class:"field-hint","Showing up to 100 of {deep.alternatives.len()} retained alternatives; {deep.omitted_alternatives} additional intervals exceeded the report limit."}
+                    for alternative in deep.alternatives.iter().take(100){
+                        {let before=alternative.before_midi.map(crate::vocal_pitch_analysis::note_name).unwrap_or_else(||"no supported pitch".into());let after=alternative.after_midi.map(crate::vocal_pitch_analysis::note_name).unwrap_or_else(||"no supported pitch".into());
+                        rsx!{p{class:"field-hint","{alternative.start:.2}–{alternative.end:.2}s: {before} → {after}"}}}
+                    }
+                    p{class:"field-hint","Rescans use the same model in different contexts. Disagreement remains review evidence."}
+                }}
+            }
             if a.applied {p{role:"status","Applied vocal changes · {a.section.applied_repairs.len()} section repairs. Undo restores the previous notes."}}
             else if valid {
                 p{role:"status","{a.inspected} notes checked · {changes} {change_label} · {a.unresolved} unresolved"}
@@ -144,7 +158,7 @@ fn section_review(
             label{class:"form-check",input{r#type:"checkbox",checked:include_pitch(),onchange:move|e|include_pitch.set(e.checked())},"Include supported pitch corrections"}
             button{class:"studio-tool",disabled:!can_apply,onclick:move |_|studio.dispatch(Action::ApplyVocalSectionRepairs{indices:indices.clone(),include_pitch:include_pitch()}),"Apply selected repairs"}
         }
-        if a.section.repairs.is_empty(){p{class:"field-hint","No section repairs meet the independent acoustic support rules. This does not certify every sung note."}}
+        if a.section.repairs.is_empty(){p{class:"field-hint","No section repairs meet the acoustic support rules. This does not certify every sung note."}}
         for (i,r) in a.section.repairs.iter().enumerate() {
             {let (start,end)=r.bounds();let start=timing.seconds(start);let end=timing.seconds(end);let label=r.kind.label();let time=format!("{start:.2}–{end:.2}s");
             let before=if r.before.is_empty(){"gap".into()}else{r.before.iter().filter_map(|n|match n.tone{crate::vocals::VocalTone::Pitched{midi}=>Some(crate::vocal_pitch_analysis::note_name(midi)),_=>None}).collect::<Vec<_>>().join(", ")};
@@ -241,6 +255,7 @@ fn start(
     mut busy: Signal<bool>,
     mut status: Signal<String>,
     mut stop: Signal<Option<Stop>>,
+    adaptive: bool,
 ) {
     let Some(project) = studio.snapshot() else {
         return;
@@ -274,8 +289,8 @@ fn start(
             let models = crate::generation::default_model_dir();
             let worker = control.clone();
             let result = tokio::task::spawn_blocking(move || {
-                crate::vocal_pitch_analysis::analyze(
-                    &project, &audio, &_timing, range, &models, worker,
+                crate::vocal_pitch_analysis::analyze_configured(
+                    &project, &audio, &_timing, range, &models, worker, adaptive,
                 )
             })
             .await;
@@ -316,6 +331,7 @@ fn start(
                     project: Box::new((*project).clone()),
                     audio,
                     range,
+                    adaptive,
                 },
                 &roots,
                 callback,
