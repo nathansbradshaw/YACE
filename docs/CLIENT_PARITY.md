@@ -59,7 +59,8 @@ velocities refuse import without altering the original file. Pro Guitar uses
 MIDI export; `.chart` and Clone Hero compatibility choices refuse these parts.
 Automatic generation, difficulty reduction, tuning editing, chord-name and
 arpeggio authoring are unavailable. Their original source data stays retained.
-Pro Bass remains a preserved original MIDI track without authoring controls.
+Pro Bass authoring is described below; the original Pro Guitar checks retained
+it as an untouched source track.
 
 Actual static-browser checks on `bed0731` imported all eight difficulty/profile
 combinations, edited frets, articulation and forced HOPO, moved a note, copied
@@ -100,6 +101,43 @@ passed archive checks and retained tick 6601, fret 22, articulation and history.
 The authoritative project reloaded with tick 6600 and fret 21. Its downloaded
 MIDI matched the native and static-browser hash above. The original hosted
 project was restored after verification; temporary tabs and previews were closed.
+
+## Pro Bass strings and frets (2026-11-08)
+
+The shared Rust editor adds separate 17- and 22-fret Pro Bass parts at Easy,
+Medium, Hard and Expert. Bass has its own track names, instrument routing,
+difficulty ranks and typed clipboard families. Its six MIDI string rows share
+the fret, articulation and explicit HOPO controls described above. Ordinary
+exports use `PART REAL_BASS` / `PART REAL_BASS_22`, difficulty bases 24/48/72/96
+and velocity 100 plus fret. Original phrases, note-off attributes, unmanaged
+controls and unrelated MIDI chunks stay retained. Older opaque imports refuse
+blank replacement; importing the original MIDI as a new project makes it
+editable. `.chart`, Clone Hero conversion, automatic generation and reduction
+remain unavailable. Tuning, chord-name and arpeggio editing remain unavailable.
+
+Actual native and static-browser `14e9941` checks imported all eight profiles,
+edited frets and articulation, removed forced HOPO, moved and copied notes,
+deleted and recovered a note, and edited and undid a Star Power phrase. An
+initial native check exposed a missing preview track-name case; the corrected
+build renders the Bass preview. Full native process exit and automatic restart
+retained revision 18 byte for byte, including eight Undo checkpoints and one
+Redo checkpoint. Browser reload retained the same editing content and history.
+
+The actual native and downloaded browser MIDI exports were byte-identical
+(`fdb88a418cffd9992af23576b426422061f24f9839cd1dfff6e65427efced473`). An
+independent Rust inspection checked all eight parts, string/fret/channel values,
+retained note-off velocities, HOPO changes, Star Power and solo timing, unknown
+text/controller events, exact unrelated MIDI chunks and original recording.
+Fresh browser import of only the exported MIDI, INI and audio retained both
+edited profiles. The downloaded complete project ZIP passed archive checks.
+
+The browser also created all eight Bass profiles from a blank chart and placed
+all six strings in the 22-fret Expert part with frets 0, 3, 7, 12, 17 and 22.
+Articulation and forced HOPO survived reload at revision 47 and independently
+checked MIDI export. Pasting a 22-fret clipboard into the separate 17-fret part
+refused without changing revision 40. Direct native placement, native blank-part
+creation and browser-backup restoration, hosted verification, and independent
+target-game/controller and musical acceptance remain open.
 
 ## Five-pad drum authoring (2026-11-08)
 
