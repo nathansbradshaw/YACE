@@ -566,10 +566,59 @@ pub fn lane_ranges(song: &Path) -> Result<Option<crate::lane_ranges::Tracks>> {
         .transpose()
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LaneScope {
+    Expert,
+    ExpertHard,
+    Dedicated { track: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhysicalLaneRange {
+    pub owner: String,
+    pub range: crate::lane_ranges::Range,
+    pub scope: LaneScope,
+    pub attributes: NoteAttributes,
+}
+
+pub fn lane_range_sources(song: &Path) -> Result<Option<Vec<PhysicalLaneRange>>> {
+    source(song)?
+        .map(|(_, directory)| decoded_lane_sources(&fs::read(directory.join("notes.mid"))?))
+        .transpose()
+}
+
 fn decoded_lane_ranges(bytes: &[u8]) -> Result<crate::lane_ranges::Tracks> {
-    use crate::lane_ranges::{self, Kind, Range, Tracks};
-    let midi = midly::Smf::parse(bytes)?;
+    lane_source_view(&decoded_lane_sources(bytes)?)
+}
+
+fn lane_source_view(records: &[PhysicalLaneRange]) -> Result<crate::lane_ranges::Tracks> {
+    use crate::lane_ranges::{self, Tracks};
     let mut result = Tracks::new();
+    for record in records {
+        let (suffix, _) = decode::part(&record.owner).context("Missing lane-range owner")?;
+        let targets = match &record.scope {
+            LaneScope::Expert => vec![format!("Expert{suffix}")],
+            LaneScope::ExpertHard => vec![format!("Expert{suffix}"), format!("Hard{suffix}")],
+            LaneScope::Dedicated { track } => vec![track.clone()],
+        };
+        for track in targets {
+            result.entry(track).or_default().push(record.range.clone());
+        }
+    }
+    for (track, ranges) in &mut result {
+        ranges.sort_by_key(|r| (r.start, r.kind, r.end));
+        lane_ranges::validate_shape(track, ranges)?;
+    }
+    Ok(result)
+}
+
+fn decoded_lane_sources(bytes: &[u8]) -> Result<Vec<PhysicalLaneRange>> {
+    use crate::lane_ranges::{self, Kind, Range};
+    merge::validate_complete(bytes)?;
+    let midi = midly::Smf::parse(bytes)?;
+    let mut result = Vec::new();
     let mut owners = std::collections::BTreeSet::new();
     for physical in &midi.tracks {
         let Some(name) = decode::label(physical) else {
@@ -582,7 +631,7 @@ fn decoded_lane_ranges(bytes: &[u8]) -> Result<crate::lane_ranges::Tracks> {
             continue;
         }
         ensure!(
-            owners.insert(name),
+            owners.insert(name.clone()),
             "Duplicate MIDI lane owners are ambiguous; source retained"
         );
         let keys = difficulty.is_some();
@@ -597,25 +646,36 @@ fn decoded_lane_ranges(bytes: &[u8]) -> Result<crate::lane_ranges::Tracks> {
                     Kind::Tremolo
                 },
             };
-            let targets: Vec<_> = if let Some(difficulty) = difficulty {
-                vec![["Easy", "Medium", "Hard", "Expert"][difficulty]]
+            let scope = if let Some(difficulty) = difficulty {
+                LaneScope::Dedicated {
+                    track: format!(
+                        "{}{suffix}",
+                        ["Easy", "Medium", "Hard", "Expert"][difficulty]
+                    ),
+                }
             } else if (41..=50).contains(&span.velocity) {
-                vec!["Expert", "Hard"]
+                LaneScope::ExpertHard
             } else {
-                vec!["Expert"]
+                LaneScope::Expert
             };
-            for tier in targets {
-                result
-                    .entry(format!("{tier}{suffix}"))
-                    .or_default()
-                    .push(range.clone());
-            }
+            let attributes = NoteAttributes {
+                channel: span.channel,
+                velocity: span.velocity,
+                off_velocity: span.off_velocity,
+                off_as_note_on: span.off_as_note_on,
+                zero_length: span.start == span.end,
+                talkie_pitch: None,
+            };
+            attributes.validate()?;
+            result.push(PhysicalLaneRange {
+                owner: name.clone(),
+                range,
+                scope,
+                attributes,
+            });
         }
     }
-    for (track, ranges) in &mut result {
-        ranges.sort_by_key(|r| (r.start, r.kind, r.end));
-        lane_ranges::validate_shape(track, ranges)?;
-    }
+    lane_source_view(&result)?;
     Ok(result)
 }
 

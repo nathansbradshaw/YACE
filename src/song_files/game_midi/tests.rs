@@ -38,7 +38,40 @@ fn instrument_lane_ranges_read_physical_expert_hard_and_dedicated_keys_scopes() 
     );
     let ghl = track(b"PART GUITAR GHL", vec![(0, on(0, 127, 100))]);
     let drums = track(b"PART DRUMS", vec![(0, on(0, 126, 100))]);
-    let ranges = decoded_lane_ranges(&encode(vec![guitar, keys, hard_keys, ghl, drums])).unwrap();
+    let bytes = encode(vec![guitar, keys, hard_keys, ghl, drums]);
+    let physical = decoded_lane_sources(&bytes).unwrap();
+    assert_eq!(physical.len(), 4);
+    assert_eq!(physical[0].owner, "PART GUITAR");
+    assert_eq!(physical[0].scope, LaneScope::Expert);
+    assert_eq!(
+        physical[0].attributes,
+        NoteAttributes {
+            channel: 4,
+            velocity: 89,
+            off_velocity: 22,
+            off_as_note_on: false,
+            zero_length: false,
+            talkie_pitch: None
+        }
+    );
+    assert_eq!(physical[1].scope, LaneScope::ExpertHard);
+    assert_eq!(physical[1].attributes.channel, 5);
+    assert_eq!(physical[1].attributes.velocity, 45);
+    assert_eq!(physical[1].attributes.off_velocity, 33);
+    assert_eq!(
+        physical[2].scope,
+        LaneScope::Dedicated {
+            track: "ExpertProKeys".into()
+        }
+    );
+    assert_eq!(physical[2].attributes.velocity, 45);
+    assert_eq!(
+        physical[3].scope,
+        LaneScope::Dedicated {
+            track: "HardProKeys".into()
+        }
+    );
+    let ranges = decoded_lane_ranges(&bytes).unwrap();
     let tremolo = Range {
         start: 100,
         end: 240,
@@ -86,11 +119,38 @@ fn instrument_lane_ranges_refuse_ambiguous_or_incomplete_managed_source() {
         ],
     )]);
     assert!(decoded_lane_ranges(&overlap).is_err());
+    assert!(decoded_lane_sources(&overlap).is_err());
     let duplicate = encode(vec![
         track(b"PART GUITAR", vec![]),
         track(b"PART GUITAR", vec![]),
     ]);
     assert!(decoded_lane_ranges(&duplicate).is_err());
+}
+
+#[test]
+fn instrument_lane_ranges_keep_zero_velocity_off_encoding_and_reject_empty_ranges() {
+    let bytes = encode(vec![track(
+        b"PART GUITAR",
+        vec![(0, on(6, 126, 44)), (240, on(6, 126, 0))],
+    )]);
+    let source = decoded_lane_sources(&bytes).unwrap();
+    assert_eq!(source[0].scope, LaneScope::ExpertHard);
+    assert_eq!(
+        source[0].attributes,
+        NoteAttributes {
+            channel: 6,
+            velocity: 44,
+            off_velocity: 0,
+            off_as_note_on: true,
+            zero_length: false,
+            talkie_pitch: None
+        }
+    );
+    let empty = encode(vec![track(
+        b"PART GUITAR",
+        vec![(0, on(6, 126, 44)), (0, on(6, 126, 0))],
+    )]);
+    assert!(decoded_lane_sources(&empty).is_err());
 }
 fn on(channel: u8, key: u8, velocity: u8) -> TrackEventKind<'static> {
     TrackEventKind::Midi {
