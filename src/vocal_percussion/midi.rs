@@ -10,6 +10,7 @@ use midly::{
     Format, Header, MetaMessage as M, MidiMessage as N, Smf, TrackEvent, TrackEventKind as K,
     num::{u4, u7, u28},
 };
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 fn name<'a>(events: &[TrackEvent<'a>]) -> Result<Option<&'a str>> {
@@ -93,6 +94,20 @@ fn spans(events: &[TrackEvent<'_>], selected: impl Fn(u8) -> bool) -> Result<Vec
 fn attributes(value: &NoteAttributes) -> Option<NoteAttributes> {
     (!value.is_default()).then(|| value.clone())
 }
+fn complete_owner(events: &[TrackEvent<'_>]) -> Result<()> {
+    ensure!(
+        events
+            .last()
+            .is_some_and(|event| matches!(event.kind, K::Meta(M::EndOfTrack)))
+            && events
+                .iter()
+                .filter(|event| matches!(event.kind, K::Meta(M::EndOfTrack)))
+                .count()
+                == 1,
+        "Vocal owner has missing, repeated or non-final end-of-track data; source retained"
+    );
+    Ok(())
+}
 fn inside(phrase: &VocalPhrase, span: &Span) -> bool {
     if span.start == span.end {
         phrase.start <= span.start && span.start < phrase.end
@@ -152,6 +167,7 @@ fn read_track(events: &[TrackEvent<'_>], label: &str) -> Result<Option<Track>> {
     }) {
         return Ok(None);
     }
+    complete_owner(events)?;
     let notes = spans(events, |key| matches!(key, 96 | 97 | 105 | 106))?;
     let hits: Vec<_> = notes
         .iter()
@@ -284,14 +300,14 @@ fn note(channel: u8, key: u8, velocity: u8, on: bool) -> K<'static> {
         },
     }
 }
-fn encode_track(header: Header, part: Part, track: &Track) -> Result<Vec<u8>> {
-    let mut events = vec![(0, 0, K::Meta(M::TrackName(part.track().as_bytes())))];
-    for phrase in &track.phrases {
+fn authored_events(track: &Track, hits: bool, phrases: bool) -> Vec<(u64, u8, K<'static>)> {
+    let mut events = Vec::new();
+    for phrase in track.phrases.iter().filter(|_| phrases) {
         let attributes = phrase.midi.clone().unwrap_or_else(|| defaults(false));
         let key = if phrase.range.player == 2 { 106 } else { 105 };
         events.push((
             phrase.range.start,
-            2,
+            3,
             note(attributes.channel, key, attributes.velocity, true),
         ));
         events.push((
@@ -305,17 +321,17 @@ fn encode_track(header: Header, part: Part, track: &Track) -> Result<Vec<u8>> {
             ),
         ));
     }
-    for hit in &track.hits {
+    for hit in track.hits.iter().filter(|_| hits) {
         let zero = hit.start == hit.end;
         let attributes = hit.midi.clone().unwrap_or_else(|| defaults(zero));
         events.push((
             hit.start,
-            3,
+            4,
             note(attributes.channel, hit.key(), attributes.velocity, true),
         ));
         events.push((
             hit.end,
-            if zero { 4 } else { 1 },
+            if zero { 5 } else { 1 },
             note(
                 attributes.channel,
                 hit.key(),
@@ -324,6 +340,10 @@ fn encode_track(header: Header, part: Part, track: &Track) -> Result<Vec<u8>> {
             ),
         ));
     }
+    events
+}
+fn encode_events(header: Header, mut events: Vec<(u64, u8, K<'_>)>, end: u64) -> Result<Vec<u8>> {
+    let end = end.max(events.iter().map(|event| event.0).max().unwrap_or(0));
     events.sort_by_key(|event| (event.0, event.1));
     let mut previous = 0;
     let mut encoded = Vec::new();
@@ -341,8 +361,15 @@ fn encode_track(header: Header, part: Part, track: &Track) -> Result<Vec<u8>> {
         });
         previous = tick;
     }
+    let tail = end
+        .checked_sub(previous)
+        .context("Unordered percussion end")?;
+    ensure!(
+        tail <= 0x0fff_ffff,
+        "Percussion MIDI end delta exceeds format range"
+    );
     encoded.push(TrackEvent {
-        delta: u28::new(0),
+        delta: u28::new(tail as u32),
         kind: K::Meta(M::EndOfTrack),
     });
     let mut bytes = Vec::new();
@@ -355,6 +382,208 @@ fn encode_track(header: Header, part: Part, track: &Track) -> Result<Vec<u8>> {
     }
     .write_std(&mut bytes)?;
     Ok(bytes)
+}
+fn encode_track(header: Header, part: Part, track: &Track) -> Result<Vec<u8>> {
+    let mut events = vec![(0, 2, K::Meta(M::TrackName(part.track().as_bytes())))];
+    events.extend(authored_events(track, true, true));
+    encode_events(header, events, 0)
+}
+
+fn same_hits(left: &[Hit], right: &[Hit]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            (left.start, left.end, left.displayed) == (right.start, right.end, right.displayed)
+                && left
+                    .midi
+                    .clone()
+                    .unwrap_or_else(|| defaults(left.start == left.end))
+                    == right
+                        .midi
+                        .clone()
+                        .unwrap_or_else(|| defaults(right.start == right.end))
+        })
+}
+fn same_phrases(left: &[Phrase], right: &[Phrase]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.range == right.range
+                && left.midi.clone().unwrap_or_else(|| defaults(false))
+                    == right.midi.clone().unwrap_or_else(|| defaults(false))
+        })
+}
+fn same_track(left: Option<&Track>, right: Option<&Track>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            same_hits(&left.hits, &right.hits) && same_phrases(&left.phrases, &right.phrases)
+        }
+        _ => false,
+    }
+}
+fn same_chart(left: Option<&PercussionChart>, right: Option<&PercussionChart>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.resolution == right.resolution
+                && left.tracks.len() == right.tracks.len()
+                && left
+                    .tracks
+                    .iter()
+                    .all(|(part, track)| same_track(Some(track), right.tracks.get(part)))
+        }
+        _ => false,
+    }
+}
+type PhraseEdge = (u64, u8, u8, bool);
+fn phrase_edge(tick: u64, kind: K<'_>) -> Option<PhraseEdge> {
+    let K::Midi { channel, message } = kind else {
+        return None;
+    };
+    let (key, on) = match message {
+        N::NoteOn { key, vel } => (key.as_int(), vel.as_int() > 0),
+        N::NoteOff { key, .. } => (key.as_int(), false),
+        _ => return None,
+    };
+    matches!(key, 105 | 106).then_some((tick, channel.as_int(), key, on))
+}
+fn rewrite_track(
+    header: Header,
+    source: &[TrackEvent<'_>],
+    before: Option<&Track>,
+    after: Option<&Track>,
+) -> Result<Vec<u8>> {
+    complete_owner(source)?;
+    let phrases = !same_phrases(
+        before.map_or(&[], |track| &track.phrases),
+        after.map_or(&[], |track| &track.phrases),
+    );
+    // Re-emit managed hits with changed markers so scoring starts precede
+    // same-tick hit starts, while retaining every hit's timing and attributes.
+    let hits = phrases
+        || !same_hits(
+            before.map_or(&[], |track| &track.hits),
+            after.map_or(&[], |track| &track.hits),
+        );
+    let mut managed = BTreeSet::new();
+    if phrases && let Some(before) = before {
+        for phrase in &before.phrases {
+            let channel = phrase
+                .midi
+                .as_ref()
+                .map_or(0, |attributes| attributes.channel);
+            let key = if phrase.range.player == 2 { 106 } else { 105 };
+            managed.insert((phrase.range.start, channel, key, true));
+            managed.insert((phrase.range.end, channel, key, false));
+        }
+    }
+    let mut tick = 0u64;
+    let mut events = Vec::new();
+    for event in source {
+        tick = tick
+            .checked_add(u64::from(event.delta.as_int()))
+            .context("Vocal tick overflow")?;
+        let kind = event.kind;
+        let managed_hit = hits
+            && before.is_some()
+            && matches!(kind,
+            K::Midi { message: N::NoteOn { key, .. } | N::NoteOff { key, .. }, .. }
+            if matches!(key.as_int(), 96 | 97));
+        if matches!(kind, K::Meta(M::EndOfTrack))
+            || managed_hit
+            || phrase_edge(tick, kind).is_some_and(|edge| managed.contains(&edge))
+        {
+            continue;
+        }
+        // Keep all retained source events in their original same-tick order.
+        // New endings precede them; new beginnings follow them at boundaries.
+        events.push((tick, 2, kind));
+    }
+    if let Some(after) = after {
+        events.extend(authored_events(after, hits, phrases));
+    }
+    encode_events(header, events, tick)
+}
+
+/// Selectively edit percussion against a previously verified source binding.
+/// The expected hash must come from that binding, not be recomputed to accept
+/// changed input. A stale view, shared control conflict or invalid candidate
+/// refuses without modifying any input or returning a partially rewritten song.
+pub fn rewrite_midi(
+    original: &[u8],
+    expected_midi_sha256: &str,
+    before: Option<&PercussionChart>,
+    after: Option<&PercussionChart>,
+) -> Result<Vec<u8>> {
+    ensure!(
+        format!("{:x}", Sha256::digest(original)) == expected_midi_sha256,
+        "Percussion source MIDI changed; recover the verified source before editing"
+    );
+    let actual = import_midi(original)?;
+    ensure!(
+        actual.as_ref() == before,
+        "Percussion baseline changed; select the current source again"
+    );
+    if let Some(after) = after {
+        after.validate()?;
+    }
+    let source = Smf::parse(original)?;
+    let resolution = crate::midi::timing(original)?.resolution;
+    ensure!(
+        after.is_none_or(|chart| chart.resolution == resolution),
+        "Percussion/source MIDI resolutions differ"
+    );
+    if same_chart(before, after) {
+        return Ok(original.to_vec());
+    }
+    let (header, raw) = midi_chunks(original, source.tracks.len())?;
+    let mut output_tracks = Vec::new();
+    let mut existing = BTreeSet::new();
+    let mut source_harmonies = false;
+    for (events, chunk) in source.tracks.iter().zip(raw) {
+        let label = name(events)?;
+        source_harmonies |= label.and_then(HarmonyPart::from_midi).is_some();
+        let Some(part) = label.and_then(Part::from_midi) else {
+            output_tracks.push(chunk.to_vec());
+            continue;
+        };
+        ensure!(
+            existing.insert(part),
+            "Duplicate vocal percussion owner; source retained"
+        );
+        let left = before.and_then(|chart| chart.tracks.get(&part));
+        let right = after.and_then(|chart| chart.tracks.get(&part));
+        if same_track(left, right) {
+            output_tracks.push(chunk.to_vec());
+        } else {
+            let bytes = rewrite_track(source.header, events, left, right)?;
+            output_tracks.push(midi_chunks(&bytes, 1)?.1[0].to_vec());
+        }
+    }
+    if let Some(after) = after {
+        for (&part, track) in &after.tracks {
+            if existing.contains(&part) {
+                continue;
+            }
+            ensure!(
+                part != Part::Harm1 || !source_harmonies,
+                "Existing harmony tracks need their original shared scoring owner; source retained"
+            );
+            let bytes = encode_track(source.header, part, track)?;
+            output_tracks.push(midi_chunks(&bytes, 1)?.1[0].to_vec());
+        }
+    }
+    let mut output = original[..header].to_vec();
+    output[8..10].copy_from_slice(&1u16.to_be_bytes());
+    output[10..12].copy_from_slice(&u16::try_from(output_tracks.len())?.to_be_bytes());
+    for track in output_tracks {
+        output.extend(track);
+    }
+    let candidate = import_midi(&output)?;
+    ensure!(
+        same_chart(candidate.as_ref(), after),
+        "Percussion rewrite did not retain the requested document"
+    );
+    Ok(output)
 }
 
 /// Encode newly authored parts without rewriting any source chunk. Existing

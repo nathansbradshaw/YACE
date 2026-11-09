@@ -48,7 +48,7 @@ fn encode(mut tracks: Vec<Vec<Event>>) -> Vec<u8> {
     let tracks = tracks
         .into_iter()
         .map(|mut track| {
-            track.sort_by_key(|event| event.0);
+            track.sort_by_key(|event| (event.0, matches!(event.1, K::Meta(M::EndOfTrack))));
             let mut last = 0;
             track
                 .into_iter()
@@ -283,4 +283,355 @@ fn appended_zero_length_hit_at_phrase_start_has_a_paired_on_and_off() {
     assert!(attributes.zero_length);
     assert!(!attributes.off_as_note_on);
     assert_eq!(attributes.off_velocity, 0);
+}
+
+fn fingerprint(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+fn raw_track(bytes: &[u8], label: &str) -> Vec<u8> {
+    let source = Smf::parse(bytes).unwrap();
+    let chunks = midi_chunks(bytes, source.tracks.len()).unwrap().1;
+    source
+        .tracks
+        .iter()
+        .zip(chunks)
+        .find(|(events, _)| name(events).unwrap() == Some(label))
+        .unwrap()
+        .1
+        .to_vec()
+}
+fn absolute<'a>(bytes: &'a [u8], label: &str) -> Vec<(u64, K<'a>)> {
+    let source = Smf::parse(bytes).unwrap();
+    let track = source
+        .tracks
+        .iter()
+        .find(|events| name(events).unwrap() == Some(label))
+        .unwrap();
+    let mut tick = 0;
+    track
+        .iter()
+        .map(|event| {
+            tick += u64::from(event.delta.as_int());
+            (tick, event.kind)
+        })
+        .collect()
+}
+fn retained_lead(bytes: &[u8], percussion_channel: u8) -> Vec<(u64, K<'_>)> {
+    absolute(bytes, "PART VOCALS")
+        .into_iter()
+        .filter(|(_, kind)| {
+            !matches!(kind, K::Midi { channel, message: N::NoteOn {key,..} | N::NoteOff {key,..} }
+            if matches!(key.as_int(),96|97) || (key.as_int()==105 && channel.as_int()==percussion_channel))
+        })
+        .collect()
+}
+fn source_with_singing_and_controls() -> Vec<u8> {
+    let mut lead = percussion("PART VOCALS");
+    lead.extend([
+        (960, note(2, 106, 83, true)),
+        (1920, note(2, 106, 19, false)),
+        (1200, note(4, 60, 88, true)),
+        (1440, note(4, 60, 5, false)),
+        (1200, K::Meta(M::Lyric(b"Later"))),
+        (0, note(1, 116, 100, true)),
+        (1920, note(1, 116, 13, false)),
+        (
+            111,
+            K::Midi {
+                channel: u4::new(2),
+                message: N::Controller {
+                    controller: u7::new(10),
+                    value: u7::new(42),
+                },
+            },
+        ),
+        (0, K::Meta(M::Text(b"[mood_play]"))),
+    ]);
+    let mut harmony = percussion("PART HARM1");
+    harmony.extend([
+        (960, note(0, 105, 100, true)),
+        (1920, note(0, 105, 0, false)),
+    ]);
+    let mut second = singing("HARM2", 1200, 1440);
+    second.extend([
+        (960, note(0, 105, 100, true)),
+        (1920, note(0, 105, 0, false)),
+    ]);
+    encode(vec![
+        lead,
+        harmony,
+        second,
+        singing("PART GUITAR", 240, 480),
+        vec![
+            (0, K::Meta(M::TrackName(b"VENUE"))),
+            (123, K::Meta(M::Text(b"Keep venue control"))),
+            (1920, K::Meta(M::EndOfTrack)),
+        ],
+    ])
+}
+#[test]
+fn selective_hit_rewrite_keeps_other_owners_raw_and_all_unmanaged_lead_events_exact() {
+    let original = source_with_singing_and_controls();
+    let before = import_midi(&original).unwrap().unwrap();
+    let mut after = before.clone();
+    let hit = &mut after.tracks.get_mut(&Part::Lead).unwrap().hits[0];
+    hit.start += 1;
+    hit.end += 1;
+    let bytes = rewrite_midi(
+        &original,
+        &fingerprint(&original),
+        Some(&before),
+        Some(&after),
+    )
+    .unwrap();
+    assert!(same_chart(
+        import_midi(&bytes).unwrap().as_ref(),
+        Some(&after)
+    ));
+    assert_eq!(retained_lead(&original, 7), retained_lead(&bytes, 7));
+    for label in ["TEMPO", "PART HARM1", "HARM2", "PART GUITAR", "VENUE"] {
+        assert_eq!(raw_track(&original, label), raw_track(&bytes, label));
+    }
+}
+#[test]
+fn phrase_resize_retains_hit_attributes_and_places_new_start_before_same_tick_hit() {
+    let original = source_with_singing_and_controls();
+    let before = import_midi(&original).unwrap().unwrap();
+    let mut after = before.clone();
+    let phrase = &mut after.tracks.get_mut(&Part::Lead).unwrap().phrases[0];
+    phrase.range.start = 240;
+    phrase.range.end = 600;
+    let bytes = rewrite_midi(
+        &original,
+        &fingerprint(&original),
+        Some(&before),
+        Some(&after),
+    )
+    .unwrap();
+    let imported = import_midi(&bytes).unwrap().unwrap();
+    assert_eq!(
+        imported.tracks[&Part::Lead].hits,
+        before.tracks[&Part::Lead].hits
+    );
+    assert_eq!(
+        imported.tracks[&Part::Lead].phrases,
+        after.tracks[&Part::Lead].phrases
+    );
+    let events = absolute(&bytes, "PART VOCALS");
+    let marker = events
+        .iter()
+        .position(|(tick, kind)| {
+            *tick == 240
+                && matches!(kind,
+        K::Midi{message:N::NoteOn{key,vel},..} if key.as_int()==105 && vel.as_int()>0)
+        })
+        .unwrap();
+    let hit = events
+        .iter()
+        .position(|(tick, kind)| {
+            *tick == 240
+                && matches!(kind,
+        K::Midi{message:N::NoteOn{key,vel},..} if key.as_int()==96 && vel.as_int()>0)
+        })
+        .unwrap();
+    assert!(marker < hit);
+    assert_eq!(retained_lead(&original, 7), retained_lead(&bytes, 7));
+}
+#[test]
+fn clearing_percussion_keeps_singing_phrases_power_author_controls_and_other_raw_tracks() {
+    let original = source_with_singing_and_controls();
+    let before = import_midi(&original).unwrap().unwrap();
+    let bytes = rewrite_midi(&original, &fingerprint(&original), Some(&before), None).unwrap();
+    assert!(import_midi(&bytes).unwrap().is_none());
+    assert_eq!(retained_lead(&original, 7), retained_lead(&bytes, 7));
+    for label in ["TEMPO", "HARM2", "PART GUITAR", "VENUE"] {
+        assert_eq!(raw_track(&original, label), raw_track(&bytes, label));
+    }
+    assert_eq!(
+        rewrite_midi(&bytes, &fingerprint(&bytes), None, None).unwrap(),
+        bytes
+    );
+}
+#[test]
+fn verified_source_hash_stale_view_and_provenance_only_noop_are_distinct() {
+    let original = source_with_singing_and_controls();
+    let before = import_midi(&original).unwrap().unwrap();
+    let mut provenance = before.clone();
+    provenance.source = "Reviewed percussion provenance".into();
+    assert_eq!(
+        rewrite_midi(
+            &original,
+            &fingerprint(&original),
+            Some(&before),
+            Some(&provenance)
+        )
+        .unwrap(),
+        original
+    );
+    let mut stale = before.clone();
+    stale.tracks.get_mut(&Part::Lead).unwrap().hits[0].start += 1;
+    assert!(
+        rewrite_midi(&original, &fingerprint(&original), Some(&stale), None)
+            .unwrap_err()
+            .to_string()
+            .contains("baseline changed")
+    );
+    let mut changed = original.clone();
+    let index = changed
+        .windows(4)
+        .position(|bytes| bytes == b"Keep")
+        .unwrap();
+    changed[index] = b'k';
+    assert_eq!(import_midi(&changed).unwrap().unwrap(), before);
+    assert!(
+        rewrite_midi(&changed, &fingerprint(&original), Some(&before), None)
+            .unwrap_err()
+            .to_string()
+            .contains("source MIDI changed")
+    );
+    let mut other_clock = before.clone();
+    other_clock.resolution = 960;
+    assert!(
+        rewrite_midi(
+            &original,
+            &fingerprint(&original),
+            Some(&before),
+            Some(&other_clock)
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("resolutions")
+    );
+}
+#[test]
+fn new_percussion_can_join_an_existing_singing_owner_without_replacing_its_notes() {
+    let mut lead = singing("PART VOCALS", 1200, 1440);
+    lead.extend([
+        (960, note(2, 106, 83, true)),
+        (1920, note(2, 106, 19, false)),
+        (1200, K::Meta(M::Lyric(b"Keep"))),
+    ]);
+    let original = encode(vec![lead]);
+    assert!(import_midi(&original).unwrap().is_none());
+    let mut after = crate::vocal_percussion::tests::fixture();
+    after.tracks.remove(&Part::Harm1);
+    let bytes = rewrite_midi(&original, &fingerprint(&original), None, Some(&after)).unwrap();
+    assert!(same_chart(
+        import_midi(&bytes).unwrap().as_ref(),
+        Some(&after)
+    ));
+    assert_eq!(retained_lead(&original, 0), retained_lead(&bytes, 0));
+}
+#[test]
+fn expanded_phrases_cannot_consume_retained_singing_or_secondary_percussion() {
+    let original = source_with_singing_and_controls();
+    let before = import_midi(&original).unwrap().unwrap();
+    let mut after = before.clone();
+    after.tracks.get_mut(&Part::Lead).unwrap().phrases[0]
+        .range
+        .end = 1600;
+    assert!(
+        rewrite_midi(
+            &original,
+            &fingerprint(&original),
+            Some(&before),
+            Some(&after)
+        )
+        .is_err()
+    );
+    let second = vec![
+        (0, K::Meta(M::TrackName(b"HARM3"))),
+        (1200, note(4, 97, 88, true)),
+        (1220, note(4, 97, 5, false)),
+        (1920, K::Meta(M::EndOfTrack)),
+    ];
+    let source = encode(vec![percussion("HARM1"), second]);
+    let before = import_midi(&source).unwrap().unwrap();
+    let mut after = before.clone();
+    after.tracks.get_mut(&Part::Harm1).unwrap().phrases[0]
+        .range
+        .end = 1600;
+    assert!(
+        rewrite_midi(&source, &fingerprint(&source), Some(&before), Some(&after))
+            .unwrap_err()
+            .to_string()
+            .contains("unmanaged harmony percussion")
+    );
+}
+
+#[test]
+fn editing_refuses_non_final_owner_end_events_instead_of_activating_unread_controls() {
+    let mut malformed = percussion("PART VOCALS");
+    malformed
+        .iter_mut()
+        .find(|(_, kind)| matches!(kind, K::Meta(M::EndOfTrack)))
+        .unwrap()
+        .0 = 100;
+    assert!(
+        import_midi(&encode(vec![malformed]))
+            .unwrap_err()
+            .to_string()
+            .contains("end-of-track")
+    );
+    let mut singing_only = singing("PART VOCALS", 1200, 1440);
+    singing_only
+        .iter_mut()
+        .find(|(_, kind)| matches!(kind, K::Meta(M::EndOfTrack)))
+        .unwrap()
+        .0 = 100;
+    let original = encode(vec![singing_only]);
+    assert!(import_midi(&original).unwrap().is_none());
+    let mut after = crate::vocal_percussion::tests::fixture();
+    after.tracks.remove(&Part::Harm1);
+    assert!(
+        rewrite_midi(&original, &fingerprint(&original), None, Some(&after))
+            .unwrap_err()
+            .to_string()
+            .contains("end-of-track")
+    );
+}
+
+#[test]
+fn adding_and_clearing_one_owner_retains_the_other_raw_and_does_not_invent_harmony_scoring() {
+    let original = encode(vec![percussion("PART VOCALS")]);
+    let before = import_midi(&original).unwrap().unwrap();
+    let mut after = before.clone();
+    let harmony = crate::vocal_percussion::tests::fixture()
+        .tracks
+        .remove(&Part::Harm1)
+        .unwrap();
+    after.tracks.insert(Part::Harm1, harmony.clone());
+    let bytes = rewrite_midi(
+        &original,
+        &fingerprint(&original),
+        Some(&before),
+        Some(&after),
+    )
+    .unwrap();
+    assert_eq!(
+        raw_track(&original, "PART VOCALS"),
+        raw_track(&bytes, "PART VOCALS")
+    );
+    let baseline = import_midi(&bytes).unwrap().unwrap();
+    let mut keep = baseline.clone();
+    keep.tracks.remove(&Part::Lead);
+    let cleared = rewrite_midi(&bytes, &fingerprint(&bytes), Some(&baseline), Some(&keep)).unwrap();
+    assert!(same_chart(
+        import_midi(&cleared).unwrap().as_ref(),
+        Some(&keep)
+    ));
+    assert_eq!(raw_track(&bytes, "HARM1"), raw_track(&cleared, "HARM1"));
+    let orphan = encode(vec![
+        percussion("PART VOCALS"),
+        singing("HARM3", 1200, 1440),
+    ]);
+    let before = import_midi(&orphan).unwrap().unwrap();
+    let mut after = before.clone();
+    after.tracks.insert(Part::Harm1, harmony);
+    assert!(
+        rewrite_midi(&orphan, &fingerprint(&orphan), Some(&before), Some(&after))
+            .unwrap_err()
+            .to_string()
+            .contains("original shared scoring owner")
+    );
 }

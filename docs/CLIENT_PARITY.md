@@ -23,14 +23,17 @@ Vocal percussion authoring remains a gap in both applications. A separate Rust
 document on the feature branch validates displayed/hidden hits and dedicated
 percussion scoring phrases without changing pitched/talkie syllables. It refuses
 phrases that overlap the applicable lead or harmony singing phrases. Project
-persistence, MIDI editing, placement/selection/Undo/preview controls and actual
-native, browser and game acceptance remain open. A strict MIDI reader extracts
+persistence, export/history wiring, placement/selection/Undo/preview controls and
+actual native, browser and game acceptance remain open. A strict MIDI reader extracts
 dedicated source phrases with original hit and scoring-marker attributes;
 ambiguous, mixed singing/percussion and uncovered source hits refuse the editable
 view. Shared scoring ranges used by unmanaged harmony percussion also remain
-read-only. The core can encode new percussion owners while keeping every original
-MIDI chunk unchanged; it refuses existing owners until preservation-aware editing
-is integrated. These core checks do not qualify an application workflow.
+read-only. The core checks the saved source SHA-256 before selectively adding,
+editing or clearing percussion and its dedicated markers in existing owners.
+Unmodified tracks remain byte-identical; singing, lyrics, overdrive and author
+controls are retained. Conflicting candidates and invalid owner endings refuse
+before returning a rewritten song. These core checks do not qualify an
+application workflow.
 
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer
