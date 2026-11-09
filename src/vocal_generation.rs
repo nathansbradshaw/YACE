@@ -18,8 +18,8 @@ const WINDOW: usize = 2048;
 const HOP: usize = 220;
 #[path = "vocal_acoustics.rs"]
 mod acoustics;
-pub const ALGORITHM: &str = "rust-yin-mcleod-v8; acoustic-recovery-independent-of-lyrics; 22050Hz; centered2048; hop220; consensus0.55semitone; local-energy; anchored-YIN-period0.85; neural-YIN-score0.6-margin0.15-period0.75; SwiftF0-score0.8-stable3of5-period0.75; median5; high-accuracy-experimental-acoustic-boundaries-and-flagged-alternatives; no-transposition; source-time";
-pub const COMPARISON_ALGORITHM: &str = "rust-vocal-v10; DSP-supported-voicing; RMVPE-e6d0c1a; mel-HTK128-Hann1024-hop160-reflect; 30s-context1s; local-mean9bins-salience0.03; salience-weighted-note-centres49states-cost3.2-residual-cap4-floor0.1; model-context-at-most8DSP-hops-with-voicing-mask-restored; source-time; no-voicing-deletion; no-key-or-scale-or-octave-folding";
+pub const ALGORITHM: &str = "rust-yin-mcleod-v9; acoustic-recovery-independent-of-lyrics; 22050Hz; centered2048; hop220; consensus0.55semitone; local-energy; anchored-YIN-period0.85; neural-YIN-score0.6-margin0.15-period0.75; SwiftF0-score0.8-stable3of5-period0.75; median5; high-accuracy-acoustic-boundaries-coalesce-touching-same-pitch-subminimum-attack-fragments; flagged-alternatives; no-gap-fill; no-transposition; source-time";
+pub const COMPARISON_ALGORITHM: &str = "rust-vocal-v10; DSP-supported-voicing; RMVPE-e6d0c1a; mel-HTK128-Hann1024-hop160-reflect; 30s-context1s; local-mean9bins-salience0.03; salience-weighted-note-centres49states-cost3.2-residual-cap4-floor0.1; model-context-at-most8DSP-hops-with-voicing-mask-restored; assembly-v2-coalesce-touching-same-pitch-subminimum-attacks; source-time; no-voicing-deletion; no-key-or-scale-or-octave-folding";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(not(target_arch = "wasm32"), derive(clap::ValueEnum))]
@@ -1219,7 +1219,17 @@ pub fn assemble_notes(
         }
         chart.validate()?;
     }
-    let note_evidence = acoustics::note_evidence(chart.as_ref(), frames, timing);
+    let mut note_evidence = acoustics::note_evidence(chart.as_ref(), frames, timing);
+    if acoustic_boundaries {
+        for note in &mut note_evidence {
+            if timing.seconds(note.end) - timing.seconds(note.start)
+                < Policy::default().minimum_note_seconds
+            {
+                note.uncertain = true;
+                note.reasons.push("Short acoustic contour retained from accepted pitch frames; review its pitch and note boundaries.".into());
+            }
+        }
+    }
     for evidence in note_evidence.iter().filter(|e| e.uncertain) {
         let start = timing.seconds(evidence.start);
         let end = timing.seconds(evidence.end);
@@ -1307,6 +1317,28 @@ fn pitch_spans(
             midi,
             clarity: frame.clarity,
         });
+    }
+    if mode == AnalysisMode::HighAccuracy {
+        // An energy dip proposes a repeated-note boundary, not a reason to
+        // erase accepted pitch. If either side is too short to form a note,
+        // preserve the continuous same-pitch run instead of discarding it.
+        // Do this before minimum-duration filtering. Actual gaps and pitch
+        // changes never qualify, and two supported repeat notes remain split.
+        let mut complete: Vec<PitchedSpan> = Vec::with_capacity(spans.len());
+        for span in spans {
+            if let Some(previous) = complete.last_mut()
+                && previous.midi == span.midi
+                && (span.start_seconds - previous.end_seconds).abs() <= 0.000001
+                && (previous.end_seconds - previous.start_seconds < minimum_note_seconds
+                    || span.end_seconds - span.start_seconds < minimum_note_seconds)
+            {
+                previous.end_seconds = span.end_seconds;
+                previous.clarity = previous.clarity.min(span.clarity);
+            } else {
+                complete.push(span);
+            }
+        }
+        spans = complete;
     }
     spans.retain(|n| n.end_seconds - n.start_seconds >= minimum_note_seconds);
     spans
@@ -2705,6 +2737,96 @@ mod coverage_probes {
                 support: PitchSupport::Consensus,
             })
             .collect()
+    }
+    #[test]
+    fn acoustic_attack_does_not_discard_a_short_supported_same_pitch_tail() {
+        let mut input = frames();
+        input.truncate(20);
+        input[14].rms = 0.02;
+        input[15].rms = 0.14;
+        assert!(acoustic_attack(&input, 15, 0.));
+        let spans = pitch_spans(&input, 0.2, 0.08, AnalysisMode::HighAccuracy);
+        assert_eq!(spans.len(), 1);
+        let expected_end = input.last().unwrap().time_seconds + HOP as f64 / RATE as f64 / 2.;
+        assert!(
+            (spans[0].end_seconds - expected_end).abs() < 1e-9,
+            "An attack must not erase the accepted tail of a sustained pitch"
+        );
+    }
+    #[test]
+    fn explicit_short_acoustic_notes_keep_pitch_missing_words_and_uncertainty() {
+        let mut input = frames();
+        input.truncate(5);
+        let policy = Policy {
+            analysis_mode: AnalysisMode::HighAccuracy,
+            minimum_note_seconds: 0.03,
+            ..Default::default()
+        };
+        let timing = TempoMap::constant(120.).unwrap();
+        let mut issues = vec![];
+        let assembled = assemble_notes(&input, 0.05, &timing, None, &policy, &mut issues).unwrap();
+        let chart = assembled.chart.unwrap();
+        assert_eq!(chart.notes.len(), 1);
+        assert_eq!(chart.notes[0].tone, VocalTone::Pitched { midi: 57 });
+        assert_eq!(chart.notes[0].lyric, Syllable::Missing);
+        assert!(assembled.note_evidence[0].uncertain);
+        assert!(
+            assembled.note_evidence[0]
+                .reasons
+                .iter()
+                .any(|s| s.contains("Short acoustic contour"))
+        );
+        assert!(issues.iter().any(|i| i.reason == Reason::PitchDisagreement));
+        assert!(
+            assemble_notes(&input, 0.05, &timing, None, &Policy::default(), &mut vec![])
+                .unwrap()
+                .chart
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn supported_repeat_attacks_and_actual_gaps_keep_their_boundaries() {
+        let mut input = frames();
+        input.truncate(42);
+        for i in [14, 29] {
+            input[i].rms = 0.02;
+        }
+        let spans = pitch_spans(&input, 0.42, 0.08, AnalysisMode::HighAccuracy);
+        assert_eq!(
+            spans.len(),
+            3,
+            "Long repeated notes retain acoustic attacks"
+        );
+        assert!(
+            spans
+                .windows(2)
+                .all(|w| (w[0].end_seconds - w[1].start_seconds).abs() < 1e-9)
+        );
+        let mut gapped = frames();
+        gapped.truncate(30);
+        for f in &mut gapped[20..25] {
+            f.midi = None;
+        }
+        let spans = pitch_spans(&gapped, 0.3, 0.08, AnalysisMode::HighAccuracy);
+        assert_eq!(
+            spans.len(),
+            1,
+            "An isolated subminimum sound across a gap is not joined"
+        );
+        assert!(spans[0].end_seconds < gapped[20].time_seconds);
+        let mut changed = frames();
+        changed.truncate(20);
+        for f in &mut changed[15..] {
+            f.midi = Some(60.);
+        }
+        let spans = pitch_spans(&changed, 0.2, 0.08, AnalysisMode::HighAccuracy);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].midi, 57);
+        assert!(
+            spans[0].end_seconds < changed[17].time_seconds,
+            "A short different pitch must not be stretched into its predecessor"
+        );
     }
     fn words() -> WordTimings {
         WordTimings {
