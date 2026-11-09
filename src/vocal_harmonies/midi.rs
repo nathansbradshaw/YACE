@@ -89,6 +89,11 @@ fn encode_track<'a>(
             },
         ));
     }
+    encode_events(header, events)
+}
+fn encode_events(header: Header, mut events: Vec<(u64, K<'_>)>) -> Result<Vec<u8>> {
+    let end = events.iter().map(|e| e.0).max().unwrap_or(0);
+    events.retain(|(_, kind)| !matches!(kind, K::Meta(M::EndOfTrack)));
     events.sort_by_key(|(tick, kind)| {
         (
             *tick,
@@ -124,8 +129,12 @@ fn encode_track<'a>(
         });
         previous = tick;
     }
+    ensure!(
+        end - previous <= 0x0fff_ffff,
+        "Harmony MIDI end delta exceeds format range"
+    );
     track.push(TrackEvent {
-        delta: u28::new(0),
+        delta: u28::new((end - previous) as u32),
         kind: K::Meta(M::EndOfTrack),
     });
     let mut bytes = Vec::new();
@@ -327,6 +336,130 @@ pub fn import_midi(bytes: &[u8]) -> Result<Option<HarmonyChart>> {
     Ok(Some(chart))
 }
 
+fn notes(chart: &HarmonyChart, part: Part) -> &[crate::vocals::VocalNote] {
+    chart
+        .voices
+        .get(&part)
+        .map_or(&[], |voice| voice.notes.as_slice())
+}
+fn owned_phrases(chart: &HarmonyChart, part: Part) -> &[VocalPhrase] {
+    match part {
+        Part::Harm1 => &chart.phrases,
+        Part::Harm2 => &chart.lyric_phrases,
+        Part::Harm3 => &[],
+    }
+}
+fn same_content(a: &HarmonyChart, b: &HarmonyChart) -> bool {
+    a.resolution == b.resolution
+        && a.phrases == b.phrases
+        && a.lyric_phrases == b.lyric_phrases
+        && Part::ALL
+            .into_iter()
+            .all(|part| notes(a, part) == notes(b, part))
+}
+
+/// Rewrite only explicitly edited harmony components. Lead, unknown tracks,
+/// original controls and unchanged singer chunks stay in their original form.
+/// The baseline must describe this exact source view, never another revision.
+pub fn rewrite_midi(
+    original: &[u8],
+    before: &HarmonyChart,
+    after: &HarmonyChart,
+) -> Result<Vec<u8>> {
+    before.validate()?;
+    after.validate()?;
+    let baseline = import_midi(original)?.context("No editable source harmonies")?;
+    ensure!(
+        same_content(&baseline, before),
+        "Harmony baseline differs from the retained source; reopen before exporting"
+    );
+    ensure!(
+        before.resolution == after.resolution,
+        "Imported harmony resolution must remain unchanged"
+    );
+    if same_content(before, after) {
+        return Ok(original.to_vec());
+    }
+    let source = Smf::parse(original)?;
+    let (header, original_chunks) = midi_chunks(original, source.tracks.len())?;
+    // Percussion is not an editable singer note. Refuse a shared scoring edit
+    // that would silently unscore a retained hit in any harmony track.
+    if before.phrases != after.phrases {
+        for track in &source.tracks {
+            if part(track)?.is_none() {
+                continue;
+            }
+            for (tick, kind) in absolute(track)? {
+                if matches!(kind, K::Midi {message:N::NoteOn {key,vel},..} if matches!(key.as_int(),96|97)&&vel.as_int()>0)
+                    && before
+                        .phrases
+                        .iter()
+                        .any(|p| p.start <= tick && tick < p.end)
+                {
+                    ensure!(
+                        after
+                            .phrases
+                            .iter()
+                            .any(|p| p.start <= tick && tick < p.end),
+                        "Edited harmony scoring phrases would displace retained percussion; source retained"
+                    );
+                }
+            }
+        }
+    }
+    let generated_bytes = append_midi(&empty_midi(source.header)?, after)?;
+    let generated = Smf::parse(&generated_bytes)?;
+    let mut generated_tracks = BTreeMap::new();
+    for track in &generated.tracks {
+        if let Some(part) = part(track)? {
+            generated_tracks.insert(part, track);
+        }
+    }
+    let mut chunks = Vec::new();
+    for (track, raw) in source.tracks.iter().zip(original_chunks) {
+        let Some(part) = part(track)? else {
+            chunks.push(raw.to_vec());
+            continue;
+        };
+        let notes_changed = notes(before, part) != notes(after, part);
+        let phrases_changed = owned_phrases(before, part) != owned_phrases(after, part);
+        let new_track = generated_tracks.remove(&part);
+        if !notes_changed && !phrases_changed {
+            chunks.push(raw.to_vec());
+            continue;
+        }
+        let replace =
+            |kind| (notes_changed && note_or_lyric(kind)) || (phrases_changed && phrase_key(kind));
+        let mut body: Vec<_> = absolute(track)?
+            .into_iter()
+            .filter(|(_, kind)| !replace(*kind))
+            .collect();
+        if let Some(new_track) = new_track {
+            body.extend(
+                absolute(new_track)?
+                    .into_iter()
+                    .filter(|(_, kind)| replace(*kind)),
+            );
+        }
+        let encoded = encode_events(source.header, body)?;
+        chunks.push(midi_chunks(&encoded, 1)?.1[0].to_vec());
+    }
+    for (_, track) in generated_tracks {
+        let encoded = encode_events(source.header, absolute(track)?)?;
+        chunks.push(midi_chunks(&encoded, 1)?.1[0].to_vec());
+    }
+    let mut result = original[..header].to_vec();
+    if chunks.len() > 1 {
+        result[8..10].copy_from_slice(&1u16.to_be_bytes());
+    }
+    result[10..12].copy_from_slice(&u16::try_from(chunks.len())?.to_be_bytes());
+    for chunk in chunks {
+        result.extend(chunk);
+    }
+    validate_midi_complete(&result)?;
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,6 +481,183 @@ mod tests {
     }
     fn fixture() -> HarmonyChart {
         crate::vocal_harmonies::tests::fixture()
+    }
+    fn controlled_source() -> Vec<u8> {
+        let chart = fixture();
+        let bytes = append_midi(&original(&chart), &chart).unwrap();
+        let midi = Smf::parse(&bytes).unwrap();
+        let (header, chunks) = midi_chunks(&bytes, midi.tracks.len()).unwrap();
+        let mut result = bytes[..header].to_vec();
+        for (track, chunk) in midi.tracks.iter().zip(chunks) {
+            if part(track).unwrap() != Some(Part::Harm2) {
+                result.extend(chunk);
+                continue;
+            }
+            let mut events = absolute(track).unwrap();
+            for (_, kind) in &mut events {
+                if matches!(kind, K::Meta(M::TrackName(_))) {
+                    *kind = K::Meta(M::TrackName(b"PART HARM2"));
+                }
+                if let K::Midi { channel, message } = kind {
+                    if matches!(message,N::NoteOn {key,..}|N::NoteOff {key,..} if key.as_int()==105)
+                    {
+                        *channel = u4::new(7);
+                    }
+                }
+            }
+            events.extend([
+                (123, K::Meta(M::Text(b"[mood_play]"))),
+                (
+                    130,
+                    K::Midi {
+                        channel: u4::new(2),
+                        message: N::Controller {
+                            controller: u7::new(11),
+                            value: u7::new(71),
+                        },
+                    },
+                ),
+                (
+                    480,
+                    K::Midi {
+                        channel: u4::new(3),
+                        message: N::NoteOn {
+                            key: u7::new(96),
+                            vel: u7::new(88),
+                        },
+                    },
+                ),
+                (
+                    500,
+                    K::Midi {
+                        channel: u4::new(3),
+                        message: N::NoteOff {
+                            key: u7::new(96),
+                            vel: u7::new(12),
+                        },
+                    },
+                ),
+                (
+                    0,
+                    K::Midi {
+                        channel: u4::new(4),
+                        message: N::NoteOn {
+                            key: u7::new(116),
+                            vel: u7::new(90),
+                        },
+                    },
+                ),
+                (
+                    960,
+                    K::Midi {
+                        channel: u4::new(4),
+                        message: N::NoteOff {
+                            key: u7::new(116),
+                            vel: u7::new(17),
+                        },
+                    },
+                ),
+            ]);
+            let encoded = encode_events(midi.header, events).unwrap();
+            result.extend(midi_chunks(&encoded, 1).unwrap().1[0]);
+        }
+        result
+    }
+    fn assert_other_chunks_identical(before: &[u8], after: &[u8], changed: Part) {
+        let old = Smf::parse(before).unwrap();
+        let new = Smf::parse(after).unwrap();
+        let a = midi_chunks(before, old.tracks.len()).unwrap().1;
+        let b = midi_chunks(after, new.tracks.len()).unwrap().1;
+        assert_eq!(a.len(), b.len());
+        for ((track, a), b) in old.tracks.iter().zip(a).zip(b) {
+            if part(track).unwrap() != Some(changed) {
+                assert_eq!(a, b);
+            }
+        }
+    }
+    #[test]
+    fn source_aware_edits_keep_other_singers_lead_alias_and_unedited_controls() {
+        let original = controlled_source();
+        let before = import_midi(&original).unwrap().unwrap();
+        assert_eq!(rewrite_midi(&original, &before, &before).unwrap(), original);
+        let mut after = before.clone();
+        let note = &mut after.voices.get_mut(&Part::Harm2).unwrap().notes[0];
+        note.start += 1;
+        note.tone = VocalTone::Pitched { midi: 65 };
+        note.lyric = crate::vocals::Syllable::Missing;
+        let output = rewrite_midi(&original, &before, &after).unwrap();
+        assert_other_chunks_identical(&original, &output, Part::Harm2);
+        let midi = Smf::parse(&original).unwrap();
+        let edited = Smf::parse(&output).unwrap();
+        let controls = |track| {
+            absolute(track)
+                .unwrap()
+                .into_iter()
+                .filter(|(_, kind)| !note_or_lyric(*kind))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            controls(
+                midi.tracks
+                    .iter()
+                    .find(|t| part(t).unwrap() == Some(Part::Harm2))
+                    .unwrap()
+            ),
+            controls(
+                edited
+                    .tracks
+                    .iter()
+                    .find(|t| part(t).unwrap() == Some(Part::Harm2))
+                    .unwrap()
+            )
+        );
+        assert_eq!(
+            import_midi(&output).unwrap().unwrap().voices[&Part::Harm2].notes,
+            after.voices[&Part::Harm2].notes
+        );
+    }
+    #[test]
+    fn shared_lyric_edits_rewrite_only_the_harm2_owner_and_empty_singer_retains_controls() {
+        let original = controlled_source();
+        let before = import_midi(&original).unwrap().unwrap();
+        let mut after = before.clone();
+        after.lyric_phrases[0].end = 1000;
+        after.voices.remove(&Part::Harm2);
+        let output = rewrite_midi(&original, &before, &after).unwrap();
+        assert_other_chunks_identical(&original, &output, Part::Harm2);
+        let reopened = import_midi(&output).unwrap().unwrap();
+        assert!(reopened.voices[&Part::Harm2].notes.is_empty());
+        assert_eq!(reopened.lyric_phrases, after.lyric_phrases);
+        let midi = Smf::parse(&output).unwrap();
+        assert!(midi.tracks.iter().filter(|t|part(t).unwrap()==Some(Part::Harm2)).flatten().any(|e|
+            matches!(e.kind,K::Midi{message:N::NoteOn{key,vel},..} if key.as_int()==96&&vel.as_int()==88)));
+    }
+    #[test]
+    fn stale_harmony_baseline_and_displaced_percussion_refuse_without_a_rewrite() {
+        let original = controlled_source();
+        let before = import_midi(&original).unwrap().unwrap();
+        let mut stale = before.clone();
+        stale.voices.get_mut(&Part::Harm1).unwrap().notes[0].start += 1;
+        assert!(
+            rewrite_midi(&original, &stale, &before)
+                .unwrap_err()
+                .to_string()
+                .contains("baseline differs")
+        );
+        let mut after = before.clone();
+        after.phrases[0].start = 600;
+        for voice in after.voices.values_mut() {
+            for note in &mut voice.notes {
+                note.start = 700;
+                note.end = 800;
+            }
+        }
+        assert!(
+            rewrite_midi(&original, &before, &after)
+                .unwrap_err()
+                .to_string()
+                .contains("retained percussion")
+        );
     }
     #[test]
     fn simultaneous_lead_and_three_voices_round_trip_with_target_phrase_ownership() {

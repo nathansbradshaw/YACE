@@ -5,6 +5,12 @@ before additional product features ship. Use one source revision and the same
 full-length song project for acceptance. Sharing Rust modules establishes shared
 rules; it does not establish that both applications expose working controls.
 
+Harmony authoring remains an implementation gap in both clients. The isolated
+Rust model and MIDI codec support three independent voices, shared phrase
+ownership and edits that preserve unrelated source tracks and controls. They
+have not been connected to project persistence or app controls. No native,
+browser or target-game harmony workflow is qualified by these core checks.
+
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer
 closes this work. No application service is substituted. Browser generation,

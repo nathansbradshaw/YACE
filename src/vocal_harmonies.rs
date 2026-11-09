@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 #[path = "vocal_harmonies/midi.rs"]
 mod midi;
-pub use midi::{append_midi, import_midi};
+pub use midi::{append_midi, import_midi, rewrite_midi};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
