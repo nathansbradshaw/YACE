@@ -320,3 +320,21 @@ authored HARM2/HARM3 lanes using the same phrase/talkie parser as lead targets.
 It does not infer singers from stem names or replace missing harmony annotations.
 The PANNs activity experiment is separate, not part of this pitch recipe; see
 `tools/vocal-activity-probe/NOTICE.md` for pinned weights and preprocessing.
+
+### Residual section rescan experiment
+
+`cargo run --release --no-default-features --example vocal_chunk_trial -- AUDIO
+VOCAL_STEM GENERATION_JSON RMVPE_MODEL OUTPUT_JSON [--chunk-seconds 6]
+[--reference PRIVATE_REFERENCE_JSON]` compares the exported chart with the raw
+vocal contour, finds sustained coverage/pitch disagreements, and reruns only
+marked chunks with one second of context on each side. Residual duration is
+checked before chunk division, preserving short sounds across boundaries. All
+frames retain the original recording clock; source, PCM, model, generation and
+implementation identities are recorded. Existing audio and notes are unchanged.
+
+This is experimental diagnostic tooling, not automatic repair or an independent
+vote. The same model can consistently follow backing singers or instrumental
+leakage. Optional reviewed references are loaded only after predictions and
+score wrong, missing and falsely voiced raw frames separately. No generated
+chart becomes ground truth. A smaller window is not promoted without the full
+note/contour gate and voiced-recall checks. Keep outputs outside public Git.
