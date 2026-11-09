@@ -69,7 +69,7 @@ fn ProGuitarProperties(studio: Studio, track: String, item: EditorNote) -> Eleme
     let fret_id = item.id.clone();
     let channel_id = item.id.clone();
     let hopo_id = item.id.clone();
-    rsx! {div {class:"selection-pro-guitar", aria_label:"Pro Guitar properties",
+    rsx! {div {class:"selection-pro-guitar", style:"display:grid;gap:0.5rem", aria_label:"Pro Guitar properties",
         label {"Fret"
             for epoch in [fret_reset.key()] {input {key:"{epoch}", aria_label:"Pro Guitar fret", r#type:"number", min:"0", max:"{limit}", value:"{fret}",
                 onmounted:move |event|fret_reset.mounted(event), onkeydown:move |event|event.stop_propagation(),

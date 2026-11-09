@@ -595,7 +595,6 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
                             onmousedown:move|e:MouseEvent|{e.stop_propagation();gestures.note(&down_track,Some(&down_id),0,note_tick,&e);},
                             if item.note.sustain>0{rect{x:"{x.max(0.0)}",y:"{y+4.0}",width:"{(end.min(width())-x.max(0.0)).max(0.0)}",height:"6",rx:"2",fill,opacity:".55"}}
                             rect{x:"{x}",y:"{y}",width:"14",height:"14",rx:if doc.is_cymbal(&track,&item.note){"1"}else{"3"},fill,fill_opacity:if ghost{"0.45"}else{"1"},stroke,stroke_width:"1.5",role:"button","aria-pressed":is_selected.to_string(),"aria-label":"{lane_name_in(layout,&track,item.note.lane)}{pro_label}{dynamics_label} note at {timing.seconds(item.note.tick):.3} seconds",title{"{lane_name_in(layout,&track,item.note.lane)}{pro_label}{dynamics_label} · {timing.seconds(item.note.tick):.4}s · {item.id}"}}
-                            if pro {text {x:"{x+7.}",y:"{y+10.5}",text_anchor:"middle",font_size:"9",font_weight:"700",fill:"#0a0c0f",pointer_events:"none","{crate::pro_guitar::fret(item)}"}}
                             if accent{rect{"data-dynamics":"accent",x:"{x-2.}",y:"{y-2.}",width:"18",height:"18",rx:"4",fill:"none",stroke:"#fff",stroke_width:"1.5",pointer_events:"none"}}
                             if ghost{rect{"data-dynamics":"ghost",x:"{x-1.}",y:"{y-1.}",width:"16",height:"16",rx:"4",fill:"none",stroke:fill,stroke_dasharray:"2 2",pointer_events:"none"}}
                             path{d:"M{x+3.} {y+2.5}H{x+11.}",stroke:"#fff",stroke_opacity:".55",stroke_width:"1",pointer_events:"none"}
@@ -606,6 +605,7 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
                             }
                             if overridden{rect{x:"{x-1.0}",y:"{y-1.0}",width:"16",height:"16",rx:"3",fill:"none",stroke:"#c889ff",stroke_width:"1",stroke_dasharray:"2 2",pointer_events:"none",title{"Local difficulty override"}}}
                             if item.note.sustain>0{rect{x:"{end-4.0}",y:"{y}",width:"8",height:"14",fill,style:"cursor:ew-resize",onclick:move|e|{e.stop_propagation();studio.dispatch(Action::SelectNote{note_id:Some(id2.clone())});},onmousedown:move|e:MouseEvent|{e.stop_propagation();let mut origin=origin2.clone();origin.start_x=e.page_coordinates().x;origin.start_y=e.page_coordinates().y;origin.resize=true;drag.set(Some(origin));delta.set((0.0,0.0));}}}
+                            if pro {text {x:"{x+7.}",y:"{y+10.5}",text_anchor:"middle",font_size:"9",font_weight:"700",fill:"#0a0c0f",pointer_events:"none","{crate::pro_guitar::fret(item)}"}}
                         }} } }
                     }
                     {drag().map(|origin|{let row=rows.iter().position(|l|*l==origin.lane).unwrap_or(0);let x=(timing.seconds(origin.tick)-start)/span*width()+delta().0;let y=row as f64*20.0+3.0+delta().1;rsx!{rect{x:"{x}",y:"{y}",width:"16",height:"14",fill:"none",stroke:"#fff",pointer_events:"none"}}})}
