@@ -167,6 +167,8 @@ pub struct Content {
     pub analysis_sources: crate::reanalysis::Sources,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub star_power: crate::star_power::Tracks,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub solos: crate::solos::Tracks,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync: Option<crate::sync_track::SyncTrack>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -274,6 +276,9 @@ pub enum Action {
     },
     EditStarPower {
         edit: crate::star_power::Edit,
+    },
+    EditSolo {
+        edit: crate::solos::Edit,
     },
     EditSync {
         edit: crate::sync_track::Edit,
@@ -551,6 +556,7 @@ impl Project {
             if notes.is_empty()
                 && !self.content.track_origins.contains_key(track)
                 && self.content.star_power.get(track).is_none_or(Vec::is_empty)
+                && self.content.solos.get(track).is_none_or(Vec::is_empty)
             {
                 continue;
             }
@@ -565,7 +571,8 @@ impl Project {
         }
         let text = crate::sections::render(text, &self.content.sections)?;
         let text = crate::sync_track::render(text, &self.content.sync)?;
-        crate::star_power::render(text, &self.content.star_power)
+        let text = crate::star_power::render(text, &self.content.star_power)?;
+        crate::solos::render(text, &self.content.solos)
     }
     pub fn chart_hash(&self, store: &Store) -> Result<String> {
         Ok(hash(self.chart_text(store)?.as_bytes()))
@@ -1289,6 +1296,7 @@ impl Store {
             review,
             content: Content {
                 star_power: Default::default(),
+                solos: Default::default(),
                 sync: None,
                 sections: None,
                 track_origins: Default::default(),
@@ -1712,6 +1720,7 @@ impl Store {
                 | Action::EditSection { .. }
                 | Action::EditSync { .. }
                 | Action::EditStarPower { .. }
+                | Action::EditSolo { .. }
                 | Action::ApplyGeneratedPart { .. }
                 | Action::AddNote { .. }
                 | Action::UpdateNote { .. }
@@ -1822,6 +1831,14 @@ impl Store {
                     crate::song_files::game_midi::edit_star_power(&mut doc, &source, edit)?;
                 } else {
                     crate::star_power::apply(&mut doc, &source, edit)?;
+                }
+            }
+            Action::EditSolo { edit } => {
+                let source = self.source_chart(&doc)?;
+                if crate::song_files::game_midi::exists(&self.root.join("source")) {
+                    crate::song_files::game_midi::edit_solos(&mut doc, &source, edit)?;
+                } else {
+                    crate::solos::apply(&mut doc, &source, edit)?;
                 }
             }
             Action::EditSync { edit } => {

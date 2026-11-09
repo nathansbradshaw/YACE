@@ -335,6 +335,43 @@ pub fn edit_star_power(
     Ok(())
 }
 
+/// One physical instrument MIDI owner shares solos across its difficulties.
+/// Pro Keys uses separate difficulty tracks and keeps independent ranges.
+pub fn edit_solos(
+    project: &mut crate::editor::Project,
+    source: &Chart,
+    edit: &crate::solos::Edit,
+) -> Result<()> {
+    use crate::solos::{self, Edit};
+    let (Edit::Put { track, .. } | Edit::Remove { track, .. }) = edit;
+    let suffix = ["Easy", "Medium", "Hard", "Expert"]
+        .iter()
+        .find_map(|tier| track.strip_prefix(tier));
+    let Some(suffix) = suffix.filter(|suffix| *suffix != "ProKeys") else {
+        return solos::apply(project, source, edit);
+    };
+    let tracks: Vec<_> = ["Easy", "Medium", "Hard", "Expert"]
+        .iter()
+        .map(|tier| format!("{tier}{suffix}"))
+        .filter(|name| project.content.tracks.contains_key(name))
+        .collect();
+    let mut ranges = Vec::new();
+    for name in &tracks {
+        ranges.extend(solos::current(project, source, name)?);
+    }
+    ranges.sort_by_key(|phrase| (phrase.start, phrase.end));
+    ranges.dedup();
+    let mut candidate = project.clone();
+    candidate.content.solos.insert(track.clone(), ranges);
+    solos::apply(&mut candidate, source, edit)?;
+    let ranges = candidate.content.solos[track].clone();
+    for name in tracks {
+        candidate.content.solos.insert(name, ranges.clone());
+    }
+    project.content.solos = candidate.content.solos;
+    Ok(())
+}
+
 pub fn attributes(song: &Path, chart: &Chart) -> Result<TrackAttributes> {
     let Some((imported, _)) = source(song)? else {
         return Ok(BTreeMap::new());

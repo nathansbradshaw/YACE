@@ -41,6 +41,16 @@ Do not mark a row passed from compilation alone. Record the revision, fixture,
 actual application actions, downloaded/exported results, and any limitations.
 Keep private recordings, transcripts and generated receipts outside Git.
 
+Solo authoring has a shared Rust range model and revision-checked create,
+move/resize and remove commands on its feature branch. Exact previous-range
+witnesses reject stale changes. Source parsing preserves malformed ranges
+read-only; rendering changes only supported solo boundaries. MIDI instruments
+share edited ranges across difficulties while Pro Keys keeps independent MIDI
+owners. Regressions cover history, export/reopen, explicit removal without
+resurrection, retained unrelated events and note-proposal safety. Shared
+placement/selection/preview controls and actual desktop/static-browser/hosted
+verification are still open; backend tests do not qualify those workflows.
+
 ## Pro Guitar strings and frets (2026-11-08)
 
 The shared editor supports separate 17- and 22-fret Pro Guitar parts at Easy,

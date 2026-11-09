@@ -63,6 +63,7 @@ fn fixture() -> (Project, Chart) {
         content: Content {
             analysis_sources: Default::default(),
             star_power: Default::default(),
+            solos: Default::default(),
             sync: None,
             sections: None,
             track_origins: Default::default(),
