@@ -17,9 +17,13 @@ use std::{
 mod decode;
 #[path = "game_midi/harmonies.rs"]
 mod harmonies;
+pub(crate) use harmonies::harmony_percussion_ranges;
 #[path = "game_midi/merge.rs"]
 mod merge;
-pub use harmonies::{export_harmonies, retained_harmony_controls};
+pub use harmonies::{
+    RetainedHarmonyPhrases, export_harmonies, retained_harmony_controls, retained_harmony_phrases,
+    validate_harmony_edit,
+};
 pub(crate) use merge::{chunks as midi_chunks, validate_complete as validate_midi_complete};
 #[cfg(test)]
 #[path = "game_midi/tests.rs"]

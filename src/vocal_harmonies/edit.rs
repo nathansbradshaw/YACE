@@ -41,6 +41,18 @@ pub enum Edit {
         index: usize,
         expected: VocalPhrase,
     },
+    SplitPhrase {
+        kind: PhraseKind,
+        index: usize,
+        expected: VocalPhrase,
+        tick: u64,
+    },
+    MergePhrase {
+        kind: PhraseKind,
+        index: usize,
+        expected: VocalPhrase,
+        next_expected: VocalPhrase,
+    },
 }
 fn phrases(chart: &mut HarmonyChart, kind: PhraseKind) -> &mut Vec<VocalPhrase> {
     match kind {
@@ -184,6 +196,61 @@ impl Edit {
                     "Shared harmony phrase changed; select it again"
                 );
                 target.remove(*index);
+            }
+            Self::SplitPhrase {
+                kind,
+                index,
+                expected,
+                tick,
+            } => {
+                ensure!(
+                    !chart
+                        .voices
+                        .iter()
+                        .filter(|(part, _)| *kind == PhraseKind::Scoring || **part != Part::Harm1)
+                        .any(|(_, voice)| voice
+                            .notes
+                            .iter()
+                            .any(|note| note.start < *tick && *tick < note.end)),
+                    "A harmony note crosses the split tick; choose a gap between notes"
+                );
+                let target = phrases(&mut chart, *kind);
+                ensure!(
+                    target.get(*index) == Some(expected),
+                    "Shared harmony phrase changed; select it again"
+                );
+                ensure!(
+                    expected.start < *tick && *tick < expected.end,
+                    "Split tick must be inside the shared phrase"
+                );
+                target[*index].end = *tick;
+                target.insert(
+                    index + 1,
+                    VocalPhrase {
+                        start: *tick,
+                        end: expected.end,
+                        player: expected.player,
+                    },
+                );
+            }
+            Self::MergePhrase {
+                kind,
+                index,
+                expected,
+                next_expected,
+            } => {
+                let target = phrases(&mut chart, *kind);
+                let next = index.checked_add(1).context("Unknown next phrase")?;
+                ensure!(
+                    target.get(*index) == Some(expected) && target.get(next) == Some(next_expected),
+                    "Shared harmony phrases changed; select them again"
+                );
+                ensure!(
+                    expected.player == next_expected.player,
+                    "Shared phrase players must match before merging"
+                );
+                target[*index].end = next_expected.end;
+                target.remove(next);
             }
         }
         chart
@@ -341,5 +408,58 @@ mod tests {
         assert!(make(Part::Harm3).apply(Some(&chart), 480).is_ok());
         assert!(make(Part::Harm2).apply(Some(&chart), 480).is_err());
         assert_eq!(chart.voices[&Part::Harm2].notes.len(), 1);
+    }
+    #[test]
+    fn atomic_phrase_split_and_merge_preserve_singers_and_refuse_splitting_a_held_note() {
+        let mut chart = fixture();
+        let mut note = chart.voices[&Part::Harm1].notes[0].clone();
+        note.start = 800;
+        note.end = 900;
+        chart.voices.get_mut(&Part::Harm1).unwrap().notes.push(note);
+        chart.validate().unwrap();
+        let expected = chart.phrases[0].clone();
+        assert!(
+            Edit::SplitPhrase {
+                kind: PhraseKind::Scoring,
+                index: 0,
+                expected: expected.clone(),
+                tick: 480
+            }
+            .apply(Some(&chart), 480)
+            .is_err()
+        );
+        let after = Edit::SplitPhrase {
+            kind: PhraseKind::Scoring,
+            index: 0,
+            expected: expected.clone(),
+            tick: 760,
+        }
+        .apply(Some(&chart), 480)
+        .unwrap()
+        .unwrap();
+        assert_eq!(after.voices, chart.voices);
+        assert_eq!(after.lyric_phrases, chart.lyric_phrases);
+        assert_eq!(after.phrases.len(), 2);
+        let merge = Edit::MergePhrase {
+            kind: PhraseKind::Scoring,
+            index: 0,
+            expected: after.phrases[0].clone(),
+            next_expected: after.phrases[1].clone(),
+        };
+        assert_eq!(merge.apply(Some(&after), 480).unwrap().unwrap(), chart);
+        let mut different_player = after.clone();
+        different_player.phrases[1].player = 2;
+        assert!(
+            Edit::MergePhrase {
+                kind: PhraseKind::Scoring,
+                index: 0,
+                expected: different_player.phrases[0].clone(),
+                next_expected: different_player.phrases[1].clone()
+            }
+            .apply(Some(&different_player), 480)
+            .unwrap_err()
+            .to_string()
+            .contains("players must match")
+        );
     }
 }

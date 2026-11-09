@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 
 #[path = "vocal_harmonies/midi.rs"]
 mod midi;
+pub(crate) use midi::validate_percussion_scoring;
 pub use midi::{append_midi, clear_midi, import_midi, rewrite_midi};
 #[path = "vocal_harmonies/edit.rs"]
 mod edit;

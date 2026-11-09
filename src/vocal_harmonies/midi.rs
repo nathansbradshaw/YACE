@@ -410,31 +410,7 @@ pub fn rewrite_midi(
     }
     let source = Smf::parse(original)?;
     let (header, original_chunks) = midi_chunks(original, source.tracks.len())?;
-    // Percussion is not an editable singer note. Refuse a shared scoring edit
-    // that would silently unscore a retained hit in any harmony track.
-    if before.phrases != after.phrases {
-        for track in &source.tracks {
-            if part(track)?.is_none() {
-                continue;
-            }
-            for (tick, kind) in absolute(track)? {
-                if matches!(kind, K::Midi {message:N::NoteOn {key,vel},..} if matches!(key.as_int(),96|97)&&vel.as_int()>0)
-                    && before
-                        .phrases
-                        .iter()
-                        .any(|p| p.start <= tick && tick < p.end)
-                {
-                    ensure!(
-                        after
-                            .phrases
-                            .iter()
-                            .any(|p| p.start <= tick && tick < p.end),
-                        "Edited harmony scoring phrases would displace retained percussion; source retained"
-                    );
-                }
-            }
-        }
-    }
+    validate_percussion_scoring(&source, before, after)?;
     let generated_bytes = append_midi(&empty_midi(source.header)?, after)?;
     let generated = Smf::parse(&generated_bytes)?;
     let mut generated_tracks = BTreeMap::new();
@@ -488,6 +464,36 @@ pub fn rewrite_midi(
     Ok(result)
 }
 
+pub(crate) fn validate_percussion_scoring(
+    source: &Smf<'_>,
+    before: &HarmonyChart,
+    after: &HarmonyChart,
+) -> Result<()> {
+    if before.phrases == after.phrases {
+        return Ok(());
+    }
+    for track in &source.tracks {
+        if part(track)?.is_none() {
+            continue;
+        }
+        for (start, end) in crate::song_files::game_midi::harmony_percussion_ranges(track)? {
+            if before
+                .phrases
+                .iter()
+                .any(|p| p.start <= start && start < p.end && end <= p.end)
+            {
+                ensure!(
+                    after
+                        .phrases
+                        .iter()
+                        .any(|p| p.start <= start && start < p.end && end <= p.end),
+                    "Edited harmony scoring phrases would displace retained percussion; source retained"
+                );
+            }
+        }
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -711,6 +717,13 @@ mod tests {
         let (root, store, original) = imported_project();
         project_command(&store, Action::ClearHarmonies);
         assert!(store.load().unwrap().content.harmonies.is_none());
+        let retained =
+            crate::song_files::game_midi::retained_harmony_phrases(&store.root.join("source"))
+                .unwrap()
+                .unwrap();
+        let baseline = import_midi(&original).unwrap().unwrap();
+        assert_eq!(retained.scoring, baseline.phrases);
+        assert_eq!(retained.lyrics, baseline.lyric_phrases);
         assert!(
             crate::export_options::available(&store, &store.load().unwrap())
                 .unwrap()
@@ -792,6 +805,11 @@ mod tests {
         let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
         assert!(reopened.load().unwrap().content.harmonies.is_none());
         assert!(
+            crate::song_files::game_midi::retained_harmony_phrases(&reopened.root.join("source"))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
             !export_options::available(&reopened, &reopened.load().unwrap())
                 .unwrap()
                 .iter()
@@ -858,6 +876,60 @@ mod tests {
             std::fs::read(store.root.join("project.json")).unwrap(),
             project
         );
+    }
+    #[test]
+    fn phrase_split_cannot_cut_a_retained_percussion_span_and_refused_command_is_atomic() {
+        use crate::{
+            editor::{Action, Actor, ActorKind, Request},
+            vocal_harmonies::{Edit, PhraseKind},
+        };
+        let (_root, store, _) = imported_project();
+        let mut chart = store.load().unwrap().content.harmonies.unwrap();
+        for voice in chart.voices.values_mut() {
+            for note in &mut voice.notes {
+                note.start = 100;
+                note.end = 200;
+            }
+        }
+        let mut later = chart.voices[&Part::Harm1].notes[0].clone();
+        later.start = 600;
+        later.end = 800;
+        chart
+            .voices
+            .get_mut(&Part::Harm1)
+            .unwrap()
+            .notes
+            .push(later);
+        project_command(
+            &store,
+            Action::SetHarmonies {
+                document: chart.clone(),
+            },
+        );
+        let path = store.root.join("project.json");
+        let original = std::fs::read(&path).unwrap();
+        let request = |tick| Request {
+            expected_revision: store.load().unwrap().revision,
+            actor: Actor {
+                kind: ActorKind::Human,
+                name: "Retained percussion split guard".into(),
+            },
+            action: Action::EditHarmonies {
+                edit: Edit::SplitPhrase {
+                    kind: PhraseKind::Scoring,
+                    index: 0,
+                    expected: chart.phrases[0].clone(),
+                    tick,
+                },
+            },
+        };
+        let error = store.apply(request(490)).unwrap_err();
+        assert!(error.to_string().contains("retained percussion"));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        store.apply(request(500)).unwrap();
+        let after = store.load().unwrap().content.harmonies.unwrap();
+        assert_eq!(after.voices, chart.voices);
+        assert_eq!(after.phrases.len(), 2);
     }
     #[test]
     fn source_aware_edits_keep_other_singers_lead_alias_and_unedited_controls() {

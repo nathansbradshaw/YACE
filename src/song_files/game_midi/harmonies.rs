@@ -6,12 +6,60 @@ use crate::{
 use anyhow::{Result, ensure};
 use midly::{MetaMessage as M, Smf, TrackEventKind as K};
 use std::path::Path;
+pub(crate) fn harmony_percussion_ranges(
+    track: &[midly::TrackEvent<'_>],
+) -> Result<Vec<(u64, u64)>> {
+    Ok(decode::spans(track, |key| matches!(key, 96 | 97))?
+        .into_iter()
+        .map(|hit| (hit.start, hit.end))
+        .collect())
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RetainedHarmonyPhrases {
+    pub scoring: Vec<crate::vocals::VocalPhrase>,
+    pub lyrics: Vec<crate::vocals::VocalPhrase>,
+}
+/// Show retained control ranges after clearing the voices, without recovering
+/// any original singer notes or reviving an explicitly omitted part.
+pub fn retained_harmony_phrases(song: &Path) -> Result<Option<RetainedHarmonyPhrases>> {
+    let Some((imported, directory)) = source(song)? else {
+        return Ok(None);
+    };
+    if imported.baseline_harmonies_sha256.is_none()
+        || !imported.retained_harmony_controls.unwrap_or(true)
+    {
+        return Ok(None);
+    }
+    let chart: HarmonyChart = serde_json::from_slice(&fs::read(directory.join("harmonies.json"))?)?;
+    Ok(Some(RetainedHarmonyPhrases {
+        scoring: chart.phrases,
+        lyrics: chart.lyric_phrases,
+    }))
+}
 
 pub fn retained_harmony_controls(song: &Path) -> Result<bool> {
     Ok(source(song)?.is_some_and(|(imported, _)| {
         imported.baseline_harmonies_sha256.is_some()
             && imported.retained_harmony_controls.unwrap_or(true)
     }))
+}
+pub fn validate_harmony_edit(song: &Path, after: Option<&HarmonyChart>) -> Result<()> {
+    let Some(after) = after else { return Ok(()) };
+    let Some((imported, directory)) = source(song)? else {
+        return Ok(());
+    };
+    if imported.baseline_harmonies_sha256.is_some()
+        && imported.retained_harmony_controls.unwrap_or(true)
+    {
+        let before: HarmonyChart =
+            serde_json::from_slice(&fs::read(directory.join("harmonies.json"))?)?;
+        if before.phrases != after.phrases {
+            let bytes = fs::read(directory.join("notes.mid"))?;
+            vocal_harmonies::validate_percussion_scoring(&Smf::parse(&bytes)?, &before, after)?;
+        }
+    }
+    Ok(())
 }
 fn omit(bytes: &[u8]) -> Result<Vec<u8>> {
     let midi = Smf::parse(bytes)?;

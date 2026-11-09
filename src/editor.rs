@@ -2227,6 +2227,10 @@ impl Store {
                         "Original harmony tracks need an imported editable baseline before authoring; source retained"
                     );
                 }
+                crate::song_files::game_midi::validate_harmony_edit(
+                    &self.root.join("source"),
+                    Some(document),
+                )?;
                 doc.content.harmonies = Some(document.clone());
             }
             Action::ClearHarmonies => {
@@ -2250,6 +2254,10 @@ impl Store {
                 if let Some(chart) = &next {
                     chart.validate_timing(&doc.timing(self)?, doc.duration)?;
                 }
+                crate::song_files::game_midi::validate_harmony_edit(
+                    &self.root.join("source"),
+                    next.as_ref(),
+                )?;
                 doc.content.harmonies = next;
             }
             Action::DeleteVocalNote { index } => {

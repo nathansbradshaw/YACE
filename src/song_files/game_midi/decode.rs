@@ -280,7 +280,7 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
     let mut names = BTreeSet::new();
     let mut attributes = Vec::new();
     let mut warnings = vec!["Original MIDI retained for export. Unsupported tracks and events are preserved; their controls are not editable here.".into(),
-        "MIDI Star Power is shared across an instrument's difficulties. Pro Keys range markers, harmonies, venue events and other unsupported controls are retained in the source; they are not editable here.".into()];
+        "MIDI Star Power is shared across an instrument's difficulties. Pro Keys range markers, venue events and other unsupported controls are retained in the source; they are not editable here.".into()];
     let mut has_game_track = false;
     for track in &smf.tracks {
         let name = label(track).unwrap_or_default();
