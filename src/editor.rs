@@ -966,6 +966,12 @@ impl Store {
             &self.source_chart(project)?.chart,
         ))
     }
+    pub fn source_solos(&self, project: &Project) -> Result<crate::solos::Source> {
+        Ok(crate::solos::source(
+            project,
+            &self.source_chart(project)?.chart,
+        ))
+    }
     fn source_chart(&self, project: &Project) -> Result<Arc<SourceSnapshot>> {
         let bytes = fs::read(self.root.join("source/notes.chart"))?;
         let mut cache = self

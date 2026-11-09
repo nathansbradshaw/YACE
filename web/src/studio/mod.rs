@@ -79,6 +79,8 @@ mod song_overview;
 mod source_choice;
 #[path = "../../../src/studio/star_power.rs"]
 mod star_power;
+#[path = "../../../src/studio/solo_editor.rs"]
+mod solo_editor;
 pub(crate) mod state;
 #[path = "../../../src/studio/stem_generation.rs"]
 mod stem_generation;
