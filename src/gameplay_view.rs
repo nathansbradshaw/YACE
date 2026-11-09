@@ -167,7 +167,8 @@ fn supported_track(track: &str) -> Option<bool> {
         .into_iter()
         .find_map(|tier| match track.strip_prefix(tier)? {
             "Single" | "DoubleBass" | "DoubleRhythm" | "DoubleGuitar" | "Keyboard" | "ProKeys"
-            | "GHLGuitar" | "GHLBass" | "GHLRhythm" | "GHLCoop" | "GHLKeys" => Some(false),
+            | "GHLGuitar" | "GHLBass" | "GHLRhythm" | "GHLCoop" | "GHLKeys" | "ProGuitar17"
+            | "ProGuitar22" => Some(false),
             "Drums" => Some(true),
             _ => None,
         })
@@ -204,6 +205,7 @@ fn classify_with_key_techniques(
 ) -> Result<Vec<GemVisual>> {
     let drums = supported_track(track).context("Unsupported gameplay-view track")?;
     let pro_keys = track.ends_with("ProKeys");
+    let pro_guitar = crate::pro_guitar::is_track(track);
     let keys = pro_keys || (!key_techniques && track.ends_with("Keyboard"));
     let six_fret = ["GHLGuitar", "GHLBass", "GHLRhythm", "GHLCoop", "GHLKeys"]
         .iter()
@@ -238,7 +240,9 @@ fn classify_with_key_techniques(
         note.tick
             .checked_add(note.sustain)
             .context("Gameplay-view tick overflow")?;
-        let playable = if pro_keys {
+        let playable = if pro_guitar {
+            note.lane < 6
+        } else if pro_keys {
             (48..=72).contains(&note.lane)
         } else if keys {
             note.lane <= 4
@@ -259,10 +263,27 @@ fn classify_with_key_techniques(
     for (tick, mut attack) in attacks {
         attack.sort_by_key(|note| note.lane);
         let lanes: BTreeSet<_> = attack.iter().map(|note| note.lane).collect();
-        let forced = !drums && !keys && positions.contains(&(tick, 5));
-        let tap = !drums && !keys && positions.contains(&(tick, 6));
+        let forced = !drums
+            && !keys
+            && positions.contains(&(
+                tick,
+                if pro_guitar {
+                    crate::pro_guitar::HOPO
+                } else {
+                    5
+                },
+            ));
+        let tap = !drums && !keys && !pro_guitar && positions.contains(&(tick, 6));
         for note in attack {
-            let (shape, technique, dynamics, natural_hopo) = if keys {
+            let (shape, technique, dynamics, natural_hopo) = if pro_guitar {
+                // String-only geometry cannot infer natural fret-dependent HOPOs.
+                (
+                    GemShape::Fret,
+                    forced.then_some(Technique::Hopo),
+                    Dynamics::Neutral,
+                    None,
+                )
+            } else if keys {
                 (GemShape::Fret, None, Dynamics::Neutral, None)
             } else if drums {
                 let shape = match note.lane {

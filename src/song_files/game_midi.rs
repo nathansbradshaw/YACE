@@ -448,7 +448,24 @@ pub fn export(
     generated: &[u8],
 ) -> Result<Option<Vec<u8>>> {
     let Some((mut imported, directory)) = source(song)? else {
-        return Ok(None);
+        let records: Vec<_> = tracks
+            .iter()
+            .filter(|(track, _)| crate::pro_guitar::is_track(track))
+            .flat_map(|(track, notes)| {
+                notes.iter().filter_map(|n| {
+                    n.midi.as_ref().map(|attributes| AttributeRecord {
+                        track: track.clone(),
+                        note: n.note.clone(),
+                        attributes: attributes.clone(),
+                    })
+                })
+            })
+            .collect();
+        return if records.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(merge::authored_attributes(generated, &records)?))
+        };
     };
     let original = fs::read(directory.join("notes.mid"))?;
     let baseline = Chart::parse(fs::read_to_string(directory.join("notes.chart"))?)?;

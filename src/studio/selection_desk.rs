@@ -30,6 +30,70 @@ fn update(
     })
 }
 
+fn update_pro(studio: Studio, id: &str, change: impl FnOnce(&mut u8, &mut u8, &mut bool)) -> bool {
+    let Some(doc) = studio.snapshot() else {
+        return false;
+    };
+    let Some((track, note)) = doc.find_note(id) else {
+        return false;
+    };
+    if !crate::pro_guitar::is_track(track) || note.note.lane >= 6 {
+        return false;
+    }
+    let mut fret = crate::pro_guitar::fret(note);
+    let mut channel = crate::pro_guitar::channel(note);
+    let mut forced_hopo = crate::pro_guitar::forced(&doc.content.tracks[track], note.note.tick);
+    change(&mut fret, &mut channel, &mut forced_hopo);
+    studio.try_dispatch(Action::EditProGuitarNote {
+        note_id: id.into(),
+        fret,
+        channel,
+        forced_hopo,
+    })
+}
+
+#[component]
+fn ProGuitarProperties(studio: Studio, track: String, item: EditorNote) -> Element {
+    let fret_reset = super::field_reset::use_field_reset();
+    let channel_reset = super::field_reset::use_field_reset();
+    let hopo_reset = super::field_reset::use_field_reset();
+    let Some(limit) = crate::pro_guitar::max_fret(&track) else {
+        return rsx! {};
+    };
+    let Some(doc) = studio.snapshot() else {
+        return rsx! {};
+    };
+    let fret = crate::pro_guitar::fret(&item);
+    let channel = crate::pro_guitar::channel(&item);
+    let forced = crate::pro_guitar::forced(&doc.content.tracks[&track], item.note.tick);
+    let fret_id = item.id.clone();
+    let channel_id = item.id.clone();
+    let hopo_id = item.id.clone();
+    rsx! {div {class:"selection-pro-guitar", aria_label:"Pro Guitar properties",
+        label {"Fret"
+            for epoch in [fret_reset.key()] {input {key:"{epoch}", aria_label:"Pro Guitar fret", r#type:"number", min:"0", max:"{limit}", value:"{fret}",
+                onmounted:move |event|fret_reset.mounted(event), onkeydown:move |event|event.stop_propagation(),
+                onchange:{let id=fret_id.clone();move |event|{if !event.value().parse::<u8>().ok().is_some_and(|value|update_pro(studio,&id,|f,_,_|*f=value)){fret_reset.rejected();}}}
+            }}
+        }
+        label {"Articulation"
+            for epoch in [channel_reset.key()] {select {key:"{epoch}", aria_label:"Pro Guitar articulation", value:"{channel}",
+                onmounted:move |event|channel_reset.mounted(event), onkeydown:move |event|event.stop_propagation(),
+                onchange:{let id=channel_id.clone();move |event|{if !event.value().parse::<u8>().ok().is_some_and(|value|update_pro(studio,&id,|_,c,_|*c=value)){channel_reset.rejected();}}},
+                for value in 0..=6u8 {option {value:"{value}", selected:value==channel,"{crate::pro_guitar::articulation(value)}"}}
+                if channel>6 {option {value:"{channel}", selected:true,"Preserved MIDI channel {channel}"}}
+            }}
+        }
+        label {class:"form-check",
+            for epoch in [hopo_reset.key()] {input {key:"{epoch}",r#type:"checkbox",aria_label:"Pro Guitar forced HOPO",checked:forced,
+                onmounted:move |event|hopo_reset.mounted(event),onkeydown:move |event|event.stop_propagation(),
+                onchange:{let id=hopo_id.clone();move |event|{if !update_pro(studio,&id,|_,_,h|*h=event.checked()){hopo_reset.rejected();}}}
+            }} "Force HOPO for this attack"
+        }
+        p {class:"field-hint","Fret 0 is an open string. Force HOPO applies to every string at this tick. Preview does not judge fingering or controller playability."}
+    }}
+}
+
 #[component]
 fn NoteSelection(studio: Studio, track: String, item: EditorNote) -> Element {
     let Some(doc) = studio.snapshot() else {
@@ -74,6 +138,7 @@ fn NoteSelection(studio: Studio, track: String, item: EditorNote) -> Element {
               super::note_types::NoteTypes {studio}
               super::drum_dynamics::DrumDynamics {studio}
             }
+            ProGuitarProperties {studio,track:track.clone(),item:item.clone()}
             if drums && item.note.lane == 32 && track != "ExpertDrums" {
                 p { class: "field-hint", "MIDI supports double kick on Expert only. Lower difficulties need .chart export, which is unavailable for imported MIDI songs." }
             }

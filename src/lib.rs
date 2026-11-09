@@ -28,6 +28,7 @@ mod media_clock;
 pub mod note_groups;
 pub mod note_types;
 pub mod parts;
+pub mod pro_guitar;
 pub mod reanalysis;
 pub mod recent_projects;
 pub mod recording_metadata;

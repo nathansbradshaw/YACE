@@ -251,6 +251,12 @@ impl Transport {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
+    EditProGuitarNote {
+        note_id: String,
+        fret: u8,
+        channel: u8,
+        forced_hopo: bool,
+    },
     SetTimelineDuration {
         duration: f64,
     },
@@ -434,7 +440,9 @@ pub struct Project {
 }
 
 pub fn playable(track: &str, lane: u8) -> bool {
-    if crate::six_fret::is_track(track) {
+    if crate::pro_guitar::is_track(track) {
+        lane < 6
+    } else if crate::six_fret::is_track(track) {
         crate::six_fret::ROWS.contains(&lane)
     } else if crate::keys::is_pro(track) {
         (crate::keys::MIN_PITCH..=crate::keys::MAX_PITCH).contains(&lane)
@@ -586,6 +594,30 @@ impl Project {
             region.tracks.contains(track),
             "This track is not part of the review region"
         );
+        if crate::pro_guitar::is_track(track) {
+            let mut scoped: Vec<_> = self
+                .content
+                .tracks
+                .get(track)
+                .into_iter()
+                .flatten()
+                .filter(|n| {
+                    let start = timing.seconds(n.note.tick);
+                    let end = timing.seconds(n.note.tick.saturating_add(n.note.sustain));
+                    end >= region.start - 0.1 && start <= region.end + 0.1
+                })
+                .map(|n| (n.note.clone(), n.midi.clone()))
+                .collect();
+            scoped.sort();
+            return Ok(hash(&serde_json::to_vec(&(
+                2,
+                &region.id,
+                track,
+                &self.audio_sha256,
+                timing,
+                scoped,
+            ))?));
+        }
         {
             let mut scoped: Vec<_> = self
                 .content
@@ -691,6 +723,9 @@ impl Project {
             ensure!(editable_track(track), "Unsupported editor track");
             let mut positions = BTreeSet::new();
             for n in notes {
+                if crate::pro_guitar::is_track(track) {
+                    crate::pro_guitar::validate(track, n)?;
+                }
                 ensure!(ids.insert(&n.id), "Duplicate note ID");
                 ensure!(
                     positions.insert((n.note.tick, n.note.lane)),
@@ -778,13 +813,15 @@ impl Project {
                 .iter()
                 .any(|n| n.note.tick == old.tick && playable(track, n.note.lane))
             {
-                for n in notes
-                    .iter()
-                    .filter(|n| n.note.tick == old.tick && (5..=6).contains(&n.note.lane))
-                {
+                for n in notes.iter().filter(|n| {
+                    n.note.tick == old.tick && crate::note_groups::attack_marker(track, n.note.lane)
+                }) {
                     carry.push(n.clone());
                 }
-                notes.retain(|n| !(n.note.tick == old.tick && (5..=6).contains(&n.note.lane)));
+                notes.retain(|n| {
+                    !(n.note.tick == old.tick
+                        && crate::note_groups::attack_marker(track, n.note.lane))
+                });
             }
         }
         if let Some(note) = note {
@@ -1507,6 +1544,7 @@ impl Store {
                 crate::parts::MANUAL_PARTS
                     .iter()
                     .chain(crate::six_fret::PARTS.iter())
+                    .chain(crate::pro_guitar::PARTS.iter())
                     .any(|(_, suffix)| {
                         ["Easy", "Medium", "Hard", "Expert"]
                             .into_iter()
@@ -1679,6 +1717,7 @@ impl Store {
                 | Action::DeleteNote { .. }
                 | Action::EditNoteGroup { .. }
                 | Action::SetNoteType { .. }
+                | Action::EditProGuitarNote { .. }
                 | Action::SetDrumDynamics { .. }
                 | Action::EnableDifficultyLink { .. }
                 | Action::ClearDifficultyOverrides { .. }
@@ -1765,6 +1804,14 @@ impl Store {
             Action::SetNoteType { selection, kind } => {
                 crate::note_types::apply(&mut doc, selection, *kind)?
             }
+            Action::EditProGuitarNote {
+                note_id,
+                fret,
+                channel,
+                forced_hopo,
+            } => {
+                crate::pro_guitar::edit(&mut doc, note_id, *fret, *channel, *forced_hopo)?;
+            }
             Action::SetDrumDynamics { selection, kind } => {
                 crate::drum_dynamics::apply(&mut doc, selection, *kind)?
             }
@@ -1796,14 +1843,19 @@ impl Store {
                     .into_iter()
                     .find_map(|tier| track.strip_prefix(tier))
                     .and_then(|part| match part {
-                        "DoubleRhythm" => Some("MIDI: PART RHYTHM"),
-                        "DoubleGuitar" => Some("MIDI: PART GUITAR COOP"),
-                        suffix => crate::six_fret::midi_name(suffix),
+                        "DoubleRhythm" => Some("MIDI: PART RHYTHM".to_owned()),
+                        "DoubleGuitar" => Some("MIDI: PART GUITAR COOP".to_owned()),
+                        suffix => crate::six_fret::midi_name(suffix)
+                            .map(str::to_owned)
+                            .or_else(|| {
+                                crate::pro_guitar::midi_name(suffix)
+                                    .map(|name| format!("MIDI: {name}"))
+                            }),
                     });
                 if let Some(name) = legacy_name {
                     ensure!(
                         !crate::song_files::game_midi::extra_parts(&self.root.join("source"))?
-                            .contains(name),
+                            .contains(&name),
                         "This part is preserved in an older MIDI import. Import the original MIDI as a new project before authoring it; existing notes have been kept"
                     );
                 }
@@ -1997,6 +2049,10 @@ impl Store {
                 crate::note_groups::apply(&mut doc, &timing, edit)?;
             }
             Action::EnableDifficultyLink { track, enabled } => {
+                ensure!(
+                    !*enabled || !crate::pro_guitar::is_track(track),
+                    "Pro Guitar difficulties need independent string/fret authoring; existing notes have been kept"
+                );
                 ensure!(
                     !*enabled
                         || !track.ends_with("Drums")
@@ -2348,6 +2404,7 @@ impl Store {
         if matches!(
             request.action,
             Action::AddNote { .. }
+                | Action::EditProGuitarNote { .. }
                 | Action::SetNoteType { .. }
                 | Action::SetDrumDynamics { .. }
                 | Action::ApplyGeneratedPart { .. }
@@ -2621,6 +2678,8 @@ impl Store {
             ("Drums", "diff_drums"),
             ("Keyboard", "diff_keys"),
             ("ProKeys", "diff_keys_real"),
+            ("ProGuitar17", "diff_guitar_real"),
+            ("ProGuitar22", "diff_guitar_real_22"),
         ] {
             if all_parts.iter().any(|t| t.ends_with(suffix))
                 && !selected.iter().any(|t| t.ends_with(suffix))
@@ -2646,6 +2705,8 @@ impl Store {
                     continue;
                 }
                 let key = if let Some(key) = crate::six_fret::rank(track) {
+                    key
+                } else if let Some(key) = crate::pro_guitar::rank(track) {
                     key
                 } else if track.ends_with("ProKeys") {
                     "diff_keys_real"

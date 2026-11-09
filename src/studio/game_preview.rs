@@ -292,7 +292,9 @@ fn Highway(
                 pro_drums: pro_drums(),
                 playing: doc.transport.playing && (studio.audio_ready)(),
             };
-            let mut geometry = if crate::six_fret::is_track(&track) {
+            let mut geometry = if crate::pro_guitar::is_track(&track) {
+                render_pro_guitar_highway(&scene, &doc.content.tracks[&track], &timing)
+            } else if crate::six_fret::is_track(&track) {
                 render_six_fret_highway(&scene)
             } else {
                 render_highway(&scene)
@@ -636,6 +638,126 @@ fn render_six_fret_highway(scene: &Scene<'_>) -> String {
         "<rect data-kind='bar-receptor' data-lane='7' x='226' y='580' width='548' height='5' rx='2' fill='#c889ff' opacity='{:.2}'/>",
         0.3 + open * 0.7
     );
+    out
+}
+
+/// Six independent string lanes with numeric frets. No fingering or scoring is inferred.
+fn render_pro_guitar_highway(
+    scene: &Scene<'_>,
+    authored: &[crate::editor::EditorNote],
+    timing: &crate::timing::TempoMap,
+) -> String {
+    if !scene.position.is_finite() || !scene.lookahead.is_finite() || scene.lookahead <= 0. {
+        return String::new();
+    }
+    let mut out = String::from(DEFINITIONS);
+    let (left, far, _) = project(0., scene.lookahead, scene.lookahead);
+    let (right, _, _) = project(1., scene.lookahead, scene.lookahead);
+    let _ = write!(
+        out,
+        "<path data-kind='pro-guitar-board' d='M{left:.2} {far:.2}L{right:.2} {far:.2}L774 550L226 550Z' fill='url(#game-board)' stroke='#657382' stroke-width='3'/>"
+    );
+    for lane in 0..6u8 {
+        let fraction = (f64::from(lane) + 0.5) / 6.;
+        let (far_x, far_y, _) = project(fraction, scene.lookahead, scene.lookahead);
+        let (x, _, _) = project(fraction, 0., scene.lookahead);
+        let color = crate::pro_guitar::color(lane);
+        let _ = write!(
+            out,
+            "<path data-kind='pro-guitar-string' data-lane='{lane}' d='M{far_x:.2} {far_y:.2}L{x:.2} 535' stroke='{color}' stroke-opacity='.5' stroke-width='2'/>"
+        );
+        let (active, holding) = lane_activity(scene, lane);
+        let _ = write!(
+            out,
+            "<g data-kind='pro-guitar-receptor' data-lane='{lane}'><rect x='{:.2}' y='521' width='66' height='28' rx='5' fill='{color}' stroke='#cbd5e1' stroke-width='2'/><text x='{x:.2}' y='568' text-anchor='middle' fill='#e9eff5' font-size='14'>String {}</text></g>",
+            x - 33.,
+            6 - lane
+        );
+        if active > 0. {
+            render_flash(&mut out, x, color, active, holding);
+        }
+    }
+    for beat in scene.beats {
+        let (a, y, _) = project(0., beat - scene.position, scene.lookahead);
+        let (b, _, _) = project(1., beat - scene.position, scene.lookahead);
+        let _ = write!(
+            out,
+            "<path data-kind='beat' d='M{a:.2} {y:.2}H{b:.2}' stroke='#d9e0eb' stroke-opacity='.35'/>"
+        );
+    }
+    let mut notes: Vec<_> = authored.iter().filter(|n| n.note.lane < 6).collect();
+    notes.sort_by_key(|n| std::cmp::Reverse(n.note.tick));
+    for note in notes {
+        let start = timing.seconds(note.note.tick);
+        let end = timing.seconds(note.note.tick.saturating_add(note.note.sustain));
+        if end < scene.position || start > scene.position + scene.lookahead {
+            continue;
+        }
+        let fraction = (f64::from(note.note.lane) + 0.5) / 6.;
+        let (x, y, scale) = project(fraction, (start - scene.position).max(0.), scene.lookahead);
+        let color = crate::pro_guitar::color(note.note.lane);
+        if end > start && end > scene.position {
+            let (tx, ty, _) = project(
+                fraction,
+                (end - scene.position).min(scene.lookahead),
+                scene.lookahead,
+            );
+            let _ = write!(
+                out,
+                "<path data-kind='sustain' data-lane='{}' d='M{x:.2} {y:.2}L{tx:.2} {ty:.2}' stroke='{color}' stroke-width='{:.2}' opacity='.75'/>",
+                note.note.lane,
+                8. * scale
+            );
+        }
+        if start < scene.position {
+            continue;
+        }
+        let fret = crate::pro_guitar::fret(note);
+        let channel = crate::pro_guitar::channel(note);
+        let forced = crate::pro_guitar::forced(authored, note.note.tick);
+        let stroke = if scene
+            .notes
+            .iter()
+            .any(|n| n.lane == note.note.lane && n.start == start && n.selected)
+        {
+            "#ffdf54"
+        } else {
+            "#b9c9da"
+        };
+        let _ = write!(
+            out,
+            "<g data-kind='pro-guitar-gem' data-lane='{}' data-fret='{fret}' data-channel='{channel}' opacity='{}'><title>String {} · fret {fret} · {}</title><rect x='{:.2}' y='{:.2}' width='{:.2}' height='{:.2}' rx='{:.2}' fill='{color}' stroke='{stroke}' stroke-width='{:.2}'/><text x='{x:.2}' y='{:.2}' text-anchor='middle' fill='#14202a' font-size='{:.2}' font-weight='700'>{fret}</text></g>",
+            note.note.lane,
+            if channel == 1 { ".45" } else { "1" },
+            6 - note.note.lane,
+            crate::pro_guitar::articulation(channel),
+            x - 27. * scale,
+            y - 16. * scale,
+            54. * scale,
+            32. * scale,
+            4. * scale,
+            (2. * scale).max(0.7),
+            y + 5. * scale,
+            16. * scale
+        );
+        let technique = if channel == 3 {
+            "M"
+        } else if channel == 4 {
+            "T"
+        } else if forced {
+            "H"
+        } else {
+            ""
+        };
+        if !technique.is_empty() {
+            let _ = write!(
+                out,
+                "<text data-kind='technique' x='{x:.2}' y='{:.2}' text-anchor='middle' fill='#fff' font-size='{:.2}'>{technique}</text>",
+                y - 20. * scale,
+                11. * scale
+            );
+        }
+    }
     out
 }
 

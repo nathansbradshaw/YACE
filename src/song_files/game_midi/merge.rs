@@ -273,6 +273,9 @@ pub(super) fn gem_key(name: &str, key: u8, enhanced: bool) -> bool {
     if difficulty.is_some() {
         return (48..=72).contains(&key);
     }
+    if crate::pro_guitar::is_track(suffix) {
+        return (0..4u8).any(|d| (24 + d * 24..=29 + d * 24).contains(&key));
+    }
     (0..4u8).any(|d| {
         (60 + d * 12..=64 + d * 12).contains(&key)
             || (crate::six_fret::is_track(suffix)
@@ -297,6 +300,9 @@ fn managed(name: &str, kind: TrackEventKind<'_>, enhanced: bool, fills: bool) ->
             if gem_key(name, key, enhanced) {
                 return true;
             }
+            if crate::pro_guitar::is_track(suffix) {
+                return matches!(key, 115 | 116) || (0..4u8).any(|d| key == 30 + d * 24);
+            }
             if pro.is_some() {
                 // Original Pro Keys range markers are presentation data, kept
                 // intact until range authoring is supported by the editor.
@@ -310,7 +316,10 @@ fn managed(name: &str, kind: TrackEventKind<'_>, enhanced: bool, fills: bool) ->
                 || matches!(key, 103 | 104 | 116)
         }
         TrackEventKind::SysEx(data) => {
-            pro.is_none() && suffix != "Drums" && decode::phase_event(data)
+            pro.is_none()
+                && suffix != "Drums"
+                && !crate::pro_guitar::is_track(suffix)
+                && decode::phase_event(data)
         }
         TrackEventKind::Meta(MetaMessage::Text(text)) => {
             std::str::from_utf8(text).is_ok_and(|text| {
@@ -318,7 +327,9 @@ fn managed(name: &str, kind: TrackEventKind<'_>, enhanced: bool, fills: bool) ->
                 if suffix == "Drums" {
                     text.eq_ignore_ascii_case("ENABLE_CHART_DYNAMICS")
                 } else {
-                    pro.is_none() && text.eq_ignore_ascii_case("ENHANCED_OPENS")
+                    pro.is_none()
+                        && !crate::pro_guitar::is_track(suffix)
+                        && text.eq_ignore_ascii_case("ENHANCED_OPENS")
                 }
             })
         }
@@ -388,7 +399,9 @@ fn gem_attributes(name: &str, records: &[AttributeRecord]) -> GemAttributes {
             continue;
         }
         let base = 60 + difficulty as u8 * 12;
-        let key = if pro.is_some() && (48..=72).contains(&record.note.lane) {
+        let key = if crate::pro_guitar::is_track(suffix) && record.note.lane < 6 {
+            24 + difficulty as u8 * 24 + record.note.lane
+        } else if pro.is_some() && (48..=72).contains(&record.note.lane) {
             record.note.lane
         } else if crate::six_fret::is_track(suffix) {
             let Some(key) = crate::six_fret::midi_key(record.note.lane, base) else {
@@ -413,6 +426,29 @@ fn gem_attributes(name: &str, records: &[AttributeRecord]) -> GemAttributes {
 }
 
 type AbsoluteEvent<'a> = (u64, u8, TrackEventKind<'a>);
+
+/// New manually authored Pro Guitar projects also need velocity frets and
+/// channel articulations; they have no original-MIDI descriptor to merge.
+pub(super) fn authored_attributes(bytes: &[u8], records: &[AttributeRecord]) -> Result<Vec<u8>> {
+    let parsed = Smf::parse(bytes)?;
+    let (header, chunks) = chunks(bytes, parsed.tracks.len())?;
+    let mut output = bytes[..header].to_vec();
+    for (track, chunk) in parsed.tracks.iter().zip(chunks) {
+        let name = decode::label(track).unwrap_or_default();
+        let attributes = gem_attributes(&name, records);
+        if attributes.is_empty() {
+            output.extend(chunk);
+        } else {
+            let events = apply_gem_attributes(&name, absolute(track), &attributes)?
+                .into_iter()
+                .enumerate()
+                .map(|(serial, (tick, priority, kind))| (tick, priority, serial, kind))
+                .collect();
+            output.extend(encode(events, parsed.header)?);
+        }
+    }
+    Ok(output)
+}
 
 fn apply_gem_attributes<'a>(
     name: &str,

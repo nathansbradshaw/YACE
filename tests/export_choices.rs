@@ -28,7 +28,7 @@ fn fixture(root: &Path, audio: bool, midi: bool) -> Store {
         smf.tracks.push(vec![
             TrackEvent {
                 delta: 0.into(),
-                kind: K::Meta(M::TrackName(b"PART REAL_GUITAR")),
+                kind: K::Meta(M::TrackName(b"PART REAL_BASS")),
             },
             TrackEvent {
                 delta: 480.into(),
@@ -189,7 +189,7 @@ fn imported_unmapped_midi_parts_are_optional_and_do_not_return_after_reopening()
     let store = fixture(root.path(), false, true);
     let doc = store.load().unwrap();
     let available = export_options::available(&store, &doc).unwrap();
-    assert!(available.contains("MIDI: PART REAL_GUITAR"));
+    assert!(available.contains("MIDI: PART REAL_BASS"));
     let full = root.path().join("full");
     store
         .export_with_options(&doc, &full, &actor(), &Options::default())
@@ -204,7 +204,7 @@ fn imported_unmapped_midi_parts_are_optional_and_do_not_return_after_reopening()
         .unwrap();
     let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
     let available = export_options::available(&reopened, &reopened.load().unwrap()).unwrap();
-    assert!(!available.contains("MIDI: PART REAL_GUITAR"));
+    assert!(!available.contains("MIDI: PART REAL_BASS"));
     let again = root.path().join("again");
     reopened
         .export_with_options(
@@ -218,7 +218,7 @@ fn imported_unmapped_midi_parts_are_optional_and_do_not_return_after_reopening()
     let midi = midly::Smf::parse(&bytes).unwrap();
     assert!(!midi.tracks.iter().flatten().any(|e| matches!(
         e.kind,
-        midly::TrackEventKind::Meta(midly::MetaMessage::TrackName(b"PART REAL_GUITAR"))
+        midly::TrackEventKind::Meta(midly::MetaMessage::TrackName(b"PART REAL_BASS"))
     )));
     assert!(song_layout::path(&output, "game-export.json").is_file());
 }

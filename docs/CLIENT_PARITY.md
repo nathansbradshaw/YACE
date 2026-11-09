@@ -41,6 +41,55 @@ Do not mark a row passed from compilation alone. Record the revision, fixture,
 actual application actions, downloaded/exported results, and any limitations.
 Keep private recordings, transcripts and generated receipts outside Git.
 
+## Pro Guitar strings and frets (2026-11-08)
+
+The shared editor supports separate 17- and 22-fret Pro Guitar parts at Easy,
+Medium, Hard and Expert. Six independent string rows retain fret numbers and
+MIDI articulation channels. Fret 0 means an open string. Forced HOPO uses a
+separate attack marker so the sixth string remains a playable note. The
+inspector exposes fret, articulation and forced HOPO; the roll and six-string
+preview show numeric frets. The preview does not judge fingering, scoring or
+controller playability, and does not infer natural HOPO from fret distance.
+
+Ordinary MIDI uses `PART REAL_GUITAR` / `PART REAL_GUITAR_22`, difficulty bases
+24/48/72/96, six string keys and velocity 100 plus fret. Forced HOPO uses the
+following key. Export retains original note-off attributes and unmanaged
+controls; unrelated original tracks remain byte-identical. Invalid fret
+velocities refuse import without altering the original file. Pro Guitar uses
+MIDI export; `.chart` and Clone Hero compatibility choices refuse these parts.
+Automatic generation, difficulty reduction, tuning editing, chord-name and
+arpeggio authoring are unavailable. Their original source data stays retained.
+Pro Bass remains a preserved original MIDI track without authoring controls.
+
+Actual static-browser checks on `bed0731` imported all eight difficulty/profile
+combinations, edited frets, articulation and forced HOPO, moved a note, copied
+and pasted it, deleted it and exercised Undo/Redo. Reload retained the saved
+notes and history. The downloaded playable MIDI passed an independent Rust
+inspection of every difficulty, edited fret/channel/HOPO and note-off velocity;
+the original PCM and unrelated Pro Bass raw track were unchanged. Fresh import
+of only that MIDI, INI and recording retained the edits without YACE sidecars.
+The complete project download passed archive checks.
+
+The `30d767b` browser also created all eight parts from a blank chart, authored
+six strings with frets 0, 3, 7, 12, 17 and 22 and several articulations, and
+retained them through reload. A visual correction keeps two-digit fret labels
+visible above short-sustain resize handles.
+
+The actual native `30d767b` app exercised the same 17-/22-fret edits, Muted and
+Pinch harmonic channels, forced HOPO removal, one-tick movement, clipboard,
+deletion and Undo/Redo. Full process exit and automatic restart recovered the
+acknowledged revision 20 project byte for byte with its seven-note part and
+eight Undo checkpoints. Its subsequent MIDI export was byte-identical to the
+browser export (`79896ea759f587e840a6a28249182641e21dcc3bca6050a13ebc7da5668fe566`)
+and passed the same independent MIDI and original-audio inspection. Opening
+the browser's complete project ZIP through the normal native picker recovered
+revision 24 and its source/history; native Undo and Redo retained the edited
+frets and articulation. Native blank creation added both profiles, pasted a
+typed 17-fret note into the empty 17-fret part and edited it to fret 17. Pasting
+that clipboard into the separate 22-fret part refused without changing it.
+Direct native piano-roll placement, hosted release and independent
+target-game/controller and musical acceptance remain open.
+
 ## Five-pad drum authoring (2026-11-08)
 
 Source revision `80bc192` retains the song's drum profile before validating saved

@@ -90,18 +90,19 @@ impl Options {
         );
         if self.target == Target::CloneHero {
             ensure!(
-                !selected
-                    .iter()
-                    .any(|t| t == "Vocals" || crate::keys::is_pro(t) || t.starts_with("MIDI: ")),
-                "For Clone Hero, deselect vocals, Pro Keys and other original MIDI parts, or choose Preserve all parts"
+                !selected.iter().any(|t| t == "Vocals"
+                    || crate::keys::is_pro(t)
+                    || crate::pro_guitar::is_track(t)
+                    || t.starts_with("MIDI: ")),
+                "For Clone Hero, deselect vocals, Pro Keys, Pro Guitar and other original MIDI parts, or choose Preserve all parts"
             );
         }
         if self.format == Format::Chart {
             ensure!(
-                !selected
-                    .iter()
-                    .any(|t| t == "Vocals" || crate::keys::is_pro(t)),
-                "Vocals and Pro Keys require MIDI; choose Automatic or MIDI"
+                !selected.iter().any(|t| t == "Vocals"
+                    || crate::keys::is_pro(t)
+                    || crate::pro_guitar::is_track(t)),
+                "Vocals, Pro Keys and Pro Guitar require MIDI; choose Automatic or MIDI"
             );
             ensure!(
                 !imported_midi,
@@ -122,10 +123,9 @@ impl Options {
             Format::Chart => false,
             Format::Midi => true,
             Format::Automatic => {
-                selected
-                    .iter()
-                    .any(|t| t == "Vocals" || crate::keys::is_pro(t))
-                    || imported_midi
+                selected.iter().any(|t| {
+                    t == "Vocals" || crate::keys::is_pro(t) || crate::pro_guitar::is_track(t)
+                }) || imported_midi
             }
         }
     }

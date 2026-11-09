@@ -36,6 +36,7 @@ pub fn authoring_parts() -> impl Iterator<Item = (&'static str, &'static str)> {
         .map(|(label, suffix, _)| (*label, *suffix))
         .chain(MANUAL_PARTS)
         .chain(crate::six_fret::PARTS)
+        .chain(crate::pro_guitar::PARTS)
 }
 
 pub fn editable_track(track: &str) -> bool {

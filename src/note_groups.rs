@@ -58,6 +58,12 @@ pub struct Clipboard {
 pub fn family(track: &str) -> &'static str {
     if track == "Vocals" {
         "vocals"
+    } else if let Some(limit) = crate::pro_guitar::max_fret(track) {
+        if limit == 17 {
+            "pro_guitar_17"
+        } else {
+            "pro_guitar_22"
+        }
     } else if crate::six_fret::is_track(track) {
         "six_fret"
     } else if crate::keys::is_pro(track) {
@@ -160,11 +166,18 @@ impl Snapshot {
     }
 }
 
+pub(crate) fn attack_marker(track: &str, flag: u8) -> bool {
+    if crate::pro_guitar::is_track(track) {
+        flag == crate::pro_guitar::HOPO
+    } else {
+        !crate::keys::is_pro(track) && (5..=6).contains(&flag)
+    }
+}
 fn owns_flag(layout: crate::drum_layout::Layout, track: &str, lane: u8, flag: u8) -> bool {
     if track.ends_with("Drums") {
         layout.owns_flag(lane, flag)
     } else {
-        !crate::keys::is_pro(track) && (5..=6).contains(&flag)
+        attack_marker(track, flag)
     }
 }
 fn gems(project: &Project, snapshot: &Snapshot) -> Vec<Gem> {
@@ -294,7 +307,9 @@ impl Clipboard {
                         "drums",
                         "five_lane_drums",
                         "keys",
-                        "pro_keys"
+                        "pro_keys",
+                        "pro_guitar_17",
+                        "pro_guitar_22"
                     ]
                     .contains(&family.as_str())
                         && !notes.is_empty()
@@ -358,6 +373,9 @@ fn remove_gems(project: &mut Project, selection: &Snapshot) {
     }
 }
 fn insert_gem(project: &mut Project, track: &str, gem: Gem, id: Option<String>) -> Result<String> {
+    if crate::pro_guitar::is_track(track) {
+        crate::pro_guitar::validate_attributes(track, gem.midi.as_ref())?;
+    }
     if let Some(midi) = &gem.midi {
         midi.validate()?;
     }
