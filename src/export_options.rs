@@ -53,7 +53,9 @@ pub fn available(store: &Store, doc: &Project) -> Result<BTreeSet<String>> {
         .filter(|s| is_track(&s.name))
         .map(|s| s.name.clone())
         .collect();
-    if doc.content.vocals.is_some() {
+    if doc.content.vocals.is_some()
+        || crate::song_files::game_midi::retained_vocal_controls(&store.root.join("source"))?
+    {
         tracks.insert("Vocals".into());
     }
     tracks.extend(crate::song_files::game_midi::extra_parts(
