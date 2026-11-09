@@ -182,10 +182,23 @@ use shared Rust range validation and revision-checked commands. Exact previous-r
 witnesses reject stale changes. Source parsing preserves malformed ranges
 read-only; rendering changes only supported solo boundaries. MIDI instruments
 share edited ranges across difficulties while Pro Keys keeps independent MIDI
-owners. Regressions cover history, export/reopen, explicit removal without
-resurrection, retained unrelated events and note-proposal safety. Actual
-desktop/static-browser/hosted controls and preview verification remain open;
-helper/backend tests do not qualify those workflows.
+owners. New MIDI difficulties inherit the current shared solos, including an
+explicit clear; conflicting authored copies refuse edits. Regressions cover
+history, export/reopen, explicit removal without resurrection, retained unrelated
+events and note-proposal safety. Actual static controls moved/resized ranges,
+created a range from selected notes, kept Pro Keys independent, refused stale
+forms and exercised Undo/Redo, complete-backup reopening and browser restart.
+The source-clock preview displayed SOLO inside a range and cleared it outside.
+Native GUI, hosted controls, recording-loop/current-loop creation, independent
+game/controller/musical and broader fault gates remain open.
+
+The integrated `5d49dda` static runtime repeated a concrete late-difficulty case:
+Guitar solo 120–720 moved to 240–960, a new Medium difficulty inherited both
+current solos, removing them and adding Easy retained zero solos. Undo/Redo
+restored the corresponding history. Independent downloaded-MIDI inspection
+confirmed no resurrected solo markers, unchanged other guitar events, exact
+other raw tracks and the original WAV. Twelve solo-related cases, 41 unfiltered
+editor/export integrations and strict native/editor plus WASM Clippy passed.
 Drum fill/activation and single/double-roll authoring has a shared Rust range
 model and project commands on its feature branch. It uses the existing S64,
 S65 and S66 conversion; S64 retains an activation interval without inventing a
