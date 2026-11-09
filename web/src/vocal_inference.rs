@@ -264,6 +264,84 @@ pub async fn pitch_comparison(
     })
 }
 
+pub async fn adaptive_comparison(
+    project: &crate::editor::Project,
+    audio: &Path,
+    timing: &crate::timing::TempoMap,
+    generation: &crate::vocal_generation::Generation,
+    range: Option<crate::editor::TimeRange>,
+    progress: &mut impl FnMut(String),
+) -> Result<crate::vocal_pitch_analysis::Analysis> {
+    let stem = project
+        .content
+        .stems
+        .as_ref()
+        .and_then(|m| {
+            m.stems
+                .iter()
+                .find(|s| s.id == crate::stem_review::StemId::Vocals)
+        })
+        .context("No vocal stem")?;
+    ensure!(
+        models::hash_file(audio)? == project.audio_sha256
+            && models::hash_file(&stem.path)? == stem.sha256,
+        "Vocal sources changed"
+    );
+    let pcm = models::decode(&stem.path, 16000, 1)?;
+    let source = models::decode(audio, 16000, 2)?;
+    let vocals = models::decode(&stem.path, 16000, 2)?;
+    let mut review = crate::vocal_adaptive::Review::new(
+        project, timing, generation, range, pcm, &source, &vocals,
+    )?;
+    drop(source);
+    drop(vocals);
+    let weights = crate::model_assets::load("vocal-rmvpe", progress).await?;
+    let mut model = Runtime::from_bytes_variable(&weights).await?;
+    while let Some(window) = review.next_window()? {
+        if review.pass_count() > 0
+            && review
+                .pass_count()
+                .is_multiple_of(crate::vocal_adaptive::INFERENCE_BATCH)
+        {
+            model.release().await?;
+            model = Runtime::from_bytes_variable(&weights).await?;
+        }
+        progress(format!(
+            "Deep vocal review · pass {} · {:.2}–{:.2}s · depth {}",
+            review.pass_count() + 1,
+            window.start as f64 * 0.01,
+            (window.end as f64 * 0.01).min(project.duration),
+            window.depth
+        ));
+        let input = crate::rmvpe_frontend::input(review.pcm(), window.start, window.end)?;
+        let outputs = model
+            .run_inputs(&[Input {
+                name: "input",
+                values: &input.values,
+                shape: &[1, 128, input.frames],
+            }])
+            .await?;
+        let output = Runtime::output(&outputs, "output")?;
+        ensure!(
+            output.shape == [1, input.frames, 360],
+            "Unsupported RMVPE output shape"
+        );
+        let frames = crate::vocal_rmvpe::decode_chunk(
+            review.pcm(),
+            window.start,
+            &output.values[input.skip * 360..(input.skip + input.count) * 360],
+        )?;
+        review.complete(&window, frames)?;
+    }
+    ensure!(
+        models::hash_file(audio)? == project.audio_sha256
+            && models::hash_file(&stem.path)? == stem.sha256,
+        "Vocal sources changed during deep review"
+    );
+    model.release().await?;
+    review.finish()
+}
+
 async fn rmvpe(
     pcm: &[f32],
     progress: &mut impl FnMut(String),
@@ -301,6 +379,7 @@ async fn rmvpe(
             &output.values[input.skip * 360..(input.skip + input.count) * 360],
         )?);
     }
+    model.release().await?;
     crate::vocal_rmvpe::finish_pcm(pcm, frames)
 }
 

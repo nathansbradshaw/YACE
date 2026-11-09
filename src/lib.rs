@@ -105,6 +105,8 @@ pub mod timeline_clock;
 pub mod timing;
 pub mod transkun;
 pub mod vocal_activity;
+pub mod vocal_adaptive;
+pub mod vocal_adaptive_planner;
 #[cfg(feature = "vocal-alignment")]
 pub mod vocal_alignment;
 pub mod vocal_benchmark;

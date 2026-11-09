@@ -122,6 +122,18 @@ impl Runtime {
     }
     /// Local optional checkpoints use the same pinned runtime without a network request.
     pub async fn from_bytes(weights: &[u8], disable_optimization: bool) -> Result<Self> {
+        Self::from_bytes_configured(weights, disable_optimization, false).await
+    }
+    /// Recursive review changes tensor lengths frequently. Avoid retaining a
+    /// separate allocation pattern/arena for those shapes.
+    pub async fn from_bytes_variable(weights: &[u8]) -> Result<Self> {
+        Self::from_bytes_configured(weights, false, true).await
+    }
+    async fn from_bytes_configured(
+        weights: &[u8],
+        disable_optimization: bool,
+        variable: bool,
+    ) -> Result<Self> {
         ENV.with(|env| -> Result<()> {
             let wasm = Reflect::get(env, &"wasm".into()).map_err(error)?;
             set(&wasm, "numThreads", &1.into())?;
@@ -132,6 +144,10 @@ impl Runtime {
         let providers = Array::new();
         providers.push(&"wasm".into());
         set(&options, "executionProviders", &providers)?;
+        if variable {
+            set(&options, "enableMemPattern", &false.into())?;
+            set(&options, "enableCpuMemArena", &false.into())?;
+        }
         if disable_optimization {
             set(&options, "graphOptimizationLevel", &"disabled".into())?;
         }

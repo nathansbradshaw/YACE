@@ -10,6 +10,27 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 
 pub const ALGORITHM: &str = "section-audio-review-v1-raw0.1-dsp60-clarity0.5-flat0.35-stable80ms";
+pub const ADAPTIVE_ALGORITHM: &str =
+    "section-audio-review-v2-context-stability-periodicity0.85-half0.03-double0.1-stable80ms";
+/// Physical support from the source PCM, plus stability in distinct contexts.
+/// Repeated model contexts are not independent pitch detectors.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SupplementalSupport {
+    pub midi: Option<f64>,
+    pub periodicity: f64,
+    pub half_margin: f64,
+    pub double_advantage: f64,
+    pub agreeing_contexts: usize,
+}
+impl SupplementalSupport {
+    fn agrees(&self, pitch: f64) -> bool {
+        self.agreeing_contexts >= 2
+            && self.periodicity >= 0.85
+            && self.half_margin >= 0.03
+            && self.double_advantage <= 0.1
+            && self.midi.is_some_and(|p| (p - pitch).abs() <= 0.01)
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RepairKind {
@@ -153,6 +174,40 @@ pub fn compare(
     frames: &[PitchFrame],
     range: TimeRange,
 ) -> Result<Section> {
+    compare_inner(chart, timing, g, frames, range, None)
+}
+pub fn compare_adaptive(
+    chart: &VocalChart,
+    timing: &TempoMap,
+    g: &Generation,
+    frames: &[PitchFrame],
+    range: TimeRange,
+    support: &[SupplementalSupport],
+) -> Result<Section> {
+    ensure!(
+        support.len() == frames.len()
+            && support.iter().all(|s| s
+                .midi
+                .is_none_or(|p| p.is_finite() && (36. ..=84.).contains(&p))
+                && s.periodicity.is_finite()
+                && (-1. ..=1.).contains(&s.periodicity)
+                && s.half_margin.is_finite()
+                && (-2. ..=2.).contains(&s.half_margin)
+                && s.double_advantage.is_finite()
+                && (-2. ..=2.).contains(&s.double_advantage)
+                && s.agreeing_contexts <= 2),
+        "Invalid supplemental acoustic support"
+    );
+    compare_inner(chart, timing, g, frames, range, Some(support))
+}
+fn compare_inner(
+    chart: &VocalChart,
+    timing: &TempoMap,
+    g: &Generation,
+    frames: &[PitchFrame],
+    range: TimeRange,
+    supplemental: Option<&[SupplementalSupport]>,
+) -> Result<Section> {
     let raw = g
         .rmvpe_pitch
         .as_ref()
@@ -163,7 +218,12 @@ pub fn compare(
         "Section comparison exceeds budget"
     );
     let mut out = Section {
-        algorithm: ALGORITHM.into(),
+        algorithm: if supplemental.is_some() {
+            ADAPTIVE_ALGORITHM
+        } else {
+            ALGORITHM
+        }
+        .into(),
         applied_pitch: true,
         ..Default::default()
     };
@@ -178,7 +238,7 @@ pub fn compare(
         let r = &raw.frames[i];
         let pitch = f.midi.map(|p| p.round()).filter(|p| {
             r.confidence >= 0.1
-                && r.rms >= 0.0015
+                && (r.rms >= 0.0015 || r.rms > 0. && supplemental.is_some_and(|s| s[i].agrees(*p)))
                 && r.frequency_hz
                     .is_some_and(|hz| (69. + 12. * (hz / 440.).log2() - p).abs() <= 0.75)
         });
@@ -196,21 +256,21 @@ pub fn compare(
                 out.uncharted_seconds += 0.01_f64.min(range.end - f.time_seconds);
             }
         }
-        let acoustic = g
-            .pitch_frames
-            .binary_search_by(|v| v.time_seconds.total_cmp(&f.time_seconds))
-            .ok()
-            .map(|j| agrees(&g.pitch_frames[j], p))
-            .unwrap_or_else(|| {
-                let j = g
-                    .pitch_frames
-                    .partition_point(|v| v.time_seconds < f.time_seconds);
-                [j.checked_sub(1), Some(j)]
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|j| g.pitch_frames.get(j))
-                    .any(|d| (d.time_seconds - f.time_seconds).abs() <= 0.012 && agrees(d, p))
-            });
+        let acoustic = supplemental.is_some_and(|s| s[i].agrees(p))
+            || g.pitch_frames
+                .binary_search_by(|v| v.time_seconds.total_cmp(&f.time_seconds))
+                .ok()
+                .map(|j| agrees(&g.pitch_frames[j], p))
+                .unwrap_or_else(|| {
+                    let j = g
+                        .pitch_frames
+                        .partition_point(|v| v.time_seconds < f.time_seconds);
+                    [j.checked_sub(1), Some(j)]
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|j| g.pitch_frames.get(j))
+                        .any(|d| (d.time_seconds - f.time_seconds).abs() <= 0.012 && agrees(d, p))
+                });
         if last_valid
             && let Some(last) = runs.last_mut()
             && last.midi == p as u8
@@ -418,7 +478,25 @@ pub fn compare(
             if support_frames < 8 || acoustic_frames * 5 < support_frames * 3 {
                 continue;
             }
-            let repair=Repair{kind:RepairKind::Missing,before:vec![],after:vec![VocalNote{start:span[0],end:span[1],tone:VocalTone::Pitched{midi:r.midi},lyric:Syllable::Missing,midi:None}],support_frames,acoustic_frames,detail:"Stable model pitch agrees with both acoustic detectors in an uncharted interval; lyric unknown".into()};
+            let detail = if supplemental.is_some() {
+                "Stable model pitch has acoustic support from the original detectors or source periodicity with distinct-context agreement; lyric unknown. Inspect singer identity and octave."
+            } else {
+                "Stable model pitch agrees with both acoustic detectors in an uncharted interval; lyric unknown"
+            };
+            let repair = Repair {
+                kind: RepairKind::Missing,
+                before: vec![],
+                after: vec![VocalNote {
+                    start: span[0],
+                    end: span[1],
+                    tone: VocalTone::Pitched { midi: r.midi },
+                    lyric: Syllable::Missing,
+                    midi: None,
+                }],
+                support_frames,
+                acoustic_frames,
+                detail: detail.into(),
+            };
             if let Ok(next) = apply(&working, std::slice::from_ref(&repair)) {
                 working = next;
                 out.repairs.push(repair);
@@ -447,7 +525,7 @@ pub fn apply(chart: &VocalChart, repairs: &[Repair]) -> Result<VocalChart> {
             (8..=400_000).contains(&r.support_frames)
                 && r.acoustic_frames <= r.support_frames
                 && r.acoustic_frames * 5 >= r.support_frames * 3,
-            "Insufficient independent section support"
+            "Insufficient section acoustic support"
         );
         ensure!(r.detail.len() <= 2000, "Section explanation exceeds budget");
         match r.kind {
