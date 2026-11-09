@@ -69,6 +69,34 @@ fn corroborated_pitch_correction_keeps_every_voiced_frame_and_gap() {
     );
 }
 #[test]
+fn context_chunk_events_may_arrive_out_of_time_order_without_changing_their_bounds() {
+    let (mut frames, primary, swift, mut notes) = fixture();
+    notes.notes = vec![
+        nc::Note {
+            start_seconds: 0.64,
+            end_seconds: 1.024,
+            midi: 57,
+        },
+        nc::Note {
+            start_seconds: 0.,
+            end_seconds: 0.64,
+            midi: 57,
+        },
+    ];
+    let before = serde_json::to_vec(&notes).unwrap();
+    let mut expected = frames.clone();
+    let (_, _, _, contiguous) = fixture();
+    nc::refine(&mut expected, &primary, &swift, &contiguous, &|| false).unwrap();
+    nc::refine(&mut frames, &primary, &swift, &notes, &|| false).unwrap();
+    assert_eq!(
+        serde_json::to_vec(&frames).unwrap(),
+        serde_json::to_vec(&expected).unwrap()
+    );
+    assert_eq!(serde_json::to_vec(&notes).unwrap(), before);
+    notes.notes[0].end_seconds = 0.5;
+    assert!(nc::validate_inputs(&primary, &swift, &notes).is_err());
+}
+#[test]
 fn disagreement_low_confidence_silence_and_unsupported_octaves_cannot_rewrite() {
     for mode in 0..4 {
         let (mut f, p, mut s, mut n) = fixture();

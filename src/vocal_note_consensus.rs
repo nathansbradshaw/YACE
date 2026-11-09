@@ -51,12 +51,12 @@ pub fn validate(e: &Evidence, stem: &str, duration: f64) -> Result<()> {
                 && n.start_seconds >= 0.
                 && n.start_seconds < n.end_seconds
                 && n.end_seconds <= duration + 128. / 24000.
-                && (30..=85).contains(&n.midi))
-            && e.notes
-                .windows(2)
-                .all(|w| w[0].start_seconds <= w[1].start_seconds),
-        "Invalid note-event bounds/order"
+                && (30..=85).contains(&n.midi)),
+        "Invalid note-event bounds"
     );
+    // Context chunks can emit overlapping candidates out of chronological
+    // order. Consumers inspect every event and retain model output priority;
+    // requiring sorted starts rejected valid evidence without improving pitch.
     Ok(())
 }
 /// Work on a copy, and commit only after cancellation and all validations pass.
