@@ -33,6 +33,14 @@ enum Task {
         model_dir: PathBuf,
         #[arg(long)]
         output: PathBuf,
+        /// Experimental recursive audio/MIDI review; never applies notes.
+        #[arg(long)]
+        adaptive: bool,
+        /// Restrict review to original recording seconds, keeping full audio context.
+        #[arg(long, requires = "end")]
+        start: Option<f64>,
+        #[arg(long, requires = "start")]
+        end: Option<f64>,
     },
     /// Evaluate the section checker on generated notes, never authored intervals.
     Repair {
@@ -947,16 +955,22 @@ fn main() -> Result<()> {
             project,
             model_dir,
             output,
+            adaptive,
+            start,
+            end,
         } => {
             let store = chart_engine::editor::Store::new(&project);
             let p = store.load()?;
-            let analysis = chart_engine::vocal_pitch_analysis::analyze(
+            let analysis = chart_engine::vocal_pitch_analysis::analyze_configured(
                 &p,
                 &store.audio_path(&p)?,
                 &p.timing(&store)?,
-                None,
+                start
+                    .zip(end)
+                    .map(|(start, end)| chart_engine::editor::TimeRange { start, end }),
                 &model_dir,
                 std::sync::Arc::default(),
+                adaptive,
             )?;
             write(&output, &analysis)
         }

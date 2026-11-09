@@ -185,6 +185,10 @@ pub mod transcription;
 mod unload;
 #[path = "../../src/vocal_activity.rs"]
 pub mod vocal_activity;
+#[path = "../../src/vocal_adaptive.rs"]
+pub mod vocal_adaptive;
+#[path = "../../src/vocal_adaptive_planner.rs"]
+pub mod vocal_adaptive_planner;
 #[path = "../../src/vocal_alignment.rs"]
 pub mod vocal_alignment;
 #[path = "../../src/vocal_generation.rs"]
