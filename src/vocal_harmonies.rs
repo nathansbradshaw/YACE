@@ -10,6 +10,10 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[path = "vocal_harmonies/midi.rs"]
+mod midi;
+pub use midi::{append_midi, import_midi};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Part {
@@ -167,7 +171,7 @@ impl HarmonyChart {
 mod tests {
     use super::*;
     use crate::vocals::{Syllable, VocalTone};
-    fn fixture() -> HarmonyChart {
+    pub(super) fn fixture() -> HarmonyChart {
         HarmonyChart {
             version: 1,
             resolution: 480,

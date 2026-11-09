@@ -8,7 +8,7 @@ use midly::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) fn chunks(bytes: &[u8], expected: usize) -> Result<(usize, Vec<&[u8]>)> {
+pub(crate) fn chunks(bytes: &[u8], expected: usize) -> Result<(usize, Vec<&[u8]>)> {
     ensure!(
         bytes.len() >= 14 && &bytes[..4] == b"MThd",
         "Invalid MIDI header"
@@ -43,7 +43,7 @@ pub(super) fn chunks(bytes: &[u8], expected: usize) -> Result<(usize, Vec<&[u8]>
 
 /// midly's permissive collector can stop silently at a malformed event. Do not
 /// build an editable view whose later rewrite would discard that unread tail.
-pub(super) fn validate_complete(bytes: &[u8]) -> Result<()> {
+pub(crate) fn validate_complete(bytes: &[u8]) -> Result<()> {
     let mapped = midly::SmfBytemap::parse(bytes)?;
     let (_, chunks) = chunks(bytes, mapped.tracks.len())?;
     for (events, chunk) in mapped.tracks.iter().zip(chunks) {

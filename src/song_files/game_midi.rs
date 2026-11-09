@@ -17,6 +17,7 @@ use std::{
 mod decode;
 #[path = "game_midi/merge.rs"]
 mod merge;
+pub(crate) use merge::{chunks as midi_chunks, validate_complete as validate_midi_complete};
 #[cfg(test)]
 #[path = "game_midi/tests.rs"]
 mod tests;
