@@ -286,13 +286,15 @@ authored pitch or reference timestamp enters the decoder. A short dropout can
 use surrounding supported singing for context instead of being rejected as an
 isolated short sound. Silence and unsupported evidence remain gaps.
 
-The profile was selected using the four development recordings. Its initial
-recovery variant failed the false-voicing check; the energy-filtered variant
-passed the private automated contour and exported-note gates. The second run
-uses previously exposed validation artists, with parameters selected only on
-development material. Private audio, references, exposure history and detailed
-reports stay outside Git. This does not establish complete transcription,
-listening, GUI interaction or game acceptance.
+The profile was selected using four development recordings. Its initial recovery
+variant failed the false-voicing check; an energy-filtered variant passed an
+earlier private automated gate. That result did not generalize to the rebuilt
+12-recording regression corpus: on its eight validation artists, the error
+reduction relative to faster High was about 11.46% for contours and 12.06% for
+exported-note frames, below the required 20%. Previously evaluated artists are
+explicitly marked as exposed. The option remains experimental. Private audio,
+references, exposure history and detailed reports stay outside Git. Tests do not
+establish complete transcription, listening, GUI or game acceptance.
 
 `vocals generate-project PROJECT --analysis-mode high-accuracy
 --independent-pitch` selects the same desktop workflow. Install the matching
