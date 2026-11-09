@@ -51,6 +51,207 @@ fn human() -> Actor {
     }
 }
 
+fn completed_project_job(root: &Path, store: &Store, instruments: &[&str]) -> std::path::PathBuf {
+    let before = store.load().unwrap();
+    let mut request = request(store, "vocals");
+    request.instruments = instruments.iter().map(|s| s.to_string()).collect();
+    request.tempo_map = Some(before.timing(store).unwrap());
+    let audio = store.audio_path(&before).unwrap();
+    let mut stems = std::collections::BTreeMap::new();
+    for id in chart_engine::stem_review::StemId::ALL {
+        let path = root.join(format!("handoff-{}.wav", id.as_str()));
+        fs::copy(&audio, &path).unwrap();
+        stems.insert(id, path);
+    }
+    request.existing_stems = (instruments.len() == 1).then(|| {
+        chart_engine::stem_review::StemManifest::build(
+            &audio,
+            stems,
+            chart_engine::stem_review::AlignmentEvidence {
+                method: "synthetic handoff regression".into(),
+                details: "Identical silent test channels; no inference claim".into(),
+            },
+        )
+        .unwrap()
+    });
+    let job = parts::create_project_job(request, &root.join("folder-job"), store, &before).unwrap();
+    let generated = Store::create(
+        &store.root.join("source"),
+        None,
+        &generation::project_path(&job),
+    )
+    .unwrap();
+    generated
+        .apply(Edit {
+            expected_revision: 0,
+            actor: human(),
+            action: Action::SetVocals {
+                document: chart_engine::vocals::VocalChart {
+                    version: 1,
+                    resolution: before.timing(store).unwrap().resolution,
+                    source: "Synthetic generation handoff regression; not an inference test".into(),
+                    phrases: vec![chart_engine::vocals::VocalPhrase {
+                        start: 0,
+                        end: 1920,
+                        player: 1,
+                    }],
+                    notes: vec![chart_engine::vocals::VocalNote {
+                        start: 480,
+                        end: 960,
+                        tone: chart_engine::vocals::VocalTone::Pitched { midi: 60 },
+                        lyric: chart_engine::vocals::Syllable::Missing,
+                        midi: None,
+                    }],
+                },
+            },
+        })
+        .unwrap();
+    if instruments.contains(&"guitar") {
+        generated
+            .apply(Edit {
+                expected_revision: generated.load().unwrap().revision,
+                actor: human(),
+                action: Action::AddNote {
+                    track: "ExpertSingle".into(),
+                    tick: 1440,
+                    lane: 2,
+                    sustain: 0,
+                    cymbal: false,
+                },
+            })
+            .unwrap();
+    }
+    let mut status = generation::status(&job).unwrap();
+    status.state = generation::State::Complete;
+    generation::write_json(&job.join("job.json"), &status).unwrap();
+    job
+}
+
+#[test]
+fn whole_vocal_generation_updates_the_existing_project_with_undo_and_unchanged_source() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let before = store.load().unwrap();
+    let chart = fs::read(store.root.join("source/notes.chart")).unwrap();
+    let audio = fs::read(store.audio_path(&before).unwrap()).unwrap();
+    let job = completed_project_job(root.path(), &store, &["vocals"]);
+    store
+        .apply(Edit {
+            expected_revision: before.revision,
+            actor: human(),
+            action: Action::ApplyGeneratedPart { job },
+        })
+        .unwrap();
+    let after = Store::new(&store.root).load().unwrap();
+    assert_eq!(after.revision, before.revision + 1);
+    assert_eq!(after.content.vocals.as_ref().unwrap().notes.len(), 1);
+    assert_eq!(after.undo.len(), before.undo.len() + 1);
+    assert_eq!(
+        serde_json::to_value(&after.content.tracks).unwrap(),
+        serde_json::to_value(&before.content.tracks).unwrap()
+    );
+    assert_eq!(
+        fs::read(store.root.join("source/notes.chart")).unwrap(),
+        chart
+    );
+    assert_eq!(fs::read(store.audio_path(&after).unwrap()).unwrap(), audio);
+    let archive = fs::read_dir(store.root.join(".yace/generation"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    assert!(archive.join("request.json").is_file());
+    store
+        .apply(Edit {
+            expected_revision: after.revision,
+            actor: human(),
+            action: Action::Undo,
+        })
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().content).unwrap(),
+        serde_json::to_value(before.content).unwrap()
+    );
+}
+
+#[test]
+fn whole_generation_rejects_intervening_edits_without_overwriting_the_project() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let job = completed_project_job(root.path(), &store, &["vocals"]);
+    let before = store.load().unwrap();
+    let mut authored = Store::new(&generation::project_path(&job))
+        .load()
+        .unwrap()
+        .content
+        .vocals
+        .unwrap();
+    authored.source = "Authored while generation was running".into();
+    authored.notes[0].tone = chart_engine::vocals::VocalTone::Pitched { midi: 62 };
+    store
+        .apply(Edit {
+            expected_revision: before.revision,
+            actor: human(),
+            action: Action::SetVocals { document: authored },
+        })
+        .unwrap();
+    let edited = store.load().unwrap();
+    assert!(
+        store
+            .apply(Edit {
+                expected_revision: edited.revision,
+                actor: human(),
+                action: Action::ApplyGeneratedPart { job: job.clone() }
+            })
+            .is_err()
+    );
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap()).unwrap(),
+        serde_json::to_value(edited).unwrap()
+    );
+    assert!(
+        generation::project_path(&job)
+            .join("project.json")
+            .is_file()
+    );
+}
+
+#[test]
+#[cfg(feature = "separation")]
+fn whole_multi_part_generation_is_one_undoable_edit_in_the_original_project() {
+    let root = tempfile::tempdir().unwrap();
+    let store = fixture(root.path());
+    let before = store.load().unwrap();
+    let job = completed_project_job(root.path(), &store, &["guitar", "vocals"]);
+    store
+        .apply(Edit {
+            expected_revision: before.revision,
+            actor: human(),
+            action: Action::ApplyGeneratedPart { job },
+        })
+        .unwrap();
+    let after = store.load().unwrap();
+    assert_eq!(after.revision, before.revision + 1);
+    assert_eq!(after.undo.len(), before.undo.len() + 1);
+    assert_eq!(
+        after.content.tracks["ExpertSingle"].len(),
+        before.content.tracks["ExpertSingle"].len() + 1
+    );
+    assert_eq!(after.content.vocals.as_ref().unwrap().notes.len(), 1);
+    store
+        .apply(Edit {
+            expected_revision: after.revision,
+            actor: human(),
+            action: Action::Undo,
+        })
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(store.load().unwrap().content).unwrap(),
+        serde_json::to_value(before.content).unwrap()
+    );
+}
+
 #[test]
 fn review_totals_keep_double_kick_open_and_pro_keys_notes_and_ignore_modifiers() {
     use chart_engine::{editor::EditorNote, reanalysis};

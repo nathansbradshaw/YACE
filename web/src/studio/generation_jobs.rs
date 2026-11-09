@@ -423,7 +423,11 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                             .with_range(&doc, range)?;
                         crate::parts::create_job(request, &root, &target)?;
                     } else {
-                        generation::create_job(request, &root)?;
+                        if crate::project_folder::linked(&store.root) {
+                            crate::parts::create_project_job(request, &root, &store, &doc)?;
+                        } else {
+                            generation::create_job(request, &root)?;
+                        }
                     }
                     let reference = crate::song_layout::resolve(
                         &store.root.join("source"),
@@ -715,7 +719,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                     onstop:move |_|{if let Some(control)=stop.read().as_ref(){control.set(true);status.set("Finishing this step before stopping…".into());}},
                     onopen:move |_|{if *busy.peek(){return;}
                         if let Some(handle)=job(){let root=handle.root;busy.set(true);status.set("Opening generated chart…".into());spawn(async move{
-                            let result=async{studio.persist_current().await?;let copy=crate::files::unique_root();crate::pipeline::copy_folder(&generation::project_path(&root),&copy)?;studio.open_project(copy).await}.await;
+                            let result=open_generated(studio,root).await;
                             match result{Ok(())=>{status.set("Generated chart opened".into());studio.detach_library();studio.generation_open.set(false);studio.generation_target.set(None);},Err(failure)=>error.set(Some(format!("{failure:#}")))}busy.set(false);
                         });}},
                     onresume:move |_|{if let Some(handle)=job(){runner.resume(studio,handle);}},
@@ -763,6 +767,62 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
     }}
 }
 
+async fn open_generated(mut studio: Studio, root: PathBuf) -> Result<()> {
+    studio.persist_current().await?;
+    let store = studio
+        .store
+        .read()
+        .clone()
+        .context("Open the source project first")?;
+    let bound = crate::storage::is_file(root.join("editor-project-targets.json"));
+    if bound || crate::project_folder::linked(&store.root) {
+        ensure!(
+            bound,
+            "This saved draft predates folder-preserving generation. Your folder and draft were kept; start generation from this folder to apply it in place."
+        );
+        ensure!(
+            crate::project_folder::linked(&store.root),
+            "Reopen the original project folder before applying this draft"
+        );
+        let doc = studio.snapshot().context("Open the source project first")?;
+        let generated = crate::editor::Store::new(&generation::project_path(&root)).load()?;
+        for manifest in generated
+            .content
+            .stems
+            .iter()
+            .chain(generated.content.keyboard_stems.iter())
+        {
+            manifest.validate_binding(&doc.audio_sha256, doc.duration)?;
+            crate::models::remember_stems(manifest)?;
+        }
+        crate::parts::PreparedJob::load(&store, &doc, &root)?;
+        studio.dispatch(crate::editor::Action::ApplyGeneratedPart { job: root });
+        ensure!(
+            studio
+                .snapshot()
+                .is_some_and(|current| current.revision > doc.revision),
+            "Generated parts were not applied; your folder and draft were kept"
+        );
+        ensure!(
+            studio
+                .store
+                .read()
+                .as_ref()
+                .is_some_and(|current| current.root == store.root)
+                && crate::project_folder::linked(&store.root),
+            "The project folder changed while applying generation"
+        );
+        studio.persist_current().await.context("Generated parts are in the open project, but the folder save failed; keep this tab open and retry saving")?;
+        studio
+            .status
+            .set("Generated parts saved to project folder · Undo is available".into());
+        Ok(())
+    } else {
+        let copy = crate::files::unique_root();
+        crate::pipeline::copy_folder(&generation::project_path(&root), &copy)?;
+        studio.open_project(copy).await
+    }
+}
 async fn async_apply(mut studio: Studio, root: PathBuf) -> Result<()> {
     let store = (studio.store)().context("Open the target chart before applying this part")?;
     let doc = studio.snapshot().context("Open the target chart first")?;

@@ -1653,7 +1653,7 @@ impl Store {
                 snapshot.revision == request.expected_revision,
                 "Revision conflict; reload before applying a part"
             );
-            Some(crate::parts::Prepared::load(self, &snapshot, job)?)
+            Some(crate::parts::PreparedJob::load(self, &snapshot, job)?)
         } else {
             None
         };
