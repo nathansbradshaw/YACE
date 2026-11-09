@@ -73,8 +73,19 @@ The complete project download passed archive checks.
 The `30d767b` browser also created all eight parts from a blank chart, authored
 six strings with frets 0, 3, 7, 12, 17 and 22 and several articulations, and
 retained them through reload. A visual correction keeps two-digit fret labels
-visible above short-sustain resize handles. Native application, hosted release,
-independent target-game/controller and musical acceptance remain open.
+visible above short-sustain resize handles.
+
+The actual native `30d767b` app exercised the same 17-/22-fret edits, Muted and
+Pinch harmonic channels, forced HOPO removal, one-tick movement, clipboard,
+deletion and Undo/Redo. Full process exit and automatic restart recovered the
+acknowledged revision 20 project byte for byte with its seven-note part and
+eight Undo checkpoints. Its subsequent MIDI export was byte-identical to the
+browser export (`79896ea759f587e840a6a28249182641e21dcc3bca6050a13ebc7da5668fe566`)
+and passed the same independent MIDI and original-audio inspection. Opening
+the browser's complete project ZIP through the normal native picker recovered
+revision 24 and its source/history; native Undo and Redo retained the edited
+frets and articulation. Native blank creation, hosted release and independent
+target-game/controller and musical acceptance remain open.
 
 ## Five-pad drum authoring (2026-11-08)
 
