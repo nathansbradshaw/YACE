@@ -283,6 +283,154 @@ fn legacy_opaque_manual_parts_cannot_be_replaced_by_adding_a_blank_part() {
     }
     assert_eq!(export(&store, &root.path().join("preserved")), original);
 }
+
+#[test]
+fn deleting_final_lead_notes_keeps_unedited_percussion_power_and_author_events() {
+    let root = tempfile::tempdir().unwrap();
+    let bytes = fixture();
+    let store = store(root.path(), &bytes, 0);
+    let count = store.load().unwrap().content.vocals.unwrap().notes.len();
+    assert!(count > 0);
+    for _ in 0..count {
+        apply(&store, Action::DeleteVocalNote { index: 0 }).unwrap();
+    }
+    assert!(store.load().unwrap().content.vocals.is_none());
+    let output = export(&store, &root.path().join("deleted-lead-notes"));
+    let midi = Smf::parse(&output).unwrap();
+    let vocals = midi
+        .tracks
+        .iter()
+        .find(|events| {
+            events.iter().any(|event| {
+                matches!(
+                    event.kind,
+                    TrackEventKind::Meta(MetaMessage::TrackName(b"PART VOCALS"))
+                )
+            })
+        })
+        .expect("Deleting pitch notes must not delete the unrelated vocal controls track");
+    for key in [96, 105, 116] {
+        assert!(
+            vocals
+                .iter()
+                .any(|event| matches!(event.kind, TrackEventKind::Midi {
+            message: MidiMessage::NoteOn {key:actual,vel}, ..
+        } if actual.as_int()==key && vel.as_int()>0)),
+            "Original control {key} was discarded"
+        );
+    }
+    assert!(vocals.iter().any(|event| matches!(
+        event.kind,
+        TrackEventKind::Meta(MetaMessage::Text(b"[mood_play]"))
+    )));
+    assert!(
+        !vocals
+            .iter()
+            .any(|event| matches!(event.kind, TrackEventKind::Midi {
+        message: MidiMessage::NoteOn {key,vel}, ..
+    } if (36..=84).contains(&key.as_int()) && vel.as_int()>0))
+    );
+    let reopened = Store::create(
+        &root.path().join("deleted-lead-notes"),
+        None,
+        &root.path().join("reopened"),
+    )
+    .unwrap();
+    assert!(reopened.load().unwrap().content.vocals.is_none());
+    assert_eq!(
+        export(&reopened, &root.path().join("second-export")),
+        output
+    );
+}
+
+#[test]
+fn explicitly_omitted_vocal_controls_do_not_return_with_new_lead_notes() {
+    use crate::export_options::{self, Options};
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &fixture(), 0);
+    let doc = store.load().unwrap();
+    let original_vocals = doc.content.vocals.clone().unwrap();
+    let output = root.path().join("without-vocals");
+    let selected = export_options::available(&store, &doc)
+        .unwrap()
+        .into_iter()
+        .filter(|part| part != "Vocals")
+        .collect();
+    store
+        .export_with_options(
+            &doc,
+            &output,
+            &Actor {
+                kind: ActorKind::Human,
+                name: "Explicit omission fixture".into(),
+            },
+            &Options {
+                tracks: Some(selected),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    let doc = reopened.load().unwrap();
+    assert!(doc.content.vocals.is_none());
+    assert!(
+        !export_options::available(&reopened, &doc)
+            .unwrap()
+            .contains("Vocals")
+    );
+    apply(
+        &reopened,
+        Action::SetVocals {
+            document: original_vocals,
+        },
+    )
+    .unwrap();
+    let new_output = root.path().join("new-lead");
+    let bytes = export(&reopened, &new_output);
+    let midi = Smf::parse(&bytes).unwrap();
+    let track = midi
+        .tracks
+        .iter()
+        .find(|t| decode::label(t).as_deref() == Some("PART VOCALS"))
+        .unwrap();
+    assert!(track.iter().any(|e| matches!(e.kind, TrackEventKind::Midi {
+        message: MidiMessage::NoteOn { key,vel }, ..
+    } if key.as_int() == 60 && vel.as_int()>0)));
+    for key in [96, 116] {
+        assert!(
+            !track.iter().any(|e| matches!(e.kind, TrackEventKind::Midi {
+            message: MidiMessage::NoteOn { key:k,vel }, ..
+        } if k.as_int() == key && vel.as_int()>0))
+        );
+    }
+    assert!(!track.iter().any(|e| matches!(
+        e.kind,
+        TrackEventKind::Meta(MetaMessage::Text(b"[mood_play]"))
+    )));
+    let again = Store::create(&new_output, None, &root.path().join("again")).unwrap();
+    assert_eq!(export(&again, &root.path().join("again-export")), bytes);
+}
+
+#[test]
+fn overlapping_edits_cannot_displace_a_retained_percussion_phrase() {
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &fixture(), 0);
+    let mut vocals = store.load().unwrap().content.vocals.unwrap();
+    // The original 0..1920 phrase also scores the unedited 480..500 hit.
+    vocals.phrases[0].start = 600;
+    vocals.notes.remove(0);
+    apply(&store, Action::SetVocals { document: vocals }).unwrap();
+    let output = root.path().join("conflict");
+    let error = apply(
+        &store,
+        Action::Export {
+            output: output.clone(),
+        },
+    )
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("retained percussion scoring phrase"));
+    assert!(!output.exists());
+}
 fn apply(store: &Store, action: Action) -> Result<()> {
     store.apply(Request {
         expected_revision: store.load()?.revision,

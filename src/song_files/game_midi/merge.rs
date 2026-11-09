@@ -427,6 +427,54 @@ fn gem_attributes(name: &str, records: &[AttributeRecord]) -> GemAttributes {
 
 type AbsoluteEvent<'a> = (u64, u8, TrackEventKind<'a>);
 
+type VocalPhraseEdge = (u64, u8, u8, bool);
+
+fn phrase_edge(tick: u64, kind: TrackEventKind<'_>) -> Option<VocalPhraseEdge> {
+    let TrackEventKind::Midi { channel, message } = kind else {
+        return None;
+    };
+    let (key, on) = match message {
+        MidiMessage::NoteOn { key, vel } => (key.as_int(), vel.as_int() > 0),
+        MidiMessage::NoteOff { key, .. } => (key.as_int(), false),
+        _ => return None,
+    };
+    matches!(key, 105 | 106).then_some((tick, channel.as_int(), key, on))
+}
+
+/// Percussion is retained as source MIDI, outside the pitched-vocal editor.
+/// Its scoring phrase must survive automatic pruning of the last syllable.
+fn percussion_phrase_edges(
+    track: &[TrackEvent<'_>],
+    vocals: Option<&VocalChart>,
+) -> Result<BTreeSet<VocalPhraseEdge>> {
+    let percussion = decode::spans(track, |key| matches!(key, 96 | 97))?;
+    let phrases = decode::spans(track, |key| matches!(key, 105 | 106))?;
+    let authored = vocals.map_or(&[][..], |v| v.phrases.as_slice());
+    let mut retained = BTreeSet::new();
+    for phrase in phrases {
+        let needed = percussion.iter().any(|hit| {
+            phrase.start <= hit.start
+                && hit.start < phrase.end
+                && hit.end <= phrase.end
+                && !authored
+                    .iter()
+                    .any(|p| p.start <= hit.start && hit.start < p.end && hit.end <= p.end)
+        });
+        if !needed {
+            continue;
+        }
+        ensure!(
+            !authored
+                .iter()
+                .any(|p| p.start < phrase.end && phrase.start < p.end),
+            "Edited vocal phrases conflict with a retained percussion scoring phrase; keep that phrase or export without Vocals"
+        );
+        retained.insert((phrase.start, phrase.channel, phrase.key, true));
+        retained.insert((phrase.end, phrase.channel, phrase.key, false));
+    }
+    Ok(retained)
+}
+
 /// New manually authored Pro Guitar projects also need velocity frets and
 /// channel articulations; they have no original-MIDI descriptor to merge.
 pub(super) fn authored_attributes(bytes: &[u8], records: &[AttributeRecord]) -> Result<Vec<u8>> {
@@ -645,11 +693,23 @@ pub(super) fn rewrite(
                     .is_some_and(|set| set.contains(&Component::Fill)),
             "Partial-lane MIDI drum fills cannot be replaced in this editor; source retained"
         );
+        let retained_phrases = if name == "PART VOCALS"
+            && changed
+                .get(&name)
+                .is_some_and(|set| set.contains(&Component::VocalPhrases))
+        {
+            percussion_phrase_edges(track, after.vocals)?
+        } else {
+            BTreeSet::new()
+        };
         let mut events = Vec::new();
         for (serial, (tick, kind)) in absolute(track).into_iter().enumerate() {
             if remove_global(kind)
                 || remove_section(kind)
-                || (changed_component(kind) && managed(&name, kind, enhanced, fills))
+                || (changed_component(kind)
+                    && managed(&name, kind, enhanced, fills)
+                    && !phrase_edge(tick, kind)
+                        .is_some_and(|edge| retained_phrases.contains(&edge)))
             {
                 continue;
             }

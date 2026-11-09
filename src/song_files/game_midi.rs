@@ -82,6 +82,8 @@ struct Imported {
     chart_sha256: String,
     baseline_attributes_sha256: String,
     baseline_vocals_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retained_vocal_controls: Option<bool>,
     attributes_chart_sha256: String,
     attributes: Vec<AttributeRecord>,
     warnings: Vec<String>,
@@ -125,6 +127,18 @@ fn extra_key(track: &[midly::TrackEvent<'_>], index: usize) -> Option<String> {
 /// Offer original parts that have no editable chart view, without transcribing them.
 pub fn extra_parts(song: &Path) -> Result<std::collections::BTreeSet<String>> {
     original_extra_parts(song, true)
+}
+
+/// Deleting the last pitched syllable does not deselect source percussion,
+/// overdrive or author controls. Older exported omissions lack the editable
+/// sidecar; treat those conservatively rather than restoring omitted content.
+pub fn retained_vocal_controls(song: &Path) -> Result<bool> {
+    Ok(source(song)?.is_some_and(|(imported, _)| {
+        imported.baseline_vocals_sha256.is_some()
+            && imported.retained_vocal_controls.unwrap_or_else(|| {
+                fs::exists(song_layout::resolve(song, "chart-engine-vocals.json"))
+            })
+    }))
 }
 fn original_extra_parts(
     song: &Path,
@@ -261,6 +275,8 @@ pub fn select_export(
                 .cloned()
                 .collect(),
         );
+        imported.retained_vocal_controls =
+            Some(retained_vocal_controls(song)? && selected.contains("Vocals"));
         fs::write(path, serde_json::to_vec_pretty(&imported)?)?;
     }
     Ok(output)
@@ -421,6 +437,7 @@ pub fn prepare(song: &Path) -> Result<()> {
             .as_ref()
             .map(|_| models::hash_file(&directory.join("vocals.json")))
             .transpose()?,
+        retained_vocal_controls: None,
         attributes_chart_sha256: hash(decoded.chart.raw.as_bytes()),
         attributes: decoded.attributes,
         warnings: decoded.warnings,
@@ -468,11 +485,17 @@ pub fn export(
         };
     };
     let original = fs::read(directory.join("notes.mid"))?;
+    let retain_vocal_controls = retained_vocal_controls(song)?;
+    let original = if imported.baseline_vocals_sha256.is_some() && !retain_vocal_controls {
+        omit_original_vocals(&original)?
+    } else {
+        original
+    };
     let baseline = Chart::parse(fs::read_to_string(directory.join("notes.chart"))?)?;
     let baseline_attributes: Vec<AttributeRecord> =
         serde_json::from_slice(&fs::read(directory.join("attributes.json"))?)?;
     let vocal_path = directory.join("vocals.json");
-    let baseline_vocals: Option<VocalChart> = if fs::is_file(&vocal_path) {
+    let baseline_vocals: Option<VocalChart> = if retain_vocal_controls && fs::is_file(&vocal_path) {
         Some(serde_json::from_slice(&fs::read(vocal_path)?)?)
     } else {
         None
@@ -514,4 +537,31 @@ pub fn export(
         serde_json::to_vec_pretty(&imported)?,
     )?;
     Ok(Some(output))
+}
+
+fn omit_original_vocals(bytes: &[u8]) -> Result<Vec<u8>> {
+    let midi = midly::Smf::parse(bytes)?;
+    let (header, chunks) = merge::chunks(bytes, midi.tracks.len())?;
+    let mut kept = Vec::new();
+    for (events, chunk) in midi.tracks.iter().zip(chunks) {
+        if decode::label(events).as_deref() == Some("PART VOCALS") {
+            ensure!(
+                !events.iter().any(|event| matches!(
+                    event.kind,
+                    midly::TrackEventKind::Meta(
+                        midly::MetaMessage::Tempo(_) | midly::MetaMessage::TimeSignature(..)
+                    )
+                )),
+                "An omitted original vocal part contains timing; retain its source before export"
+            );
+        } else {
+            kept.push(chunk);
+        }
+    }
+    let mut output = bytes[..header].to_vec();
+    output[10..12].copy_from_slice(&u16::try_from(kept.len())?.to_be_bytes());
+    for chunk in kept {
+        output.extend_from_slice(chunk);
+    }
+    Ok(output)
 }
