@@ -12,11 +12,12 @@ Recovery no longer requires a recognized word. Optional lyric recognition
 failure leaves a pitch draft and a visible warning; invalid source bindings,
 audio failures and cancellation still stop generation.
 
-**Standard** retains the established word-aware chart assembly. **High accuracy
-(experimental)** additionally proposes stable, acoustically supported detector
-alternatives, preserves acoustic gaps, detects local attacks, and fixes note
-boundaries before attaching words. Changing a transcript cannot change that
-mode's acoustic note pitches or boundaries. A word with ambiguous ownership
+Both **Standard** and **High accuracy (experimental)** construct pitches and
+note boundaries from acoustic evidence before attaching words. Transcription
+and online lyric lookup are off by default; disabling them retains pitch
+assistance. High additionally proposes stable, acoustically supported detector
+alternatives, preserves acoustic gaps, and detects local attacks. Changing a
+transcript cannot change either mode's acoustic pitches or boundaries. A word with ambiguous ownership
 can remain missing; all recognized/supplied text remains in the report.
 
 Choose the analysis mode in Auto-Chart or the native vocal editor's Options.
@@ -390,6 +391,41 @@ gaps; short fragments could all disappear at the note-duration filter. Adjacent
 cells now meet at their midpoint; absent frames and breaths still leave gaps.
 Both modes fix acoustic boundaries before optional word attachment. Neither
 these assembly fixes nor successful tests establish musical acceptance.
+
+### Acoustic calibration experiment
+
+A private Rust comparison evaluated logistic calibration, boosted trees and
+ranking several acoustic pitch candidates. Only the four development artists
+trained these models; cutoff selection used leave-one-artist-out predictions.
+Words, keys, scales, song identity and absolute MIDI pitch were excluded from
+the feature vectors. Several confidence-only variants failed development
+checks and were not evaluated as promoted backends.
+
+One frozen candidate added direct period correlation and SWIPE-style harmonic
+template features from the original vocal stem and experimental lead residual.
+The kernel experiment follows [SWIPE research](https://arxiv.org/abs/2507.11233)
+and the MIT [libf0 reference](https://github.com/groupmm/libf0) at revision
+`533f3bf3ce884a1ff594b53ccf08516c29c0a700`. Its centered FFT, mel sampling,
+window interpolation and tuning search are explicit Rust variants, without a
+claim of numerical equivalence to either publisher implementation. Template
+strength is not singer identity or a correctness probability.
+
+On eight previously exposed validation artists, this candidate reduced
+missing-plus-wrong errors by 12.64% for contours and 13.47% for exported-note
+frames relative to the existing multi-model option. Against faster High,
+reassembled with the same current acoustic rules, the reductions were 22.65%
+and 23.91%. Exported-note voiced recall rose from 26.34% to 45.70%, wrong-pitch
+proportion fell from 17.54% to 10.15%, and false voicing rose from 6.32% to 7.92%.
+Absolute exported-note pitch accuracy was 42.54%; these gains do not establish
+complete or near-perfect transcription. All twelve generated MIDI charts
+round-tripped with identical notes and phrases.
+
+The frozen candidate passes the numerical comparison against faster High on
+this regression material, but not the stricter 20% improvement over the prior
+multi-model option. It is not integrated into the app or promoted: fresh
+validation, runtime/resource verification and musical acceptance remain open.
+The recordings, trained coefficients, feature recipes, frozen executables,
+exposure history and detailed reports remain private and outside Git.
 
 Keep every corpus, recording, reference, salience cache and detailed report in a
 private directory outside Git. Use distinct development/validation artists;
