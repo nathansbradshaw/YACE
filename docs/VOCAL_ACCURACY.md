@@ -582,6 +582,50 @@ evidence. Language tags without reliable provenance remain unknown. These
 are chart-relative targets, not measured performed-frequency truth or a
 100% correctness claim. Keep all recordings and detailed reports outside Git.
 
+### Performed-pitch reference handling and rescan regression
+
+Published performed-pitch datasets can contain overlapping human note
+segmentations at transitions. The evaluator preserves those boundaries and
+accepts onset-sorted overlaps for `performed_contour` references. Its raw
+frame truth remains the independently annotated F0 contour. Authored game
+charts retain the existing nonoverlap requirement; invalid clocks, unsorted
+notes and source mismatches remain errors. This does not change the scorer's
+pitch tolerance, error definitions or quality gate.
+
+A further four-artist development experiment recovered original acoustic
+notes when supported by JDC singing activity and independent RMVPE, then
+rescanned supported gaps between equal pitches. The frozen settings passed
+development controls. A new validation selected the last two unexposed
+positive-vocal-difficulty game artists and the first six distinct singers in
+numeric track order from [vocadito v3](https://zenodo.org/records/5578807).
+Average-pitch metadata was ignored. All eight predictions preceded annotation
+reads. The publisher's MD5 matched; archive SHA256 was
+`e0d6b99d3f9c594afe5ae5c4d7bdacebe569e53b809e90b89d1c771c4f9990e3`.
+The dataset declares CC-BY4.0 and musician-reviewed F0 and two note annotations.
+
+Both methods received identical original-clock vocals: native HTDemucs6s
+for the game mixes, and native-format solo derivatives verified bit-identical
+to the original solo recordings' stereo decode. The installed c96a5a2 High
+accuracy app remained the baseline, with recognition disabled. No offset or
+pitch fitting used target values. The two domains are reported separately:
+
+| Rescan regression | Separated game mixes (2) | Clean solo singing (6) |
+| --- | ---: | ---: |
+| Contour missing-or-wrong error reduction |22.70%|**-6.04%**|
+| Exported-note missing-or-wrong error reduction |24.60%|**-11.13%**|
+| Contour voiced recall, baseline → candidate |47.67% →62.78%|84.62% →76.24%|
+| Exported-note voiced recall, baseline → candidate |39.78% →56.58%|79.07% →69.21%|
+
+Across all eight, missing-or-wrong errors fell only5.89% for contours and
+3.25% for notes, while mean recall fell2.51 and3.19 percentage points.
+The full gate failed, including the stricter no-recall-loss requirement.
+Two game recordings alone cannot establish the required eight-artist gate.
+Lower wrong-pitch proportions did not compensate for deleted valid voice.
+No rescan backend is promoted. These results motivate preserving existing
+acoustic voicing while screening additions, rather than using disagreement
+as a reason to remove it. Further tuning must treat these singers and game
+artists as exposed regression data, not fresh validation.
+
 ### Residual section rescan experiment
 
 `cargo run --release --no-default-features --example vocal_chunk_trial -- AUDIO
