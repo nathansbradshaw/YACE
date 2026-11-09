@@ -12,6 +12,7 @@ vocal-alignment = []
 studio = []
 separation = []
 browser-tests = []
+lifetime-fixture = []
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -157,6 +157,27 @@ before awaiting IndexedDB. An incomplete working set is refused without replacin
 the previous durable manifest. This protects against missing-file saves; it does
 not establish the cause of every browser storage failure.
 
+Project opens also recheck their request identity after their final save wait.
+An older reopen can be delayed behind autosave while a newer generated project
+opens and retires the old folder. Previously that callback could then publish
+its captured document and media against the removed folder. A superseded open
+now returns an error before replacing the current editor. Save acknowledgments
+also verify the current folder identity, not just a matching revision number.
+Pending opens hold a counted lease on their working folder. Cleanup is deferred
+until that folder has neither an active editor nor an in-flight reader, including
+when an older canceled open shares a folder with a newer open.
+
+The opt-in `lifetime-fixture` build seeds a four-second synthetic completed vocal
+job and provides a controlled scheduler regression in
+`web/tests/support/project_lifetime.rs`. Open its retained generated draft, then
+run **Reproduce overlapping project opens**. It pauses a real reopen at the save
+wait, completes a competing real open, then resumes the old callback. Before the
+fix, it reproduces missing document/source files; afterward it checks rejection
+of the old callback plus the newer recording, vocal notes and undo checkpoints.
+**Remove disposable lifecycle fixtures** removes only those named synthetic
+snapshots and their workspace pointers, retaining shared content-addressed audio.
+This feature is excluded from ordinary application and production builds.
+
 Portable project ZIPs include retained stems and saved kit results. Older
 projects with external assets require matching local files. Attach files or a
 new source-bound stem manifest with the native picker; checks cover hashes,

@@ -87,6 +87,9 @@ pub mod kit_audition;
 pub mod larsnet;
 #[path = "../../src/larsnet_receipt.rs"]
 pub mod larsnet_receipt;
+#[cfg(feature = "lifetime-fixture")]
+#[path = "../tests/support/project_lifetime.rs"]
+mod lifetime_fixture;
 #[path = "../../src/lyric_language.rs"]
 pub mod lyric_language;
 #[path = "../../src/mapping.rs"]
@@ -114,6 +117,8 @@ pub mod persistence;
 pub mod piano_model;
 pub mod pipeline;
 mod playback_activity;
+#[path = "../../src/pro_guitar.rs"]
+pub mod pro_guitar;
 #[path = "../../src/pro_keys.rs"]
 pub mod pro_keys;
 pub mod project_folder;
@@ -146,8 +151,6 @@ pub mod sections;
 pub mod separation;
 #[path = "../../src/six_fret.rs"]
 pub mod six_fret;
-#[path = "../../src/pro_guitar.rs"]
-pub mod pro_guitar;
 #[path = "../../src/song_files.rs"]
 pub mod song_files;
 pub mod song_import;
@@ -211,6 +214,14 @@ mod workspace_target;
 pub fn start() {
     console_error_panic_hook::set_once();
     if web_sys::window().is_some() {
+        #[cfg(feature = "lifetime-fixture")]
+        wasm_bindgen_futures::spawn_local(async {
+            lifetime_fixture::prepare()
+                .await
+                .expect("Prepare disposable lifecycle fixture");
+            dioxus::launch(studio::App);
+        });
+        #[cfg(not(feature = "lifetime-fixture"))]
         dioxus::launch(studio::App);
     }
 }

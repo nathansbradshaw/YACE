@@ -180,9 +180,21 @@ pub fn use_studio() -> Studio {
 struct Candidate {
     studio: Studio,
     root: PathBuf,
+    lease: Option<crate::storage::ProjectLease>,
+}
+impl Candidate {
+    fn new(studio: Studio, root: PathBuf) -> Self {
+        let lease = Some(crate::storage::hold_project(&root));
+        Self {
+            studio,
+            root,
+            lease,
+        }
+    }
 }
 impl Drop for Candidate {
     fn drop(&mut self) {
+        drop(self.lease.take());
         if self
             .studio
             .store
@@ -888,7 +900,7 @@ impl Studio {
             let result=async{
                 let Some(mut files)=crate::files::pick(false,".ogg,.opus,.mp3,.flac,.wav,.m4a,.aiff,.aac").await? else{return Ok(());};
                 let (name,bytes)=files.pop().context("Choose a recording")?;
-                let input_root=crate::files::unique_root();let _candidate=Candidate{studio:self,root:input_root.clone()};
+                let input_root=crate::files::unique_root();let _candidate=Candidate::new(self,input_root.clone());
                 crate::storage::create_dir_all(&input_root)?;let input=input_root.join(&name);crate::storage::write_shared(&input,bytes)?;
                 self.status.set("Retaining recording locally…".into());
                 let prepared:crate::project_recording::PreparedRecording=crate::worker::run(crate::worker::Task::PrepareRecording{source:input,root:store.root.clone()},std::slice::from_ref(&store.root)).await?;
@@ -916,10 +928,7 @@ impl Studio {
         let (ini, chart) = crate::project_recording::blank_song(&title, &artist, bpm, duration)?;
         self.persist_current().await?;
         let root = crate::files::unique_root();
-        let _candidate = Candidate {
-            studio: self,
-            root: root.clone(),
-        };
+        let _candidate = Candidate::new(self, root.clone());
         let source = root.join("source");
         crate::storage::create_dir_all(&source)?;
         crate::storage::write(source.join("song.ini"), ini)?;
@@ -1042,10 +1051,7 @@ impl Studio {
                         let files =
                             crate::archive_codec::strip_wrapper_shared(files, "project.json")?;
                         let root = crate::files::unique_root();
-                        let _candidate = Candidate {
-                            studio: self,
-                            root: root.clone(),
-                        };
+                        let _candidate = Candidate::new(self, root.clone());
                         crate::files::mount(&root, files)?;
                         self.open_project(root).await?;
                         self.detach_library();
@@ -1216,10 +1222,7 @@ impl Studio {
             identity.update(channels.as_bytes());
         }
         let root = PathBuf::from(format!("/projects/library-{:x}", identity.finalize()));
-        let _candidate = Candidate {
-            studio: self,
-            root: root.clone(),
-        };
+        let _candidate = Candidate::new(self, root.clone());
         self.persist_current().await?;
         if let Some((root, revision)) = crate::persistence::load(&root).await? {
             self.open_project_with_revision(root, Some(revision))
@@ -1283,6 +1286,7 @@ impl Studio {
         }
         self.library_busy.set(true);
         let result = async {
+            let _candidate = Candidate::new(self, root.clone());
             self.persist_current().await?;
             let (root, revision) = crate::persistence::load(&root)
                 .await?
@@ -1317,6 +1321,13 @@ impl Studio {
         let result = crate::persistence::save(&store.root, doc.revision, expected).await;
         self.persistence_busy.set(false);
         result?;
+        ensure!(
+            self.store
+                .read()
+                .as_ref()
+                .is_some_and(|current| current.root == store.root),
+            "The project changed while saving. The newer project was kept."
+        );
         self.saved_revision.set(Some(doc.revision));
         if expected.is_none() {
             self.remember_recent(store.root.clone());
@@ -1362,10 +1373,7 @@ impl Studio {
         } else {
             crate::files::unique_root()
         };
-        let _candidate = Candidate {
-            studio: self,
-            root: root.clone(),
-        };
+        let _candidate = Candidate::new(self, root.clone());
         if !project {
             let Some(choice) = self.choose_chart_source(&source).await? else {
                 return Ok(());
@@ -1459,10 +1467,20 @@ impl Studio {
         let epoch = (self.epoch)();
         self.status.set("Preparing browser audio…".into());
         let (media, waves, notice) = Media::load(&store, &doc).await?;
-        if epoch != (self.epoch)() {
-            return Ok(());
-        }
+        ensure!(
+            epoch == (self.epoch)(),
+            "A newer project open superseded this request. The newer project was kept."
+        );
+        #[cfg(feature = "lifetime-fixture")]
+        crate::lifetime_fixture::ready_to_commit(&root);
         self.persist_current().await?;
+        // Saving can wait behind an existing save. A newer open may finish and
+        // retire this folder while that callback is suspended. Never publish
+        // its captured document/media again after the final await.
+        ensure!(
+            epoch == (self.epoch)(),
+            "A newer project opened while this request was saving. The newer project was kept."
+        );
         let previous_root = self.store.read().as_ref().map(|store| store.root.clone());
         self.audio_ready.set(false);
         if let Some(media) = self.media.read().as_ref() {

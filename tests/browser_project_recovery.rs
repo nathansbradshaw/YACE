@@ -34,6 +34,36 @@ fn document() -> editor::Project {
     serde_json::from_slice(&std::fs::read(store.root.join("project.json")).unwrap()).unwrap()
 }
 #[test]
+fn retirement_waits_for_all_inflight_project_readers() {
+    let root = Path::new("/pending-project-readers");
+    storage::write(root.join("source/audio.wav"), b"recording").unwrap();
+    let older = storage::hold_project(root);
+    let newer = storage::hold_project(root);
+    drop(older);
+    storage::clear(root);
+    assert_eq!(
+        storage::read(root.join("source/audio.wav")).unwrap(),
+        b"recording"
+    );
+    drop(newer);
+    assert!(!storage::exists(root));
+}
+#[test]
+fn successful_open_takes_ownership_before_its_reader_is_released() {
+    let root = Path::new("/pending-project-transfer/project");
+    storage::write(root.join("source/audio.wav"), b"recording").unwrap();
+    let reader = storage::hold_project(root);
+    storage::clear(root.parent().unwrap());
+    storage::activate_project(Some(root));
+    drop(reader);
+    assert_eq!(
+        storage::read(root.join("source/audio.wav")).unwrap(),
+        b"recording"
+    );
+    storage::activate_project(None);
+    assert!(!storage::exists(root));
+}
+#[test]
 fn active_generated_project_survives_cleanup_until_another_project_owns_the_editor() {
     let root = Path::new("/generated-open/project");
     let next = Path::new("/other-open/project");

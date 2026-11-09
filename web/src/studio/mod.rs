@@ -124,6 +124,10 @@ pub fn App() -> Element {
     let github = github::use_session();
     use_context_provider(|| github);
     let studio = state::use_studio();
+    #[cfg(feature = "lifetime-fixture")]
+    let fixture_controls = rsx! {crate::lifetime_fixture::Controls { studio }};
+    #[cfg(not(feature = "lifetime-fixture"))]
+    let fixture_controls = rsx! {};
     use_hook(move || dioxus::core::provide_root_context(studio));
     crate::unload::use_unsaved_changes(move || {
         // A failed save clears `dirty` to stop retries, but its revision is
@@ -257,6 +261,7 @@ pub fn App() -> Element {
     );
     rsx! {style{"{CSS}"}browser_viewport::BrowserViewport{div{class:"studio-app",tabindex:"-1",onkeydown:move|event|{shortcuts::handle(studio,event);},
         project_bar::ProjectBar{studio}
+        {fixture_controls}
         if dance::active()||studio.snapshot().is_some(){workspace::Workbench{studio}}else{welcome::Welcome{studio}}
     div{class:"studio-status",activity::Status{studio,title:"Local browser activity"}a{href:"https://github.com/nathansbradshaw/YACE",target:"_blank",rel:"noopener noreferrer",aria_label:"YACE on GitHub",style:"color:var(--accent-color)","GitHub"}span{role:"status",if let Some(status)=dance::save_status(){"{status}"}else{"{band_save_status}"}} project_bar::ExportSummary{studio}}
         if let Some(error)=(studio.error)().filter(|message| !(studio.export_open)() || !message.starts_with("Song export failed: ")){div{class:"studio-error",role:"alert",span{"{error}"}

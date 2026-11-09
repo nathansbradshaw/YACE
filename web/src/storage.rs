@@ -12,9 +12,38 @@ thread_local! { static DIRTY: RefCell<BTreeSet<PathBuf>> = RefCell::default(); }
 thread_local! { static PROJECTS: RefCell<BTreeMap<PathBuf,Arc<crate::editor::Project>>> = RefCell::default(); }
 thread_local! { static UNENCODED: RefCell<BTreeSet<PathBuf>> = RefCell::default(); }
 thread_local! { static ACTIVE_PROJECT: RefCell<Option<PathBuf>> = const { RefCell::new(None) }; }
+thread_local! { static PROJECT_READERS: RefCell<BTreeMap<PathBuf, usize>> = RefCell::default(); }
+thread_local! { static RETIRED: RefCell<BTreeSet<PathBuf>> = RefCell::default(); }
+/// An in-flight open owns the working files even before it becomes active.
+pub struct ProjectLease(PathBuf);
+pub fn hold_project(root: &Path) -> ProjectLease {
+    PROJECT_READERS.with(|readers| *readers.borrow_mut().entry(root.to_owned()).or_default() += 1);
+    ProjectLease(root.to_owned())
+}
+impl Drop for ProjectLease {
+    fn drop(&mut self) {
+        PROJECT_READERS.with(|readers| {
+            let mut readers = readers.borrow_mut();
+            if let Some(count) = readers.get_mut(&self.0) {
+                *count -= 1;
+                if *count == 0 {
+                    readers.remove(&self.0);
+                }
+            }
+        });
+        retire_unowned();
+    }
+}
+fn retire_unowned() {
+    let roots = RETIRED.with(|roots| std::mem::take(&mut *roots.borrow_mut()));
+    for root in roots {
+        clear(&root);
+    }
+}
 /// Cancelled imports and generated drafts cannot retire the editor's working set.
 pub fn activate_project(root: Option<&Path>) {
     ACTIVE_PROJECT.with(|active| *active.borrow_mut() = root.map(Path::to_owned));
+    retire_unowned();
 }
 pub fn cached_project(root: &Path) -> Option<Arc<crate::editor::Project>> {
     PROJECTS.with(|projects| projects.borrow().get(&root.join("project.json")).cloned())
@@ -200,7 +229,10 @@ pub fn clear(root: &Path) {
             .borrow()
             .as_ref()
             .is_some_and(|path| path.starts_with(root))
-    }) {
+    }) || PROJECT_READERS
+        .with(|readers| readers.borrow().keys().any(|path| path.starts_with(root)))
+    {
+        RETIRED.with(|roots| roots.borrow_mut().insert(root.to_owned()));
         return;
     }
     crate::project_folder::forget(root);

@@ -53,3 +53,17 @@ pub fn remember(target: &Target) -> Result<()> {
         .map_err(storage_error)?;
     Ok(())
 }
+
+#[cfg(feature = "lifetime-fixture")]
+pub(crate) fn forget_lifetime_fixtures(roots: &[std::path::PathBuf]) -> Result<()> {
+    for (session, key) in [(true, TAB_KEY), (false, DEFAULT_KEY)] {
+        let storage = storage(session)?;
+        if let Some(value) = storage.get_item(key).map_err(storage_error)?
+            && let Ok(target) = Target::decode(&value)
+            && roots.iter().any(|root| target.root.starts_with(root))
+        {
+            storage.remove_item(key).map_err(storage_error)?;
+        }
+    }
+    Ok(())
+}
