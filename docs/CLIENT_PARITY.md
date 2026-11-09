@@ -41,6 +41,18 @@ Do not mark a row passed from compilation alone. Record the revision, fixture,
 actual application actions, downloaded/exported results, and any limitations.
 Keep private recordings, transcripts and generated receipts outside Git.
 
+Drum fill/activation and single/double-roll authoring has a shared Rust range
+model and project commands on its feature branch. It uses the existing S64,
+S65 and S66 conversion; S64 retains an activation interval without inventing a
+separate fill-versus-BRE classification. Typed edits preserve unrelated rows,
+reject stale witnesses before saving and participate in Undo/Redo. A bounded
+range clipboard retains relative intervals and requires a matching chart
+resolution. MIDI edits update the shared drum owner across difficulties;
+asymmetric source activation lanes remain read-only while safe roll edits keep
+their original events. Regressions cover explicit clears, export/reopen,
+clipboard refusal and note-proposal safety. Shared controls/preview/system
+clipboard and actual native/static-browser/hosted workflows remain unqualified.
+
 ## Pro Guitar strings and frets (2026-11-08)
 
 The shared editor supports separate 17- and 22-fret Pro Guitar parts at Easy,

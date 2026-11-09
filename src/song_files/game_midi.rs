@@ -335,6 +335,61 @@ pub fn edit_star_power(
     Ok(())
 }
 
+/// Protect opaque activation lanes before saving any authored state. A source
+/// S64 view exists only when the five physical MIDI intervals agree exactly.
+pub fn edit_drum_ranges(
+    project: &mut crate::editor::Project,
+    chart: &Chart,
+    song: &Path,
+    edit: &crate::drum_ranges::Edit,
+) -> Result<()> {
+    if let Some((_, directory)) = source(song)? {
+        let bytes = fs::read(directory.join("notes.mid"))?;
+        let midi = midly::Smf::parse(&bytes)?;
+        let drums: Vec<_> = midi
+            .tracks
+            .iter()
+            .filter(|track| decode::label(track).as_deref() == Some("PART DRUMS"))
+            .collect();
+        ensure!(
+            drums.len() <= 1,
+            "Duplicate drum MIDI owners are ambiguous; source retained"
+        );
+        if edit.touches_activation()
+            && let Some(track) = drums.first()
+        {
+            let spans = decode::spans(track, |key| (120..=124).contains(&key))?;
+            ensure!(
+                decode::fills_representable(&decode::ranges(&spans)),
+                "Original activation/fill lanes are not fully represented; source retained read-only"
+            );
+        }
+    }
+    let tracks: Vec<_> = ["EasyDrums", "MediumDrums", "HardDrums", "ExpertDrums"]
+        .into_iter()
+        .filter(|name| project.content.tracks.contains_key(*name))
+        .map(str::to_owned)
+        .collect();
+    let mut ranges = Vec::new();
+    for name in &tracks {
+        ranges.extend(crate::drum_ranges::current(project, chart, name)?);
+    }
+    ranges.sort_by_key(|range| (range.start, range.kind, range.end));
+    ranges.dedup();
+    let mut candidate = project.clone();
+    candidate
+        .content
+        .drum_ranges
+        .insert(edit.track().into(), ranges);
+    crate::drum_ranges::apply(&mut candidate, chart, edit)?;
+    let ranges = candidate.content.drum_ranges[edit.track()].clone();
+    for name in tracks {
+        candidate.content.drum_ranges.insert(name, ranges.clone());
+    }
+    project.content.drum_ranges = candidate.content.drum_ranges;
+    Ok(())
+}
+
 pub fn attributes(song: &Path, chart: &Chart) -> Result<TrackAttributes> {
     let Some((imported, _)) = source(song)? else {
         return Ok(BTreeMap::new());

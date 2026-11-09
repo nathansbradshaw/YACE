@@ -37,6 +37,8 @@ pub mod drum_dynamics;
 pub mod drum_layout;
 #[path = "../../src/drum_parts.rs"]
 pub mod drum_parts;
+#[path = "../../src/drum_ranges.rs"]
+pub mod drum_ranges;
 #[path = "../../src/editor.rs"]
 pub mod editor;
 #[path = "../../src/editor_validation.rs"]
