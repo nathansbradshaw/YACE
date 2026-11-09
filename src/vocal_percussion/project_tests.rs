@@ -754,6 +754,45 @@ fn first_harmony_in_a_percussion_owner_survives_logical_selection_reopen_and_phr
     );
 }
 #[test]
+fn first_singer_adopts_verified_percussion_ownership_in_the_same_undoable_command() {
+    let (root, store) = project(true, false);
+    let before = fs::read(store.root.join("project.json")).unwrap();
+    let pc = authored(&store).unwrap();
+    let mut conflicting = first_harmony();
+    conflicting.phrases[0].start = 0;
+    assert!(
+        apply(
+            &store,
+            Action::SetHarmonies {
+                document: conflicting
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(store.root.join("project.json")).unwrap(), before);
+    assert!(store.load().unwrap().content.vocal_percussion.is_none());
+    apply(
+        &store,
+        Action::SetHarmonies {
+            document: first_harmony(),
+        },
+    )
+    .unwrap();
+    assert_eq!(authored(&store), Some(pc));
+    assert!(store.load().unwrap().content.vocal_percussion.is_some());
+    apply(&store, Action::Undo).unwrap();
+    assert!(store.load().unwrap().content.vocal_percussion.is_none());
+    assert!(store.load().unwrap().content.harmonies.is_none());
+    apply(&store, Action::Redo).unwrap();
+    let bytes = export_to(&store, &root.path().join("first-singer"), None);
+    assert!(
+        crate::vocal_harmonies::import_midi(&bytes)
+            .unwrap()
+            .is_some()
+    );
+    assert!(import_midi(&bytes).unwrap().is_some());
+}
+#[test]
 fn omitted_typed_percussion_does_not_return_when_new_singers_are_authored_later() {
     let (root, store) = project(true, false);
     apply(

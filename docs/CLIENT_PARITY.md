@@ -19,12 +19,21 @@ native, static-browser and hosted edit/restart/backup/export workflows, visual
 preview, listening and target-game acceptance remain open. Shared controls do
 not qualify those workflows.
 
-Vocal percussion authoring remains a gap in both applications. A separate Rust
-document on the feature branch validates displayed/hidden hits and dedicated
+Vocal percussion controls are implemented on the feature branch but remain
+unqualified in both applications. The shared Rust pane exposes separate lead and
+harmony hits, displayed/hidden flags, tick placement and movement, removal,
+selection, scoring-phrase resize/split/merge, Undo/Redo and recording-phrase loops.
+Its bounded preview follows the source transport clock and distinguishes hidden
+hits from displayed hits. Selected forms retain exact hit/phrase witnesses when
+other edits change their indices, so stale forms cannot retarget another event.
+A separate Rust document validates displayed/hidden hits and dedicated
 percussion scoring phrases without changing pitched/talkie syllables. It refuses
 phrases that overlap the applicable lead or harmony singing phrases. Typed project
 commands create, move, hide/show and delete hits, and resize, split or merge
-dedicated phrases using exact selected-value guards. They persist authored hits
+dedicated phrases using exact selected-value guards. Moving a phrase's final hit
+to a new dedicated range is one atomic, undoable command. First singers in a
+verified percussion-only owner adopt the retained percussion in that same edit;
+new-note defaults avoid its scoring ranges. Commands persist authored hits
 or an explicit clear, with content-addressed Undo/Redo and portable project
 relocation. Legacy documents inherit only active source parts; reopening an
 instrument-only export does not revive omitted hits.
@@ -35,8 +44,8 @@ archive, rebuilds singers, then writes the selected percussion. A MIDI-bound
 working sidecar preserves authored, cleared and omitted state on reopen.
 Logical Vocals/Harmonies selection replaces duplicate raw percussion owners;
 omitted original controls stay omitted when singers are authored later.
-Placement/selection/preview controls and actual native, browser and game
-acceptance remain open. A strict MIDI reader extracts dedicated source phrases
+Actual native/browser placement, selection, preview, restart, backup and export
+acceptance, plus musical/game judgments, remain open. A strict MIDI reader extracts dedicated source phrases
 with original hit and scoring-marker attributes;
 ambiguous, mixed singing/percussion and uncovered source hits refuse the editable
 view. Shared scoring ranges used by unmanaged harmony percussion also remain

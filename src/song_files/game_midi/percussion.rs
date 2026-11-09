@@ -153,6 +153,20 @@ pub(crate) fn validate_harmony_authoring(
     }
     Ok(())
 }
+pub(crate) fn can_begin_harmonies(song: &Path, state: Option<&State>) -> Result<bool> {
+    let inherited = if state.is_none() {
+        super::percussion_view(song)?.map(|document| State::Authored { document })
+    } else {
+        None
+    };
+    let state = state.or(inherited.as_ref());
+    if !percussion_owners(song, state)?.contains(&Part::Harm1) {
+        return Ok(false);
+    }
+    Ok(working_source(song)?.is_none_or(|bytes| {
+        crate::vocal_harmonies::import_midi(&bytes).is_ok_and(|view| view.is_none())
+    }))
+}
 pub(crate) struct VocalExport<'a> {
     pub lead: Option<&'a VocalChart>,
     pub harmonies: Option<&'a HarmonyChart>,

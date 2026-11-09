@@ -77,6 +77,7 @@ impl Edit {
                     phrases: vec![],
                     hits: vec![],
                 });
+                let mut old_phrase = None;
                 if let Some(index) = index {
                     let actual = track
                         .hits
@@ -86,6 +87,11 @@ impl Edit {
                         expected.as_ref() == Some(&*actual),
                         "Selected percussion hit changed; select it again"
                     );
+                    old_phrase = track
+                        .phrases
+                        .iter()
+                        .find(|phrase| phrase.covers(actual))
+                        .cloned();
                     *actual = hit.clone();
                 } else {
                     ensure!(
@@ -98,6 +104,14 @@ impl Edit {
                     && !track.phrases.contains(phrase)
                 {
                     track.phrases.push(phrase.clone());
+                }
+                // Moving the last hit out of its original dedicated phrase is
+                // one atomic edit. Prune only that witnessed old range; newly
+                // supplied empty or conflicting ranges still fail validation.
+                if let Some(old) = old_phrase
+                    && !track.hits.iter().any(|hit| old.covers(hit))
+                {
+                    track.phrases.retain(|phrase| phrase != &old);
                 }
             }
             Self::RemoveHit {

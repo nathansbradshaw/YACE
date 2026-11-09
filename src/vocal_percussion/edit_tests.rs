@@ -256,3 +256,30 @@ fn zero_length_hit_edits_retain_physical_duration_and_hidden_encoding() {
     assert_eq!(next.tracks[&Part::Lead].hits[0], changed);
     assert_eq!(changed.key(), 97);
 }
+#[test]
+fn moving_the_last_hit_to_a_new_phrase_is_atomic_and_does_not_hide_invalid_requested_ranges() {
+    let chart = document();
+    let original = chart.tracks[&Part::Lead].hits[0].clone();
+    let edit = Edit::PutHit {
+        part: Part::Lead,
+        index: Some(0),
+        expected: Some(original.clone()),
+        hit: hit(1200),
+        phrase: Some(phrase(960, 1920)),
+    };
+    let next = edit.apply(Some(&chart), 480).unwrap().unwrap();
+    assert_eq!(next.tracks[&Part::Lead].phrases, [phrase(960, 1920)]);
+    assert_eq!(chart.tracks[&Part::Lead].hits, [original.clone()]);
+    assert!(edit.apply(Some(&next), 480).is_err());
+    assert!(
+        Edit::PutHit {
+            part: Part::Lead,
+            index: Some(0),
+            expected: Some(original),
+            hit: hit(1200),
+            phrase: Some(phrase(1920, 2880))
+        }
+        .apply(Some(&chart), 480)
+        .is_err()
+    );
+}

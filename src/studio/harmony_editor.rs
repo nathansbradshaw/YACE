@@ -121,6 +121,20 @@ fn initial(
         PhraseDraft::from(&lyric),
     )
 }
+fn first_free_tick(
+    mut tick: u64,
+    resolution: u32,
+    blocked: &[crate::vocal_percussion::Phrase],
+) -> u64 {
+    for phrase in blocked {
+        if tick < phrase.range.end
+            && phrase.range.start < tick.saturating_add(u64::from(resolution).max(1))
+        {
+            tick = phrase.range.end;
+        }
+    }
+    tick
+}
 
 #[component]
 pub fn HarmonyEditor(mut studio: Studio) -> Element {
@@ -162,7 +176,12 @@ pub fn HarmonyEditor(mut studio: Studio) -> Element {
                         .and_then(Part::from_midi)
                         .is_some()
                 });
-            Ok((ranges.unwrap_or_default(), opaque))
+            let can_begin = opaque
+                && game_midi::can_begin_harmonies(
+                    &store.root.join("source"),
+                    doc.content.vocal_percussion.as_ref(),
+                )?;
+            Ok((ranges.unwrap_or_default(), opaque && !can_begin))
         }) {
             Ok((ranges, opaque)) => (ranges, opaque, None),
             Err(error) => (Default::default(), true, Some(format!("{error:#}"))),
@@ -245,7 +264,35 @@ fn HarmonyNoteForm(
                 .map(|v| v.notes.clone())
         })
         .unwrap_or_default();
-    let (new_draft, new_score, new_lyric) = initial(part, resolution, &notes, &ranges);
+    let (new_draft, new_score, new_lyric) = use_hook(|| {
+        let mut initial = initial(part, resolution, &notes, &ranges);
+        if notes.is_empty()
+            && ranges.scoring.is_empty()
+            && let Some(doc) = studio.snapshot()
+            && let Some(store) = studio.store.read().as_ref()
+            && let Ok(Some(pc)) = store.vocal_percussion(&doc)
+            && let Some(track) = pc.tracks.get(&crate::vocal_percussion::Part::Harm1)
+            && let Some(timing) = (studio.timing)()
+        {
+            let tick = first_free_tick(
+                timing.tick(*studio.playhead.peek()).unwrap_or(0),
+                resolution,
+                &track.phrases,
+            );
+            initial.0.start = tick.to_string();
+            initial.0.end = tick
+                .saturating_add((u64::from(resolution) / 2).max(1))
+                .to_string();
+            let phrase = VocalPhrase {
+                start: tick,
+                end: tick.saturating_add(u64::from(resolution).max(1)),
+                player: 1,
+            };
+            initial.1 = PhraseDraft::from(&phrase);
+            initial.2 = PhraseDraft::from(&phrase);
+        }
+        initial
+    });
     let mut draft = use_signal(|| {
         note.as_ref()
             .map_or(new_draft, |(_, note)| NoteDraft::from_note(note))

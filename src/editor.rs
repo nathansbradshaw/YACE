@@ -1420,6 +1420,33 @@ impl Store {
             None => crate::song_files::game_midi::percussion_view(&self.root.join("source")),
         }
     }
+    fn prepare_harmony_authoring(
+        &self,
+        doc: &mut Project,
+        after: &crate::vocal_harmonies::HarmonyChart,
+    ) -> Result<()> {
+        let source = self.root.join("source");
+        let originals = crate::song_files::game_midi::extra_parts(&source)?;
+        if originals.iter().any(|name| {
+            name.strip_prefix("MIDI: ")
+                .and_then(crate::vocal_harmonies::Part::from_midi)
+                .is_some()
+        }) {
+            if doc.content.vocal_percussion.is_none()
+                && crate::song_files::game_midi::can_begin_harmonies(&source, None)?
+                && let Some(document) = crate::song_files::game_midi::percussion_view(&source)?
+            {
+                doc.content.vocal_percussion =
+                    Some(crate::vocal_percussion::State::Authored { document });
+            }
+            crate::song_files::game_midi::validate_harmony_authoring(
+                &source,
+                doc.content.vocal_percussion.as_ref(),
+                after,
+            )?;
+        }
+        Ok(())
+    }
     /// Synth recognition reads the original recording. A piano-labelled
     /// separation stem is not a synth isolation, even when it is available.
     /// Supplied game channels and explicitly attached keyboard stems retain
@@ -2241,19 +2268,7 @@ impl Store {
             Action::SetHarmonies { document } => {
                 document.validate_timing(&doc.timing(self)?, doc.duration)?;
                 if doc.content.harmonies.is_none() {
-                    let originals =
-                        crate::song_files::game_midi::extra_parts(&self.root.join("source"))?;
-                    if originals.iter().any(|name| {
-                        name.strip_prefix("MIDI: ")
-                            .and_then(crate::vocal_harmonies::Part::from_midi)
-                            .is_some()
-                    }) {
-                        crate::song_files::game_midi::validate_harmony_authoring(
-                            &self.root.join("source"),
-                            doc.content.vocal_percussion.as_ref(),
-                            document,
-                        )?;
-                    }
+                    self.prepare_harmony_authoring(&mut doc, document)?;
                 }
                 crate::song_files::game_midi::validate_harmony_edit(
                     &self.root.join("source"),
@@ -2268,21 +2283,10 @@ impl Store {
             Action::EditHarmonies { edit } => {
                 let next =
                     edit.apply(doc.content.harmonies.as_ref(), doc.timing(self)?.resolution)?;
-                if doc.content.harmonies.is_none() {
-                    let originals =
-                        crate::song_files::game_midi::extra_parts(&self.root.join("source"))?;
-                    if originals.iter().any(|name| {
-                        name.strip_prefix("MIDI: ")
-                            .and_then(crate::vocal_harmonies::Part::from_midi)
-                            .is_some()
-                    }) && let Some(after) = &next
-                    {
-                        crate::song_files::game_midi::validate_harmony_authoring(
-                            &self.root.join("source"),
-                            doc.content.vocal_percussion.as_ref(),
-                            after,
-                        )?;
-                    }
+                if doc.content.harmonies.is_none()
+                    && let Some(after) = &next
+                {
+                    self.prepare_harmony_authoring(&mut doc, after)?;
                 }
                 if let Some(chart) = &next {
                     chart.validate_timing(&doc.timing(self)?, doc.duration)?;

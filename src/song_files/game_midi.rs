@@ -27,6 +27,7 @@ pub use harmonies::{
     validate_harmony_edit,
 };
 pub(crate) use merge::{chunks as midi_chunks, validate_complete as validate_midi_complete};
+pub(crate) use percussion::can_begin_harmonies;
 pub(crate) use percussion::logical_owner as logical_vocal_owner;
 pub(crate) use percussion::validate_harmony_authoring;
 pub(crate) use percussion::write_percussion_state;

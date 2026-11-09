@@ -31,6 +31,7 @@ mod note_gestures;
 mod note_types;
 mod part_analysis;
 mod parts;
+mod percussion_editor;
 mod practice;
 mod presentation_clock;
 mod project_bar;
