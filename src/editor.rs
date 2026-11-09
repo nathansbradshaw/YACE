@@ -379,6 +379,9 @@ pub enum Action {
         document: crate::vocal_harmonies::HarmonyChart,
     },
     ClearHarmonies,
+    EditHarmonies {
+        edit: crate::vocal_harmonies::Edit,
+    },
     DeleteVocalNote {
         index: usize,
     },
@@ -1747,6 +1750,7 @@ impl Store {
                 | Action::SetVocals { .. }
                 | Action::SetHarmonies { .. }
                 | Action::ClearHarmonies
+                | Action::EditHarmonies { .. }
                 | Action::DeleteVocalNote { .. }
                 | Action::SetVocalGeneration { .. }
                 | Action::SetVocalReview { .. }
@@ -2228,6 +2232,25 @@ impl Store {
             Action::ClearHarmonies => {
                 ensure!(doc.content.harmonies.is_some(), "No editable harmonies");
                 doc.content.harmonies = None;
+            }
+            Action::EditHarmonies { edit } => {
+                if doc.content.harmonies.is_none() {
+                    let originals =
+                        crate::song_files::game_midi::extra_parts(&self.root.join("source"))?;
+                    ensure!(
+                        !originals.iter().any(|name| name
+                            .strip_prefix("MIDI: ")
+                            .and_then(crate::vocal_harmonies::Part::from_midi)
+                            .is_some()),
+                        "Original harmony tracks need an imported editable baseline before authoring; source retained"
+                    );
+                }
+                let next =
+                    edit.apply(doc.content.harmonies.as_ref(), doc.timing(self)?.resolution)?;
+                if let Some(chart) = &next {
+                    chart.validate_timing(&doc.timing(self)?, doc.duration)?;
+                }
+                doc.content.harmonies = next;
             }
             Action::DeleteVocalNote { index } => {
                 let chart = doc.content.vocals.as_mut().context("No vocal chart")?;

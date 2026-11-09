@@ -13,6 +13,9 @@ use std::collections::BTreeMap;
 #[path = "vocal_harmonies/midi.rs"]
 mod midi;
 pub use midi::{append_midi, clear_midi, import_midi, rewrite_midi};
+#[path = "vocal_harmonies/edit.rs"]
+mod edit;
+pub use edit::{Edit, PhraseKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -414,6 +417,51 @@ mod tests {
         );
         let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
         assert_eq!(reopened.load().unwrap().content.harmonies, Some(expected));
+    }
+    #[test]
+    fn targeted_harmony_commands_keep_project_history_and_refuse_stale_note_witnesses() {
+        use crate::editor::Action;
+        let (_root, store) = project(false);
+        let document = fixture();
+        apply(
+            &store,
+            Action::SetHarmonies {
+                document: document.clone(),
+            },
+        )
+        .unwrap();
+        let expected = document.voices[&Part::Harm2].notes[0].clone();
+        let mut note = expected.clone();
+        note.tone = VocalTone::Pitched { midi: 65 };
+        let edit = Edit::PutNote {
+            part: Part::Harm2,
+            index: Some(0),
+            expected: Some(expected),
+            note: note.clone(),
+            scoring_phrase: None,
+            lyric_phrase: None,
+        };
+        apply(&store, Action::EditHarmonies { edit: edit.clone() }).unwrap();
+        let path = store.root.join("project.json");
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            apply(&store, Action::EditHarmonies { edit })
+                .unwrap_err()
+                .to_string()
+                .contains("note changed")
+        );
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+        assert_eq!(
+            store.load().unwrap().content.harmonies.unwrap().voices[&Part::Harm2].notes,
+            [note]
+        );
+        apply(&store, Action::Undo).unwrap();
+        assert_eq!(store.load().unwrap().content.harmonies, Some(document));
+        apply(&store, Action::Redo).unwrap();
+        assert_eq!(
+            store.load().unwrap().content.harmonies.unwrap().voices[&Part::Harm2].notes[0].tone,
+            VocalTone::Pitched { midi: 65 }
+        );
     }
     pub(super) fn fixture() -> HarmonyChart {
         HarmonyChart {
