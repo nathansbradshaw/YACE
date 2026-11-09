@@ -46,7 +46,8 @@ Unmodified tracks remain byte-identical; singing, lyrics, overdrive and author
 controls are retained. Supported harmony MIDI views exclude verified dedicated
 percussion ranges from singing phrases; singing-phrase rewrites preserve the
 physical percussion markers and reject new scoring conflicts. Project export,
-reopen, explicit omission, later singer authoring, repeated export and portable
+reopen (including percussion-only selection), explicit omission, later singer
+authoring, repeated export and portable
 history regressions cover this backend path. Conflicting candidates and invalid
 owner endings refuse before returning a rewritten song. These checks do not
 qualify an actual application workflow.

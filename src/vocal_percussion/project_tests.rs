@@ -818,6 +818,36 @@ fn altered_working_percussion_state_refuses_reopen_without_replacing_the_source(
     assert!(!root.path().join("must-not-open").exists());
 }
 #[test]
+fn percussion_only_selection_reopens_without_adding_playable_instrument_notes() {
+    let (root, store) = project(false, false);
+    apply(
+        &store,
+        Action::SetVocalPercussion {
+            document: super::tests::fixture(),
+        },
+    )
+    .unwrap();
+    let output = root.path().join("percussion-only");
+    let bytes = export_to(&store, &output, Some(&["Vocals"]));
+    assert_eq!(import_midi(&bytes).unwrap().unwrap().tracks.len(), 1);
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    assert!(
+        reopened
+            .load()
+            .unwrap()
+            .content
+            .tracks
+            .values()
+            .all(Vec::is_empty)
+    );
+    let midi = midly::Smf::parse(&bytes).unwrap();
+    assert!(!midi.tracks.iter().any(|track| track.iter().any(|event| matches!(event.kind, midly::TrackEventKind::Meta(midly::MetaMessage::TrackName(b"PART GUITAR")))) && track.iter().any(|event| matches!(event.kind,midly::TrackEventKind::Midi {message:midly::MidiMessage::NoteOn {vel,..},..} if vel.as_int()>0))));
+    assert_eq!(
+        export_to(&reopened, &root.path().join("repeat"), Some(&["Vocals"])),
+        bytes
+    );
+}
+#[test]
 fn portable_percussion_project_retains_content_addressed_history() {
     fn collect(root: &Path, path: &Path, files: &mut crate::project_portability::Files) {
         for entry in fs::read_dir(path).unwrap() {

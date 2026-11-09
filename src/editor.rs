@@ -2735,7 +2735,23 @@ impl Store {
                 || !selected.iter().any(|track| track.ends_with("Drums")),
             "Five-lane drums require .chart export; a lossless five-lane MIDI conversion is not available"
         );
-        let text = options.chart(doc.chart_text(self)?)?;
+        let mut text = options.chart(doc.chart_text(self)?)?;
+        if midi_export
+            && !Chart::parse(text.clone())?
+                .sections
+                .iter()
+                .any(|section| editable_track(&section.name))
+        {
+            // Match ordinary MIDI import: a vocal/percussion-only song keeps
+            // an empty editable master track, without adding playable notes.
+            let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+            if !text.ends_with('\n') {
+                text.push_str(newline);
+            }
+            text.push_str(&format!(
+                "{newline}[ExpertSingle]{newline}{{{newline}}}{newline}"
+            ));
+        }
         let mut scoped = doc.clone();
         scoped
             .content
