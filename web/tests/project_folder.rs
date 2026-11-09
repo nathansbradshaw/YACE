@@ -102,12 +102,7 @@ async fn rejected_new_project_folder_never_falls_back_to_browser_storage() {
     use yace_web::project_destination::Choice;
     let fixture = Fixture::new().await.unwrap();
     let result = async {
-        let marker = handle(&fixture.folder, "existing.txt").await?;
-        let writer = writable(&marker).await?;
-        JsFuture::from(writer.write_with_str("keep this file"))
-            .await
-            .map_err(error)?;
-        JsFuture::from(writer.close()).await.map_err(error)?;
+        replace(&fixture.folder, "existing.txt", b"keep this file").await?;
         ensure!(
             Choice::Folder(fixture.folder.clone())
                 .save(&fixture.root)
