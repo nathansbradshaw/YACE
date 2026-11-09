@@ -30,6 +30,15 @@ struct Args {
     predict_recovery: bool,
     #[arg(long, requires = "predict_recovery")]
     predict_energy: bool,
+    /// Development experiment only; never identifies itself as a frozen app profile.
+    #[arg(long, requires_all = ["predict_only", "predict_recovery"])]
+    research_minimum_duration: Option<f64>,
+    /// Retain the 180 ms two-vote recovery and add shorter three-vote contours.
+    #[arg(long, requires = "research_minimum_duration")]
+    research_consensus_extension: bool,
+    /// Development-only assembly experiment, recorded in policy and identity.
+    #[arg(long, requires = "predict_only")]
+    research_note_minimum: Option<f64>,
     #[arg(long, requires = "predict_only")]
     held_out: bool,
     #[arg(long, default_value = "")]
@@ -205,6 +214,36 @@ impl Raw {
 }
 fn main() -> Result<()> {
     let a = Args::parse();
+    if let Some(seconds) = a.research_minimum_duration {
+        ensure!(
+            seconds.is_finite() && (0.04..=0.3).contains(&seconds),
+            "Invalid research recovery duration"
+        );
+    }
+    if let Some(seconds) = a.research_note_minimum {
+        ensure!(
+            seconds.is_finite() && (0.03..=0.5).contains(&seconds),
+            "Invalid research note minimum"
+        );
+    }
+    let frozen_profile = if a.predict_energy {
+        vp::FROZEN_ENERGY_PROFILE
+    } else if a.predict_recovery {
+        vp::FROZEN_RECOVERY_PROFILE
+    } else {
+        vp::FROZEN_PROFILE
+    };
+    let mut profile = if let Some(seconds) = a.research_minimum_duration {
+        format!("{frozen_profile};research-only-recovery-minimum-seconds={seconds:.6}")
+    } else {
+        frozen_profile.to_owned()
+    };
+    if let Some(seconds) = a.research_note_minimum {
+        profile.push_str(&format!(";research-only-note-minimum-seconds={seconds:.6}"));
+    }
+    if a.research_consensus_extension {
+        profile.push_str(";research-only-retain180ms-two-votes-plus-short-three-votes");
+    }
     ensure!(!a.output.exists(), "Output exists");
     let c: Corpus = serde_json::from_slice(&fs::read(&a.corpus)?)?;
     let mut generated = vec![];
@@ -213,7 +252,7 @@ fn main() -> Result<()> {
         fs::write(
             a.output.join("frozen-profile.json"),
             serde_json::to_vec_pretty(
-                &json!({"profile":if a.predict_energy {vp::FROZEN_ENERGY_PROFILE} else if a.predict_recovery {vp::FROZEN_RECOVERY_PROFILE}else{vp::FROZEN_PROFILE},"inputs_sha256":models::hash_file(&a.corpus)?,"executable_sha256":models::hash_file(&std::env::current_exe()?)?,"target_values_read":false,"held_out":a.held_out,"validation_notice":"After first evaluation, these artists are exposed regression material; parameters remain selected only on the four development recordings.","contour_implementation_sha256":format!("{:x}",sha2::Sha256::digest(include_bytes!("../src/vocal_posterior.rs")))}),
+                &json!({"profile":profile,"research_minimum_duration":a.research_minimum_duration,"research_note_minimum":a.research_note_minimum,"inputs_sha256":models::hash_file(&a.corpus)?,"executable_sha256":models::hash_file(&std::env::current_exe()?)?,"target_values_read":false,"held_out":a.held_out,"validation_notice":"After first evaluation, these artists are exposed regression material; parameters remain selected only on the four development recordings.","contour_implementation_sha256":format!("{:x}",sha2::Sha256::digest(include_bytes!("../src/vocal_posterior.rs")))}),
             )?,
         )?;
     }
@@ -448,7 +487,7 @@ fn main() -> Result<()> {
                             } {
                                 for recovery_duration in if a.predict_recovery || a.energy_recovery
                                 {
-                                    vec![0.18]
+                                    vec![a.research_minimum_duration.unwrap_or(0.18)]
                                 } else if a.recover {
                                     if recovery_votes == 2 {
                                         vec![0.16, 0.18, 0.20, 0.24]
@@ -485,15 +524,44 @@ fn main() -> Result<()> {
                                                         })
                                                     })
                                                     .collect();
+                                                let mut strong = candidate.pitch_frames.clone();
+                                                if a.research_consensus_extension {
+                                                    vp::recover_energy(
+                                                        &mut strong,
+                                                        [&rc, &cc, &fc],
+                                                        &filtered,
+                                                        3,
+                                                        recovery_duration,
+                                                        energy_ratio,
+                                                        &|| false,
+                                                    )?;
+                                                }
                                                 vp::recover_energy(
                                                     &mut candidate.pitch_frames,
                                                     [&rc, &cc, &fc],
                                                     &filtered,
                                                     recovery_votes,
-                                                    recovery_duration,
+                                                    if a.research_consensus_extension {
+                                                        0.18
+                                                    } else {
+                                                        recovery_duration
+                                                    },
                                                     energy_ratio,
                                                     &|| false,
                                                 )?;
+                                                if a.research_consensus_extension {
+                                                    for (frame, supported) in candidate
+                                                        .pitch_frames
+                                                        .iter_mut()
+                                                        .zip(strong)
+                                                    {
+                                                        if frame.midi.is_none()
+                                                            && supported.midi.is_some()
+                                                        {
+                                                            *frame = supported;
+                                                        }
+                                                    }
+                                                }
                                             }
                                             vp::decode(
                                                 &mut candidate.pitch_frames,
@@ -502,6 +570,15 @@ fn main() -> Result<()> {
                                                 &|| false,
                                             )?;
                                             let mut issues = vec![];
+                                            if let Some(seconds) = a.research_note_minimum {
+                                                ensure!(
+                                                    candidate.policy.analysis_mode
+                                                        == vg::AnalysisMode::HighAccuracy,
+                                                    "Short-note experiment requires explicit High accuracy"
+                                                );
+                                                candidate.policy.minimum_note_seconds = seconds;
+                                                candidate.policy.validate()?;
+                                            }
                                             let asm = vg::assemble_notes(
                                                 &candidate.pitch_frames,
                                                 candidate.duration_seconds,
@@ -521,14 +598,7 @@ fn main() -> Result<()> {
                                             };
                                             vp::annotate(&mut candidate, &observations)?;
                                             if a.predict_only {
-                                                candidate.algorithm = if a.predict_energy {
-                                                    vp::FROZEN_ENERGY_PROFILE
-                                                } else if a.predict_recovery {
-                                                    vp::FROZEN_RECOVERY_PROFILE
-                                                } else {
-                                                    vp::FROZEN_PROFILE
-                                                }
-                                                .into();
+                                                candidate.algorithm = profile.clone();
                                                 let path = a
                                                     .output
                                                     .join(format!("{}.generation.json", r.id));

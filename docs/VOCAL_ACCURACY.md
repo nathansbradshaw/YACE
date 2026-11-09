@@ -321,6 +321,38 @@ It does not infer singers from stem names or replace missing harmony annotations
 The PANNs activity experiment is separate, not part of this pitch recipe; see
 `tools/vocal-activity-probe/NOTICE.md` for pinned weights and preprocessing.
 
+### Short-contour regression and development tools
+
+High accuracy now coalesces touching same-pitch attack fragments before applying
+the minimum note duration. A late attack can therefore no longer discard the
+accepted tail of a sustained pitch. Actual gaps and pitch changes remain
+separate; repeated notes that both meet the duration minimum retain their
+boundary. Explicitly requested notes below 80 ms retain their missing lyrics,
+pitch and a visible short-contour uncertainty reason. This does not lower the
+default duration or manufacture pitch in silence.
+
+`vocal_accuracy_batch` can run the production multi-model pipeline, reassemble
+existing accepted frames, or seed verified raw RMVPE caches. Its source/model/
+implementation/PCM checks precede reuse. Reassembly does not copy stale per-note
+model counts to changed boundaries; a complete cached-model replay recomputes
+those counts. Generated MIDI is read back and compared with the saved chart.
+
+`vocal_accuracy_grid` is restricted to development recordings. It runs the
+posterior helper with explicit research-only recovery/note duration overrides,
+finishes predictions before loading references, then scores raw and exported
+notes separately. It also supports a research consensus extension: retain the
+180 ms two-vote recovery and separately require three spectral votes for shorter
+contours. Both passes calculate energy support from the original frames. All
+overrides enter the saved recipe and algorithm identity, so the production
+profile check cannot silently accept them. None of these experiments promotes
+a backend or proves the added notes correct.
+
+Keep every corpus, recording, reference, salience cache and detailed report in a
+private directory outside Git. Use distinct development/validation artists;
+previously evaluated artists are regression material, never fresh held-out
+evidence. Language tags with unreliable provenance remain unknown. Authored
+game charts supply chart-relative target notes, not measured performance F0.
+
 ### Residual section rescan experiment
 
 `cargo run --release --no-default-features --example vocal_chunk_trial -- AUDIO
