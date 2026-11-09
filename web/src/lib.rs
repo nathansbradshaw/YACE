@@ -203,6 +203,8 @@ pub mod vocal_section_analysis;
 pub mod vocal_section_audio;
 #[path = "../../src/vocals.rs"]
 pub mod vocals;
+#[path = "../../src/vocal_harmonies.rs"]
+pub mod vocal_harmonies;
 #[path = "../../src/waveform.rs"]
 pub mod waveform;
 pub mod worker;

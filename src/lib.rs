@@ -122,6 +122,7 @@ pub mod vocal_section_analysis;
 pub mod vocal_section_audio;
 pub mod vocal_workflow;
 pub mod vocals;
+pub mod vocal_harmonies;
 pub mod waveform;
 pub use yace_stepmania as stepmania;
 pub mod stepmania_files;
