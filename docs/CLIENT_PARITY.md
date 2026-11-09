@@ -19,8 +19,15 @@ overdrive and author controls. The shared Rust fix retains that source part and
 any scoring phrase required by its percussion. Conflicting phrase edits refuse
 export rather than displace the retained percussion. Explicitly deselecting
 Vocals remains durable across export, reopen and later lead-note authoring.
-Regression checks cover these paths, but actual native, static-browser and
-hosted export/reopen acceptance of this fix remains open.
+Actual static-browser checks deleted both lead notes, exported with Vocals
+selected, reopened the downloaded song and exported again. Independent MIDI
+inspection retained the exact percussion, scoring, overdrive and author events,
+unrelated tracks and original recording; pitched notes and lyrics stayed gone.
+A separate UI export explicitly omitted Vocals. After reopening it and authoring
+a new C4 note at ticks 960–1200, two export/reopen cycles retained that new note
+without restoring the omitted controls. Both repeated MIDI exports were
+byte-identical. Native GUI and hosted checks on the integrated revision remain
+separate acceptance gates.
 
 | Workflow | Verification evidence | Result |
 | --- | --- | --- |
