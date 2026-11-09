@@ -13,6 +13,22 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 
 ## Acceptance ledger
 
+Deleting the final pitched lead-vocal notes exposed an export preservation gap:
+the export selector omitted `PART VOCALS`, including untouched percussion,
+overdrive and author controls. The shared Rust fix retains that source part and
+any scoring phrase required by its percussion. Conflicting phrase edits refuse
+export rather than displace the retained percussion. Explicitly deselecting
+Vocals remains durable across export, reopen and later lead-note authoring.
+Actual static-browser checks deleted both lead notes, exported with Vocals
+selected, reopened the downloaded song and exported again. Independent MIDI
+inspection retained the exact percussion, scoring, overdrive and author events,
+unrelated tracks and original recording; pitched notes and lyrics stayed gone.
+A separate UI export explicitly omitted Vocals. After reopening it and authoring
+a new C4 note at ticks 960–1200, two export/reopen cycles retained that new note
+without restoring the omitted controls. Both repeated MIDI exports were
+byte-identical. Native GUI and hosted checks on the integrated revision remain
+separate acceptance gates.
+
 | Workflow | Verification evidence | Result |
 | --- | --- | --- |
 | Start from recording or existing chart | Both OS-picker/manual starts exercised; native setup now reaches Ready after save; identical chart/INI settings and unchanged encoded source | Verified |
