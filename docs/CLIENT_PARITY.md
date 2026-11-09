@@ -84,7 +84,10 @@ browser export (`79896ea759f587e840a6a28249182641e21dcc3bca6050a13ebc7da5668fe56
 and passed the same independent MIDI and original-audio inspection. Opening
 the browser's complete project ZIP through the normal native picker recovered
 revision 24 and its source/history; native Undo and Redo retained the edited
-frets and articulation. Native blank creation, hosted release and independent
+frets and articulation. Native blank creation added both profiles, pasted a
+typed 17-fret note into the empty 17-fret part and edited it to fret 17. Pasting
+that clipboard into the separate 22-fret part refused without changing it.
+Direct native piano-roll placement, hosted release and independent
 target-game/controller and musical acceptance remain open.
 
 ## Five-pad drum authoring (2026-11-08)
