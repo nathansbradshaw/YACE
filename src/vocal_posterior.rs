@@ -25,7 +25,7 @@ pub const ALGORITHM: &str = "posterior-note-centres-v1;49states36to84;bounded8ho
 pub const FROZEN_PROFILE: &str = "rust-vocal-ensemble-v11-experimental;v10-voicing;RMVPE-CREPEfull-FCPE;max50cent-band;log-strength-ratio-cap2;v10-residual-anchor0.25-cap4;ROSVOT-Swift-agreement0.75st-salience0.5-prior4-cap4;change8;8hop-context;no-key-scale-or-octave-fold";
 /// Frozen after development-only gap recovery experiments; no held-out scores.
 pub const FROZEN_RECOVERY_PROFILE: &str = "rust-vocal-ensemble-v12-experimental;v11-centres;gap-recovery-ROSVOT-Swift-plus2of3-RMVPE-CREPEfull-FCPE;band-cost-contrast0.25;local-RMS-floor0.0015;stable180ms-including-existing-voicing-context;retain-all-original-voicing;no-lyrics-key-scale-or-octave-fold";
-pub const FROZEN_ENERGY_PROFILE: &str = "rust-vocal-ensemble-v13-experimental;v12-recovery;addition-energy-floor-max0.0015-or-half-median-existing-voiced-local-RMS;quiet-existing-voice-retained;no-lyric-or-reference-input";
+pub const FROZEN_ENERGY_PROFILE: &str = "rust-vocal-ensemble-v14-experimental;v13-pitch-and-voicing;v12-recovery;addition-energy-floor-max0.0015-or-half-median-existing-voiced-local-RMS;quiet-existing-voice-retained;assembly-v2-coalesce-touching-same-pitch-subminimum-attack-fragments-without-bridging-gaps;no-lyric-or-reference-input";
 pub struct ModelFrames {
     pub id: String,
     pub model_sha256: String,
