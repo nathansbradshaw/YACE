@@ -110,6 +110,7 @@ pub mod vocal_benchmark;
 pub mod vocal_consensus;
 pub mod vocal_generation;
 pub mod vocal_harmonies;
+pub mod vocal_percussion;
 pub mod vocal_independent;
 pub mod vocal_note_consensus;
 pub mod vocal_note_recipe;

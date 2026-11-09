@@ -19,6 +19,13 @@ native, static-browser and hosted edit/restart/backup/export workflows, visual
 preview, listening and target-game acceptance remain open. Shared controls do
 not qualify those workflows.
 
+Vocal percussion authoring remains a gap in both applications. A separate Rust
+document on the feature branch validates displayed/hidden hits and dedicated
+percussion scoring phrases without changing pitched/talkie syllables. It refuses
+phrases that overlap the applicable lead or harmony singing phrases. Project
+persistence, MIDI editing, placement/selection/Undo/preview controls and actual
+native, browser and game acceptance remain open.
+
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer
 closes this work. No application service is substituted. Browser generation,
