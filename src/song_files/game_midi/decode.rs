@@ -594,7 +594,7 @@ pub(super) fn import(bytes: &[u8], ini: &str) -> Result<Decoded> {
     let chart = Chart::parse(raw)?;
     // Filter only a supported lead-vocal view; its other original events remain
     // in the immutable source for export rather than failing the entire song.
-    let vocals = super::merge::vocal_view(&smf)?
+    let vocals = super::merge::vocal_view(bytes)?
         .map(|bytes| crate::vocals::import_midi(&bytes))
         .transpose();
     let vocals = match vocals {

@@ -151,7 +151,8 @@ fn vocal_event(kind: TrackEventKind<'_>) -> bool {
     }
 }
 
-pub(super) fn vocal_view(smf: &Smf<'_>) -> Result<Option<Vec<u8>>> {
+pub(super) fn vocal_view(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+    let smf = Smf::parse(bytes)?;
     let tracks: Vec<_> = smf
         .tracks
         .iter()
@@ -164,6 +165,23 @@ pub(super) fn vocal_view(smf: &Smf<'_>) -> Result<Option<Vec<u8>>> {
     let Some(track) = tracks.first() else {
         return Ok(None);
     };
+    // Dedicated percussion scoring is not an empty singing phrase. Exclude
+    // only the physical marker edges proven by the complete percussion reader;
+    // mixed or ambiguous source keeps its previous conservative import result.
+    let mut percussion_edges = BTreeSet::new();
+    if let Ok(Some(percussion)) = crate::vocal_percussion::import_midi(bytes)
+        && let Some(track) = percussion.tracks.get(&crate::vocal_percussion::Part::Lead)
+    {
+        for phrase in &track.phrases {
+            let channel = phrase
+                .midi
+                .as_ref()
+                .map_or(0, |attributes| attributes.channel);
+            let key = if phrase.range.player == 2 { 106 } else { 105 };
+            percussion_edges.insert((phrase.range.start, channel, key, true));
+            percussion_edges.insert((phrase.range.end, channel, key, false));
+        }
+    }
     let mut events = vec![(
         0,
         1,
@@ -171,7 +189,9 @@ pub(super) fn vocal_view(smf: &Smf<'_>) -> Result<Option<Vec<u8>>> {
         TrackEventKind::Meta(MetaMessage::TrackName(b"PART VOCALS")),
     )];
     for (index, (tick, kind)) in absolute(track).into_iter().enumerate() {
-        if vocal_event(kind) {
+        if vocal_event(kind)
+            && !phrase_edge(tick, kind).is_some_and(|edge| percussion_edges.contains(&edge))
+        {
             events.push((tick, 1, index + 1, kind));
         }
     }

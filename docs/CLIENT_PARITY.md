@@ -27,7 +27,11 @@ Its bounded preview follows the source transport clock and distinguishes hidden
 hits from displayed hits. Selected forms retain exact hit/phrase witnesses when
 other edits change their indices, so stale forms cannot retarget another event.
 A separate Rust document validates displayed/hidden hits and dedicated
-percussion scoring phrases without changing pitched/talkie syllables. It refuses
+percussion scoring phrases without changing pitched/talkie syllables. Verified
+dedicated percussion scoring is excluded from the lead singer import view, so
+separate singing phrases remain editable; their original percussion markers and
+physical hit attributes survive singer edits, export and reopen. Unsupported
+uncovered hits retain the conservative read-only source behavior. It refuses
 phrases that overlap the applicable lead or harmony singing phrases. Typed project
 commands create, move, hide/show and delete hits, and resize, split or merge
 dedicated phrases using exact selected-value guards. Moving a phrase's final hit
