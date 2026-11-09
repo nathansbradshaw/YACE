@@ -734,6 +734,186 @@ fn offset_only_edit_keeps_every_midi_byte_and_reopens_with_one_ini_delay() {
 }
 
 #[test]
+fn editing_one_power_range_keeps_other_ranges_exact_source_note_attributes() {
+    let original = encode(vec![
+        track(
+            b"PART GUITAR",
+            vec![
+                (0, on(4, 116, 89)),
+                (480, off(4, 116, 22)),
+                (960, on(5, 116, 77)),
+                (1440, on(5, 116, 0)),
+                (240, on(2, 96, 81)),
+                (360, off(2, 96, 17)),
+            ],
+        ),
+        track(
+            b"VENUE",
+            vec![(
+                123,
+                TrackEventKind::Meta(MetaMessage::Text(b"Unrelated venue")),
+            )],
+        ),
+    ]);
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    apply(
+        &store,
+        Action::EditStarPower {
+            edit: crate::star_power::Edit::Put {
+                track: "ExpertSingle".into(),
+                previous: None,
+                phrase: crate::star_power::Phrase {
+                    start: 1920,
+                    end: 2400,
+                },
+            },
+        },
+    )
+    .unwrap();
+    let added = export(&store, &root.path().join("added"));
+    let old = events(&original, "PART GUITAR");
+    let actual = events(&added, "PART GUITAR");
+    for edge in &old {
+        assert!(
+            actual.contains(edge),
+            "Untouched source event changed: {edge:?}"
+        );
+    }
+    assert!(actual.contains(&(1920, on(0, 116, 100))));
+    assert!(actual.contains(&(2400, off(0, 116, 0))));
+    assert_eq!(
+        merge::chunks(&original, 2).unwrap().1[1],
+        merge::chunks(&added, 2).unwrap().1[1]
+    );
+    apply(
+        &store,
+        Action::EditStarPower {
+            edit: crate::star_power::Edit::Remove {
+                track: "ExpertSingle".into(),
+                phrase: crate::star_power::Phrase { start: 0, end: 480 },
+            },
+        },
+    )
+    .unwrap();
+    let removed = export(&store, &root.path().join("removed"));
+    let actual = events(&removed, "PART GUITAR");
+    assert!(actual.contains(&(960, on(5, 116, 77))));
+    assert!(actual.contains(&(1440, on(5, 116, 0))));
+    assert!(!actual.iter().any(|(_,kind)|matches!(kind,TrackEventKind::Midi {channel,message:MidiMessage::NoteOn{key,..}|MidiMessage::NoteOff{key,..}} if channel.as_int()==4&&key.as_int()==116)));
+    apply(&store, Action::Undo).unwrap();
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(export(&store, &root.path().join("undo")), original);
+    apply(&store, Action::Redo).unwrap();
+    apply(&store, Action::Redo).unwrap();
+    assert_eq!(export(&store, &root.path().join("redo")), removed);
+    let reopened = Store::create(
+        &root.path().join("removed"),
+        None,
+        &root.path().join("reopened"),
+    )
+    .unwrap();
+    assert_eq!(export(&reopened, &root.path().join("repeated")), removed);
+}
+
+#[test]
+fn unchanged_power_solo_and_drum_marker_edges_survive_each_component_rewrite() {
+    let mut guitar = vec![(240, on(2, 96, 81)), (360, off(2, 96, 17))];
+    for (key, channel) in [(116, 4), (103, 3)] {
+        guitar.extend([
+            (0, on(channel, key, 89)),
+            (480, off(channel, key, 22)),
+            (960, on(channel + 1, key, 77)),
+            (1440, on(channel + 1, key, 0)),
+        ]);
+    }
+    let mut drums = vec![(240, on(2, 96, 81)), (360, off(2, 96, 17))];
+    for key in [120, 121, 122, 123, 124, 126, 127] {
+        drums.extend([
+            (0, on(6, key, 63)),
+            (480, off(6, key, 21)),
+            (960, on(7, key, 64)),
+            (1440, on(7, key, 0)),
+        ]);
+    }
+    let original = encode(vec![
+        track(b"PART GUITAR", guitar),
+        track(b"PART DRUMS", drums),
+        track(
+            b"PART REAL_KEYS_X",
+            vec![
+                (240, on(2, 60, 71)),
+                (360, off(2, 60, 17)),
+                (0, on(12, 115, 91)),
+                (480, off(12, 115, 51)),
+            ],
+        ),
+    ]);
+    let decoded = decode::import(&original, "[song]\n").unwrap();
+    for (section, owner, rows) in [
+        ("ExpertSingle", "PART GUITAR", " 3000 = S 2 240\n"),
+        (
+            "ExpertSingle",
+            "PART GUITAR",
+            " 3000 = E solo\n 3240 = E soloend\n",
+        ),
+        ("ExpertDrums", "PART DRUMS", " 3000 = S 64 240\n"),
+        ("ExpertDrums", "PART DRUMS", " 3000 = S 65 240\n"),
+        ("ExpertDrums", "PART DRUMS", " 3000 = S 66 240\n"),
+        (
+            "ExpertProKeys",
+            "PART REAL_KEYS_X",
+            " 3000 = E solo\n 3240 = E soloend\n",
+        ),
+    ] {
+        let mut raw = decoded.chart.raw.clone();
+        let body = decoded
+            .chart
+            .sections
+            .iter()
+            .find(|s| s.name == section)
+            .unwrap();
+        raw.insert_str(body.body_end, rows);
+        let changed = Chart::parse(raw).unwrap();
+        let generated = crate::game_export::song(&changed, decoded.vocals.as_ref())
+            .unwrap()
+            .0;
+        let output = merge::rewrite(
+            &original,
+            &generated,
+            merge::State {
+                chart: &decoded.chart,
+                vocals: decoded.vocals.as_ref(),
+                attributes: &decoded.attributes,
+            },
+            merge::State {
+                chart: &changed,
+                vocals: decoded.vocals.as_ref(),
+                attributes: &decoded.attributes,
+            },
+        )
+        .unwrap();
+        let old = events(&original, owner);
+        let actual = events(&output, owner);
+        for edge in old {
+            assert!(
+                actual.contains(&edge),
+                "{section}: source edge changed: {edge:?}"
+            );
+        }
+        for name in ["PART GUITAR", "PART DRUMS", "PART REAL_KEYS_X"] {
+            if name != owner {
+                assert_eq!(
+                    events(&original, name),
+                    events(&output, name),
+                    "{section}: unrelated {name}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn shared_star_power_edits_apply_to_all_difficulties_in_one_undo_step() {
     let original = fixture();
     let root = tempfile::tempdir().unwrap();
