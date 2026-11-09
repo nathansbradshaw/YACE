@@ -5,16 +5,19 @@ before additional product features ship. Use one source revision and the same
 full-length song project for acceptance. Sharing Rust modules establishes shared
 rules; it does not establish that both applications expose working controls.
 
-Harmony authoring remains an implementation gap in both clients. The isolated
-Rust model and MIDI codec support three independent voices, shared phrase
-ownership and edits that preserve unrelated source tracks and controls. Harmony
-documents persist in editor saves and Undo/Redo history through guarded manual
-commands. The shared core imports a supported ordinary MIDI subset, exports
-independent voices and preserves unrelated source tracks and controls. Clearing
-the voices retains source controls; explicitly omitted harmonies stay omitted
-when reopening or authoring new notes later. Unsupported imports remain opaque.
-App controls and actual native, browser and target-game harmony acceptance
-remain open; these core checks do not qualify those workflows.
+Harmony authoring is implemented on the feature branch but remains unqualified
+in both applications. Shared Rust controls expose HARM1–3 notes and lyrics,
+recording loops, Undo/Redo, and the format's shared HARM1 scoring and HARM2 lyric
+ranges. Phrase edits, splits and merges keep singer notes intact and refuse
+uncovered notes or retained percussion. Harmony-only imports expose these
+controls through Vocals. The core imports a supported ordinary MIDI subset and
+exports independent singers while preserving unrelated source tracks and
+controls. Clearing the voices retains source controls; explicitly omitted
+harmonies stay omitted when reopening or authoring new notes later. Unsupported
+imports remain opaque. Source checks and regressions cover these rules; actual
+native, static-browser and hosted edit/restart/backup/export workflows, visual
+preview, listening and target-game acceptance remain open. Shared controls do
+not qualify those workflows.
 
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer

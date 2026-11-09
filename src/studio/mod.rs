@@ -19,6 +19,7 @@ mod frame_pacing;
 mod game_preview;
 mod generation;
 mod generation_status;
+mod harmony_editor;
 mod icons;
 mod inline_review;
 mod modal;
