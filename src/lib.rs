@@ -122,6 +122,8 @@ pub mod vocal_rmvpe;
 pub mod vocal_runtime;
 pub mod vocal_section_analysis;
 pub mod vocal_section_audio;
+pub mod vocal_singing;
+pub mod vocal_singing_tracking;
 pub mod vocal_workflow;
 pub mod vocals;
 pub mod waveform;

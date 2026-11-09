@@ -204,6 +204,10 @@ pub mod vocal_rmvpe;
 pub mod vocal_section_analysis;
 #[path = "../../src/vocal_section_audio.rs"]
 pub mod vocal_section_audio;
+#[path = "../../src/vocal_singing.rs"]
+pub mod vocal_singing;
+#[path = "../../src/vocal_singing_tracking.rs"]
+pub mod vocal_singing_tracking;
 #[path = "../../src/vocals.rs"]
 pub mod vocals;
 #[path = "../../src/waveform.rs"]
