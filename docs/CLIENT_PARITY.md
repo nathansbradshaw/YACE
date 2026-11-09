@@ -5,8 +5,8 @@ before additional product features ship. Use one source revision and the same
 full-length song project for acceptance. Sharing Rust modules establishes shared
 rules; it does not establish that both applications expose working controls.
 
-Harmony authoring is implemented on the feature branch but remains unqualified
-in both applications. Shared Rust controls expose HARM1–3 notes and lyrics,
+Harmony authoring has actual static-browser verification for the supported
+editing subset below. Shared Rust controls expose HARM1–3 notes and lyrics,
 recording loops, Undo/Redo, and the format's shared HARM1 scoring and HARM2 lyric
 ranges. Phrase edits, splits and merges keep singer notes intact and refuse
 uncovered notes or retained percussion. Harmony-only imports expose these
@@ -14,13 +14,12 @@ controls through Vocals. The core imports a supported ordinary MIDI subset and
 exports independent singers while preserving unrelated source tracks and
 controls. Clearing the voices retains source controls; explicitly omitted
 harmonies stay omitted when reopening or authoring new notes later. Unsupported
-imports remain opaque. Source checks and regressions cover these rules; actual
-native, static-browser and hosted edit/restart/backup/export workflows, visual
-preview, listening and target-game acceptance remain open. Shared controls do
-not qualify those workflows.
+imports remain opaque. Native GUI, hosted controls, full restart/fault coverage,
+listening and target-game acceptance remain open. Shared controls do not qualify
+those workflows.
 
-Vocal percussion controls are implemented on the feature branch but remain
-unqualified in both applications. The shared Rust pane exposes separate lead and
+Vocal percussion has actual static-browser verification for the supported
+editing subset below. The shared Rust pane exposes separate lead and
 harmony hits, displayed/hidden flags, tick placement and movement, removal,
 selection, scoring-phrase resize/split/merge, Undo/Redo and recording-phrase loops.
 Its bounded preview follows the source transport clock and distinguishes hidden
@@ -48,8 +47,8 @@ archive, rebuilds singers, then writes the selected percussion. A MIDI-bound
 working sidecar preserves authored, cleared and omitted state on reopen.
 Logical Vocals/Harmonies selection replaces duplicate raw percussion owners;
 omitted original controls stay omitted when singers are authored later.
-Actual native/browser placement, selection, preview, restart, backup and export
-acceptance, plus musical/game judgments, remain open. A strict MIDI reader extracts dedicated source phrases
+Native GUI, hosted controls, full restart/fault coverage and musical/game
+judgments remain open. A strict MIDI reader extracts dedicated source phrases
 with original hit and scoring-marker attributes;
 ambiguous, mixed singing/percussion and uncovered source hits refuse the editable
 view. Shared scoring ranges used by unmanaged harmony percussion also remain
@@ -63,14 +62,14 @@ reopen (including percussion-only selection), explicit omission, later singer
 authoring, repeated export and portable
 history regressions cover this backend path. Conflicting candidates and invalid
 owner endings refuse before returning a rewritten song. These checks do not
-qualify an actual application workflow.
+qualify an actual application workflow on their own.
 
 A source-hash-bound harmony writer can add first singers to retained
 percussion/control-only owners while preserving aliases, physical hits and
 unrelated tracks. It refuses existing singer content, changed source bytes,
 overlapping opaque percussion and malformed edited-owner endings. The shared
-pipeline uses it for first singers in managed percussion owners; actual control
-and runtime acceptance remains open.
+pipeline uses it for first singers in managed percussion owners; the exercised
+browser subset and remaining application gates are recorded below.
 
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer
@@ -79,6 +78,26 @@ recognition and supplied-lyric alignment have actual full-song verification;
 see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATORS.md).
 
 ## Acceptance ledger
+
+Static-browser controls at `131f989` independently created three simultaneous
+harmony singers beside retained lead and percussion. Each singer then held two
+adjacent notes at ticks 0–240 and 240–480. Timing, pitch and lyric edits, shared
+HARM1 scoring split/merge and Undo/Redo worked. A split through a held note and
+a singing phrase overlapping dedicated percussion refused without saving or
+losing the entered draft. Independent inspection of downloaded MIDI verified
+the six pitches/lyrics, adjacent scoring boundaries, separate HARM2 lyric range,
+original percussion attributes, unchanged other raw tracks and original WAV.
+
+The percussion pane changed a hidden zero-length hit at tick 2208 to displayed;
+the downloaded MIDI changed only its key from 97 to 96, retaining channel 2,
+velocity 93 and its note-on/zero-velocity off representation. Undo/Redo restored
+the corresponding states. A complete project backup verified all 34 referenced
+files, reopened in the browser with its ten Undo checkpoints and working Redo,
+and survived reload. The pinned native executable opened that portable backup,
+exported matching MIDI/WAV and repeated Redo/Undo with byte-identical results.
+This establishes the exercised browser and native file-interchange paths;
+native GUI, hosted controls, acoustic preview, game acceptance and broader fault
+coverage remain open.
 
 Deleting the final pitched lead-vocal notes exposed an export preservation gap:
 the export selector omitted `PART VOCALS`, including untouched percussion,
