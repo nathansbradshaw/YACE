@@ -68,12 +68,14 @@ Stop the runner after verification.
 ## Open, edit, save and export
 
 New blank projects and projects created from a recording ask **Where should this
-project be saved?** before enabling **Create chart**. In Chrome and Edge, select
-an empty project folder for direct autosave and desktop interoperability. The
+project be saved?**. In Chrome and Edge the default **Choose folder & create
+chart** action opens the native picker before creating anything. Select an empty
+project folder for direct autosave and desktop interoperability. The
 initial document and source are written before the new project replaces the
 editor. Canceling folder selection leaves the destination unchosen; a failed
 folder save stays in setup with an error and never falls back to browser storage.
-Alternatively, explicitly choose **Use browser storage**. Firefox cannot select
+Alternatively, expand **Other save options** and explicitly choose **Use browser
+storage**. Firefox cannot select
 a writable desktop folder: setup explains this limitation and the complete
 project ZIP workflow before requiring that explicit browser-storage choice.
 Desktop continues to ask for a project folder in its native creation save dialog.
