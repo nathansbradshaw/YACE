@@ -121,6 +121,7 @@ mod playback_activity;
 pub mod pro_guitar;
 #[path = "../../src/pro_keys.rs"]
 pub mod pro_keys;
+pub mod project_destination;
 pub mod project_folder;
 mod project_integrity;
 #[path = "../../src/project_portability.rs"]
@@ -180,6 +181,8 @@ pub mod timing;
 pub mod track_names;
 pub mod transcription;
 mod unload;
+#[path = "../../src/vocal_activity.rs"]
+pub mod vocal_activity;
 #[path = "../../src/vocal_alignment.rs"]
 pub mod vocal_alignment;
 #[path = "../../src/vocal_generation.rs"]
@@ -201,6 +204,10 @@ pub mod vocal_rmvpe;
 pub mod vocal_section_analysis;
 #[path = "../../src/vocal_section_audio.rs"]
 pub mod vocal_section_audio;
+#[path = "../../src/vocal_singing.rs"]
+pub mod vocal_singing;
+#[path = "../../src/vocal_singing_tracking.rs"]
+pub mod vocal_singing_tracking;
 #[path = "../../src/vocals.rs"]
 pub mod vocals;
 #[path = "../../src/waveform.rs"]

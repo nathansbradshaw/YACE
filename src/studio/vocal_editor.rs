@@ -25,11 +25,11 @@ fn syllable(note: &VocalNote) -> String {
 #[cfg(not(target_arch = "wasm32"))]
 #[component]
 pub fn VocalEditor(studio: Studio) -> Element {
-    let mut recognize = use_signal(|| true);
+    let mut recognize = use_signal(|| false);
     let mut analysis_mode = use_signal(crate::vocal_generation::AnalysisMode::default);
     let mut independent_pitch = use_signal(|| false);
     let mut language = use_signal(|| crate::lyric_language::Language::Auto);
-    let mut lookup = use_signal(|| true);
+    let mut lookup = use_signal(|| false);
     let mut control = use_signal(|| None::<std::sync::Arc<crate::clean_recognition::Control>>);
     let mut progress = use_signal(String::new);
     let mut generation_error = use_signal(|| None::<String>);
@@ -85,7 +85,7 @@ pub fn VocalEditor(studio: Studio) -> Element {
         }
         if present{VocalPhrases{studio}}
         div{class:"vocal-generation-actions",
-            button{class:"field-button vocal-generate",disabled:busy||!stem_ready,title:"Generate lead-vocal notes and timed lyrics from the attached vocal stem",onclick:move |_|{
+            button{class:"field-button vocal-generate",disabled:busy||!stem_ready,title:"Generate lead-vocal notes from the attached vocal stem",onclick:move |_|{
                 let Some(project)=studio.store.read().as_ref().map(|store|store.root.clone())else{return};
                 let models=crate::generation::default_model_dir();let recognize=recognize();let lookup_lyrics=lookup();let language=language();
                 let actor=crate::editor::Actor{kind:crate::editor::ActorKind::Human,name:studio.reviewer.read().clone()};
@@ -95,7 +95,7 @@ pub fn VocalEditor(studio: Studio) -> Element {
                     let mode=analysis_mode();
                     let independent=independent_pitch();
                     let result=tokio::task::spawn_blocking(move||{
-                        let request=crate::vocal_workflow::ProjectRequest{analysis_mode:mode,project:&project,model_dir:&models,recognize,language,neural_pitch:recognize,download_model:true,lookup_lyrics,actor};
+                        let request=crate::vocal_workflow::ProjectRequest{analysis_mode:mode,project:&project,model_dir:&models,recognize,language,neural_pitch:true,download_model:true,lookup_lyrics,actor};
                         if independent {crate::vocal_workflow::generate_project_independent(request,worker)}else{crate::vocal_workflow::generate_project(request,worker)}
                     }).await;
                     if studio.store.read().as_ref().is_some_and(|store|store.root==expected_root){studio.reload(true);refresh.set(refresh()+1);
@@ -106,7 +106,7 @@ pub fn VocalEditor(studio: Studio) -> Element {
                     }
                     control.set(None);
                 });
-            },Icon{name:"music",size:14}if present{" Regenerate"}else{" Generate vocals"}}
+            },Icon{name:"music",size:14}if present{" Regenerate notes"}else{" Generate vocal notes"}}
             if busy{button{class:"studio-tool",disabled:cancelled,onclick:move |_|{if let Some(control)=control.read().as_ref(){control.cancel();}},if cancelled{"Cancelling…"}else{"Cancel"}}}
         }
         details{class:"review-evidence vocal-generation-options",summary{"Options"}
@@ -115,8 +115,9 @@ pub fn VocalEditor(studio: Studio) -> Element {
             if independent_pitch(){p{class:"field-hint","Compare five local pitch methods and recover supported gaps. Pitch-only analysis; lyrics can be added afterward. Review flagged alternatives before export."}}
             else if analysis_mode()==crate::vocal_generation::AnalysisMode::HighAccuracy{p{class:"field-hint","Experimental: extra pitches can be wrong. Review amber notes before export."}}
             label{class:"generation-field","Vocal language",select{class:"field-control",disabled:busy,value:match language(){crate::lyric_language::Language::Auto=>"auto",crate::lyric_language::Language::English=>"english",crate::lyric_language::Language::Spanish=>"spanish"},onkeydown:move|e|e.stop_propagation(),onchange:move|e|language.set(match e.value().as_str(){"english"=>crate::lyric_language::Language::English,"spanish"=>crate::lyric_language::Language::Spanish,_=>crate::lyric_language::Language::Auto}),option{value:"auto","Detect automatically"}option{value:"spanish","Spanish"}option{value:"english","English"}}}
-            label{class:"form-check",title:"Optional local models recognize and align lyrics and add a pitch estimate. Off keeps pitch extraction model-free; supply timed words or import JSON to complete lyrics.",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:recognize(),disabled:busy,onchange:move|event|recognize.set(event.checked())}"Local AI assistance"}
-            label{class:"form-check",title:"Look up matching lyrics online; source metadata is sent to the lyrics provider",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:lookup(),disabled:busy,onchange:move|event|lookup.set(event.checked())}"Fetch lyrics"}
+            p{class:"field-hint","Generate vocal pitches first. Lyrics are optional and can be added afterward."}
+            label{class:"form-check",title:"Optional word recognition. Pitch analysis remains enabled when this is off.",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:recognize(),disabled:busy||independent_pitch(),onchange:move|event|recognize.set(event.checked())}"Transcribe lyrics"}
+            label{class:"form-check",title:"Look up matching lyrics online; source metadata is sent to the lyrics provider",input{r#type:"checkbox",onkeydown:move|event|event.stop_propagation(),checked:lookup(),disabled:busy||independent_pitch(),onchange:move|event|lookup.set(event.checked())}"Fetch lyrics"}
         }
         if busy{div{class:"vocal-generation-progress",role:"status",if progress().is_empty(){"Analyzing vocals…"}else{"{progress}"}}}
         if let Some(error)=generation_error(){div{class:"vocal-edit-error",role:"alert","{error}"}}

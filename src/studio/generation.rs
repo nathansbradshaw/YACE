@@ -26,7 +26,7 @@ fn stage_title(stage: &str) -> &str {
         "separation" => "Separating instrument recordings",
         "transcription" => "Detecting notes",
         "chart" => "Arranging chart difficulties",
-        "vocals" => "Detecting vocal pitch and lyrics",
+        "vocals" => "Detecting vocal pitches",
         "editor" => "Preparing editing project",
         "game_export" => "Preparing game files",
         "complete" => "Draft ready",
@@ -295,7 +295,7 @@ impl Default for View {
             piano_quality: Default::default(),
             full_mix: false,
             standard: false,
-            lyrics: true,
+            lyrics: false,
             fetch: true,
             models: generation::default_model_dir(),
             parent: rfd::output_parent(),
@@ -1435,7 +1435,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                                 }
                                 p{class:"generation-note",if view.keyboard_sound == crate::keyboard_detection::KeyboardSound::Synth {"Experimental. Other instruments may appear in this synth part; review each phrase."} else {"Check missing notes, extra notes and key releases."}}
                             }
-                            if !part_mode { label{class:"form-check",title:"Estimate sung pitch and recognize lyrics in the selected language. Review before export.",input{r#type:"checkbox",checked:view.vocals,disabled:view.full_mix,onchange:move|e|data.write().vocals=e.checked()},"Vocals"} }
+                            if !part_mode { label{class:"form-check",title:"Estimate sung pitches from the isolated vocal stem. Lyrics are optional. Review before export.",input{r#type:"checkbox",checked:view.vocals,disabled:view.full_mix,onchange:move|e|data.write().vocals=e.checked()},"Vocals"} }
                             if view.vocals {
                                 label{class:"generation-field","Vocal analysis",
                                     select{class:"field-control",value:if view.vocal_analysis_mode==crate::vocal_generation::AnalysisMode::Standard{"standard"}else{"high"},onchange:move|e|data.write().vocal_analysis_mode=if e.value()=="high"{crate::vocal_generation::AnalysisMode::HighAccuracy}else{crate::vocal_generation::AnalysisMode::Standard},option{value:"standard","Standard"}option{value:"high","High accuracy (experimental)"}}
@@ -1456,7 +1456,7 @@ pub fn GenerationPanel(mut studio: Studio) -> Element {
                         }
                         details{summary{"Generation options"}
                             label{class:"form-check",input{r#type:"checkbox",checked:view.fetch,onchange:move|e|data.write().fetch=e.checked()},"Download missing models"}
-                            label{class:"form-check",input{r#type:"checkbox",checked:view.lyrics,onchange:move|e|data.write().lyrics=e.checked()},"Find lyrics online (shares song metadata)"}
+                            label{class:"form-check",input{r#type:"checkbox",checked:view.lyrics,onchange:move|e|data.write().lyrics=e.checked()},"Transcribe and find lyrics (optional; shares song metadata)"}
                             label{class:"form-check",input{r#type:"checkbox",checked:view.standard,onchange:move|e|data.write().standard=e.checked()},"Standard drums (omit Pro cymbal markers)"}
                             if !part_mode || view.drums { label{class:"form-check",input{r#type:"checkbox",checked:view.full_mix,onchange:move|e|data.with_mut(|v|{v.full_mix=e.checked();if v.full_mix{v.guitar=false;v.bass=false;v.piano=false;v.pro_piano=false;v.vocals=false;v.drums=true;}})},"Drums only from the original mix (skip stem separation)"} }
                             div{class:"generation-actions",button{"data-browser-pick":"folder","data-browser-accept":"",class:"action-secondary",onclick:move|_|{spawn(async move{if let Some(folder)=rfd::AsyncFileDialog::new().set_title("Choose model folder").pick_folder().await{data.write().models=folder.path().to_owned();}});},"Model folder…"}span{class:"generation-path","{view.models.display()}"}}

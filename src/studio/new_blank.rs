@@ -9,6 +9,8 @@ pub fn Setup(mut studio: Studio) -> Element {
     let mut duration = use_signal(|| "180".to_owned());
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+    let location = use_signal(super::new_location::Choice::default);
+    let create_label = location.read().create_label();
     let valid = crate::project_recording::blank_song(
         &title(),
         &artist(),
@@ -19,13 +21,19 @@ pub fn Setup(mut studio: Studio) -> Element {
     rsx! {Modal{id:"new-blank-chart-dialog",label:"New blank chart",onclose:move |_|{if !busy(){studio.blank_chart.set(false);}},
         section{class:"sections-dialog",h2{"New blank chart"}
             p{"Create an empty Guitar chart without a recording. Add parts, edit timing and attach audio later."}
+            super::new_location::Prompt{choice:location,busy:busy()}
             label{class:"field-stack","Title",input{class:"field-control",aria_label:"Blank chart title",value:title,disabled:busy(),oninput:move|e|title.set(e.value())}}
             label{class:"field-stack","Artist",input{class:"field-control",aria_label:"Blank chart artist",value:artist,disabled:busy(),oninput:move|e|artist.set(e.value())}}
             label{class:"field-stack","Tempo (BPM)",input{class:"field-control",r#type:"number",min:"1",max:"1000",aria_label:"Blank chart tempo",value:bpm,disabled:busy(),oninput:move|e|bpm.set(e.value())}}
             label{class:"field-stack","Timeline length (seconds)",input{class:"field-control",r#type:"number",min:"1",max:"86400",aria_label:"Blank chart length",value:duration,disabled:busy(),oninput:move|e|duration.set(e.value())}}
             if let Some(message)=error(){p{role:"alert","{message}"}}
             div{class:"dialog-actions",button{aria_label:if busy(){"Creating chart, cancellation unavailable"}else{"Cancel blank chart setup"},disabled:busy(),onclick:move |_|studio.blank_chart.set(false),"Cancel"}
-                button{disabled:busy()||!valid,onclick:move |_|{busy.set(true);error.set(None);spawn(async move {let result=studio.finish_blank_chart(title(),artist(),bpm().parse().unwrap_or(f64::NAN),duration().parse().unwrap_or(f64::NAN)).await;busy.set(false);if let Err(failure)=result {error.set(Some(failure.to_string()));}});},if busy(){"Creating…"}else{"Create chart"}}
+                button{disabled:busy()||!valid||!location.read().can_start(),onclick:move |_|{
+                    if !location.read().can_start(){return;}
+                    let destination=match location().resolve(){Ok(pending)=>pending,Err(failure)=>{error.set(Some(format!("{failure:#}")));return;}};
+                    busy.set(true);error.set(None);
+                    spawn(async move {let result=async{let Some(destination)=destination.await? else{return Ok(());};studio.finish_blank_chart(title(),artist(),bpm().parse().unwrap_or(f64::NAN),duration().parse().unwrap_or(f64::NAN),destination).await}.await;busy.set(false);if let Err(failure)=result {error.set(Some(format!("{failure:#}")));}});
+                },if busy(){"Creating…"}else{"{create_label}"}}
             }
         }
     }}

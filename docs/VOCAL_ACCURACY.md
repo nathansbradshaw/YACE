@@ -12,11 +12,12 @@ Recovery no longer requires a recognized word. Optional lyric recognition
 failure leaves a pitch draft and a visible warning; invalid source bindings,
 audio failures and cancellation still stop generation.
 
-**Standard** retains the established word-aware chart assembly. **High accuracy
-(experimental)** additionally proposes stable, acoustically supported detector
-alternatives, preserves acoustic gaps, detects local attacks, and fixes note
-boundaries before attaching words. Changing a transcript cannot change that
-mode's acoustic note pitches or boundaries. A word with ambiguous ownership
+Both **Standard** and **High accuracy (experimental)** construct pitches and
+note boundaries from acoustic evidence before attaching words. Transcription
+and online lyric lookup are off by default; disabling them retains pitch
+assistance. High additionally proposes stable, acoustically supported detector
+alternatives, preserves acoustic gaps, and detects local attacks. Changing a
+transcript cannot change either mode's acoustic pitches or boundaries. A word with ambiguous ownership
 can remain missing; all recognized/supplied text remains in the report.
 
 Choose the analysis mode in Auto-Chart or the native vocal editor's Options.
@@ -286,21 +287,37 @@ authored pitch or reference timestamp enters the decoder. A short dropout can
 use surrounding supported singing for context instead of being rejected as an
 isolated short sound. Silence and unsupported evidence remain gaps.
 
-The profile was selected using the four development recordings. Its initial
-recovery variant failed the false-voicing check; the energy-filtered variant
-passed the private automated contour and exported-note gates. The second run
-uses previously exposed validation artists, with parameters selected only on
-development material. Private audio, references, exposure history and detailed
-reports stay outside Git. This does not establish complete transcription,
-listening, GUI interaction or game acceptance.
+The profile was selected using four development recordings. Its initial recovery
+variant failed the false-voicing check; an energy-filtered variant passed an
+earlier private automated gate. That result did not generalize to the rebuilt
+12-recording regression corpus: on its eight validation artists, the error
+reduction relative to faster High was about 11.46% for contours and 12.06% for
+exported-note frames, below the required 20%. Previously evaluated artists are
+explicitly marked as exposed. The option remains experimental. Private audio,
+references, exposure history and detailed reports stay outside Git. Tests do not
+establish complete transcription, listening, GUI or game acceptance.
 
 `vocals generate-project PROJECT --analysis-mode high-accuracy
 --independent-pitch` selects the same desktop workflow. Install the matching
 five Rust helpers and checksum-pinned local model pack explicitly. Missing tools
 or models stop this requested profile; they never select Standard or faster
 High. Native packaging adds `--vocal-tools RELEASE_TARGET --vocal-models
-PINNED_LOCAL_MODEL_CACHE` alongside `--include-models`. No new weights are
+PINNED_LOCAL_MODEL_CACHE --vocal-runtime ONNXRUNTIME_PUBLISHER_DIRECTORY`
+alongside `--include-models`. No new weights are
 downloaded implicitly by the multi-model pack.
+
+The private macOS arm64 pack includes ONNX Runtime 1.24.4 and its license notices.
+The publisher directory contains `capi/libonnxruntime.1.24.4.dylib`, `LICENSE`
+and `ThirdPartyNotices.txt`; all three source checksums are pinned in
+`vocal_runtime.rs`. Packaging signs the copied library and records its packaged
+checksum in the resource seal. Helpers receive that absolute path per child
+process, so launching from the Dock requires no developer environment setting.
+Missing or replaced packaged resources fail explicitly. Runtime identity also
+separates model caches; known compatible results survive app updates, while old
+results with unknown runtime provenance remain preserved in their prior folder.
+Research replay tools can point `--cache` at the corresponding
+`onnx-runtime-SOURCE_SHA256` directory. The bundled runtime supports macOS arm64;
+no other platform runtime is silently substituted.
 
 Source/model/implementation-bound salience and note-event caches are shared
 across repeat runs of the recording. Cancellation terminates the owned worker
@@ -320,6 +337,250 @@ authored HARM2/HARM3 lanes using the same phrase/talkie parser as lead targets.
 It does not infer singers from stem names or replace missing harmony annotations.
 The PANNs activity experiment is separate, not part of this pitch recipe; see
 `tools/vocal-activity-probe/NOTICE.md` for pinned weights and preprocessing.
+
+### Short-contour regression and development tools
+
+High accuracy now coalesces touching same-pitch attack fragments before applying
+the minimum note duration. A late attack can therefore no longer discard the
+accepted tail of a sustained pitch. Actual gaps and pitch changes remain
+separate; repeated notes that both meet the duration minimum retain their
+boundary. Explicitly requested notes below 80 ms retain their missing lyrics,
+pitch and a visible short-contour uncertainty reason. This does not lower the
+default duration or manufacture pitch in silence.
+
+`vocal_accuracy_batch` can run the production multi-model pipeline, reassemble
+existing accepted frames, or seed verified raw RMVPE caches. Its source/model/
+implementation/PCM checks precede reuse. Reassembly does not copy stale per-note
+model counts to changed boundaries; a complete cached-model replay recomputes
+those counts. Generated MIDI is read back and compared with the saved chart.
+
+`vocal_accuracy_grid` is restricted to development recordings. It runs the
+posterior helper with explicit research-only recovery/note duration overrides,
+finishes predictions before loading references, then scores raw and exported
+notes separately. It also supports a research consensus extension: retain the
+180 ms two-vote recovery and separately require three spectral votes for shorter
+contours. Both passes calculate energy support from the original frames. All
+overrides enter the saved recipe and algorithm identity, so the production
+profile check cannot silently accept them. None of these experiments promotes
+a backend or proves the added notes correct.
+
+Further explicit research overrides compare transition cost, an energy reference
+from nearby original accepted voice, and the winning pitch band's advantage
+over its runner-up. The local-energy experiment requires at least ten nearby
+accepted frames and otherwise retains the original song-wide floor. The
+runner-up margin is a log-cost difference, not a probability. An acoustic-only
+consensus trial requires SwiftF0 plus all three spectral estimators without
+requiring a note-model event. These remain separate experimental recipes.
+
+`vocal_posterior_replay --predict-short-consensus` freezes a development-selected
+candidate: retain the original 180 ms two-vote recovery and add 100 ms contours
+only with three spectral votes, ROSVOT/Swift agreement and runner-up margin 0.5.
+Both passes use the original energy reference. It cannot be combined with
+research overrides. `vocal_accuracy_batch --mode short-consensus --predictor
+EXPLICIT_HELPER` checks the returned profile, executable identity and source
+bindings and verifies MIDI round-trip. This candidate is not the production
+profile. On eight validation artists, it reduced missing-plus-wrong frame error
+by about 1.85% and exported-note frame error by about 2.20% relative to the prior
+multi-model recipe. Voiced recall and wrong-pitch proportion improved, but the
+required 20% reduction failed. These artists were previously exposed regression
+material, not fresh held-out evidence. This candidate remains unpromoted.
+
+Note assembly now follows each detector's actual frame clock in High accuracy.
+Using the DSP hop for 10 ms, 16 ms or PESTO frames previously introduced artificial
+gaps; short fragments could all disappear at the note-duration filter. Adjacent
+cells now meet at their midpoint; absent frames and breaths still leave gaps.
+Both modes fix acoustic boundaries before optional word attachment. Neither
+these assembly fixes nor successful tests establish musical acceptance.
+
+### Acoustic calibration experiment
+
+A private Rust comparison evaluated logistic calibration, boosted trees and
+ranking several acoustic pitch candidates. Only the four development artists
+trained these models; cutoff selection used leave-one-artist-out predictions.
+Words, keys, scales, song identity and absolute MIDI pitch were excluded from
+the feature vectors. Several confidence-only variants failed development
+checks and were not evaluated as promoted backends.
+
+One frozen candidate added direct period correlation and SWIPE-style harmonic
+template features from the original vocal stem and experimental lead residual.
+The kernel experiment follows [SWIPE research](https://arxiv.org/abs/2507.11233)
+and the MIT [libf0 reference](https://github.com/groupmm/libf0) at revision
+`533f3bf3ce884a1ff594b53ccf08516c29c0a700`. Its centered FFT, mel sampling,
+window interpolation and tuning search are explicit Rust variants, without a
+claim of numerical equivalence to either publisher implementation. Template
+strength is not singer identity or a correctness probability.
+
+On eight previously exposed validation artists, this candidate reduced
+missing-plus-wrong errors by 12.64% for contours and 13.47% for exported-note
+frames relative to the existing multi-model option. Against faster High,
+reassembled with the same current acoustic rules, the reductions were 22.65%
+and 23.91%. Exported-note voiced recall rose from 26.34% to 45.70%, wrong-pitch
+proportion fell from 17.54% to 10.15%, and false voicing rose from 6.32% to 7.92%.
+Absolute exported-note pitch accuracy was 42.54%; these gains do not establish
+complete or near-perfect transcription. All twelve generated MIDI charts
+round-tripped with identical notes and phrases.
+
+The frozen candidate passes the numerical comparison against faster High on
+this regression material, but not the stricter 20% improvement over the prior
+multi-model option. It is not integrated into the app or promoted. Its next
+validation failed as described below; resource verification and musical
+acceptance also remain separate requirements.
+The recordings, trained coefficients, feature recipes, frozen executables,
+exposure history and detailed reports remain private and outside Git.
+
+### Fresh validation and original-source preservation
+
+The same frozen candidate was subsequently tested on eight artists excluded
+from the recorded exposure history before inference. Five recordings supplied
+original professional vocal channels; three required pinned native HTDemucs6s
+isolation from their full mixes. Every compared method received the same vocal
+input and original recording clock. Predictions and MIDI round-trips completed
+before authored target notes were read. No validation targets trained or
+selected the candidate.
+
+Against faster High, missing-plus-wrong frame error fell by 32.35% for contours
+and 34.62% for exported notes. Exported-note pitch accuracy rose from 32.08% to
+55.59%, and voiced recall rose from 34.55% to 62.00%. However, the wrong-pitch
+proportion rose from 11.61% to 13.93%, and false voicing rose from 7.92% to
+10.74%. These failures prevent promotion despite the coverage improvement.
+
+An additional comparison with current Standard, including Basic Pitch and
+SwiftF0 assistance and no transcription, passed the numerical checks: exported
+note error fell by 29.60%, wrong-pitch proportion fell from 16.23% to 13.93%,
+and false voicing rose from 9.26% to 10.74%. This secondary comparison does not
+override the failed primary High comparison. Against the existing multi-model
+option, the reduction in exported-note error was only 15.22%, and wrong-pitch
+proportion worsened from 8.98% to 13.93%.
+
+Error decomposition identified an unsafe decision in this experimental
+decoder: retaining original voicing still allowed its pitch to be replaced by
+the derived lead's accepted pitch. That replacement did not require stronger
+support and caused substantial damage on one recording. An experimental
+revision preserves each accepted original pitch, requires original-source
+neural corroboration for recovered gaps, and blocks recovery in exact
+zero-energy mono parent frames. Quiet nonzero parent energy is not rejected by
+this silence guard. Its threshold and corroboration requirement were selected
+using only leave-one-development-artist-out predictions.
+
+The revised frozen executable passed controlled checks for silent-parent
+artifacts, quiet recovery, conflicting child octaves and child-only votes.
+Existing original pitches were retained on twenty regression recordings.
+These checks verify source-preservation behavior, not pitch correctness.
+Results on the newly exposed eight artists are regression evidence for the
+revision; they cannot establish its held-out quality gate. Another eight
+previously untested artists were selected and its settings frozen before
+reading their target notes.
+
+That second eight-artist evaluation has now completed. All eight required native
+HTDemucs isolation from their full mixes. Against faster High, missing-plus-wrong
+error fell by 27.22% for contours and 29.51% for exported notes. Exported-note
+pitch accuracy rose from 29.59% to 50.37%, voiced recall from 31.99% to 53.58%,
+and wrong-pitch proportion fell from 6.36% to 5.67%. False voicing rose from
+7.18% to 10.26%, exceeding the two-point limit. The primary gate failed. The
+existing five-model option already had 9.68% false voicing on these recordings;
+merely tightening added-gap thresholds while preserving all its pitches cannot
+remove that baseline error. The revision remains private and experimental.
+Its exact-zero guard measures mono energy: counterphase channels or missing
+energy mappings must be checked before treating it as evidence of stereo silence.
+
+On the four development artists, a separate short-window experiment tried
+512/1024-sample YIN/McLeod probes, at least three fundamental cycles and RMVPE
+agreement. No tested rule met the full development gate. An audit of missing
+High frames found McLeod absent on about 96% of them, while RMVPE at confidence
+0.1 matched about 60% of those missing targets. This identifies a classical
+periodicity bottleneck; removing its veto without another activity check also
+admits leakage and does not establish a safe replacement.
+
+### Speech activity evidence
+
+`tools/vocal-speech-probe` adds a pinned, local Rust Silero VAD experiment
+independent of words and pitch selection. See its README for model revision,
+checksum, MIT terms, preprocessing and runtime requirements. Raw scores retain
+source/PCM/model/implementation identities and the original 32 ms block clock.
+The framing and validation are shared with the browser target; only the native
+research CLI runs the graph. No quality mode or generation filter is enabled.
+
+Four development recordings gave bit-identical scores to an independent local
+protocol implementation. A development-selected veto protecting faster High's
+acoustic voicing was then checked on the already-exposed second eight-artist
+set. Exported-note pitch accuracy was 45.49%, voiced recall 48.27%, wrong-pitch
+proportion 5.44%, and false voicing 9.45% against High's 7.18%. The false-voicing
+limit still failed; this is regression evidence, not a new held-out test.
+Speech activity can reject genuine singing and must not be treated as evidence
+that an unsupported vocal pitch or a missing word is silence.
+
+### Additional acoustic estimator research
+
+[Recent voting research](https://arxiv.org/abs/2602.01727) examines temporal
+and frequency alignment and correlated estimator errors. It motivates testing
+different acoustic methods; it does not establish that extra votes or inferred
+frequency offsets improve YACE, especially when different singers overlap.
+
+A separate Rust evaluation used unmodified Apache-2.0
+[REAPER](https://github.com/google/REAPER) source at revision
+`1d6e9b95e6b08b500fccbc9a043989dbda747276`. The pinned source archive SHA-256 is
+`152af842bedc98e9d12e2f59352ba1e2487ce2689bf2fbf65c68c031ab173d02`.
+The native estimator uses glottal-epoch tracking without trained model weights.
+The Rust wrapper preserves input amplitude, quantizes 16 kHz mono to signed
+16-bit PCM, retains the publisher's default high-pass/Hilbert settings, and
+uses a fixed 50–1100 Hz search and 10 ms output clock. There is no lyric input,
+target fitting, key prior or octave correction.
+
+On the four development artists, REAPER on derived lead audio reached 67.00%
+exported-note pitch accuracy and 75.78% voiced recall, but its 11.35% wrong-pitch
+proportion and 14.93% false voicing prevented replacement of the existing
+methods. Adding eight REAPER features to the acoustic ranker changed its best
+eligible development note accuracy by only 0.016 percentage point. The
+original frozen candidate and new validation protocol were retained; REAPER
+remains experimental. These are chart-relative development results, not
+measured continuous-F0 accuracy or musical acceptance.
+
+Keep every corpus, recording, reference, salience cache and detailed report in a
+private directory outside Git. Use distinct development/validation artists;
+previously evaluated artists are regression material, never fresh held-out
+evidence. Language tags with unreliable provenance remain unknown. Authored
+game charts supply chart-relative target notes, not measured performance F0.
+
+### Joint singing detection and pitch research
+
+`tools/vocal-jdc-probe` reconstructs the publisher's JDC checkpoint in Rust
+without executing Keras, using pinned weights, normalization and native
+runtime. Its shared frontend and evidence validation compile for native and
+browser, and `analyze` produces an explicit lyric-free experimental MIDI draft
+with source-bound JDC/RMVPE evidence. It changes no production quality mode.
+The tool README records hashes, preprocessing, license attribution and limits.
+
+The port matched its frozen Rust prototype exactly on four development songs:
+the converted graph, all722 pitch probabilities, singing scores, PCM and
+timestamps. The shared decoder reproduced selected pitches, note boundaries
+and phrases on those four plus eight previously exposed regression songs.
+This establishes port parity, **not publisher numerical parity** or musical
+acceptance.
+
+A separate frozen run then predicted eight new artists before reading their
+authored game-chart targets. Both methods used the same native HTDemucs6s
+vocal stems on the original recording clock. The primary baseline was the
+actual installed app at `c96a5a23b4b0ee6a5f89521e7ddfc7613644b07a`, with
+High accuracy and no recognition or shell runtime override.
+
+| Mean across eight fresh artists | High accuracy | JDC/RMVPE research |
+| --- | ---: | ---: |
+| Contour correct pitch / reference voiced frames |44.03%|50.47%|
+| Contour voiced recall |48.69%|54.92%|
+| Contour wrong pitch / detected voiced frames |11.04%|9.95%|
+| Contour false voicing / reference unvoiced frames |12.28%|8.32%|
+| Exported-note correct pitch / reference voiced frames |38.54%|47.29%|
+| Exported-note voiced recall |41.48%|49.56%|
+| Exported-note wrong pitch / detected voiced frames |8.58%|6.22%|
+| Exported-note false voicing / reference unvoiced frames |9.50%|6.96%|
+
+The relative reduction in missing-or-wrong pitches was11.51% for contours
+and14.23% for exported notes, **below the20% gate**. Recall and wrong/false
+voicing improved, but the overall gate failed. These artists are now exposed
+regression material; subsequent tuning cannot reuse them as fresh held-out
+evidence. Language tags without reliable provenance remain unknown. These
+are chart-relative targets, not measured performed-frequency truth or a
+100% correctness claim. Keep all recordings and detailed reports outside Git.
 
 ### Residual section rescan experiment
 

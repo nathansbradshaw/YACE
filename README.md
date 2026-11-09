@@ -1,121 +1,88 @@
 # YACE — Yet Another Charting Engine
 
-<a href="https://0rwx.com/">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/0rwx/AI-X-dark.svg">
-    <img src="assets/0rwx/AI-X-light.svg" alt="AI:X — EXECUTE: AI made" width="64" height="64">
-  </picture>
-</a>
+A Rust chart editor for Clone Hero, YARG and Dance / 4-key charts.
+Import audio, generate a draft, then listen and edit.
 
-A chart editor for Clone Hero and YARG, written in Rust.
+**[Open YACE in your browser](https://yace.n8bradshaw.com/)** · [User guides](docs/README.md) · [Build for desktop](#build-for-desktop)
 
-YACE follows the [0rwx **EXECUTE** (AI made) approach](https://0rwx.com/):
-the project owner sets the direction and evaluates the results, while AI handles
-implementation and verification. The priority is a working, usable app. The
-source stays open to read, review and change; learning how to build it is optional.
+**Generated charts need review.** Listen to each part and playtest your export
+before sharing it. YACE is pre-release software.
 
-Import a local recording, generate a draft, then listen and edit. YACE supports
-guitar, bass, drums, Keys, Pro Keys and lead vocals. Generated parts need review;
-they are not finished charts.
+![YACE showing the song waveform, chart preview and note editor](assets/screenshots/editor.png)
 
-The [static browser app](docs/BROWSER.md) runs the shared Rust chart editor through
-Dioxus Web/WASM, with local file selection, playback, recovery and ZIP exports.
-It needs only static hosting. Supported generators and vocal/instrument
-separation run locally in browser workers, with model downloads cached locally.
-Native-only model runners remain unavailable on web; see the documented
-[browser capabilities and limits](docs/BROWSER.md).
-The product target is faster, easier charting and reliable team work;
-complete OCTAVE/Moonscraper parity and hosted collaboration remain unfinished.
+## Make your first chart
 
-Public hosting and custom-domain updates are documented in [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+1. **Start:** choose **Import audio** to generate a draft, or **New blank chart**
+   to write notes yourself. Use **Import song ZIP** for an existing chart.
+2. **Set up:** check song details, tempo and parts. Choose where to save.
+3. **Review:** listen, fix notes and timing, and use Undo when needed.
+4. **Export:** choose **Export playable song…** for your target game.
 
-![YACE with Star Power, section and timing markers, a source waveform and compact note-type controls](assets/screenshots/editor.png)
+In Chrome and Edge, new projects default to a local folder. Firefox requires
+an explicit **Use browser storage** choice. Browser saves stay in that browser
+and profile; download a **complete project ZIP** to keep an independent backup.
+A playable-song export and a project backup serve different purposes.
 
-Preview above, edit notes and Star Power below. Shown with a small demo chart.
+[Generation guide](docs/GENERATION.md) · [Editor guide](docs/EDITOR.md) · [Browser guide](docs/BROWSER.md)
 
-<details>
-<summary>Generating a draft from audio</summary>
+## What can I chart?
 
-Choose audio, choose parts, then pick a save location.
+| Parts or task | What YACE supports |
+| --- | --- |
+| Guitar, Bass, Drums | [Generate drafts and edit notes, timing and Star Power](docs/GENERATION.md) |
+| Piano / Pro Piano | [Five-lane Keys and pitch-based Pro Keys](docs/PIANO.md) |
+| Lead vocals | [Generate and edit pitches, words and phrases](docs/VOCALS.md) |
+| Pro Guitar / Pro Bass | [Edit strings, frets and articulations; MIDI export, no automatic generation](docs/CLIENT_PARITY.md#pro-guitar-strings-and-frets-2026-11-08) |
+| Dance / 4-key | [Generate, edit and export simfiles](docs/DANCE.md) |
+| Stems and repairs | [Separate audio](docs/generation-isolation.md), [reanalyze one part or loop, then review before applying](docs/GENERATION.md#reanalyze-a-part) |
 
-![The generation dialog with three steps and expandable settings](assets/screenshots/generation.png)
+**Game support varies.** Clone Hero export excludes vocals, Pro Keys, Pro Guitar
+and Pro Bass. Check the export dialog for compatible parts and formats.
 
-</details>
+Also available: [practice playback](docs/PRACTICE.md), an optional
+[charting assistant](docs/AI_ASSISTANT.md), and
+[collaboration through Git or shared files](docs/COLLABORATION.md).
+Assistant edits require **Apply**. Hosted collaboration remains unfinished.
 
-## Start here
+## Files, models and privacy
 
-**Requirements:** Rust, a C/C++ build toolchain, CMake, and FFmpeg/ffprobe on PATH.
-The tested Rust toolchain is pinned in `rust-toolchain.toml`. macOS is the tested
-desktop platform; Windows and Linux still need release testing. Stem separation
-also needs a compatible GPU.
+- **Audio processing runs locally.** The browser uses local workers; some native
+  model runners are desktop-only. See [browser limits](docs/BROWSER.md).
+- **Models download separately.** Missing-model downloads are optional and
+  checked against pinned SHA-256 hashes. Some models have noncommercial or
+  unresolved terms; check [THIRD_PARTY.md](THIRD_PARTY.md) before redistribution.
+- **Optional online tools share context.** Lyric lookup sends song metadata to
+  LRCLIB. The assistant sends text context to your chosen provider, without audio
+  bytes. See [privacy and data](docs/PRIVACY.md).
+
+## Build for desktop
+
+You need **Rust, a C/C++ compiler, CMake and FFmpeg/ffprobe** on PATH.
+The Rust version is pinned in `rust-toolchain.toml`. macOS is the tested desktop
+platform; Windows and Linux need release testing. Native stem separation needs
+a compatible GPU.
 
 ```sh
-cargo build --locked --release
 cargo run --locked --release
 ```
 
-The desktop app opens when you run YACE without arguments. The executable and
-Cargo package are named `chart-engine`.
+This builds and opens YACE. The Cargo package and executable are named
+`chart-engine`. For an app bundle, see [macOS packaging](docs/PACKAGING.md).
 
-1. Choose **Import audio** and select a local audio file.
-2. Check the song information, tempo and instruments. [Look up missing song details
-   and cover art](docs/IMPORTING.md), or create a blank chart for manual authoring.
-3. Generate into a new folder.
-4. Listen to each part, edit the draft, then export a separate song folder.
-
-For an existing chart, open its song folder as a new review project. YACE keeps
-a source copy and saves edits with Undo/Redo.
-
-See [generation and recovery](docs/GENERATION.md) or the [editor guide](docs/EDITOR.md)
-for the full workflow.
-
-## What you can do
-
-| Task | Guide |
-| --- | --- |
-| Generate, edit and export Dance and 4-key charts | [Dance charting](docs/DANCE.md) |
-| Edit notes, note types, Star Power, tempo and song sections | [Editor](docs/EDITOR.md) |
-| Generate guitar, bass and drum drafts | [Generation](docs/GENERATION.md) |
-| Edit five-lane Keys or pitch-based Pro Keys | [Piano and synth](docs/PIANO.md) |
-| Edit vocal pitches, words and phrases | [Vocals](docs/VOCALS.md) |
-| Solo stems and compare them with the original | [Stem playback](docs/generation-isolation.md) |
-| Inspect timing and instrument evidence | [Part analysis](docs/PART_ANALYSIS.md) |
-| Ask for advice and review suggested edits | [Charting assistant](docs/AI_ASSISTANT.md) |
-| Exchange proposals through Git or shared files | [Collaboration](docs/COLLABORATION.md) |
-| Make an editable clean-audio plan | [Clean versions](docs/CLEAN.md) |
-
-The assistant is optional. Suggested edits require an explicit Apply action.
-Editing and export work without an assistant connection.
-
-## Models and network access
-
-Transcription uses local models downloaded separately from the source. The app
-can fetch missing models when you select that option. Downloads are checked
-against pinned SHA-256 hashes.
-
-To fetch the complete default catalogue from the command line:
-
-```sh
-cargo run --locked --release -- models fetch
-cargo run --locked --release -- models verify
-```
-
-Models have separate licenses, including noncommercial restrictions and unresolved
-checkpoint terms. Read [THIRD_PARTY.md](THIRD_PARTY.md) before redistributing them.
-The macOS packager excludes model weights by default. Private local bundles can
-opt in with `--include-models`; those assets need a separate redistribution review.
-See [macOS packaging](docs/PACKAGING.md).
-
-Optional lyric lookup sends song metadata to LRCLIB. Assistant requests send text
-context to the provider you choose. Audio bytes are not sent by the assistant.
-See [privacy and data](docs/PRIVACY.md) for details.
-
-## Command line
+<details>
+<summary>Command line and model setup</summary>
 
 ```sh
 cargo run --locked --release -- --help
 cargo run --locked --release -- generation --help
 cargo run --locked --release -- editor --help
+```
+
+Fetch and verify the complete default model catalogue only if you need it:
+
+```sh
+cargo run --locked --release -- models fetch
+cargo run --locked --release -- models verify
 ```
 
 For a build without the desktop window, separator or acoustic lyric aligner:
@@ -124,16 +91,29 @@ For a build without the desktop window, separator or acoustic lyric aligner:
 cargo build --locked --release --no-default-features
 ```
 
-That build still supports chart editing commands, supplied transcription data,
-and full-mix drum generation. It is not a model-free audio transcriber.
+That build supports chart commands, supplied transcription data and full-mix
+drum generation. It is not a model-free audio transcriber.
 
-## Contributing
+</details>
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) for checks and comment style.
-[The documentation index](docs/README.md) lists the user and contributor guides.
+<details>
+<summary>How YACE is made, contributing and licenses</summary>
 
-YACE is pre-release software. Listen to generated parts and playtest exports
-before sharing a chart.
+<a href="https://0rwx.com/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/0rwx/AI-X-dark.svg">
+    <img src="assets/0rwx/AI-X-light.svg" alt="AI:X — EXECUTE: AI made" width="64" height="64">
+  </picture>
+</a>
 
-YACE's original code is MIT. Included components retain their own licenses;
-see [LICENSE](LICENSE) and [THIRD_PARTY.md](THIRD_PARTY.md).
+YACE follows the [0rwx **EXECUTE** (AI made) approach](https://0rwx.com/):
+the project owner sets direction and evaluates results; AI handles implementation
+and verification. The source is open to read, review and change.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for checks and comment style,
+or [deployment](docs/DEPLOYMENT.md) for hosting instructions.
+
+YACE's original code is [MIT](LICENSE). Included components and models retain
+their own licenses; see [THIRD_PARTY.md](THIRD_PARTY.md).
+
+</details>

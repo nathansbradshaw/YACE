@@ -1381,6 +1381,10 @@ fn timing_from_band(timing: &crate::timing::TempoMap) -> Timing {
             .collect(),
     }
 }
+pub struct NewDestination {
+    pub profile: Profile,
+    pub location: super::new_location::Choice,
+}
 pub async fn finish_new(
     mut studio: super::state::Studio,
     source: PathBuf,
@@ -1388,13 +1392,14 @@ pub async fn finish_new(
     artist: String,
     timing: crate::timing::TempoMap,
     info: crate::song_import::SongInfo,
-    profile: Profile,
+    destination: NewDestination,
 ) -> Result<()> {
+    let NewDestination { profile, location } = destination;
     flush().await?;
     let mut s = consume_context::<DanceStudio>();
     let generate = (s.after_new)();
     studio
-        .finish_new_chart(source, title, artist, timing, info)
+        .finish_new_chart(source, title, artist, timing, info, location)
         .await?;
     if let Some(error) = (studio.error)() {
         anyhow::bail!(error);

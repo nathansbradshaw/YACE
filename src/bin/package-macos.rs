@@ -21,11 +21,14 @@ struct Args {
     #[arg(long, requires = "include_models")]
     multilingual_lyrics: bool,
     /// Private local multi-model pitch helpers, from a compatible release target.
-    #[arg(long,requires_all=["include_models","vocal_models"])]
+    #[arg(long,requires_all=["include_models","vocal_models","vocal_runtime"])]
     vocal_tools: Option<PathBuf>,
     /// Pinned local CREPE/FCPE/ROSVOT model cache; not included in public builds.
     #[arg(long, requires = "vocal_tools")]
     vocal_models: Option<PathBuf>,
+    /// Pinned ONNX Runtime publisher directory, including capi and license notices.
+    #[arg(long, requires = "vocal_tools")]
+    vocal_runtime: Option<PathBuf>,
     /// Developer ID identity, or '-' for a local ad-hoc signature.
     #[arg(long, default_value = "-")]
     signing_identity: String,
@@ -277,7 +280,15 @@ fn build_bundle(args: &Args) -> Result<PathBuf> {
             }
         }
     }
+    let mut vocal_runtime_receipt = None;
     if let (Some(tools), Some(weights)) = (&args.vocal_tools, &args.vocal_models) {
+        vocal_runtime_receipt = Some(chart_engine::vocal_runtime::package(
+            args.vocal_runtime
+                .as_deref()
+                .context("Include the pinned vocal runtime")?,
+            &stage.path().join("Contents"),
+            &args.signing_identity,
+        )?);
         use chart_engine::vocal_independent::{ASSETS, DIRECTORY, HELPERS, HelperReceipt};
         let destination = stage.path().join("Contents/MacOS/vocal-tools");
         fs::create_dir_all(&destination)?;
@@ -381,7 +392,8 @@ fn build_bundle(args: &Args) -> Result<PathBuf> {
             "signing_identity":args.signing_identity,
             "high_quality_piano_included":args.high_quality_piano,
             "multilingual_lyrics_included":args.multilingual_lyrics,
-            "independent_vocal_pitch_included":args.vocal_tools.is_some()
+            "independent_vocal_pitch_included":args.vocal_tools.is_some(),
+            "vocal_runtime":vocal_runtime_receipt
         }))?,
     )?;
     let mut signing = Command::new("codesign");
@@ -404,6 +416,12 @@ fn build_bundle(args: &Args) -> Result<PathBuf> {
         "Bundle signature verification failed: {}",
         String::from_utf8_lossy(&verification.stderr)
     );
+    if args.vocal_runtime.is_some() {
+        chart_engine::vocal_runtime::resolve(
+            &stage.path().join("Contents/MacOS/vocal-tools"),
+            None,
+        )?;
+    }
     publish_bundle(stage.path(), &args.output, args.replace)?;
     Ok(args.output.canonicalize()?)
 }
@@ -539,6 +557,30 @@ mod tests {
     }
     #[test]
     fn optional_model_flags_need_explicit_inclusion() {
+        assert!(
+            Args::try_parse_from([
+                "package-macos",
+                "--include-models",
+                "--vocal-tools",
+                "tools",
+                "--vocal-models",
+                "weights"
+            ])
+            .is_err()
+        );
+        assert!(
+            Args::try_parse_from([
+                "package-macos",
+                "--include-models",
+                "--vocal-tools",
+                "tools",
+                "--vocal-models",
+                "weights",
+                "--vocal-runtime",
+                "runtime-publisher-directory"
+            ])
+            .is_ok()
+        );
         assert!(Args::try_parse_from(["package-macos", "--high-quality-piano"]).is_err());
         assert!(Args::try_parse_from(["package-macos", "--multilingual-lyrics"]).is_err());
         assert!(

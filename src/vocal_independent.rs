@@ -272,6 +272,7 @@ pub fn analyze(
         "Multi-model pitch requires acoustic High accuracy boundaries"
     );
     let tools = helpers()?;
+    let runtime = crate::vocal_runtime::resolve(&tools, std::env::var_os("ORT_DYLIB_PATH"))?;
     let pack = model_directory(model_root)?;
     let swift = models::verified(model_root, "vocal-pitch")?;
     let rmvpe = crate::vocal_rmvpe::prepare(model_root, false, &|| control.is_cancelled())?;
@@ -279,6 +280,12 @@ pub fn analyze(
         models::hash_file(audio)? == baseline.audio_sha256
             && models::hash_file(stem)? == baseline.vocal_stem_sha256,
         "Independent pitch source changed"
+    );
+    // Unknown old runtime provenance cannot qualify a model cache. Keep those
+    // artifacts, and reuse qualified results across app signatures and updates.
+    let cache_root = runtime.as_ref().map_or_else(
+        || cache_root.to_path_buf(),
+        |r| cache_root.join(format!("onnx-runtime-{}", r.source_sha256)),
     );
     let cache = cache_root.join(cache_key(baseline)?);
     fs::create_dir_all(&cache)?;
@@ -305,7 +312,7 @@ pub fn analyze(
             let temp = tempfile::tempdir_in(&cache)?;
             let output = temp.path().join("raw");
             child(
-                Command::new(tools.join(executable(HELPERS[0])))
+                crate::vocal_runtime::command(tools.join(executable(HELPERS[0])), runtime.as_ref())
                     .args(["--model", kind, "--model-file"])
                     .arg(model)
                     .arg("--input")
@@ -327,7 +334,7 @@ pub fn analyze(
         let temp = tempfile::tempdir_in(&cache)?;
         let file = temp.path().join("source-fcpe-posterior.json");
         child(
-            Command::new(tools.join(executable(HELPERS[2])))
+            crate::vocal_runtime::command(tools.join(executable(HELPERS[2])), runtime.as_ref())
                 .arg(stem)
                 .arg(pack.join("fcpe.onnx"))
                 .arg(&file),
@@ -353,7 +360,7 @@ pub fn analyze(
         let temp = tempfile::tempdir_in(&cache)?;
         let file = temp.path().join("swift.json");
         child(
-            Command::new(tools.join(executable(HELPERS[3])))
+            crate::vocal_runtime::command(tools.join(executable(HELPERS[3])), runtime.as_ref())
                 .arg(audio)
                 .arg(stem)
                 .arg(&baseline_file)
@@ -383,7 +390,7 @@ pub fn analyze(
         let temp = tempfile::tempdir_in(&cache)?;
         let file = temp.path().join("notes.json");
         child(
-            Command::new(tools.join(executable(HELPERS[1])))
+            crate::vocal_runtime::command(tools.join(executable(HELPERS[1])), runtime.as_ref())
                 .arg("infer")
                 .arg(stem)
                 .arg(&baseline_file)
@@ -418,7 +425,7 @@ pub fn analyze(
     let temp = tempfile::tempdir_in(&cache)?;
     let output = temp.path().join("decoded");
     child(
-        Command::new(tools.join(executable(HELPERS[4])))
+        crate::vocal_runtime::command(tools.join(executable(HELPERS[4])), runtime.as_ref())
             .arg(&corpus_file)
             .arg(&cache)
             .arg(&cache)
@@ -438,7 +445,7 @@ pub fn analyze(
         &control,
         "Combining independent pitch evidence",
     )?;
-    let result: Generation =
+    let mut result: Generation =
         serde_json::from_slice(&fs::read(output.join("source.generation.json"))?)?;
     let receipt: serde_json::Value =
         serde_json::from_slice(&fs::read(output.join("frozen-profile.json"))?)?;
@@ -468,6 +475,9 @@ pub fn analyze(
             && models::hash_file(stem)? == baseline.vocal_stem_sha256,
         "Sources changed during independent analysis"
     );
+    if let Some(runtime) = runtime {
+        result.warnings.push(format!("Native ONNX Runtime {}; SHA-256 {}. The runtime was selected explicitly for the requested local model pack.", runtime.version, runtime.sha256));
+    }
     Ok(result)
 }
 

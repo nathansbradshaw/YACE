@@ -924,6 +924,7 @@ impl Studio {
         artist: String,
         bpm: f64,
         duration: f64,
+        location: super::new_location::Choice,
     ) -> Result<()> {
         let (ini, chart) = crate::project_recording::blank_song(&title, &artist, bpm, duration)?;
         self.persist_current().await?;
@@ -934,7 +935,7 @@ impl Studio {
         crate::storage::write(source.join("song.ini"), ini)?;
         crate::storage::write(source.join("notes.chart"), chart)?;
         Store::new(&root).initialize(&source, None, duration)?;
-        self.open_project(root).await?;
+        self.open_project_at(root, None, Some(location)).await?;
         self.detach_library();
         self.blank_chart.set(false);
         Ok(())
@@ -988,13 +989,15 @@ impl Studio {
         artist: String,
         timing: TempoMap,
         info: crate::song_import::SongInfo,
+        location: super::new_location::Choice,
     ) -> Result<()> {
         let (ini, chart) = crate::song_metadata::blank_song_with_timing(&title, &artist, &timing)?;
         crate::storage::write(root.join("song.ini"), ini)?;
         crate::storage::write(root.join("notes.chart"), chart)?;
         crate::song_metadata::write_song_info(&root, &info)?;
         self.status.set("Preparing new chart…".into());
-        self.open_project(root.clone()).await?;
+        self.open_project_at(root.clone(), None, Some(location))
+            .await?;
         crate::storage::clear(&root);
         self.new_song.set(None);
         self.detach_library();
@@ -1357,10 +1360,22 @@ impl Studio {
         }
     }
     pub async fn open_project_with_revision(
-        mut self,
+        self,
         source: PathBuf,
         saved_revision: Option<u64>,
     ) -> Result<()> {
+        self.open_project_at(source, saved_revision, None).await
+    }
+    async fn open_project_at(
+        mut self,
+        source: PathBuf,
+        saved_revision: Option<u64>,
+        location: Option<super::new_location::Choice>,
+    ) -> Result<()> {
+        ensure!(
+            location.as_ref().is_none_or(|choice| choice.ready()),
+            "Choose where to save this project before creating it"
+        );
         self.analysis_preview.set(None);
         super::dance::flush().await?;
         if super::dance::try_open_path(&source)? {
@@ -1481,6 +1496,13 @@ impl Studio {
             epoch == (self.epoch)(),
             "A newer project opened while this request was saving. The newer project was kept."
         );
+        if let Some(location) = location {
+            location.save(&root).await?;
+            ensure!(
+                epoch == (self.epoch)(),
+                "A newer project opened while this request was saving to its folder. The newer project was kept."
+            );
+        }
         let previous_root = self.store.read().as_ref().map(|store| store.root.clone());
         self.audio_ready.set(false);
         if let Some(media) = self.media.read().as_ref() {
@@ -1524,6 +1546,11 @@ impl Studio {
         self.audio_ready.set(true);
         self.stem_status.set(kit_notice.unwrap_or(notice));
         self.status.set("Ready".into());
+        if linked && let Err(error) = crate::workspace_recovery::remember_folder() {
+            self.error.set(Some(format!(
+                "Project saved to folder; workspace preference could not be saved: {error:#}"
+            )));
+        }
         if saved_revision.is_some() {
             self.remember_recent(root.clone());
         }
