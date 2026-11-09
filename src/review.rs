@@ -234,6 +234,8 @@ fn all_track_checks(chart: &Chart) -> Result<BTreeMap<String, TrackCheck>> {
             "ProKeys",
             "ProGuitar17",
             "ProGuitar22",
+            "ProBass17",
+            "ProBass22",
         ] {
             let name = format!("{tier}{part}");
             checks.insert(

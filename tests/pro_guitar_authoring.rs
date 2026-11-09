@@ -297,6 +297,8 @@ fn invalid_fret_is_atomic_and_clipboard_history_retains_sixth_string() {
 }
 
 fn named_chunk<'a>(bytes: &'a [u8], name: &[u8]) -> &'a [u8] {
+    let midi = midly::Smf::parse(bytes).unwrap();
+    let mut index = 0;
     let mut position = 8 + u32::from_be_bytes(bytes[4..8].try_into().unwrap()) as usize;
     while position < bytes.len() {
         assert_eq!(&bytes[position..position + 4], b"MTrk");
@@ -304,16 +306,26 @@ fn named_chunk<'a>(bytes: &'a [u8], name: &[u8]) -> &'a [u8] {
             + 8
             + u32::from_be_bytes(bytes[position + 4..position + 8].try_into().unwrap()) as usize;
         let chunk = &bytes[position..end];
-        if chunk.windows(name.len()).any(|window| window == name) {
+        if midi.tracks[index].iter().any(|event| {
+            matches!(event.kind,
+            midly::TrackEventKind::Meta(midly::MetaMessage::TrackName(label)) if label == name)
+        }) {
             return chunk;
         }
         position = end;
+        index += 1;
     }
     panic!("missing track");
 }
 
 #[test]
 fn edited_import_keeps_unrelated_raw_track_and_unmanaged_controls_and_note_off_attributes() {
+    for bass in [false, true] {
+        edited_import_preserves_source(bass);
+    }
+}
+
+fn edited_import_preserves_source(bass: bool) {
     use midly::{MetaMessage as M, MidiMessage as N, TrackEvent as E, TrackEventKind as K};
     let root = tempfile::tempdir().unwrap();
     let original = edited_fixture(root.path());
@@ -321,12 +333,31 @@ fn edited_import_keeps_unrelated_raw_track_and_unmanaged_controls_and_note_off_a
     export(&original, &output);
     let bytes = fs::read(output.join("notes.mid")).unwrap();
     let mut smf = midly::Smf::parse(&bytes).unwrap();
+    let midi_name: &[u8] = if bass {
+        b"PART REAL_BASS_22"
+    } else {
+        b"PART REAL_GUITAR_22"
+    };
+    let track_name = if bass {
+        "ExpertProBass22"
+    } else {
+        "ExpertProGuitar22"
+    };
+    if bass {
+        for events in &mut smf.tracks {
+            for event in events {
+                if matches!(event.kind, K::Meta(M::TrackName(b"PART REAL_GUITAR_22"))) {
+                    event.kind = K::Meta(M::TrackName(midi_name));
+                }
+            }
+        }
+    }
     let pro = smf
         .tracks
         .iter_mut()
         .find(|t| {
             t.iter()
-                .any(|e| matches!(e.kind, K::Meta(M::TrackName(b"PART REAL_GUITAR_22"))))
+                .any(|e| matches!(e.kind, K::Meta(M::TrackName(name)) if name == midi_name))
         })
         .unwrap();
     pro.insert(
@@ -403,7 +434,7 @@ fn edited_import_keeps_unrelated_raw_track_and_unmanaged_controls_and_note_off_a
     fs::copy(output.join("song.ini"), source.join("song.ini")).unwrap();
     let store = Store::create(&source, None, &root.path().join("imported")).unwrap();
     let doc = store.load().unwrap();
-    let note = doc.content.tracks["ExpertProGuitar22"]
+    let note = doc.content.tracks[track_name]
         .iter()
         .find(|n| n.note.lane == 5)
         .unwrap();
@@ -430,7 +461,7 @@ fn edited_import_keeps_unrelated_raw_track_and_unmanaged_controls_and_note_off_a
         .iter()
         .find(|t| {
             t.iter()
-                .any(|e| matches!(e.kind, K::Meta(M::TrackName(b"PART REAL_GUITAR_22"))))
+                .any(|e| matches!(e.kind, K::Meta(M::TrackName(name)) if name == midi_name))
         })
         .unwrap();
     assert!(
@@ -447,7 +478,7 @@ fn edited_import_keeps_unrelated_raw_track_and_unmanaged_controls_and_note_off_a
         .iter_mut()
         .find(|t| {
             t.iter()
-                .any(|e| matches!(e.kind, K::Meta(M::TrackName(b"PART REAL_GUITAR_22"))))
+                .any(|e| matches!(e.kind, K::Meta(M::TrackName(name)) if name == midi_name))
         })
         .unwrap();
     let event = pro

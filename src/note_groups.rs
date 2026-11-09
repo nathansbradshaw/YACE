@@ -59,7 +59,11 @@ pub fn family(track: &str) -> &'static str {
     if track == "Vocals" {
         "vocals"
     } else if let Some(limit) = crate::pro_guitar::max_fret(track) {
-        if limit == 17 {
+        if crate::pro_guitar::is_bass(track) && limit == 17 {
+            "pro_bass_17"
+        } else if crate::pro_guitar::is_bass(track) {
+            "pro_bass_22"
+        } else if limit == 17 {
             "pro_guitar_17"
         } else {
             "pro_guitar_22"
@@ -309,7 +313,9 @@ impl Clipboard {
                         "keys",
                         "pro_keys",
                         "pro_guitar_17",
-                        "pro_guitar_22"
+                        "pro_guitar_22",
+                        "pro_bass_17",
+                        "pro_bass_22"
                     ]
                     .contains(&family.as_str())
                         && !notes.is_empty()

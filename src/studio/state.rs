@@ -2702,7 +2702,10 @@ pub fn instrument(track: &str) -> &'static str {
         "Piano"
     } else if track.ends_with("Drums") {
         "Drums"
-    } else if track.ends_with("DoubleBass") || track.ends_with("GHLBass") {
+    } else if track.ends_with("DoubleBass")
+        || track.ends_with("GHLBass")
+        || crate::pro_guitar::is_bass(track)
+    {
         "Bass"
     } else {
         "Guitar"

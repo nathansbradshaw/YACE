@@ -15,6 +15,7 @@ pub enum Instrument {
     Guitar,
     SixFret,
     ProGuitar,
+    ProBass,
     Bass,
     Drums,
     Keys,
@@ -179,6 +180,7 @@ fn track_kind(track: &str) -> Result<(Instrument, Difficulty)> {
                 "Keyboard" => Instrument::Keys,
                 "ProKeys" => Instrument::ProKeys,
                 "ProGuitar17" | "ProGuitar22" => Instrument::ProGuitar,
+                "ProBass17" | "ProBass22" => Instrument::ProBass,
                 _ => continue,
             };
             return Ok((instrument, difficulty));

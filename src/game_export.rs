@@ -177,7 +177,9 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
             "ProKeys" => {
                 crate::keys::midi_track(&section.name).context("Invalid Pro Keys difficulty")?
             }
-            "ProGuitar17" | "ProGuitar22" => crate::pro_guitar::midi_name(suffix).unwrap(),
+            "ProGuitar17" | "ProGuitar22" | "ProBass17" | "ProBass22" => {
+                crate::pro_guitar::midi_name(suffix).unwrap()
+            }
             _ => bail!("Unsupported chart instrument [{}]", section.name),
         };
         let events = instruments

@@ -89,7 +89,7 @@ pub fn ExportDialog(mut studio: Studio, #[props(default)] failure: String) -> El
                     option {value: "chart", ".chart"}
                     option {value: "midi", "MIDI (.mid)"}
                 }
-                p {class: "field-hint", "Automatic uses MIDI for vocals, Pro Keys, Pro Guitar and imported MIDI songs. Clone Hero requires you to deselect vocals, Pro Keys, Pro Guitar and other original MIDI parts."}
+                p {class: "field-hint", "Automatic uses MIDI for vocals, Pro Keys, Pro Guitar, Pro Bass and imported MIDI songs. Clone Hero requires you to deselect vocals, Pro Keys, Pro Guitar, Pro Bass and other original MIDI parts."}
             }
             fieldset {disabled: busy,
                 legend {"Instruments and difficulties"}
