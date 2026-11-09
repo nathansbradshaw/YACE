@@ -17,6 +17,8 @@ mod dialogs;
 mod difficulty;
 #[path = "../../../src/studio/drum_dynamics.rs"]
 mod drum_dynamics;
+#[path = "../../../src/studio/drum_range_editor.rs"]
+mod drum_range_editor;
 #[path = "../../../src/studio/export.rs"]
 mod export;
 #[path = "../../../src/studio/field_reset.rs"]
@@ -27,6 +29,10 @@ mod generation_actions;
 mod generation_jobs;
 #[path = "../../../src/studio/generation_status.rs"]
 mod generation_status;
+#[path = "../../../src/studio/harmony_editor.rs"]
+mod harmony_editor;
+#[path = "../../../src/studio/percussion_editor.rs"]
+mod percussion_editor;
 pub mod github;
 #[path = "../../../src/studio/icons.rs"]
 mod icons;

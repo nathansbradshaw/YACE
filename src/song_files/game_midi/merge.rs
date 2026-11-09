@@ -8,7 +8,7 @@ use midly::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) fn chunks(bytes: &[u8], expected: usize) -> Result<(usize, Vec<&[u8]>)> {
+pub(crate) fn chunks(bytes: &[u8], expected: usize) -> Result<(usize, Vec<&[u8]>)> {
     ensure!(
         bytes.len() >= 14 && &bytes[..4] == b"MThd",
         "Invalid MIDI header"
@@ -43,7 +43,7 @@ pub(super) fn chunks(bytes: &[u8], expected: usize) -> Result<(usize, Vec<&[u8]>
 
 /// midly's permissive collector can stop silently at a malformed event. Do not
 /// build an editable view whose later rewrite would discard that unread tail.
-pub(super) fn validate_complete(bytes: &[u8]) -> Result<()> {
+pub(crate) fn validate_complete(bytes: &[u8]) -> Result<()> {
     let mapped = midly::SmfBytemap::parse(bytes)?;
     let (_, chunks) = chunks(bytes, mapped.tracks.len())?;
     for (events, chunk) in mapped.tracks.iter().zip(chunks) {
@@ -151,7 +151,8 @@ fn vocal_event(kind: TrackEventKind<'_>) -> bool {
     }
 }
 
-pub(super) fn vocal_view(smf: &Smf<'_>) -> Result<Option<Vec<u8>>> {
+pub(super) fn vocal_view(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+    let smf = Smf::parse(bytes)?;
     let tracks: Vec<_> = smf
         .tracks
         .iter()
@@ -164,6 +165,23 @@ pub(super) fn vocal_view(smf: &Smf<'_>) -> Result<Option<Vec<u8>>> {
     let Some(track) = tracks.first() else {
         return Ok(None);
     };
+    // Dedicated percussion scoring is not an empty singing phrase. Exclude
+    // only the physical marker edges proven by the complete percussion reader;
+    // mixed or ambiguous source keeps its previous conservative import result.
+    let mut percussion_edges = BTreeSet::new();
+    if let Ok(Some(percussion)) = crate::vocal_percussion::import_midi(bytes)
+        && let Some(track) = percussion.tracks.get(&crate::vocal_percussion::Part::Lead)
+    {
+        for phrase in &track.phrases {
+            let channel = phrase
+                .midi
+                .as_ref()
+                .map_or(0, |attributes| attributes.channel);
+            let key = if phrase.range.player == 2 { 106 } else { 105 };
+            percussion_edges.insert((phrase.range.start, channel, key, true));
+            percussion_edges.insert((phrase.range.end, channel, key, false));
+        }
+    }
     let mut events = vec![(
         0,
         1,
@@ -171,7 +189,9 @@ pub(super) fn vocal_view(smf: &Smf<'_>) -> Result<Option<Vec<u8>>> {
         TrackEventKind::Meta(MetaMessage::TrackName(b"PART VOCALS")),
     )];
     for (index, (tick, kind)) in absolute(track).into_iter().enumerate() {
-        if vocal_event(kind) {
+        if vocal_event(kind)
+            && !phrase_edge(tick, kind).is_some_and(|edge| percussion_edges.contains(&edge))
+        {
             events.push((tick, 1, index + 1, kind));
         }
     }
@@ -427,6 +447,110 @@ fn gem_attributes(name: &str, records: &[AttributeRecord]) -> GemAttributes {
 
 type AbsoluteEvent<'a> = (u64, u8, TrackEventKind<'a>);
 
+type NoteEdge = (u64, u8, u8, bool);
+type VocalPhraseEdge = NoteEdge;
+
+fn note_edge(tick: u64, kind: TrackEventKind<'_>) -> Option<NoteEdge> {
+    let TrackEventKind::Midi { channel, message } = kind else {
+        return None;
+    };
+    let (key, on) = match message {
+        MidiMessage::NoteOn { key, vel } => (key.as_int(), vel.as_int() > 0),
+        MidiMessage::NoteOff { key, .. } => (key.as_int(), false),
+        _ => return None,
+    };
+    Some((tick, channel.as_int(), key, on))
+}
+fn phrase_edge(tick: u64, kind: TrackEventKind<'_>) -> Option<VocalPhraseEdge> {
+    note_edge(tick, kind).filter(|edge| matches!(edge.2, 105 | 106))
+}
+
+type MarkerEdges = BTreeSet<NoteEdge>;
+/// Changing one range must not normalize the other ranges of that marker kind.
+/// Match complete physical intervals, retaining both original edges and omitting
+/// their generated replacements. Channels, velocities and note-on-zero releases
+/// remain source data; only genuinely changed/new intervals use generated edges.
+fn retained_marker_edges(
+    name: &str,
+    original: &[TrackEvent<'_>],
+    generated: &[TrackEvent<'_>],
+    changed: Option<&BTreeSet<Component>>,
+    enhanced: bool,
+    fills: bool,
+) -> Result<(MarkerEdges, MarkerEdges)> {
+    let relevant = |key: u8| {
+        let kind = TrackEventKind::Midi {
+            channel: u4::new(0),
+            message: MidiMessage::NoteOn {
+                key: u7::new(key),
+                vel: u7::new(1),
+            },
+        };
+        let component = component(name, kind);
+        matches!(
+            component,
+            Component::StarPower
+                | Component::Solo
+                | Component::Fill
+                | Component::Roll
+                | Component::SpecialRoll
+        ) && changed.is_some_and(|set| set.contains(&component))
+            && managed(name, kind, enhanced, fills)
+    };
+    let before = decode::spans(original, relevant)?;
+    let after = decode::spans(generated, relevant)?;
+    let shape = |span: &decode::Span| (span.start, span.end, span.key);
+    let old_shapes: BTreeSet<_> = before.iter().map(shape).collect();
+    let new_shapes: BTreeSet<_> = after.iter().map(shape).collect();
+    let edges = |spans: &[decode::Span], other: &BTreeSet<_>| {
+        spans
+            .iter()
+            .filter(|span| other.contains(&shape(span)))
+            .flat_map(|span| {
+                [
+                    (span.start, span.channel, span.key, true),
+                    (span.end, span.channel, span.key, false),
+                ]
+            })
+            .collect()
+    };
+    Ok((edges(&before, &new_shapes), edges(&after, &old_shapes)))
+}
+
+/// Percussion is retained as source MIDI, outside the pitched-vocal editor.
+/// Its scoring phrase must survive automatic pruning of the last syllable.
+fn percussion_phrase_edges(
+    track: &[TrackEvent<'_>],
+    vocals: Option<&VocalChart>,
+) -> Result<BTreeSet<VocalPhraseEdge>> {
+    let percussion = decode::spans(track, |key| matches!(key, 96 | 97))?;
+    let phrases = decode::spans(track, |key| matches!(key, 105 | 106))?;
+    let authored = vocals.map_or(&[][..], |v| v.phrases.as_slice());
+    let mut retained = BTreeSet::new();
+    for phrase in phrases {
+        let needed = percussion.iter().any(|hit| {
+            phrase.start <= hit.start
+                && hit.start < phrase.end
+                && hit.end <= phrase.end
+                && !authored
+                    .iter()
+                    .any(|p| p.start <= hit.start && hit.start < p.end && hit.end <= p.end)
+        });
+        if !needed {
+            continue;
+        }
+        ensure!(
+            !authored
+                .iter()
+                .any(|p| p.start < phrase.end && phrase.start < p.end),
+            "Edited vocal phrases conflict with a retained percussion scoring phrase; keep that phrase or export without Vocals"
+        );
+        retained.insert((phrase.start, phrase.channel, phrase.key, true));
+        retained.insert((phrase.end, phrase.channel, phrase.key, false));
+    }
+    Ok(retained)
+}
+
 /// New manually authored Pro Guitar projects also need velocity frets and
 /// channel articulations; they have no original-MIDI descriptor to merge.
 pub(super) fn authored_attributes(bytes: &[u8], records: &[AttributeRecord]) -> Result<Vec<u8>> {
@@ -645,11 +769,34 @@ pub(super) fn rewrite(
                     .is_some_and(|set| set.contains(&Component::Fill)),
             "Partial-lane MIDI drum fills cannot be replaced in this editor; source retained"
         );
+        let retained_phrases = if name == "PART VOCALS"
+            && changed
+                .get(&name)
+                .is_some_and(|set| set.contains(&Component::VocalPhrases))
+        {
+            percussion_phrase_edges(track, after.vocals)?
+        } else {
+            BTreeSet::new()
+        };
+        let (original_markers, generated_markers) = retained_marker_edges(
+            &name,
+            track,
+            generated_tracks
+                .get(&name)
+                .map_or(&[][..], |track| track.as_slice()),
+            changed.get(&name),
+            enhanced,
+            fills,
+        )?;
         let mut events = Vec::new();
         for (serial, (tick, kind)) in absolute(track).into_iter().enumerate() {
             if remove_global(kind)
                 || remove_section(kind)
-                || (changed_component(kind) && managed(&name, kind, enhanced, fills))
+                || (changed_component(kind)
+                    && managed(&name, kind, enhanced, fills)
+                    && !note_edge(tick, kind).is_some_and(|edge| original_markers.contains(&edge))
+                    && !phrase_edge(tick, kind)
+                        .is_some_and(|edge| retained_phrases.contains(&edge)))
             {
                 continue;
             }
@@ -674,7 +821,10 @@ pub(super) fn rewrite(
                 ) {
                     continue;
                 }
-                if changed_component(kind) && managed(&name, kind, true, true) {
+                if changed_component(kind)
+                    && managed(&name, kind, true, true)
+                    && !note_edge(tick, kind).is_some_and(|edge| generated_markers.contains(&edge))
+                {
                     events.push((tick, order, serial_base + serial, kind));
                 }
             }

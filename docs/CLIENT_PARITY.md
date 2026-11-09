@@ -5,6 +5,72 @@ before additional product features ship. Use one source revision and the same
 full-length song project for acceptance. Sharing Rust modules establishes shared
 rules; it does not establish that both applications expose working controls.
 
+Harmony authoring has actual static-browser verification for the supported
+editing subset below. Shared Rust controls expose HARM1–3 notes and lyrics,
+recording loops, Undo/Redo, and the format's shared HARM1 scoring and HARM2 lyric
+ranges. Phrase edits, splits and merges keep singer notes intact and refuse
+uncovered notes or retained percussion. Harmony-only imports expose these
+controls through Vocals. The core imports a supported ordinary MIDI subset and
+exports independent singers while preserving unrelated source tracks and
+controls. Clearing the voices retains source controls; explicitly omitted
+harmonies stay omitted when reopening or authoring new notes later. Unsupported
+imports remain opaque. Native GUI, hosted controls, full restart/fault coverage,
+listening and target-game acceptance remain open. Shared controls do not qualify
+those workflows.
+
+Vocal percussion has actual static-browser verification for the supported
+editing subset below. The shared Rust pane exposes separate lead and
+harmony hits, displayed/hidden flags, tick placement and movement, removal,
+selection, scoring-phrase resize/split/merge, Undo/Redo and recording-phrase loops.
+Its bounded preview follows the source transport clock and distinguishes hidden
+hits from displayed hits. Selected forms retain exact hit/phrase witnesses when
+other edits change their indices, so stale forms cannot retarget another event.
+A separate Rust document validates displayed/hidden hits and dedicated
+percussion scoring phrases without changing pitched/talkie syllables. Verified
+dedicated percussion scoring is excluded from the lead singer import view, so
+separate singing phrases remain editable; their original percussion markers and
+physical hit attributes survive singer edits, export and reopen. Unsupported
+uncovered hits retain the conservative read-only source behavior. It refuses
+phrases that overlap the applicable lead or harmony singing phrases. Typed project
+commands create, move, hide/show and delete hits, and resize, split or merge
+dedicated phrases using exact selected-value guards. Moving a phrase's final hit
+to a new dedicated range is one atomic, undoable command. First singers in a
+verified percussion-only owner adopt the retained percussion in that same edit;
+new-note defaults avoid its scoring ranges. Commands persist authored hits
+or an explicit clear, with content-addressed Undo/Redo and portable project
+relocation. Legacy documents inherit only active source parts; reopening an
+instrument-only export does not revive omitted hits.
+Singer edits refuse conflicts with supported inherited percussion before saving;
+explicit authored or cleared percussion state governs subsequent edits and Undo.
+The shared export pipeline stages verified source MIDI without changing its
+archive, rebuilds singers, then writes the selected percussion. A MIDI-bound
+working sidecar preserves authored, cleared and omitted state on reopen.
+Logical Vocals/Harmonies selection replaces duplicate raw percussion owners;
+omitted original controls stay omitted when singers are authored later.
+Native GUI, hosted controls, full restart/fault coverage and musical/game
+judgments remain open. A strict MIDI reader extracts dedicated source phrases
+with original hit and scoring-marker attributes;
+ambiguous, mixed singing/percussion and uncovered source hits refuse the editable
+view. Shared scoring ranges used by unmanaged harmony percussion also remain
+read-only. The core checks the saved source SHA-256 before selectively adding,
+editing or clearing percussion and its dedicated markers in existing owners.
+Unmodified tracks remain byte-identical; singing, lyrics, overdrive and author
+controls are retained. Supported harmony MIDI views exclude verified dedicated
+percussion ranges from singing phrases; singing-phrase rewrites preserve the
+physical percussion markers and reject new scoring conflicts. Project export,
+reopen (including percussion-only selection), explicit omission, later singer
+authoring, repeated export and portable
+history regressions cover this backend path. Conflicting candidates and invalid
+owner endings refuse before returning a rewritten song. These checks do not
+qualify an actual application workflow on their own.
+
+A source-hash-bound harmony writer can add first singers to retained
+percussion/control-only owners while preserving aliases, physical hits and
+unrelated tracks. It refuses existing singer content, changed source bytes,
+overlapping opaque percussion and malformed edited-owner endings. The shared
+pipeline uses it for first singers in managed percussion owners; the exercised
+browser subset and remaining application gates are recorded below.
+
 The user has expanded the parity gate to include local browser generators and
 vocals/instrument separation. The earlier blanket inference exception no longer
 closes this work. No application service is substituted. Browser generation,
@@ -12,6 +78,60 @@ recognition and supplied-lyric alignment have actual full-song verification;
 see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATORS.md).
 
 ## Acceptance ledger
+
+Static-browser controls at `131f989` independently created three simultaneous
+harmony singers beside retained lead and percussion. Each singer then held two
+adjacent notes at ticks 0–240 and 240–480. Timing, pitch and lyric edits, shared
+HARM1 scoring split/merge and Undo/Redo worked. A split through a held note and
+a singing phrase overlapping dedicated percussion refused without saving or
+losing the entered draft. Independent inspection of downloaded MIDI verified
+the six pitches/lyrics, adjacent scoring boundaries, separate HARM2 lyric range,
+original percussion attributes, unchanged other raw tracks and original WAV.
+
+The percussion pane changed a hidden zero-length hit at tick 2208 to displayed;
+the downloaded MIDI changed only its key from 97 to 96, retaining channel 2,
+velocity 93 and its note-on/zero-velocity off representation. Undo/Redo restored
+the corresponding states. A complete project backup verified all 34 referenced
+files, reopened in the browser with its ten Undo checkpoints and working Redo,
+and survived reload. The pinned native executable opened that portable backup,
+exported matching MIDI/WAV and repeated Redo/Undo with byte-identical results.
+This establishes the exercised browser and native file-interchange paths;
+native GUI, hosted controls, acoustic preview, game acceptance and broader fault
+coverage remain open.
+
+Deleting the final pitched lead-vocal notes exposed an export preservation gap:
+the export selector omitted `PART VOCALS`, including untouched percussion,
+overdrive and author controls. The shared Rust fix retains that source part and
+any scoring phrase required by its percussion. Conflicting phrase edits refuse
+export rather than displace the retained percussion. Explicitly deselecting
+Vocals remains durable across export, reopen and later lead-note authoring.
+Actual static-browser checks deleted both lead notes, exported with Vocals
+selected, reopened the downloaded song and exported again. Independent MIDI
+inspection retained the exact percussion, scoring, overdrive and author events,
+unrelated tracks and original recording; pitched notes and lyrics stayed gone.
+A separate UI export explicitly omitted Vocals. After reopening it and authoring
+a new C4 note at ticks 960–1200, two export/reopen cycles retained that new note
+without restoring the omitted controls. Both repeated MIDI exports were
+byte-identical. The deployed `95724ec0` runtime repeated keep, explicit omission
+and new-note authoring with an invented chart-only fixture. Independent MIDI
+inspection passed each downloaded result. Native GUI and game interpretation
+remain separate acceptance gates.
+
+An actual hosted MIDI export exposed another preservation gap: adding a new
+Star Power phrase normalized an untouched phrase's channel and velocities.
+The merge now matches complete unchanged physical marker intervals and retains
+their original note-on and note-off events. New, resized or removed intervals
+remain editable. Regressions cover adding/removing a phrase, Undo/Redo and
+reopen, plus unchanged Star Power, instrument/Pro Keys solo and drum fill/roll
+edges during each component rewrite. The actual static editor repeated the
+hosted reproduction and retained channel 4, velocity 89 and release velocity 22
+on the untouched phrase. Its export matched the native executable byte for
+byte. The downloaded song reopened, a second phrase moved, Undo/Redo and reload
+retained the acknowledged edit, and a final repeat export was byte-identical.
+Native executable checks independently passed Add, Undo/Redo, reopen and repeat
+export. The deployed `95724ec0` runtime repeated the same Add/export controls;
+its MIDI was byte-identical to the qualified static and native outputs. Native
+GUI and game interpretation remain separate acceptance gates.
 
 | Workflow | Verification evidence | Result |
 | --- | --- | --- |
@@ -31,7 +151,7 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 | Manual clean audio | Both actual panels rendered the same bound plan; native output matched shared DSP exactly; 10,755,108 browser stereo frames, zero lag, maximum decoder delta 0.00000054 | Verified functional render; musical acceptance remains with the listener |
 | Review and flags | Shared rules, actual browser queue/decisions and portable source-bound review history | Verified |
 | Team proposals | Actual browser proposal → native import/independent approval/merge → browser conflict resolution → fresh native approval → browser merge; new parts preserved | Verified file exchange and protocol tests. Authenticated GitHub writes remain untested at the user's request |
-| Recovery, undo and backups | IndexedDB restore/stale-tab guard; independent browser-tab projects and standalone Dance recovery; same-name library switching with separate histories; full project/kit roundtrips; imported first checkpoint and native/browser Undo/Redo | Verified exercised paths; quota, eviction and hard browser termination remain unqualified |
+| Recovery, undo and backups | IndexedDB restore/stale-tab guard; independent browser-tab projects and standalone Dance recovery; same-name library switching with separate histories; full project/kit roundtrips; imported first checkpoint and native/browser Undo/Redo; controlled hosted browser-process exit and restart | Verified exercised paths; quota, eviction and other storage/platform faults remain unqualified |
 | Playable export | Actual client exports had byte-identical MIDI, editable master, vocal JSON, INI and original Ogg; partial-stem game receipt avoids duplicate mix playback | Verified export equivalence; game/controller acceptance is separate |
 | Navigation and errors | Shared controls and OS pickers; actual narrow browser layout; lazy folder discovery; explicit downloads; native dialogs expose their accessibility role | Verified exercised paths |
 | Browser desktop workspace | Static and hosted thresholds, per-tab dismissal/reload, keyboard overflow and uninterrupted playback; actual Firefox zoom at 140%; native layout retained | Verified exercised paths; assistive technology and broader platforms remain open |
@@ -55,6 +175,55 @@ owners. Regressions cover history, export/reopen, explicit removal without
 resurrection, retained unrelated events and note-proposal safety. Actual
 desktop/static-browser/hosted controls and preview verification remain open;
 helper/backend tests do not qualify those workflows.
+Drum fill/activation and single/double-roll authoring has a shared Rust range
+model and project commands on its feature branch. It uses the existing S64,
+S65 and S66 conversion; S64 retains an activation interval without inventing a
+separate fill-versus-BRE classification. Typed edits preserve unrelated rows,
+reject stale witnesses before saving and participate in Undo/Redo. A bounded
+range clipboard retains relative intervals and requires a matching chart
+resolution. MIDI edits update the shared drum owner across difficulties;
+asymmetric source activation lanes remain read-only while safe roll edits keep
+their original events. Regressions cover explicit clears, export/reopen,
+clipboard refusal and note-proposal safety. Shared inspector controls now expose
+typed range bounds, current-loop bounds, removal and Undo/Redo, with separate
+colored timeline bands and current-range preview labels. Native and browser
+clipboard adapters use the same bounded format; asynchronous paste refuses a
+changed project, track or revision. The inspector disables activation edits for
+opaque source lanes. Actual static controls authored all three kinds, copied and
+pasted ranges, moved and resized them, refused a stale draft, and exercised
+Undo/Redo. Separate adjacent activation intervals survived downloaded MIDI
+export. A recording loop crossed a tempo change and wrapped to its saved start;
+this establishes clock behavior, without an acoustic synchronization claim.
+
+New MIDI drum difficulties inherit the current shared ranges, including explicit
+clears. Earlier projects with a later-added difficulty use the same authored
+view. Conflicting shared copies refuse range edits instead of restoring source
+markers. Actual browser backups confirm shared state on new Hard and Medium
+parts and explicit empty arrays on all four drum difficulties after clearing
+from one part and adding Easy. Downloaded cleared MIDI reopened and exported
+again without restoring the ranges. Independent inspection retained original
+drum notes, solo events, channels and velocities, every unrelated raw MIDI track
+and original recording. A pinned native executable repeated authoring,
+late-difficulty inheritance, clearing and Undo/Redo; authored and cleared MIDI
+matched the browser byte for byte. Native GUI, clipboard OS
+integration, game interpretation and musical acceptance remain open.
+An actual asymmetric-activation fixture disabled the fill option while allowing
+a single roll at ticks 960–1440. Its downloaded MIDI retained the opaque key-120
+interval's channel 6, velocity 77 and release velocity 33 exactly, along with
+the other tracks and recording. Chart-based projects retain independent
+per-difficulty ranges: adding a double roll to Hard left Expert unchanged in
+both the rendered controls and downloaded `.chart`.
+
+The deployed `8fa1be97` runtime repeated drum authoring with an invented
+chart-only MIDI fixture. Adding a double roll at ticks 1920–2400 and a new
+Medium part retained the shared range view. Undo/Redo removed and restored
+both edits. The complete downloaded backup passed all 14 manifest size/hash
+references and retained three explicit range maps and both Undo checkpoints.
+The playable MIDI retained the original activation and single-roll channels,
+attack/release velocities and unrelated raw tracks. Reopening that downloaded
+song and exporting again passed the same independent inspection and produced
+byte-identical MIDI. This qualifies the exercised hosted controls and file
+workflow; it does not establish target-game difficulty interpretation.
 
 ## Pro Guitar strings and frets (2026-11-08)
 
@@ -583,6 +752,28 @@ download passed every ZIP CRC check and retained the rejected note and four
 Undo checkpoints; a fresh tab's saved-project picker reopened the accepted copy,
 with Undo returning to tick 2 and Redo restoring tick 3. The served module and
 WASM matched the published artifact, and the original workspace was restored.
+
+On 2026-11-09, an isolated Edge profile repeated this workflow against hosted
+source `f201484e`. A new blank chart saved Green at tick 480. One tab saved tick
+481; a stale tab's tick-479 edit was refused with the recovery instructions.
+Reload retained tick 481. Undo returned to 480 and Redo restored 481, which
+survived another reload. The downloaded recovery ZIP retained the refused
+tick-479 draft and two Undo checkpoints; the independent complete backup
+retained the accepted tick-481 revision. Both downloads passed every ZIP CRC
+check. After forcibly terminating only that verification browser process,
+restarting its profile automatically reopened the accepted revision and note.
+This qualifies that controlled process-exit case; quota, eviction and other
+storage-failure cases still need acceptance evidence.
+
+The deployed `95724ec0` runtime repeated this controlled recovery case with
+vocal edits. One tab acknowledged tick 961 at revision 6; the other tab's
+tick-959 draft was refused and remained downloadable. Independent inspection
+verified the rejected draft, recovery report and checkpoint hashes. Reload and
+a forced exit of only the isolated verification browser retained the accepted
+tick-961 edit. Complete backups downloaded before and after restarting that
+profile passed all 20 manifest size/hash references and contained byte-identical
+project JSON, including revision 6 and three Undo checkpoints. This qualifies
+that controlled process-exit case, with the other fault gates still open.
 
 The browser keeps a desktop workspace at least 1024×600 CSS pixels. A smaller
 window shows an inline notice with per-tab dismissal, without moving focus or

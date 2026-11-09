@@ -78,10 +78,13 @@ fn fixture(root: &Path, generated: bool) -> Store {
         analysis_sources: Default::default(),
         star_power: Default::default(),
         solos: Default::default(),
+        drum_ranges: Default::default(),
         sync: None,
         sections: None,
         track_origins: Default::default(),
         vocals: None,
+        harmonies: None,
+        vocal_percussion: None,
         vocal_review: None,
         vocal_pitch_analysis: None,
         tracks: tracks

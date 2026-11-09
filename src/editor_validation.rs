@@ -50,6 +50,16 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
         crate::solos::imported(chart, track)?;
         crate::solos::validate(phrases, &timing, project.duration)?;
     }
+    for (track, ranges) in &project.content.drum_ranges {
+        ensure!(
+            track.ends_with("Drums")
+                && supported_track(track)
+                && project.content.tracks.contains_key(track),
+            "Drum ranges belong to an unknown drum track"
+        );
+        crate::drum_ranges::imported(chart, track)?;
+        crate::drum_ranges::validate(ranges, &timing, project.duration)?;
+    }
     for (track, phrases) in &project.content.star_power {
         ensure!(
             supported_track(track) && project.content.tracks.contains_key(track),
@@ -133,6 +143,21 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
             project.content.vocals.is_some(),
             "Vocal review requires a vocal chart"
         );
+    }
+    if let Some(harmonies) = &project.content.harmonies {
+        harmonies.validate_timing(&timing, project.duration)?;
+    }
+    if let Some(percussion) = project
+        .content
+        .vocal_percussion
+        .as_ref()
+        .and_then(|state| state.document())
+    {
+        percussion.validate_timing(&timing, project.duration)?;
+        percussion.validate_with_singing(
+            project.content.vocals.as_ref(),
+            project.content.harmonies.as_ref(),
+        )?;
     }
     if let Some(vocals) = &project.content.vocals {
         vocals.validate()?;

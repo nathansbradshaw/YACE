@@ -1,0 +1,19 @@
+[package]
+name = "yace-vocal-jdc-probe"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+[workspace]
+
+[dependencies]
+chart-engine = {path = "../..", default-features = false}
+anyhow = "1"
+clap = {version = "4", features = ["derive"]}
+serde_json = {version = "1", features = ["float_roundtrip"]}
+serde = "1"
+sha2 = "0.10"
+hdf5-pure = {version = "=0.43.0", default-features = false, features = ["std", "checksum"]}
+ort = {version = "=2.0.0-rc.10", default-features = false, features = ["std", "load-dynamic"]}
+
+tempfile = "3"

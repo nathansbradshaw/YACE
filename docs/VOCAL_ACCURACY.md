@@ -541,6 +541,91 @@ previously evaluated artists are regression material, never fresh held-out
 evidence. Language tags with unreliable provenance remain unknown. Authored
 game charts supply chart-relative target notes, not measured performance F0.
 
+### Joint singing detection and pitch research
+
+`tools/vocal-jdc-probe` reconstructs the publisher's JDC checkpoint in Rust
+without executing Keras, using pinned weights, normalization and native
+runtime. Its shared frontend and evidence validation compile for native and
+browser, and `analyze` produces an explicit lyric-free experimental MIDI draft
+with source-bound JDC/RMVPE evidence. It changes no production quality mode.
+The tool README records hashes, preprocessing, license attribution and limits.
+
+The port matched its frozen Rust prototype exactly on four development songs:
+the converted graph, all722 pitch probabilities, singing scores, PCM and
+timestamps. The shared decoder reproduced selected pitches, note boundaries
+and phrases on those four plus eight previously exposed regression songs.
+This establishes port parity, **not publisher numerical parity** or musical
+acceptance.
+
+A separate frozen run then predicted eight new artists before reading their
+authored game-chart targets. Both methods used the same native HTDemucs6s
+vocal stems on the original recording clock. The primary baseline was the
+actual installed app at `c96a5a23b4b0ee6a5f89521e7ddfc7613644b07a`, with
+High accuracy and no recognition or shell runtime override.
+
+| Mean across eight fresh artists | High accuracy | JDC/RMVPE research |
+| --- | ---: | ---: |
+| Contour correct pitch / reference voiced frames |44.03%|50.47%|
+| Contour voiced recall |48.69%|54.92%|
+| Contour wrong pitch / detected voiced frames |11.04%|9.95%|
+| Contour false voicing / reference unvoiced frames |12.28%|8.32%|
+| Exported-note correct pitch / reference voiced frames |38.54%|47.29%|
+| Exported-note voiced recall |41.48%|49.56%|
+| Exported-note wrong pitch / detected voiced frames |8.58%|6.22%|
+| Exported-note false voicing / reference unvoiced frames |9.50%|6.96%|
+
+The relative reduction in missing-or-wrong pitches was11.51% for contours
+and14.23% for exported notes, **below the20% gate**. Recall and wrong/false
+voicing improved, but the overall gate failed. These artists are now exposed
+regression material; subsequent tuning cannot reuse them as fresh held-out
+evidence. Language tags without reliable provenance remain unknown. These
+are chart-relative targets, not measured performed-frequency truth or a
+100% correctness claim. Keep all recordings and detailed reports outside Git.
+
+### Performed-pitch reference handling and rescan regression
+
+Published performed-pitch datasets can contain overlapping human note
+segmentations at transitions. The evaluator preserves those boundaries and
+accepts onset-sorted overlaps for `performed_contour` references. Its raw
+frame truth remains the independently annotated F0 contour. Authored game
+charts retain the existing nonoverlap requirement; invalid clocks, unsorted
+notes and source mismatches remain errors. This does not change the scorer's
+pitch tolerance, error definitions or quality gate.
+
+A further four-artist development experiment recovered original acoustic
+notes when supported by JDC singing activity and independent RMVPE, then
+rescanned supported gaps between equal pitches. The frozen settings passed
+development controls. A new validation selected the last two unexposed
+positive-vocal-difficulty game artists and the first six distinct singers in
+numeric track order from [vocadito v3](https://zenodo.org/records/5578807).
+Average-pitch metadata was ignored. All eight predictions preceded annotation
+reads. The publisher's MD5 matched; archive SHA256 was
+`e0d6b99d3f9c594afe5ae5c4d7bdacebe569e53b809e90b89d1c771c4f9990e3`.
+The dataset declares CC-BY4.0 and musician-reviewed F0 and two note annotations.
+
+Both methods received identical original-clock vocals: native HTDemucs6s
+for the game mixes, and native-format solo derivatives verified bit-identical
+to the original solo recordings' stereo decode. The installed c96a5a2 High
+accuracy app remained the baseline, with recognition disabled. No offset or
+pitch fitting used target values. The two domains are reported separately:
+
+| Rescan regression | Separated game mixes (2) | Clean solo singing (6) |
+| --- | ---: | ---: |
+| Contour missing-or-wrong error reduction |22.70%|**-6.04%**|
+| Exported-note missing-or-wrong error reduction |24.60%|**-11.13%**|
+| Contour voiced recall, baseline → candidate |47.67% →62.78%|84.62% →76.24%|
+| Exported-note voiced recall, baseline → candidate |39.78% →56.58%|79.07% →69.21%|
+
+Across all eight, missing-or-wrong errors fell only5.89% for contours and
+3.25% for notes, while mean recall fell2.51 and3.19 percentage points.
+The full gate failed, including the stricter no-recall-loss requirement.
+Two game recordings alone cannot establish the required eight-artist gate.
+Lower wrong-pitch proportions did not compensate for deleted valid voice.
+No rescan backend is promoted. These results motivate preserving existing
+acoustic voicing while screening additions, rather than using disagreement
+as a reason to remove it. Further tuning must treat these singers and game
+artists as exposed regression data, not fresh validation.
+
 ### Residual section rescan experiment
 
 `cargo run --release --no-default-features --example vocal_chunk_trial -- AUDIO
@@ -558,3 +643,25 @@ leakage. Optional reviewed references are loaded only after predictions and
 score wrong, missing and falsely voiced raw frames separately. No generated
 chart becomes ground truth. A smaller window is not promoted without the full
 note/contour gate and voiced-recall checks. Keep outputs outside public Git.
+
+## Recursive audio/MIDI review (experimental)
+
+In **Check pitches against the recording**, enable **Deep rescan gaps and disagreements**, then analyze a phrase, loop, time range or all vocals. This is a slower opt-in review tool; it does not promote a new generation backend or claim the pitch quality gate has passed.
+
+The shared Rust planner compares the actual current vocal note intervals with isolated-vocal pitch evidence at 100 Hz. It checks uncovered pitches, pitch disagreements, MIDI without detected pitch, and vocal-stem sound without reliable pitch. Six-second cores retain one second of surrounding original audio, then unresolved cores split into overlapping halves. Stable forty-millisecond residuals are identified before partitioning so chunk boundaries cannot hide a short sound. Audio stays on the original recording clock; note decoding and boundaries use the full contour rather than independently cutting notes at chunk edges.
+
+The loop stops on resolution, unchanged evidence below one second, a 250 ms subdivision floor, depth six, 1,024 inference calls, or a bounded decoded-audio budget. The report shows scan counts, initial and remaining disagreements, retained pitch alternatives and an explicit processing-limit message. Unresolved sound remains a finding. A smaller selection can be reviewed again. Coverage is a scheduling signal, not a correctness score.
+
+Variable-size inference sessions disable ONNX memory-pattern retention and the CPU arena and recycle every eight scans. Browser sessions are explicitly released between the baseline and recursive comparison. Long recordings must be measured for peak memory as well as runtime; short synthetic checks alone cannot establish this bound.
+
+Missing-note proposals still need stable pitch and acoustic support. Deep review additionally tests the actual source waveform at the proposed period and both octave alternatives, requiring normalized periodicity at least 0.85, a half-period margin at least 0.03, a double-period advantage no more than 0.1, and matching estimates in two distinct model contexts. Context identity uses the actual surrounding audio supplied to the network, including clipping at recording edges. Short cores that receive identical input do not add confirmation. Repeating RMVPE is **not** a second independent detector. Periodic instrumental leakage or a backing singer can satisfy these conditions; singer identity and musical correctness remain review gates. This experimental support rule has not passed held-out musical acceptance or the backend promotion gate.
+
+Applied draft evidence survives an adaptive implementation update when the original audio, stem, pitch model, timing and exact note still match. Such notes remain visibly uncertain and request a fresh check; obsolete proposals still cannot be applied.
+
+Existing notes, lyrics, talkies and authored intervals are retained when a detector becomes unvoiced. Lack of model pitch is not proof of silence. Exact silence checks use squared **stereo** channel energy in both the original recording and vocal stem, so opposite channel phases cannot masquerade as silence. Suspected extra or long notes are flagged for review. Proposed additions use unknown lyrics, remain uncertain, export as ordinary playable vocal MIDI, and apply through the existing selected-repair action with one Undo batch.
+
+Native and browser clients use the same planner, physical support, decoder and evidence profile. Native uses its installed ONNX Runtime; browser requires its explicitly checked ONNX WASM runtime and pinned RMVPE resource. Unavailable resources fail the request rather than silently selecting a faster quality mode. Cancellation leaves the project unchanged. Source, chart, timing and implementation witnesses invalidate stale reports.
+
+On four already-exposed development recordings using the pinned ONNX Runtime 1.24.4 research build for comparison, applying all initial review proposals raised exported-note pitch accuracy from 28.49% to 35.92% and voiced recall from 30.27% to 38.05%. Wrong pitches among detected voiced frames fell from 6.39% to 6.11%; false voicing rose from 3.76% to 4.71%. The reduction in missing-or-wrong pitch frames was approximately 10.40%, below the 20% gate. These figures predate the short-input context-identity correction; they do not establish the corrected recipe's accuracy. They are development results, not held-out promotion or native/browser listening/game acceptance. Private source recordings, references and detailed reports remain outside Git.
+
+A complete 171-second project check with the existing native release runtime performed 618 scans in 131 seconds at 1.29 GB maximum resident memory. Its scan budget was reached and remaining sections stayed flagged. The separate research runtime used substantially more memory and remains experimental; its resource figures cannot be substituted for the installed runtime. Recycling sessions preserved the complete repair report on a separate full-song regression, apart from implementation/provenance hashes.

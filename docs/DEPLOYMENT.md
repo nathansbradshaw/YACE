@@ -46,6 +46,47 @@ the custom-domain application and the feature's actual browser workflow.
    editing, audio, recovery and exports run locally in the browser; no charting
    API or model service is configured.
 
+### Controlled Pages publication
+
+`Deploy verified static YACE` publishes the existing prebuilt assets branch;
+it does not compile Rust or infer feature acceptance. Keep its workflow file
+identical on `main` and `codex/yace-public-assets`. After pushing a verified
+asset commit, dispatch it with:
+
+```sh
+gh workflow run deploy-static-pages.yml --ref codex/yace-public-assets
+```
+
+The workflow runs only on that publication branch and retains the existing
+`github-pages` environment restriction. Its deployment action has a bounded
+20-minute client timeout, within a 25-minute job. This permits an observable
+longer file-sync attempt after the built-in publisher repeatedly cancelled at
+its default 10-minute timeout. It does not establish the cause of a stalled
+sync, override GitHub's service limits, or qualify the release as live. Do not
+loop retries or delete immutable releases to make a failed attempt appear done.
+Record the actual deployment result and exercise the served feature afterward.
+
+Enable GitHub Actions as the Pages build source only after the reviewed workflow
+is present on the publication branch. Preserve the custom domain, HTTPS and
+environment policies. Manual dispatch also permits the repository's skip-CI
+commit convention without silently skipping publication.
+
+On 2026-11-09 the built-in publisher abandoned one attempt before building;
+one documented rebuild then uploaded successfully but cancelled while syncing
+files after ten minutes. The reviewed manual workflow published asset commit
+`b8e87689` successfully in run `42677080916`. Its job completed in 119 seconds,
+so that success does not establish that the longer timeout caused recovery.
+The domain and HTTPS setting stayed configured, and the original two allowed
+deployment branches were restored after GitHub automatically added `main`
+when the build source changed. No immutable release was removed.
+
+Actual hosted acceptance loaded source `8fa1be97`, its release-local module
+and the exact 21,808,005-byte WASM with SHA-256
+`5c33c71e8af4214adb87964facbdf2476669a93d02591d4a746545351ee1d400`.
+Drum authoring, Undo/Redo, late-part inheritance, editable backup and repeated
+MIDI export/reopen passed. This is a verified publication increment; future
+deployments still require their own result and live workflow checks.
+
 Workers resolve their URL from the generated module's `import.meta.url` through
 a Rust wasm-bindgen binding. A tab loaded from one release therefore keeps using
 that release's worker, WASM and inference runtime after a later publish. No extra

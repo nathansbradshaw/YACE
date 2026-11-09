@@ -246,6 +246,9 @@ pub fn SelectionDesk(studio: Studio) -> Element {
                 ReviewQueue { studio }
                 if !vocals {super::star_power::Controls {key:"{document.selected_track}",studio,track:document.selected_track.clone()}}
                 if !vocals {super::solo_editor::Controls {key:"{solo_key}",studio,track:document.selected_track.clone()}}
+                if document.selected_track.ends_with("Drums") {
+                    super::drum_range_editor::Controls {key:"{studio.store.read().as_ref().map(|s|s.root.display().to_string()).unwrap_or_default()}:{document.selected_track}",studio,track:document.selected_track.clone()}
+                }
                 details { class: "context-fold", summary { "Song details" }
                     dl { class: "context-metadata",
                         for (key, label) in [("album", "Album"), ("year", "Year"), ("genre", "Genre")] {

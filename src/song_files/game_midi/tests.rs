@@ -283,6 +283,154 @@ fn legacy_opaque_manual_parts_cannot_be_replaced_by_adding_a_blank_part() {
     }
     assert_eq!(export(&store, &root.path().join("preserved")), original);
 }
+
+#[test]
+fn deleting_final_lead_notes_keeps_unedited_percussion_power_and_author_events() {
+    let root = tempfile::tempdir().unwrap();
+    let bytes = fixture();
+    let store = store(root.path(), &bytes, 0);
+    let count = store.load().unwrap().content.vocals.unwrap().notes.len();
+    assert!(count > 0);
+    for _ in 0..count {
+        apply(&store, Action::DeleteVocalNote { index: 0 }).unwrap();
+    }
+    assert!(store.load().unwrap().content.vocals.is_none());
+    let output = export(&store, &root.path().join("deleted-lead-notes"));
+    let midi = Smf::parse(&output).unwrap();
+    let vocals = midi
+        .tracks
+        .iter()
+        .find(|events| {
+            events.iter().any(|event| {
+                matches!(
+                    event.kind,
+                    TrackEventKind::Meta(MetaMessage::TrackName(b"PART VOCALS"))
+                )
+            })
+        })
+        .expect("Deleting pitch notes must not delete the unrelated vocal controls track");
+    for key in [96, 105, 116] {
+        assert!(
+            vocals
+                .iter()
+                .any(|event| matches!(event.kind, TrackEventKind::Midi {
+            message: MidiMessage::NoteOn {key:actual,vel}, ..
+        } if actual.as_int()==key && vel.as_int()>0)),
+            "Original control {key} was discarded"
+        );
+    }
+    assert!(vocals.iter().any(|event| matches!(
+        event.kind,
+        TrackEventKind::Meta(MetaMessage::Text(b"[mood_play]"))
+    )));
+    assert!(
+        !vocals
+            .iter()
+            .any(|event| matches!(event.kind, TrackEventKind::Midi {
+        message: MidiMessage::NoteOn {key,vel}, ..
+    } if (36..=84).contains(&key.as_int()) && vel.as_int()>0))
+    );
+    let reopened = Store::create(
+        &root.path().join("deleted-lead-notes"),
+        None,
+        &root.path().join("reopened"),
+    )
+    .unwrap();
+    assert!(reopened.load().unwrap().content.vocals.is_none());
+    assert_eq!(
+        export(&reopened, &root.path().join("second-export")),
+        output
+    );
+}
+
+#[test]
+fn explicitly_omitted_vocal_controls_do_not_return_with_new_lead_notes() {
+    use crate::export_options::{self, Options};
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &fixture(), 0);
+    let doc = store.load().unwrap();
+    let original_vocals = doc.content.vocals.clone().unwrap();
+    let output = root.path().join("without-vocals");
+    let selected = export_options::available(&store, &doc)
+        .unwrap()
+        .into_iter()
+        .filter(|part| part != "Vocals")
+        .collect();
+    store
+        .export_with_options(
+            &doc,
+            &output,
+            &Actor {
+                kind: ActorKind::Human,
+                name: "Explicit omission fixture".into(),
+            },
+            &Options {
+                tracks: Some(selected),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    let doc = reopened.load().unwrap();
+    assert!(doc.content.vocals.is_none());
+    assert!(
+        !export_options::available(&reopened, &doc)
+            .unwrap()
+            .contains("Vocals")
+    );
+    apply(
+        &reopened,
+        Action::SetVocals {
+            document: original_vocals,
+        },
+    )
+    .unwrap();
+    let new_output = root.path().join("new-lead");
+    let bytes = export(&reopened, &new_output);
+    let midi = Smf::parse(&bytes).unwrap();
+    let track = midi
+        .tracks
+        .iter()
+        .find(|t| decode::label(t).as_deref() == Some("PART VOCALS"))
+        .unwrap();
+    assert!(track.iter().any(|e| matches!(e.kind, TrackEventKind::Midi {
+        message: MidiMessage::NoteOn { key,vel }, ..
+    } if key.as_int() == 60 && vel.as_int()>0)));
+    for key in [96, 116] {
+        assert!(
+            !track.iter().any(|e| matches!(e.kind, TrackEventKind::Midi {
+            message: MidiMessage::NoteOn { key:k,vel }, ..
+        } if k.as_int() == key && vel.as_int()>0))
+        );
+    }
+    assert!(!track.iter().any(|e| matches!(
+        e.kind,
+        TrackEventKind::Meta(MetaMessage::Text(b"[mood_play]"))
+    )));
+    let again = Store::create(&new_output, None, &root.path().join("again")).unwrap();
+    assert_eq!(export(&again, &root.path().join("again-export")), bytes);
+}
+
+#[test]
+fn overlapping_edits_cannot_displace_a_retained_percussion_phrase() {
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &fixture(), 0);
+    let mut vocals = store.load().unwrap().content.vocals.unwrap();
+    // The original 0..1920 phrase also scores the unedited 480..500 hit.
+    vocals.phrases[0].start = 600;
+    vocals.notes.remove(0);
+    apply(&store, Action::SetVocals { document: vocals }).unwrap();
+    let output = root.path().join("conflict");
+    let error = apply(
+        &store,
+        Action::Export {
+            output: output.clone(),
+        },
+    )
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("retained percussion scoring phrase"));
+    assert!(!output.exists());
+}
 fn apply(store: &Store, action: Action) -> Result<()> {
     store.apply(Request {
         expected_revision: store.load()?.revision,
@@ -490,13 +638,161 @@ fn vocal_edits_preserve_talkie_pitch_channels_percussion_overdrive_and_phrase_at
     ] {
         assert!(notes.contains(&event), "{event:?}");
     }
-    let smf = Smf::parse(&bytes).unwrap();
-    let view = merge::vocal_view(&smf).unwrap().unwrap();
+    let view = merge::vocal_view(&bytes).unwrap().unwrap();
     assert_eq!(
         crate::vocals::import_midi(&view).unwrap().notes[1].start,
         750
     );
     assert_eq!(chunk(&bytes, "HARM1"), chunk(&original, "HARM1"));
+}
+
+fn vocal_dedicated_percussion_source(uncovered: bool) -> Vec<u8> {
+    encode(vec![
+        track(
+            b"TEMPO",
+            vec![(
+                0,
+                TrackEventKind::Meta(MetaMessage::Tempo(u24::new(500000))),
+            )],
+        ),
+        track(
+            b"PART VOCALS",
+            vec![
+                (0, on(7, 105, 90)),
+                (960, off(7, 105, 7)),
+                (0, on(0, 116, 100)),
+                (960, off(0, 116, 11)),
+                (0, TrackEventKind::Meta(MetaMessage::Text(b"[mood_play]"))),
+                (240, TrackEventKind::Meta(MetaMessage::Lyric(b"Hello"))),
+                (240, on(3, 60, 86)),
+                (360, off(3, 60, 9)),
+                (720, TrackEventKind::Meta(MetaMessage::Lyric(b"World#"))),
+                (720, on(5, 67, 74)),
+                (840, on(5, 67, 0)),
+                (2000, on(10, 106, 84)),
+                (2960, off(10, 106, 11)),
+                (2160, on(2, 96, 93)),
+                (2160, on(2, 96, 0)),
+                (if uncovered { 3000 } else { 2400 }, on(5, 97, 72)),
+                (if uncovered { 3048 } else { 2448 }, off(5, 97, 17)),
+            ],
+        ),
+        track(
+            b"PART GUITAR",
+            vec![(960, on(0, 96, 100)), (1080, off(0, 96, 17))],
+        ),
+        track(
+            b"VENUE",
+            vec![(
+                123,
+                TrackEventKind::Meta(MetaMessage::Text(b"Keep independent sentinel")),
+            )],
+        ),
+    ])
+}
+
+#[test]
+fn vocal_dedicated_percussion_import_keeps_singers_editable_and_preserves_both_on_export() {
+    let original = vocal_dedicated_percussion_source(false);
+    let expected_pc = crate::vocal_percussion::import_midi(&original)
+        .unwrap()
+        .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    let doc = store.load().unwrap();
+    let mut vocals = doc
+        .content
+        .vocals
+        .clone()
+        .expect("Dedicated PC must not hide singing");
+    assert_eq!(vocals.notes.len(), 2);
+    assert_eq!(vocals.phrases.len(), 1);
+    assert_eq!(vocals.phrases[0].end, 960);
+    assert!(doc.content.vocal_percussion.is_none());
+    assert_eq!(
+        store.vocal_percussion(&doc).unwrap(),
+        Some(expected_pc.clone())
+    );
+    vocals.notes[0].start = 300;
+    vocals.notes[0].end = 420;
+    apply(
+        &store,
+        Action::SetVocals {
+            document: vocals.clone(),
+        },
+    )
+    .unwrap();
+    let bytes = export(&store, &root.path().join("edited"));
+    assert_eq!(
+        crate::vocal_percussion::import_midi(&bytes).unwrap(),
+        Some(expected_pc.clone())
+    );
+    let notes = events(&bytes, "PART VOCALS");
+    for event in [
+        (300, on(3, 60, 86)),
+        (420, off(3, 60, 9)),
+        (2000, on(10, 106, 84)),
+        (2960, off(10, 106, 11)),
+        (2160, on(2, 96, 93)),
+        (2160, on(2, 96, 0)),
+        (2400, on(5, 97, 72)),
+        (2448, off(5, 97, 17)),
+    ] {
+        assert!(notes.contains(&event), "{event:?}");
+    }
+    for name in ["TEMPO", "PART GUITAR", "VENUE"] {
+        assert_eq!(chunk(&bytes, name), chunk(&original, name));
+    }
+    let reopened = Store::create(
+        &root.path().join("edited"),
+        None,
+        &root.path().join("reopened"),
+    )
+    .unwrap();
+    assert_eq!(reopened.load().unwrap().content.vocals, Some(vocals));
+    assert_eq!(
+        reopened
+            .vocal_percussion(&reopened.load().unwrap())
+            .unwrap(),
+        Some(expected_pc.clone())
+    );
+    apply(&store, Action::DeleteVocalNote { index: 1 }).unwrap();
+    apply(&store, Action::DeleteVocalNote { index: 0 }).unwrap();
+    let cleared = export(&store, &root.path().join("cleared-singers"));
+    assert_eq!(
+        crate::vocal_percussion::import_midi(&cleared).unwrap(),
+        Some(expected_pc)
+    );
+    assert!(
+        !events(&cleared, "PART VOCALS")
+            .iter()
+            .any(|(_, kind)| matches!(kind,
+        TrackEventKind::Midi {message: MidiMessage::NoteOn {key, vel}, ..}
+        if (36..=84).contains(&key.as_int()) && vel.as_int()>0))
+    );
+    let (_, archived) = source(&store.root.join("source")).unwrap().unwrap();
+    assert_eq!(fs::read(archived.join("notes.mid")).unwrap(), original);
+    assert_eq!(
+        fs::read(root.path().join("song/notes.mid")).unwrap(),
+        original
+    );
+}
+
+#[test]
+fn vocal_dedicated_percussion_import_does_not_guess_scoring_for_uncovered_source_hits() {
+    let original = vocal_dedicated_percussion_source(true);
+    assert!(crate::vocal_percussion::import_midi(&original).is_err());
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    let doc = store.load().unwrap();
+    assert!(doc.content.vocals.is_none());
+    assert!(
+        doc.review
+            .coverage_limits
+            .iter()
+            .any(|warning| warning.contains("Empty scoring phrase"))
+    );
+    assert_eq!(export(&store, &root.path().join("retained")), original);
 }
 
 #[test]
@@ -582,6 +878,186 @@ fn offset_only_edit_keeps_every_midi_byte_and_reopens_with_one_ini_delay() {
         assert_eq!(store.load().unwrap().timing(&store).unwrap().offset, 0.075);
         apply(&store, Action::Redo).unwrap();
         assert_eq!(store.load().unwrap().timing(&store).unwrap().offset, offset);
+    }
+}
+
+#[test]
+fn editing_one_power_range_keeps_other_ranges_exact_source_note_attributes() {
+    let original = encode(vec![
+        track(
+            b"PART GUITAR",
+            vec![
+                (0, on(4, 116, 89)),
+                (480, off(4, 116, 22)),
+                (960, on(5, 116, 77)),
+                (1440, on(5, 116, 0)),
+                (240, on(2, 96, 81)),
+                (360, off(2, 96, 17)),
+            ],
+        ),
+        track(
+            b"VENUE",
+            vec![(
+                123,
+                TrackEventKind::Meta(MetaMessage::Text(b"Unrelated venue")),
+            )],
+        ),
+    ]);
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    apply(
+        &store,
+        Action::EditStarPower {
+            edit: crate::star_power::Edit::Put {
+                track: "ExpertSingle".into(),
+                previous: None,
+                phrase: crate::star_power::Phrase {
+                    start: 1920,
+                    end: 2400,
+                },
+            },
+        },
+    )
+    .unwrap();
+    let added = export(&store, &root.path().join("added"));
+    let old = events(&original, "PART GUITAR");
+    let actual = events(&added, "PART GUITAR");
+    for edge in &old {
+        assert!(
+            actual.contains(edge),
+            "Untouched source event changed: {edge:?}"
+        );
+    }
+    assert!(actual.contains(&(1920, on(0, 116, 100))));
+    assert!(actual.contains(&(2400, off(0, 116, 0))));
+    assert_eq!(
+        merge::chunks(&original, 2).unwrap().1[1],
+        merge::chunks(&added, 2).unwrap().1[1]
+    );
+    apply(
+        &store,
+        Action::EditStarPower {
+            edit: crate::star_power::Edit::Remove {
+                track: "ExpertSingle".into(),
+                phrase: crate::star_power::Phrase { start: 0, end: 480 },
+            },
+        },
+    )
+    .unwrap();
+    let removed = export(&store, &root.path().join("removed"));
+    let actual = events(&removed, "PART GUITAR");
+    assert!(actual.contains(&(960, on(5, 116, 77))));
+    assert!(actual.contains(&(1440, on(5, 116, 0))));
+    assert!(!actual.iter().any(|(_,kind)|matches!(kind,TrackEventKind::Midi {channel,message:MidiMessage::NoteOn{key,..}|MidiMessage::NoteOff{key,..}} if channel.as_int()==4&&key.as_int()==116)));
+    apply(&store, Action::Undo).unwrap();
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(export(&store, &root.path().join("undo")), original);
+    apply(&store, Action::Redo).unwrap();
+    apply(&store, Action::Redo).unwrap();
+    assert_eq!(export(&store, &root.path().join("redo")), removed);
+    let reopened = Store::create(
+        &root.path().join("removed"),
+        None,
+        &root.path().join("reopened"),
+    )
+    .unwrap();
+    assert_eq!(export(&reopened, &root.path().join("repeated")), removed);
+}
+
+#[test]
+fn unchanged_power_solo_and_drum_marker_edges_survive_each_component_rewrite() {
+    let mut guitar = vec![(240, on(2, 96, 81)), (360, off(2, 96, 17))];
+    for (key, channel) in [(116, 4), (103, 3)] {
+        guitar.extend([
+            (0, on(channel, key, 89)),
+            (480, off(channel, key, 22)),
+            (960, on(channel + 1, key, 77)),
+            (1440, on(channel + 1, key, 0)),
+        ]);
+    }
+    let mut drums = vec![(240, on(2, 96, 81)), (360, off(2, 96, 17))];
+    for key in [120, 121, 122, 123, 124, 126, 127] {
+        drums.extend([
+            (0, on(6, key, 63)),
+            (480, off(6, key, 21)),
+            (960, on(7, key, 64)),
+            (1440, on(7, key, 0)),
+        ]);
+    }
+    let original = encode(vec![
+        track(b"PART GUITAR", guitar),
+        track(b"PART DRUMS", drums),
+        track(
+            b"PART REAL_KEYS_X",
+            vec![
+                (240, on(2, 60, 71)),
+                (360, off(2, 60, 17)),
+                (0, on(12, 115, 91)),
+                (480, off(12, 115, 51)),
+            ],
+        ),
+    ]);
+    let decoded = decode::import(&original, "[song]\n").unwrap();
+    for (section, owner, rows) in [
+        ("ExpertSingle", "PART GUITAR", " 3000 = S 2 240\n"),
+        (
+            "ExpertSingle",
+            "PART GUITAR",
+            " 3000 = E solo\n 3240 = E soloend\n",
+        ),
+        ("ExpertDrums", "PART DRUMS", " 3000 = S 64 240\n"),
+        ("ExpertDrums", "PART DRUMS", " 3000 = S 65 240\n"),
+        ("ExpertDrums", "PART DRUMS", " 3000 = S 66 240\n"),
+        (
+            "ExpertProKeys",
+            "PART REAL_KEYS_X",
+            " 3000 = E solo\n 3240 = E soloend\n",
+        ),
+    ] {
+        let mut raw = decoded.chart.raw.clone();
+        let body = decoded
+            .chart
+            .sections
+            .iter()
+            .find(|s| s.name == section)
+            .unwrap();
+        raw.insert_str(body.body_end, rows);
+        let changed = Chart::parse(raw).unwrap();
+        let generated = crate::game_export::song(&changed, decoded.vocals.as_ref())
+            .unwrap()
+            .0;
+        let output = merge::rewrite(
+            &original,
+            &generated,
+            merge::State {
+                chart: &decoded.chart,
+                vocals: decoded.vocals.as_ref(),
+                attributes: &decoded.attributes,
+            },
+            merge::State {
+                chart: &changed,
+                vocals: decoded.vocals.as_ref(),
+                attributes: &decoded.attributes,
+            },
+        )
+        .unwrap();
+        let old = events(&original, owner);
+        let actual = events(&output, owner);
+        for edge in old {
+            assert!(
+                actual.contains(&edge),
+                "{section}: source edge changed: {edge:?}"
+            );
+        }
+        for name in ["PART GUITAR", "PART DRUMS", "PART REAL_KEYS_X"] {
+            if name != owner {
+                assert_eq!(
+                    events(&original, name),
+                    events(&output, name),
+                    "{section}: unrelated {name}"
+                );
+            }
+        }
     }
 }
 

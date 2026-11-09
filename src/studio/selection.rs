@@ -217,6 +217,29 @@ impl Studio {
         self.set_selection(group);
     }
     #[cfg(not(feature = "browser"))]
+    pub fn copy_drum_range(mut self, range: crate::drum_ranges::Range) {
+        let result = (|| -> Result<()> {
+            let text = super::drum_range_editor::copy_text(self, &range)?;
+            self.with_clipboard(|clipboard| Ok(clipboard.set_text(text)?))?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => self.status.set("Drum range copied".into()),
+            Err(error) => self.error.set(Some(format!("Clipboard: {error:#}"))),
+        }
+    }
+    #[cfg(not(feature = "browser"))]
+    pub fn paste_drum_ranges(mut self) {
+        let result = (|| -> Result<()> {
+            let (bound, at) = super::drum_range_editor::prepare_paste(self)?;
+            let text = self.with_clipboard(|clipboard| Ok(clipboard.get_text()?))?;
+            super::drum_range_editor::finish_paste(self, bound, at, &text)
+        })();
+        if let Err(error) = result {
+            self.error.set(Some(format!("Clipboard: {error:#}")));
+        }
+    }
+    #[cfg(not(feature = "browser"))]
     fn with_clipboard<T>(
         mut self,
         operation: impl FnOnce(&mut arboard::Clipboard) -> Result<T>,

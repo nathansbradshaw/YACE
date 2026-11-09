@@ -129,6 +129,10 @@ impl Proposal {
             "Solo changes are not supported in note proposals; share the saved project instead"
         );
         ensure!(
+            base.content.drum_ranges == edited.content.drum_ranges,
+            "Drum range changes are not supported in note proposals; share the saved project instead"
+        );
+        ensure!(
             sync_fingerprint(base)? == sync_fingerprint(edited)?,
             "Timing changes are not supported in note proposals; share the saved project instead"
         );
@@ -171,14 +175,29 @@ fn sync_fingerprint(project: &Project) -> Result<Option<String>> {
         .transpose()
 }
 fn power_fingerprint(project: &Project) -> Result<Option<String>> {
-    if project.content.star_power.is_empty() && project.content.solos.is_empty() {
+    if project.content.star_power.is_empty()
+        && project.content.solos.is_empty()
+        && project.content.drum_ranges.is_empty()
+    {
         return Ok(None);
     }
-    // Keep legacy fingerprints byte-compatible when no solo edits exist.
-    let bytes = if project.content.solos.is_empty() {
-        serde_json::to_vec(&project.content.star_power)?
-    } else {
-        serde_json::to_vec(&(&project.content.star_power, &project.content.solos))?
+    // Preserve existing fingerprints when either optional range map is absent.
+    let bytes = match (
+        project.content.solos.is_empty(),
+        project.content.drum_ranges.is_empty(),
+    ) {
+        (true, true) => serde_json::to_vec(&project.content.star_power)?,
+        (false, true) => {
+            serde_json::to_vec(&(&project.content.star_power, &project.content.solos))?
+        }
+        (true, false) => {
+            serde_json::to_vec(&(&project.content.star_power, &project.content.drum_ranges))?
+        }
+        (false, false) => serde_json::to_vec(&(
+            &project.content.star_power,
+            &project.content.solos,
+            &project.content.drum_ranges,
+        ))?,
     };
     Ok(Some(format!("{:x}", Sha256::digest(bytes))))
 }

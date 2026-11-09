@@ -11,7 +11,7 @@ use crate::{
 };
 use dioxus::prelude::*;
 
-fn syllable(note: &VocalNote) -> String {
+pub(super) fn syllable(note: &VocalNote) -> String {
     match &note.lyric {
         Syllable::Missing => "Missing lyric".into(),
         Syllable::Text { text, join_next } => {
@@ -75,6 +75,10 @@ pub fn VocalEditor(studio: Studio) -> Element {
             .map(|note| (index, note))
     });
     let project_root = studio.store.read().as_ref().map(|store| store.root.clone());
+    let harmony_key = format!(
+        "{project_root:?}:{}:{}",
+        doc.audio_sha256, doc.source_chart_sha256
+    );
     let cancelled = control
         .read()
         .as_ref()
@@ -135,6 +139,8 @@ pub fn VocalEditor(studio: Studio) -> Element {
         details{class:"review-evidence",summary{"Vocal review checks"}VocalGenerationIssues{studio,refresh:refresh()}}
         if !present && !stem_ready{div{class:"vocal-empty",button{class:"studio-tool",title:"Choose an aligned stem manifest that includes vocals",onclick:move |_|studio.attach_stems_dialog(),Icon{name:"folder-open",size:13}"Attach stems"}}}
         else if !present{div{class:"vocal-empty","No vocal chart yet"}}
+        {rsx!{super::harmony_editor::HarmonyEditor {key:"{harmony_key}",studio}}}
+        {rsx!{super::percussion_editor::PercussionEditor {key:"{harmony_key}:percussion",studio}}}
     }}
 }
 
@@ -448,18 +454,18 @@ fn VocalPhrases(studio: Studio) -> Element {
 }
 
 #[derive(Clone)]
-struct NoteDraft {
-    start: String,
-    end: String,
-    pitch: String,
-    text: String,
-    mode: String,
-    join: bool,
-    continuation: bool,
-    continue_word: bool,
+pub(super) struct NoteDraft {
+    pub start: String,
+    pub end: String,
+    pub pitch: String,
+    pub text: String,
+    pub mode: String,
+    pub join: bool,
+    pub continuation: bool,
+    pub continue_word: bool,
 }
 impl NoteDraft {
-    fn from_note(note: &VocalNote) -> Self {
+    pub(super) fn from_note(note: &VocalNote) -> Self {
         let (pitch, mode) = match note.tone {
             VocalTone::Pitched { midi } => (midi.to_string(), "pitched"),
             VocalTone::Talkie { lenient: false } => ("60".into(), "talkie"),
@@ -482,7 +488,7 @@ impl NoteDraft {
             continue_word,
         }
     }
-    fn parse(&self) -> Result<VocalNote, String> {
+    pub(super) fn parse(&self) -> Result<VocalNote, String> {
         let start = self
             .start
             .parse()
@@ -750,6 +756,10 @@ pub fn VocalEditor(mut studio: Studio) -> Element {
             .map(|note| (index, note))
     });
     let project_root = studio.store.read().as_ref().map(|store| store.root.clone());
+    let harmony_key = format!(
+        "{project_root:?}:{}:{}",
+        doc.audio_sha256, doc.source_chart_sha256
+    );
     rsx! {VocalPhrases{studio}
     if let Some((index,note))=selected{VocalNoteEditor{key:"{project_root:?}:{doc.audio_sha256}:{index}:{note:?}",studio,index,note:note.clone(),audio_sha256:doc.audio_sha256.clone(),project_root}}
     VocalReviewChecks{studio}
@@ -758,5 +768,7 @@ pub fn VocalEditor(mut studio: Studio) -> Element {
     button{class:"studio-tool",title:"Import an editable vocal chart or source-bound multi-model analysis",onclick:move |_|{spawn(async move{let result=async{let Some(files)=crate::files::pick(false,".json").await?else{return Ok(())};let Some((_,bytes))=files.first() else{return Ok(())};let action=crate::vocal_review::import_document(bytes)?;studio.dispatch(action);Ok::<_,anyhow::Error>(())}.await;if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}});},"Import JSON"}
     p{class:"field-hint","Multi-model pitch analysis runs in the desktop app. Import its analysis JSON here to review the same notes, alternatives and model evidence."}
     button{class:"studio-tool",disabled:!studio.snapshot().is_some_and(|doc|doc.content.vocals.is_some()),onclick:move |_|{if let Some(doc)=studio.snapshot()&& let Some(chart)=&doc.content.vocals{let result=serde_json::to_vec_pretty(chart).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download("vocals.json",&bytes));if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}}},"Save JSON"}
-    }p{class:"field-hint","Place notes, import a vocal document, or generate a source-bound pitch draft. Missing lyrics stay marked for review."}}
+    }p{class:"field-hint","Place notes, import a vocal document, or generate a source-bound pitch draft. Missing lyrics stay marked for review."}
+    {rsx!{super::harmony_editor::HarmonyEditor {key:"{harmony_key}",studio}}}
+    {rsx!{super::percussion_editor::PercussionEditor {key:"{harmony_key}:percussion",studio}}}}
 }

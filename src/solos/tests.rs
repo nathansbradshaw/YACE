@@ -267,6 +267,143 @@ fn solo_note_selection_covers_taps_and_sustains_and_refuses_stale_ids() {
 }
 
 #[test]
+fn solo_midi_new_difficulties_inherit_authored_ranges_and_explicit_clears() {
+    let (_root, store) = project(true);
+    put(
+        &store,
+        "ExpertSingle",
+        Some(range(120, 720)),
+        range(240, 960),
+    )
+    .unwrap();
+    apply(
+        &store,
+        Action::CreateTrack {
+            track: "MediumSingle".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        current_ranges(&store, "MediumSingle"),
+        vec![range(240, 960)]
+    );
+    apply(
+        &store,
+        Action::EditSolo {
+            edit: Edit::Remove {
+                track: "MediumSingle".into(),
+                phrase: range(240, 960),
+            },
+        },
+    )
+    .unwrap();
+    apply(
+        &store,
+        Action::CreateTrack {
+            track: "EasySingle".into(),
+        },
+    )
+    .unwrap();
+    for t in ["ExpertSingle", "HardSingle", "MediumSingle", "EasySingle"] {
+        assert!(
+            current_ranges(&store, t).is_empty(),
+            "Source solo resurrected on {t}"
+        );
+        assert_eq!(store.load().unwrap().content.solos.get(t), Some(&vec![]));
+    }
+    apply(&store, Action::Undo).unwrap();
+    assert!(
+        !store
+            .load()
+            .unwrap()
+            .content
+            .tracks
+            .contains_key("EasySingle")
+    );
+    apply(&store, Action::Undo).unwrap();
+    for t in ["ExpertSingle", "HardSingle", "MediumSingle"] {
+        assert_eq!(current_ranges(&store, t), vec![range(240, 960)]);
+    }
+    apply(&store, Action::Redo).unwrap();
+    apply(&store, Action::Redo).unwrap();
+    assert_eq!(
+        store.load().unwrap().content.solos.get("EasySingle"),
+        Some(&vec![])
+    );
+}
+
+#[test]
+fn solo_and_drum_range_histories_preserve_each_other_after_main_integration() {
+    let (_root, store) = project(true);
+    apply(
+        &store,
+        Action::CreateTrack {
+            track: "ExpertDrums".into(),
+        },
+    )
+    .unwrap();
+    apply(
+        &store,
+        Action::EditDrumRange {
+            edit: crate::drum_ranges::Edit::Put {
+                track: "ExpertDrums".into(),
+                previous: None,
+                range: crate::drum_ranges::Range {
+                    start: 1440,
+                    end: 1920,
+                    kind: crate::drum_ranges::Kind::DoubleRoll,
+                },
+            },
+        },
+    )
+    .unwrap();
+    let drums = store.load().unwrap().content.drum_ranges;
+    put(
+        &store,
+        "ExpertSingle",
+        Some(range(120, 720)),
+        range(240, 960),
+    )
+    .unwrap();
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(store.load().unwrap().content.drum_ranges, drums);
+    assert_eq!(
+        current_ranges(&store, "ExpertSingle"),
+        vec![range(120, 720)]
+    );
+    apply(&store, Action::Redo).unwrap();
+    assert_eq!(
+        current_ranges(&store, "ExpertSingle"),
+        vec![range(240, 960)]
+    );
+    assert_eq!(store.load().unwrap().content.drum_ranges, drums);
+    let output = store.root.parent().unwrap().join("joint-export");
+    apply(
+        &store,
+        Action::Export {
+            output: output.clone(),
+        },
+    )
+    .unwrap();
+    let reopened = Store::create(
+        &output,
+        None,
+        &store.root.parent().unwrap().join("joint-reopened"),
+    )
+    .unwrap();
+    assert_eq!(
+        current_ranges(&reopened, "ExpertSingle"),
+        vec![range(240, 960)]
+    );
+    let doc = reopened.load().unwrap();
+    let source = Chart::parse(doc.chart_text(&reopened).unwrap()).unwrap();
+    assert_eq!(
+        crate::drum_ranges::current(&doc, &source, "ExpertDrums").unwrap(),
+        drums["ExpertDrums"]
+    );
+}
+
+#[test]
 fn solo_edits_cannot_be_dropped_from_note_proposals_and_bind_their_fingerprint() {
     use crate::collaboration::Proposal;
     let (_root, store) = project(false);

@@ -81,6 +81,8 @@ pub struct Studio {
     pub source_sync: Signal<Option<crate::sync_track::SyncTrack>>,
     pub source_star_power: Signal<crate::star_power::Source>,
     pub source_solos: Signal<crate::solos::Source>,
+    pub source_drum_ranges: Signal<crate::drum_ranges::Source>,
+    pub drum_activation_editable: Signal<bool>,
     pub star_power_open: Signal<bool>,
     pub star_power_target: Signal<Option<crate::star_power::Phrase>>,
     pub generation_target: Signal<Option<String>>,
@@ -156,6 +158,8 @@ pub fn use_studio() -> Studio {
         source_sync: use_signal(|| None),
         source_star_power: use_signal(Default::default),
         source_solos: use_signal(Default::default),
+        source_drum_ranges: use_signal(Default::default),
+        drum_activation_editable: use_signal(|| false),
         star_power_open: use_signal(|| false),
         star_power_target: use_signal(|| None),
         generation_target: use_signal(|| None),
@@ -1475,6 +1479,8 @@ impl Studio {
         let sync = store.source_sync(&doc).ok();
         let star_power = store.source_star_power(&doc)?;
         let solos = store.source_solos(&doc)?;
+        let drum_ranges = store.source_drum_ranges(&doc)?;
+        let drum_activation = store.drum_activation_editable();
         let source_audio = doc
             .has_recording()
             .then(|| store.audio_path(&doc))
@@ -1529,6 +1535,8 @@ impl Studio {
         self.source_sync.set(sync);
         self.source_star_power.set(star_power);
         self.source_solos.set(solos);
+        self.source_drum_ranges.set(drum_ranges);
+        self.drum_activation_editable.set(drum_activation);
         self.star_power_open.set(false);
         self.star_power_target.set(None);
         self.timing_open.set(false);
@@ -1938,6 +1946,57 @@ impl Studio {
             .await;
             if let Err(error) = result {
                 self.error.set(Some(format!("{error:#}")));
+            }
+        });
+    }
+    pub fn copy_drum_range(mut self, range: crate::drum_ranges::Range) {
+        let text = match super::drum_range_editor::copy_text(self, &range) {
+            Ok(text) => text,
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                return;
+            }
+        };
+        let promise = web_sys::window()
+            .unwrap()
+            .navigator()
+            .clipboard()
+            .write_text(&text);
+        spawn(async move {
+            match wasm_bindgen_futures::JsFuture::from(promise).await {
+                Ok(_) => self.status.set("Drum range copied".into()),
+                Err(error) => self.error.set(Some(format!("Clipboard: {error:?}"))),
+            }
+        });
+    }
+    pub fn paste_drum_ranges(mut self) {
+        let (bound, at) = match super::drum_range_editor::prepare_paste(self) {
+            Ok(value) => value,
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                return;
+            }
+        };
+        let promise = web_sys::window()
+            .unwrap()
+            .navigator()
+            .clipboard()
+            .read_text();
+        spawn(async move {
+            let result = async {
+                let value = wasm_bindgen_futures::JsFuture::from(promise)
+                    .await
+                    .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+                super::drum_range_editor::finish_paste(
+                    self,
+                    bound,
+                    at,
+                    &value.as_string().context("Clipboard text unavailable")?,
+                )
+            }
+            .await;
+            if let Err(error) = result {
+                self.error.set(Some(format!("Clipboard: {error:#}")));
             }
         });
     }
