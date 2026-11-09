@@ -22,7 +22,21 @@ async fn new_project_requires_an_explicit_destination() {
     use yace_web::project_destination::Choice;
     let fixture = Fixture::new().await.unwrap();
     let result = async {
-        let unchosen = Choice::default();
+        let default = Choice::default();
+        ensure!(
+            matches!(default, Choice::PickFolder) == project_folder::supported(),
+            "A supporting browser didn't default to the local folder picker"
+        );
+        ensure!(
+            !matches!(default, Choice::Browser),
+            "Defaulted to browser storage"
+        );
+        ensure!(!default.ready(), "Default bypassed folder selection");
+        ensure!(
+            default.save(&fixture.root).await.is_err(),
+            "Unresolved default saved a project"
+        );
+        let unchosen = Choice::Unchosen;
         ensure!(!unchosen.ready(), "New project silently chose a location");
         ensure!(
             unchosen.save(&fixture.root).await.is_err(),
@@ -35,6 +49,10 @@ async fn new_project_requires_an_explicit_destination() {
         ensure!(
             Choice::Browser.ready(),
             "Explicit browser choice is unavailable"
+        );
+        ensure!(
+            matches!(Choice::Browser.resolve()?.await?, Some(Choice::Browser)),
+            "Explicit browser choice wasn't retained"
         );
         Choice::Browser.save(&fixture.root).await?;
         ensure!(
