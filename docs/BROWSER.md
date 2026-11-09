@@ -80,6 +80,16 @@ a writable desktop folder: setup explains this limitation and the complete
 project ZIP workflow before requiring that explicit browser-storage choice.
 Desktop continues to ask for a project folder in its native creation save dialog.
 
+Generation started from a folder-backed project stays in that project. **Open
+generated chart** applies detected parts as one undoable edit, preserves the
+original recording, unrelated parts and prior history, and saves to the same
+folder before closing generation. Frozen target checks reject intervening edits
+or a different project instead of switching to a browser-only copy. Empty
+detector results keep existing parts. Generation metadata and source-bound reports
+are retained under the project's `.yace/generation` directory. Older saved drafts
+without a folder target remain downloadable but cannot silently replace a
+folder-backed project; start a fresh generation from that folder to apply in place.
+
 - **New blank chart** creates a manual chart without audio. Its local timeline
   supports playback, seeking and practice speed. **Attach recording** adds a
   recording covering the authored events without removing edits; Undo returns

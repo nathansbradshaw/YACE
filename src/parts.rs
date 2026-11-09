@@ -349,6 +349,14 @@ mod portable {
             "Keep the chart's existing Guitar sound source"
         );
         let job = generation::create_job(request, output)?;
+        generation::write_json(
+            &job.join("editor-target.json"),
+            &relative_target(&job, target)?,
+        )?;
+        Ok(job)
+    }
+
+    fn relative_target(job: &Path, target: &Target) -> Result<Target> {
         let mut saved_target = target.clone();
         let project = fs::canonicalize(&target.project)?;
         let job_parts = job.components().collect::<Vec<_>>();
@@ -366,8 +374,151 @@ mod portable {
             relative.push(component.as_os_str());
         }
         saved_target.project = relative;
-        generation::write_json(&job.join("editor-target.json"), &saved_target)?;
+        Ok(saved_target)
+    }
+
+    /// Full generation from an open folder is an undoable edit of that project,
+    /// not a new browser workspace. Freeze every affected part before inference.
+    pub fn create_project_job(
+        request: generation::Request,
+        output: &Path,
+        store: &Store,
+        project: &Project,
+    ) -> Result<PathBuf> {
+        let mut targets = Vec::new();
+        for (_, suffix, id) in PARTS {
+            if !request.instruments.iter().any(|part| part == id) {
+                continue;
+            }
+            if suffix == "Vocals" {
+                targets.push(Target::capture(store, project, "Vocals")?);
+            } else {
+                for tier in ["Expert", "Hard", "Medium", "Easy"] {
+                    targets.push(Target::capture(store, project, &format!("{tier}{suffix}"))?);
+                }
+            }
+        }
+        ensure!(!targets.is_empty(), "Choose generated parts");
+        let job = generation::create_job(request, output)?;
+        let targets = targets
+            .iter()
+            .map(|target| relative_target(&job, target))
+            .collect::<Result<Vec<_>>>()?;
+        generation::write_json(&job.join("editor-project-targets.json"), &targets)?;
         Ok(job)
+    }
+
+    pub struct PreparedJob {
+        parts: Vec<Prepared>,
+        archive: Option<PathBuf>,
+    }
+    impl PreparedJob {
+        pub fn load(store: &Store, project: &Project, job: &Path) -> Result<Self> {
+            let path = job.join("editor-project-targets.json");
+            if !fs::is_file(&path) {
+                return Ok(Self {
+                    parts: vec![Prepared::load(store, project, job)?],
+                    archive: None,
+                });
+            }
+            let mut targets: Vec<Target> = serde_json::from_slice(&fs::read(path)?)?;
+            ensure!(
+                !targets.is_empty() && targets.len() <= 25,
+                "Invalid generated project targets"
+            );
+            let generated = Store::new(&generation::project_path(job)).load()?;
+            let mut prepared = Vec::new();
+            let mut seen = std::collections::BTreeSet::new();
+            for target in &mut targets {
+                if target.project.is_relative() {
+                    target.project = fs::canonicalize(job.join(&target.project))?;
+                }
+                ensure!(
+                    seen.insert(target.track.clone()),
+                    "Duplicate generated target"
+                );
+                target.validate(store, project)?;
+                let has_notes = if target.track == "Vocals" {
+                    generated
+                        .content
+                        .vocals
+                        .as_ref()
+                        .is_some_and(|v| !v.notes.is_empty())
+                } else {
+                    generated
+                        .content
+                        .tracks
+                        .get(&target.track)
+                        .is_some_and(|notes| {
+                            notes
+                                .iter()
+                                .any(|note| crate::editor::playable(&target.track, note.note.lane))
+                        })
+                };
+                // An empty detector result must not erase an authored part.
+                if has_notes {
+                    prepared.push(Prepared::load_target(
+                        store,
+                        project,
+                        job,
+                        target.clone(),
+                        true,
+                    )?);
+                }
+            }
+            ensure!(
+                !prepared.is_empty(),
+                "No generated notes were detected; the current project was kept"
+            );
+            Ok(Self {
+                parts: prepared,
+                archive: Some(job.to_owned()),
+            })
+        }
+        pub fn apply(self, store: &Store, project: &mut Project) -> Result<()> {
+            // Validate all frozen targets against the same original revision,
+            // before the first part attaches stems or updates shared links.
+            for part in &self.parts {
+                part.target.validate(store, project)?;
+            }
+            if let Some(job) = self.archive {
+                let key = format!("{:x}", Sha256::digest(job.to_string_lossy().as_bytes()));
+                let archive = store.root.join(".yace/generation").join(key);
+                for name in [
+                    "request.json",
+                    "browser-job-input.json",
+                    "job.json",
+                    "summary.json",
+                    "editor-project-targets.json",
+                    "transcription.json",
+                    "vocals/generation.json",
+                    "vocals/recognition.json",
+                    "vocals/alignment.json",
+                ] {
+                    let source = job.join(name);
+                    if fs::is_file(&source) {
+                        let target = archive.join(name);
+                        fs::create_dir_all(
+                            target
+                                .parent()
+                                .context("Generation archive needs a parent")?,
+                        )?;
+                        if fs::is_file(&target) {
+                            ensure!(
+                                fs::read(&target)? == fs::read(&source)?,
+                                "Retained generation evidence changed"
+                            );
+                        } else {
+                            fs::copy(source, target)?;
+                        }
+                    }
+                }
+            }
+            for part in self.parts {
+                part.apply_validated(store, project)?;
+            }
+            Ok(())
+        }
     }
 
     #[derive(Clone)]
@@ -379,11 +530,20 @@ mod portable {
     }
     impl Prepared {
         pub fn load(store: &Store, project: &Project, job: &Path) -> Result<Self> {
+            let target = target(job)?.context("This job was not created for an open chart")?;
+            Self::load_target(store, project, job, target, false)
+        }
+        fn load_target(
+            store: &Store,
+            project: &Project,
+            job: &Path,
+            mut target: Target,
+            multiple: bool,
+        ) -> Result<Self> {
             ensure!(
                 generation::status(job)?.state == generation::State::Complete,
                 "Draft is not finished"
             );
-            let mut target = target(job)?.context("This job was not created for an open chart")?;
             target.validate(store, project)?;
             ensure!(
                 models::hash_file(&store.audio_path(project)?)? == target.audio_sha256,
@@ -397,7 +557,14 @@ mod portable {
                 "Saved generation settings changed"
             );
             ensure!(
-                request.instruments == [instrument(&target.track)?.to_owned()],
+                if multiple {
+                    request
+                        .instruments
+                        .iter()
+                        .any(|part| part == instrument(&target.track).unwrap_or(""))
+                } else {
+                    request.instruments == [instrument(&target.track)?.to_owned()]
+                },
                 "Draft names a different part"
             );
             ensure!(
@@ -508,6 +675,9 @@ mod portable {
         }
         pub fn apply(self, store: &Store, project: &mut Project) -> Result<()> {
             self.target.validate(store, project)?;
+            self.apply_validated(store, project)
+        }
+        fn apply_validated(self, store: &Store, project: &mut Project) -> Result<()> {
             let track = self.target.track.clone();
             let audio = store.audio_path(project)?;
             let mut attached = false;
