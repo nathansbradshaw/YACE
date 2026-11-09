@@ -14,7 +14,7 @@ controls through Vocals. The core imports a supported ordinary MIDI subset and
 exports independent singers while preserving unrelated source tracks and
 controls. Clearing the voices retains source controls; explicitly omitted
 harmonies stay omitted when reopening or authoring new notes later. Unsupported
-imports remain opaque. Native GUI, hosted controls, full restart/fault coverage,
+imports remain opaque. Native GUI, broader hosted workflows and fault coverage,
 listening and target-game acceptance remain open. Shared controls do not qualify
 those workflows.
 
@@ -47,7 +47,7 @@ archive, rebuilds singers, then writes the selected percussion. A MIDI-bound
 working sidecar preserves authored, cleared and omitted state on reopen.
 Logical Vocals/Harmonies selection replaces duplicate raw percussion owners;
 omitted original controls stay omitted when singers are authored later.
-Native GUI, hosted controls, full restart/fault coverage and musical/game
+Native GUI, broader hosted workflows, fault coverage and musical/game
 judgments remain open. A strict MIDI reader extracts dedicated source phrases
 with original hit and scoring-marker attributes;
 ambiguous, mixed singing/percussion and uncovered source hits refuse the editable
@@ -96,8 +96,19 @@ files, reopened in the browser with its ten Undo checkpoints and working Redo,
 and survived reload. The pinned native executable opened that portable backup,
 exported matching MIDI/WAV and repeated Redo/Undo with byte-identical results.
 This establishes the exercised browser and native file-interchange paths;
-native GUI, hosted controls, acoustic preview, game acceptance and broader fault
+native GUI, acoustic preview, game acceptance and broader fault
 coverage remain open.
+
+Hosted `b260e1e` repeated three simultaneous singers beside retained lead and
+dedicated percussion using invented MIDI without audio. A hidden-to-displayed
+hit edit, Undo/Redo and reload passed; independent downloaded-MIDI inspection
+verified all singers, marker owners, the unchanged lead and exact physical
+percussion attributes. A complete revision-7 backup verified all 16 references
+and four Undo checkpoints. After termination of only the verification browser,
+the same profile reopened revision 7 with all edits. A second complete backup
+verified every reference and contained byte-identical project JSON. These checks
+qualify that controlled hosted editing and restart subset, with the independent
+native, musical, game and broader fault gates retained.
 
 Deleting the final pitched lead-vocal notes exposed an export preservation gap:
 the export selector omitted `PART VOCALS`, including untouched percussion,
@@ -161,6 +172,33 @@ Do not mark a row passed from compilation alone. Record the revision, fixture,
 actual application actions, downloaded/exported results, and any limitations.
 Keep private recordings, transcripts and generated receipts outside Git.
 
+Solo authoring has shared native/WASM inspector controls, timeline bands and a
+recording-clock highway highlight on its feature branch. The inspector creates
+ranges from selected notes, the current loop or explicit ticks, and provides
+move/resize, removal, Undo/Redo and original-recording solo loops. Forms retain
+typed drafts and exact selected ranges when an intervening edit makes them
+stale; project/track guards prevent applying them after a switch. These controls
+use shared Rust range validation and revision-checked commands. Exact previous-range
+witnesses reject stale changes. Source parsing preserves malformed ranges
+read-only; rendering changes only supported solo boundaries. MIDI instruments
+share edited ranges across difficulties while Pro Keys keeps independent MIDI
+owners. New MIDI difficulties inherit the current shared solos, including an
+explicit clear; conflicting authored copies refuse edits. Regressions cover
+history, export/reopen, explicit removal without resurrection, retained unrelated
+events and note-proposal safety. Actual static controls moved/resized ranges,
+created a range from selected notes, kept Pro Keys independent, refused stale
+forms and exercised Undo/Redo, complete-backup reopening and browser restart.
+The source-clock preview displayed SOLO inside a range and cleared it outside.
+Native GUI, hosted controls, recording-loop/current-loop creation, independent
+game/controller/musical and broader fault gates remain open.
+
+The integrated `5d49dda` static runtime repeated a concrete late-difficulty case:
+Guitar solo 120–720 moved to 240–960, a new Medium difficulty inherited both
+current solos, removing them and adding Easy retained zero solos. Undo/Redo
+restored the corresponding history. Independent downloaded-MIDI inspection
+confirmed no resurrected solo markers, unchanged other guitar events, exact
+other raw tracks and the original WAV. Twelve solo-related cases, 41 unfiltered
+editor/export integrations and strict native/editor plus WASM Clippy passed.
 Drum fill/activation and single/double-roll authoring has a shared Rust range
 model and project commands on its feature branch. It uses the existing S64,
 S65 and S66 conversion; S64 retains an activation interval without inventing a

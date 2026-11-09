@@ -77,6 +77,7 @@ fn fixture(root: &Path, generated: bool) -> Store {
     let content = Content {
         analysis_sources: Default::default(),
         star_power: Default::default(),
+        solos: Default::default(),
         drum_ranges: Default::default(),
         sync: None,
         sections: None,
