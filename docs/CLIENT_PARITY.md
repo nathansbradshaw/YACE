@@ -29,6 +29,15 @@ without restoring the omitted controls. Both repeated MIDI exports were
 byte-identical. Native GUI and hosted checks on the integrated revision remain
 separate acceptance gates.
 
+An actual hosted MIDI export exposed another preservation gap: adding a new
+Star Power phrase normalized an untouched phrase's channel and velocities.
+The merge now matches complete unchanged physical marker intervals and retains
+their original note-on and note-off events. New, resized or removed intervals
+remain editable. Regressions cover adding/removing a phrase, Undo/Redo and
+reopen, plus unchanged Star Power, instrument/Pro Keys solo and drum fill/roll
+edges during each component rewrite. Actual fixed-runtime native, static and
+hosted workflow checks remain pending.
+
 | Workflow | Verification evidence | Result |
 | --- | --- | --- |
 | Start from recording or existing chart | Both OS-picker/manual starts exercised; native setup now reaches Ready after save; identical chart/INI settings and unchanged encoded source | Verified |
