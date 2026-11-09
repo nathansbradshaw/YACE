@@ -160,6 +160,21 @@ fn harm1_percussion_respects_other_singers_even_when_harm1_has_no_pitched_notes(
     assert!(import_midi(&point_at_start).is_err());
     let point_at_end = encode(vec![first, singing("HARM3", 960, 960)]);
     import_midi(&point_at_end).unwrap().unwrap();
+    for key in [96, 97] {
+        let shared_hits = vec![
+            (0, K::Meta(M::TrackName(b"HARM2"))),
+            (600, note(4, key, 88, true)),
+            (620, note(4, key, 5, false)),
+            (1920, K::Meta(M::EndOfTrack)),
+        ];
+        let source = encode(vec![percussion("HARM1"), shared_hits]);
+        assert!(
+            import_midi(&source)
+                .unwrap_err()
+                .to_string()
+                .contains("unmanaged harmony percussion")
+        );
+    }
 }
 #[test]
 fn uncovered_hits_and_unterminated_or_overlapping_source_keys_refuse_without_guessing() {

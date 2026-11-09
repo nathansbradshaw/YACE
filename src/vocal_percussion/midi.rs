@@ -236,21 +236,26 @@ pub fn import_midi(bytes: &[u8]) -> Result<Option<PercussionChart>> {
     chart.validate()?;
     for events in &source.tracks {
         let Some(label) = name(events)? else { continue };
-        let track = if let Some(part) = Part::from_midi(label) {
-            chart.tracks.get(&part)
-        } else if matches!(
+        let shared = matches!(
             HarmonyPart::from_midi(label),
             Some(HarmonyPart::Harm2 | HarmonyPart::Harm3)
-        ) {
+        );
+        let track = if let Some(part) = Part::from_midi(label) {
+            chart.tracks.get(&part)
+        } else if shared {
             chart.tracks.get(&Part::Harm1)
         } else {
             None
         };
         let Some(track) = track else { continue };
-        let notes = spans(events, |key| (36..=84).contains(&key))?;
+        // A shared scoring phrase may also support percussion retained in an
+        // opaque secondary part. Do not expose its owner as independently editable.
+        let notes = spans(events, |key| {
+            (36..=84).contains(&key) || (shared && matches!(key, 96 | 97))
+        })?;
         ensure!(
             !overlaps_notes(&track.phrases, &notes),
-            "Percussion overlaps singing in {label}; source retained"
+            "Percussion overlaps singing or unmanaged harmony percussion in {label}; source retained"
         );
         no_lyrics(events, &track.phrases)?;
     }
