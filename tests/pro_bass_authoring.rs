@@ -194,6 +194,18 @@ fn eight_manual_parts_export_bass_strings_frets_and_phrases_then_reopen_plain_mi
             assert_eq!(pro_guitar::fret(last), limit);
             assert_eq!(pro_guitar::channel(last), 6);
             assert!(pro_guitar::forced(notes, last.note.tick));
+            let preview = chart_engine::gameplay_view::classify(
+                &name,
+                &notes
+                    .iter()
+                    .map(|note| note.note.clone())
+                    .collect::<Vec<_>>(),
+                &doc.timing(&reopened).unwrap(),
+                &chart_engine::gameplay_view::Policy::unknown(),
+            )
+            .unwrap();
+            assert_eq!(preview.len(), 6);
+            assert!(preview.iter().any(|gem| gem.lane == 5 && gem.forced_marker));
             assert_eq!(
                 source_power[&name].clone().unwrap(),
                 vec![Phrase {

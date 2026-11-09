@@ -168,7 +168,7 @@ fn supported_track(track: &str) -> Option<bool> {
         .find_map(|tier| match track.strip_prefix(tier)? {
             "Single" | "DoubleBass" | "DoubleRhythm" | "DoubleGuitar" | "Keyboard" | "ProKeys"
             | "GHLGuitar" | "GHLBass" | "GHLRhythm" | "GHLCoop" | "GHLKeys" | "ProGuitar17"
-            | "ProGuitar22" => Some(false),
+            | "ProGuitar22" | "ProBass17" | "ProBass22" => Some(false),
             "Drums" => Some(true),
             _ => None,
         })
