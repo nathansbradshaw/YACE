@@ -223,11 +223,16 @@ fn validate_reference(reference: &Reference) -> Result<()> {
             && n.start_seconds >= 0.
             && n.start_seconds < n.end_seconds
             && n.end_seconds <= reference.duration_seconds)
-            && reference
-                .notes
-                .windows(2)
-                .all(|w| w[0].end_seconds <= w[1].start_seconds),
-        "Invalid/overlapping reference notes"
+            && reference.notes.windows(2).all(|w| {
+                if reference.reference_kind == "performed_contour" {
+                    // Published human segmentations can overlap at transitions.
+                    // Their frame-level F0 remains independent ground truth.
+                    w[0].start_seconds <= w[1].start_seconds
+                } else {
+                    w[0].end_seconds <= w[1].start_seconds
+                }
+            }),
+        "Invalid or unsorted reference notes, or overlapping authored chart"
     );
     Ok(())
 }
@@ -649,6 +654,49 @@ fn evaluate_inner(path: &Path, partial: bool) -> Result<Evaluation> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn performed_annotations_keep_overlapping_boundaries_and_original_f0() {
+        let mut r = Reference {
+            reference_kind: "performed_contour".into(),
+            audio_sha256: "a".repeat(64),
+            duration_seconds: 1.,
+            provenance: "Synthetic publisher-style note boundaries and independent F0".into(),
+            reviewed: true,
+            frames: vec![
+                ReferenceFrame {
+                    time_seconds: 0.3,
+                    midi: Some(60.),
+                    backing_midi: vec![],
+                },
+                ReferenceFrame {
+                    time_seconds: 0.6,
+                    midi: Some(62.),
+                    backing_midi: vec![],
+                },
+            ],
+            notes: vec![
+                ReferenceNote {
+                    start_seconds: 0.1,
+                    end_seconds: 0.55,
+                    midi: 60,
+                },
+                ReferenceNote {
+                    start_seconds: 0.5,
+                    end_seconds: 0.9,
+                    midi: 62,
+                },
+            ],
+            words: vec![],
+        };
+        let before = serde_json::to_vec(&r).unwrap();
+        validate_reference(&r).unwrap();
+        assert_eq!(before, serde_json::to_vec(&r).unwrap());
+        r.reference_kind = "authored_chart".into();
+        assert!(validate_reference(&r).is_err());
+        r.reference_kind = "performed_contour".into();
+        r.notes.swap(0, 1);
+        assert!(validate_reference(&r).is_err());
+    }
     #[test]
     fn missing_notes_cannot_make_pitch_error_disappear() {
         let mut m = Metrics {
