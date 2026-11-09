@@ -1,4 +1,8 @@
 pub mod acoustic_alignment;
+#[path = "../../src/vocal_singing.rs"]
+pub mod vocal_singing;
+#[path = "../../src/vocal_singing_tracking.rs"]
+pub mod vocal_singing_tracking;
 #[path = "../../src/analysis_validation.rs"]
 pub mod analysis_validation;
 mod archive_blob;

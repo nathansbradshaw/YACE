@@ -541,6 +541,47 @@ previously evaluated artists are regression material, never fresh held-out
 evidence. Language tags with unreliable provenance remain unknown. Authored
 game charts supply chart-relative target notes, not measured performance F0.
 
+### Joint singing detection and pitch research
+
+`tools/vocal-jdc-probe` reconstructs the publisher's JDC checkpoint in Rust
+without executing Keras, using pinned weights, normalization and native
+runtime. Its shared frontend and evidence validation compile for native and
+browser, and `analyze` produces an explicit lyric-free experimental MIDI draft
+with source-bound JDC/RMVPE evidence. It changes no production quality mode.
+The tool README records hashes, preprocessing, license attribution and limits.
+
+The port matched its frozen Rust prototype exactly on four development songs:
+the converted graph, all722 pitch probabilities, singing scores, PCM and
+timestamps. The shared decoder reproduced selected pitches, note boundaries
+and phrases on those four plus eight previously exposed regression songs.
+This establishes port parity, **not publisher numerical parity** or musical
+acceptance.
+
+A separate frozen run then predicted eight new artists before reading their
+authored game-chart targets. Both methods used the same native HTDemucs6s
+vocal stems on the original recording clock. The primary baseline was the
+actual installed app at `c96a5a23b4b0ee6a5f89521e7ddfc7613644b07a`, with
+High accuracy and no recognition or shell runtime override.
+
+| Mean across eight fresh artists | High accuracy | JDC/RMVPE research |
+| --- | ---: | ---: |
+| Contour correct pitch / reference voiced frames |44.03%|50.47%|
+| Contour voiced recall |48.69%|54.92%|
+| Contour wrong pitch / detected voiced frames |11.04%|9.95%|
+| Contour false voicing / reference unvoiced frames |12.28%|8.32%|
+| Exported-note correct pitch / reference voiced frames |38.54%|47.29%|
+| Exported-note voiced recall |41.48%|49.56%|
+| Exported-note wrong pitch / detected voiced frames |8.58%|6.22%|
+| Exported-note false voicing / reference unvoiced frames |9.50%|6.96%|
+
+The relative reduction in missing-or-wrong pitches was11.51% for contours
+and14.23% for exported notes, **below the20% gate**. Recall and wrong/false
+voicing improved, but the overall gate failed. These artists are now exposed
+regression material; subsequent tuning cannot reuse them as fresh held-out
+evidence. Language tags without reliable provenance remain unknown. These
+are chart-relative targets, not measured performed-frequency truth or a
+100% correctness claim. Keep all recordings and detailed reports outside Git.
+
 ### Residual section rescan experiment
 
 `cargo run --release --no-default-features --example vocal_chunk_trial -- AUDIO
