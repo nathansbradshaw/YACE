@@ -37,6 +37,8 @@ mod media;
 mod modal;
 #[path = "../../../src/studio/new_blank.rs"]
 mod new_blank;
+#[path = "../../../src/studio/new_location.rs"]
+mod new_location;
 #[path = "../../../src/studio/new_song.rs"]
 mod new_song;
 #[path = "../../../src/studio/note_canvas.rs"]
