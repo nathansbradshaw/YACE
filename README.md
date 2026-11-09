@@ -1,6 +1,18 @@
 # YACE — Yet Another Charting Engine
 
+<a href="https://0rwx.com/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/0rwx/AI-X-dark.svg">
+    <img src="assets/0rwx/AI-X-light.svg" alt="AI:X — EXECUTE: AI made" width="64" height="64">
+  </picture>
+</a>
+
 A chart editor for Clone Hero and YARG, written in Rust.
+
+YACE follows the [0rwx **EXECUTE** (AI made) approach](https://0rwx.com/):
+the project owner sets the direction and evaluates the results, while AI handles
+implementation and verification. The priority is a working, usable app. The
+source stays open to read, review and change; learning how to build it is optional.
 
 Import a local recording, generate a draft, then listen and edit. YACE supports
 guitar, bass, drums, Keys, Pro Keys and lead vocals. Generated parts need review;
