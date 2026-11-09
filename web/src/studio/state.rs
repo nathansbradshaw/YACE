@@ -1946,19 +1946,54 @@ impl Studio {
         });
     }
     pub fn copy_drum_range(mut self, range: crate::drum_ranges::Range) {
-        let text=match super::drum_range_editor::copy_text(self,&range){Ok(text)=>text,Err(error)=>{self.error.set(Some(format!("{error:#}")));return;}};
-        let promise=web_sys::window().unwrap().navigator().clipboard().write_text(&text);
-        spawn(async move {match wasm_bindgen_futures::JsFuture::from(promise).await {Ok(_)=>self.status.set("Drum range copied".into()),Err(error)=>self.error.set(Some(format!("Clipboard: {error:?}")))}});
+        let text = match super::drum_range_editor::copy_text(self, &range) {
+            Ok(text) => text,
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                return;
+            }
+        };
+        let promise = web_sys::window()
+            .unwrap()
+            .navigator()
+            .clipboard()
+            .write_text(&text);
+        spawn(async move {
+            match wasm_bindgen_futures::JsFuture::from(promise).await {
+                Ok(_) => self.status.set("Drum range copied".into()),
+                Err(error) => self.error.set(Some(format!("Clipboard: {error:?}"))),
+            }
+        });
     }
     pub fn paste_drum_ranges(mut self) {
-        let (bound,at)=match super::drum_range_editor::prepare_paste(self){Ok(value)=>value,Err(error)=>{self.error.set(Some(format!("{error:#}")));return;}};
-        let promise=web_sys::window().unwrap().navigator().clipboard().read_text();
+        let (bound, at) = match super::drum_range_editor::prepare_paste(self) {
+            Ok(value) => value,
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                return;
+            }
+        };
+        let promise = web_sys::window()
+            .unwrap()
+            .navigator()
+            .clipboard()
+            .read_text();
         spawn(async move {
-            let result=async {
-                let value=wasm_bindgen_futures::JsFuture::from(promise).await.map_err(|error|anyhow::anyhow!("{error:?}"))?;
-                super::drum_range_editor::finish_paste(self,bound,at,&value.as_string().context("Clipboard text unavailable")?)
-            }.await;
-            if let Err(error)=result {self.error.set(Some(format!("Clipboard: {error:#}")));}
+            let result = async {
+                let value = wasm_bindgen_futures::JsFuture::from(promise)
+                    .await
+                    .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+                super::drum_range_editor::finish_paste(
+                    self,
+                    bound,
+                    at,
+                    &value.as_string().context("Clipboard text unavailable")?,
+                )
+            }
+            .await;
+            if let Err(error) = result {
+                self.error.set(Some(format!("Clipboard: {error:#}")));
+            }
         });
     }
     pub fn copy_selection(mut self, cut: bool) {
