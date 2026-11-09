@@ -154,6 +154,8 @@ pub mod sections;
 pub mod separation;
 #[path = "../../src/six_fret.rs"]
 pub mod six_fret;
+#[path = "../../src/solos.rs"]
+pub mod solos;
 #[path = "../../src/song_files.rs"]
 pub mod song_files;
 pub mod song_import;
@@ -163,8 +165,6 @@ pub mod song_layout;
 pub mod song_metadata;
 #[path = "../../src/star_power.rs"]
 pub mod star_power;
-#[path = "../../src/solos.rs"]
-pub mod solos;
 pub mod stem_import;
 #[path = "../../src/stem_review.rs"]
 pub mod stem_review;
