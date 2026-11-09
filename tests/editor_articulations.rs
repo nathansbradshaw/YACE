@@ -83,6 +83,7 @@ fn fixture_with(root: &Path, source: &str) -> Store {
             track_origins: Default::default(),
             difficulty_links: Default::default(),
             vocals: None,
+            harmonies: None,
             vocal_review: None,
             vocal_pitch_analysis: None,
             tracks,

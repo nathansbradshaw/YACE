@@ -176,6 +176,8 @@ pub struct Content {
     pub tracks: BTreeMap<String, Vec<EditorNote>>,
     #[serde(default)]
     pub vocals: Option<crate::vocals::VocalChart>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harmonies: Option<crate::vocal_harmonies::HarmonyChart>,
     #[serde(default)]
     pub vocal_review: Option<crate::vocal_review::VocalReviewMap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -372,6 +374,9 @@ pub enum Action {
     },
     SetVocals {
         document: crate::vocals::VocalChart,
+    },
+    SetHarmonies {
+        document: crate::vocal_harmonies::HarmonyChart,
     },
     DeleteVocalNote {
         index: usize,
@@ -1302,6 +1307,17 @@ impl Store {
                         None
                     }
                 },
+                harmonies: {
+                    let path = song_layout::resolve(
+                        &self.root.join("source"),
+                        "chart-engine-harmonies.json",
+                    );
+                    if fs::exists(&path) {
+                        Some(serde_json::from_slice(&fs::read(path)?)?)
+                    } else {
+                        None
+                    }
+                },
                 analysis_sources: Default::default(),
                 difficulty_links: Default::default(),
                 vocal_review: None,
@@ -1728,6 +1744,7 @@ impl Store {
                 | Action::AttachKeyboardStems { .. }
                 | Action::SetStemMix { .. }
                 | Action::SetVocals { .. }
+                | Action::SetHarmonies { .. }
                 | Action::DeleteVocalNote { .. }
                 | Action::SetVocalGeneration { .. }
                 | Action::SetVocalReview { .. }
@@ -2191,6 +2208,21 @@ impl Store {
                 document.validate()?;
                 doc.content.vocals = Some(document.clone());
             }
+            Action::SetHarmonies { document } => {
+                document.validate_timing(&doc.timing(self)?, doc.duration)?;
+                if doc.content.harmonies.is_none() {
+                    let originals =
+                        crate::song_files::game_midi::extra_parts(&self.root.join("source"))?;
+                    ensure!(
+                        !originals.iter().any(|name| name
+                            .strip_prefix("MIDI: ")
+                            .and_then(crate::vocal_harmonies::Part::from_midi)
+                            .is_some()),
+                        "Original harmony tracks need an imported editable baseline before authoring; source retained"
+                    );
+                }
+                doc.content.harmonies = Some(document.clone());
+            }
             Action::DeleteVocalNote { index } => {
                 let chart = doc.content.vocals.as_mut().context("No vocal chart")?;
                 ensure!(*index < chart.notes.len(), "Unknown vocal note");
@@ -2581,6 +2613,10 @@ impl Store {
         actor: &Actor,
         options: &crate::export_options::Options,
     ) -> Result<()> {
+        ensure!(
+            doc.content.harmonies.is_none(),
+            "Harmony game export is not integrated yet; retain the complete editing project instead"
+        );
         let selected = options.selected(self, doc)?;
         let all_parts = crate::export_options::available(self, doc)?;
         let midi_export = options.midi(self, doc)?;

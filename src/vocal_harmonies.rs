@@ -171,6 +171,202 @@ impl HarmonyChart {
 mod tests {
     use super::*;
     use crate::vocals::{Syllable, VocalTone};
+    fn apply(store: &crate::editor::Store, action: crate::editor::Action) -> Result<()> {
+        use crate::editor::{Actor, ActorKind, Request};
+        store.apply(Request {
+            expected_revision: store.load()?.revision,
+            actor: Actor {
+                kind: ActorKind::Human,
+                name: "Independent harmony project fixture".into(),
+            },
+            action,
+        })?;
+        Ok(())
+    }
+    fn project(midi: bool) -> (tempfile::TempDir, crate::editor::Store) {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("song");
+        std::fs::create_dir(&source).unwrap();
+        let text = "[Song]\n{\nResolution = 480\n}\n[SyncTrack]\n{\n0 = B 120000\n}\n[ExpertSingle]\n{\n240 = N 0 120\n}\n";
+        if midi {
+            let clock = crate::chart::Chart::parse(text.into()).unwrap();
+            let original = crate::game_export::song(&clock, None).unwrap().0;
+            std::fs::write(
+                source.join("notes.mid"),
+                append_midi(&original, &fixture()).unwrap(),
+            )
+            .unwrap();
+        } else {
+            std::fs::write(source.join("notes.chart"), text).unwrap();
+        }
+        std::fs::write(
+            source.join("song.ini"),
+            "[song]\nname = Harmony project fixture\nsong_length = 4000\n",
+        )
+        .unwrap();
+        let store =
+            crate::editor::Store::create(&source, None, &root.path().join("project")).unwrap();
+        (root, store)
+    }
+    #[test]
+    fn independent_harmony_project_reopens_with_undo_redo_and_unchanged_lead() {
+        use crate::editor::{Action, Store};
+        let (_root, store) = project(false);
+        let document = fixture();
+        let lead = document.voice_chart(Part::Harm1).unwrap();
+        apply(
+            &store,
+            Action::SetVocals {
+                document: lead.clone(),
+            },
+        )
+        .unwrap();
+        apply(
+            &store,
+            Action::SetHarmonies {
+                document: document.clone(),
+            },
+        )
+        .unwrap();
+        let mut edited = document.clone();
+        let note = &mut edited.voices.get_mut(&Part::Harm2).unwrap().notes[0];
+        note.start += 1;
+        note.tone = VocalTone::Pitched { midi: 65 };
+        apply(
+            &store,
+            Action::SetHarmonies {
+                document: edited.clone(),
+            },
+        )
+        .unwrap();
+        let reopened = Store::new(&store.root);
+        let doc = reopened.load().unwrap();
+        assert_eq!(doc.content.harmonies, Some(edited.clone()));
+        assert_eq!(doc.content.vocals, Some(lead.clone()));
+        apply(&reopened, Action::Undo).unwrap();
+        assert_eq!(reopened.load().unwrap().content.harmonies, Some(document));
+        apply(&reopened, Action::Redo).unwrap();
+        assert_eq!(reopened.load().unwrap().content.harmonies, Some(edited));
+        assert_eq!(reopened.load().unwrap().content.vocals, Some(lead));
+        let bytes = serde_json::to_vec(&crate::editor::Content::default()).unwrap();
+        let legacy: crate::editor::Content = serde_json::from_slice(&bytes).unwrap();
+        assert!(legacy.harmonies.is_none());
+        assert!(!String::from_utf8(bytes).unwrap().contains("harmonies"));
+    }
+    #[test]
+    fn invalid_timing_and_unintegrated_game_export_leave_harmony_project_intact() {
+        use crate::editor::Action;
+        let (root, store) = project(false);
+        apply(
+            &store,
+            Action::SetHarmonies {
+                document: fixture(),
+            },
+        )
+        .unwrap();
+        let path = store.root.join("project.json");
+        let before = std::fs::read(&path).unwrap();
+        let mut invalid = fixture();
+        invalid.phrases[0].end = 12000;
+        invalid.lyric_phrases[0].end = 12000;
+        invalid.voices.get_mut(&Part::Harm2).unwrap().notes[0].end = 10000;
+        assert!(
+            apply(&store, Action::SetHarmonies { document: invalid })
+                .unwrap_err()
+                .to_string()
+                .contains("beyond the timeline")
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let output = root.path().join("export");
+        assert!(
+            apply(
+                &store,
+                Action::Export {
+                    output: output.clone()
+                }
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("not integrated yet")
+        );
+        assert!(!output.exists());
+        assert_eq!(std::fs::read(path).unwrap(), before);
+    }
+    #[test]
+    fn original_opaque_harmonies_cannot_be_replaced_without_an_editable_baseline() {
+        let (_root, store) = project(true);
+        let path = store.root.join("project.json");
+        let before = std::fs::read(&path).unwrap();
+        assert!(
+            apply(
+                &store,
+                crate::editor::Action::SetHarmonies {
+                    document: fixture()
+                }
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("imported editable baseline")
+        );
+        assert_eq!(std::fs::read(path).unwrap(), before);
+    }
+    #[test]
+    fn portable_harmony_copy_keeps_independent_voices_and_content_addressed_history() {
+        use crate::{
+            editor::{Action, Store},
+            project_portability::{self, Files},
+        };
+        fn collect(root: &std::path::Path, path: &std::path::Path, files: &mut Files) {
+            for entry in std::fs::read_dir(path).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    collect(root, &path, files);
+                } else {
+                    files.insert(
+                        path.strip_prefix(root)
+                            .unwrap()
+                            .to_string_lossy()
+                            .into_owned(),
+                        std::fs::read(path).unwrap(),
+                    );
+                }
+            }
+        }
+        let (root, store) = project(false);
+        let before = fixture();
+        apply(
+            &store,
+            Action::SetHarmonies {
+                document: before.clone(),
+            },
+        )
+        .unwrap();
+        let mut after = before.clone();
+        after.voices.get_mut(&Part::Harm3).unwrap().notes[0].tone = VocalTone::Pitched { midi: 70 };
+        apply(
+            &store,
+            Action::SetHarmonies {
+                document: after.clone(),
+            },
+        )
+        .unwrap();
+        let mut files = Files::new();
+        collect(&store.root, &store.root, &mut files);
+        let destination = tempfile::tempdir().unwrap();
+        project_portability::relocate(&mut files, destination.path()).unwrap();
+        for (name, bytes) in files {
+            let path = destination.path().join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        drop(root);
+        let moved = Store::new(destination.path());
+        assert_eq!(moved.load().unwrap().content.harmonies, Some(after.clone()));
+        apply(&moved, Action::Undo).unwrap();
+        assert_eq!(moved.load().unwrap().content.harmonies, Some(before));
+        apply(&moved, Action::Redo).unwrap();
+        assert_eq!(moved.load().unwrap().content.harmonies, Some(after));
+    }
     pub(super) fn fixture() -> HarmonyChart {
         HarmonyChart {
             version: 1,

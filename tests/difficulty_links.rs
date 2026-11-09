@@ -81,6 +81,7 @@ fn fixture(root: &Path, generated: bool) -> Store {
         sections: None,
         track_origins: Default::default(),
         vocals: None,
+        harmonies: None,
         vocal_review: None,
         vocal_pitch_analysis: None,
         tracks: tracks
