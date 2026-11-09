@@ -171,3 +171,201 @@ fn relative_energy_floor_filters_additions_and_preserves_quiet_existing_voice() 
         5
     );
 }
+
+#[test]
+fn local_dynamics_require_nearby_original_voice_and_preserve_distant_gaps() {
+    let template = frames()[0].clone();
+    let mut input: Vec<_> = (0..1000)
+        .map(|i| {
+            let mut f = template.clone();
+            f.time_seconds = i as f64 * 0.01;
+            f.midi = (i < 600 || (700..760).contains(&i)).then_some(60.);
+            f.local_rms = Some(if i < 600 {
+                0.2
+            } else if (700..760).contains(&i) {
+                0.04
+            } else {
+                0.03
+            });
+            f
+        })
+        .collect();
+    let costs = vec![std::array::from_fn(|s| if s == 24 { 0. } else { 2. }); input.len()];
+    let notes: Vec<_> = (0..1000)
+        .map(|i| ((700..780).contains(&i) || (950..970).contains(&i)).then_some(60.))
+        .collect();
+    let original = input.clone();
+    assert_eq!(
+        vp::recover_energy(
+            &mut input,
+            [&costs, &costs, &costs],
+            &notes,
+            2,
+            0.18,
+            0.5,
+            &|| false
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        vp::recover_energy_context(
+            &mut input,
+            [&costs, &costs, &costs],
+            &notes,
+            2,
+            0.18,
+            vp::RecoveryEnergy {
+                relative_floor: 0.5,
+                context_seconds: Some(0.5),
+                minimum_pitch_margin: 0.,
+            },
+            &|| false
+        )
+        .unwrap(),
+        20
+    );
+    assert!(input[760..780].iter().all(|f| f.midi == Some(60.)));
+    assert!(input[950..970].iter().all(|f| f.midi.is_none()));
+    for (before, after) in original.iter().zip(&input) {
+        if before.midi.is_some() {
+            assert_eq!(before.midi, after.midi);
+        }
+        assert_eq!(before.local_rms, after.local_rms);
+    }
+    let saved = serde_json::to_vec(&input).unwrap();
+    assert!(
+        vp::recover_energy_context(
+            &mut input,
+            [&costs, &costs, &costs],
+            &notes,
+            2,
+            0.18,
+            vp::RecoveryEnergy {
+                relative_floor: 0.5,
+                context_seconds: Some(f64::NAN),
+                minimum_pitch_margin: 0.,
+            },
+            &|| false
+        )
+        .is_err()
+    );
+    assert_eq!(saved, serde_json::to_vec(&input).unwrap());
+    assert!(
+        vp::recover_energy_context(
+            &mut input,
+            [&costs, &costs, &costs],
+            &notes,
+            2,
+            0.18,
+            vp::RecoveryEnergy {
+                relative_floor: 0.5,
+                context_seconds: Some(0.5),
+                minimum_pitch_margin: 0.,
+            },
+            &|| true
+        )
+        .is_err()
+    );
+    assert_eq!(saved, serde_json::to_vec(&input).unwrap());
+}
+
+#[test]
+fn short_consensus_requires_separation_from_the_runner_up_pitch() {
+    let mut input = frames();
+    let original: Vec<_> = input.iter().map(|f| f.midi).collect();
+    let notes = vec![Some(60.); input.len()];
+    let ambiguous = vec![
+        std::array::from_fn(|s| match s {
+            24 => 0.,
+            25 => 0.1,
+            _ => 2.,
+        });
+        input.len()
+    ];
+    assert_eq!(
+        vp::recover_energy_context(
+            &mut input,
+            [&ambiguous, &ambiguous, &ambiguous],
+            &notes,
+            3,
+            0.08,
+            vp::RecoveryEnergy {
+                relative_floor: 0.5,
+                context_seconds: None,
+                minimum_pitch_margin: 0.25
+            },
+            &|| false
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(original, input.iter().map(|f| f.midi).collect::<Vec<_>>());
+    let clear = vec![std::array::from_fn(|s| if s == 24 { 0. } else { 2. }); input.len()];
+    assert_eq!(
+        vp::recover_energy_context(
+            &mut input,
+            [&clear, &clear, &clear],
+            &notes,
+            3,
+            0.08,
+            vp::RecoveryEnergy {
+                relative_floor: 0.5,
+                context_seconds: None,
+                minimum_pitch_margin: 0.25
+            },
+            &|| false
+        )
+        .unwrap(),
+        5
+    );
+    assert!(input.iter().all(|f| f.midi == Some(60.)));
+}
+
+#[test]
+fn frozen_short_recovery_preserves_the_base_and_rejects_ambiguous_short_notes() {
+    let mut f = frames();
+    for (i, v) in f.iter_mut().enumerate() {
+        v.midi = (i < 10).then_some(57.);
+    }
+    let original = f.clone();
+    let mut notes = vec![None; f.len()];
+    notes[20..31].fill(Some(60.));
+    notes[40..51].fill(Some(62.));
+    notes[60..85].fill(Some(64.));
+    let costs: Vec<_> = (0..f.len())
+        .map(|i| {
+            std::array::from_fn(|s| {
+                let p = notes[i].unwrap_or(60.) as usize;
+                if s + 36 == p {
+                    0.
+                } else if s + 36 == p + 1 && i >= 40 {
+                    0.1
+                } else {
+                    2.
+                }
+            })
+        })
+        .collect();
+    assert_eq!(
+        vp::recover_short_consensus(&mut f, [&costs, &costs, &costs], &notes, &|| false).unwrap(),
+        36
+    );
+    assert!(f[..10].iter().all(|f| f.midi == Some(57.)));
+    assert!(f[20..31].iter().all(|f| f.midi == Some(60.)));
+    assert!(f[40..51].iter().all(|f| f.midi.is_none()));
+    assert!(f[60..85].iter().all(|f| f.midi == Some(64.)));
+    let mut cancelled = original.clone();
+    let calls = std::cell::Cell::new(0);
+    assert!(
+        vp::recover_short_consensus(&mut cancelled, [&costs, &costs, &costs], &notes, &|| {
+            calls.set(calls.get() + 1);
+            calls.get() > 150
+        })
+        .is_err()
+    );
+    assert_eq!(
+        serde_json::to_vec(&original).unwrap(),
+        serde_json::to_vec(&cancelled).unwrap()
+    );
+}

@@ -24,6 +24,14 @@ struct Args {
     case: String,
     #[arg(long)]
     consensus_extension: bool,
+    #[arg(long, default_value_t = 8.)]
+    change_cost: f64,
+    #[arg(long)]
+    energy_context: Option<f64>,
+    #[arg(long, requires = "consensus_extension")]
+    short_pitch_margin: Option<f64>,
+    #[arg(long, requires = "consensus_extension")]
+    acoustic_consensus: bool,
     #[arg(
         long,
         value_delimiter = ',',
@@ -41,6 +49,10 @@ fn main() -> Result<()> {
             && !a.recovery.is_empty()
             && !a.note_minimum.is_empty(),
         "Grid budget"
+    );
+    ensure!(
+        a.change_cost.is_finite() && (0.0..=32.0).contains(&a.change_cost),
+        "Invalid transition cost"
     );
     ensure!(
         a.recovery
@@ -92,6 +104,22 @@ fn main() -> Result<()> {
                 (minimum * 1000.).round() as u32
             ));
             let mut command = Command::new(&a.predictor);
+            if a.acoustic_consensus {
+                command.arg("--research-acoustic-consensus");
+            }
+            if let Some(margin) = a.short_pitch_margin {
+                command
+                    .arg("--research-short-pitch-margin")
+                    .arg(margin.to_string());
+            }
+            if let Some(seconds) = a.energy_context {
+                command
+                    .arg("--research-energy-context")
+                    .arg(seconds.to_string());
+            }
+            command
+                .arg("--research-change-cost")
+                .arg(a.change_cost.to_string());
             if a.consensus_extension {
                 command.arg("--research-consensus-extension");
             }

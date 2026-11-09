@@ -347,6 +347,23 @@ overrides enter the saved recipe and algorithm identity, so the production
 profile check cannot silently accept them. None of these experiments promotes
 a backend or proves the added notes correct.
 
+Further explicit research overrides compare transition cost, an energy reference
+from nearby original accepted voice, and the winning pitch band's advantage
+over its runner-up. The local-energy experiment requires at least ten nearby
+accepted frames and otherwise retains the original song-wide floor. The
+runner-up margin is a log-cost difference, not a probability. An acoustic-only
+consensus trial requires SwiftF0 plus all three spectral estimators without
+requiring a note-model event. These remain separate experimental recipes.
+
+`vocal_posterior_replay --predict-short-consensus` freezes a development-selected
+candidate: retain the original 180 ms two-vote recovery and add 100 ms contours
+only with three spectral votes, ROSVOT/Swift agreement and runner-up margin 0.5.
+Both passes use the original energy reference. It cannot be combined with
+research overrides. `vocal_accuracy_batch --mode short-consensus --predictor
+EXPLICIT_HELPER` checks the returned profile, executable identity and source
+bindings and verifies MIDI round-trip. This candidate is not the production
+profile until validation and acceptance are reported explicitly.
+
 Keep every corpus, recording, reference, salience cache and detailed report in a
 private directory outside Git. Use distinct development/validation artists;
 previously evaluated artists are regression material, never fresh held-out
