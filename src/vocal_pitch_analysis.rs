@@ -221,6 +221,16 @@ pub fn propose(
     })
 }
 impl Analysis {
+    fn current_profile(&self) -> bool {
+        static ADAPTIVE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        (self.algorithm == ANALYSIS_ALGORITHM && self.adaptive.is_none())
+            || (self.algorithm == crate::vocal_adaptive::ALGORITHM
+                && self.adaptive.as_ref().is_some_and(|r| {
+                    r.algorithm == crate::vocal_adaptive_planner::ALGORITHM
+                        && &r.implementation_sha256
+                            == ADAPTIVE.get_or_init(crate::vocal_adaptive::implementation_hash)
+                }))
+    }
     pub fn validate(&self, project: &Project, timing: &TempoMap) -> Result<()> {
         ensure!(
             self.version == 1
@@ -383,7 +393,8 @@ impl Analysis {
 pub(crate) fn retain_prior_evidence(project: &Project, next: &mut Analysis) -> Result<()> {
     let Some(prior) = project.content.vocal_pitch_analysis.as_ref().filter(|a| {
         a.version == next.version
-            && a.algorithm == next.algorithm
+            && a.current_profile()
+            && next.current_profile()
             && a.audio_sha256 == next.audio_sha256
             && a.stem_sha256 == next.stem_sha256
             && a.model_sha256 == next.model_sha256
@@ -466,7 +477,7 @@ pub fn current_evidence(
     static IMPLEMENTATION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let implementation = IMPLEMENTATION.get_or_init(crate::vocal_rmvpe::implementation_hash);
     if let Some(a) = project.content.vocal_pitch_analysis.as_ref().filter(|a| {
-        a.algorithm == ANALYSIS_ALGORITHM
+        a.current_profile()
             && a.audio_sha256 == project.audio_sha256
             && a.timing == *timing
             && a.model_sha256 == crate::vocal_rmvpe::SHA256
@@ -614,14 +625,20 @@ pub fn analyze_configured(
         crate::vocal_adaptive::Review::new(project, timing, &g, range, pcm, &source, &vocals)?;
     drop(source);
     drop(vocals);
-    let mut session = ort::session::Session::builder()?
-        .with_intra_threads(2)?
-        .commit_from_file(&model)?;
+    let mut session = adaptive_session(&model)?;
     while let Some(window) = review.next_window()? {
         ensure!(
             !control.is_cancelled(),
             "Vocal comparison cancelled; current notes were kept"
         );
+        if review.pass_count() > 0
+            && review
+                .pass_count()
+                .is_multiple_of(crate::vocal_adaptive::INFERENCE_BATCH)
+        {
+            drop(session);
+            session = adaptive_session(&model)?;
+        }
         control.update(format!(
             "Deep vocal review · pass {} · {:.2}–{:.2}s · depth {}",
             review.pass_count() + 1,
@@ -642,4 +659,15 @@ pub fn analyze_configured(
         "Vocal sources changed or comparison cancelled"
     );
     review.finish()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn adaptive_session(model: &std::path::Path) -> Result<ort::session::Session> {
+    Ok(ort::session::Session::builder()?
+        .with_intra_threads(2)?
+        .with_memory_pattern(false)?
+        .with_execution_providers([ort::execution_providers::CPUExecutionProvider::default()
+            .with_arena_allocator(false)
+            .build()])?
+        .commit_from_file(model)?)
 }

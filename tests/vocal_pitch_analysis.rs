@@ -798,6 +798,16 @@ fn adaptive_feedback_recovers_supported_gaps_without_words_and_preserves_authore
         assert!(chart.notes.contains(authored));
     }
     assert!(chart.notes.len() > before.content.vocals.as_ref().unwrap().notes.len());
+    for note in chart
+        .notes
+        .iter()
+        .filter(|n| !before.content.vocals.as_ref().unwrap().notes.contains(n))
+    {
+        assert!(
+            analysis::current_evidence(&after, &timing, note)
+                .is_some_and(|e| e.uncertain && !e.reasons.is_empty())
+        );
+    }
     let bytes = chart_engine::vocals::append_midi(
         &chart_engine::midi::new_midi(&timing, &Default::default()).unwrap(),
         chart,
@@ -809,4 +819,24 @@ fn adaptive_feedback_recovers_supported_gaps_without_words_and_preserves_authore
     assert_eq!(store.load().unwrap().content.vocals, before.content.vocals);
     apply(&store, Action::Redo).unwrap();
     assert_eq!(store.load().unwrap().content.vocals, after.content.vocals);
+    // A normal phrase check must not erase uncertainty from deep repairs.
+    let next = analysis::propose(
+        &after,
+        &timing,
+        &generation,
+        Some(TimeRange {
+            start: 1.5,
+            end: 2.,
+        }),
+    )
+    .unwrap();
+    apply(&store, Action::SetVocalPitchAnalysis { analysis: next }).unwrap();
+    let checked = store.load().unwrap();
+    for note in chart
+        .notes
+        .iter()
+        .filter(|n| !before.content.vocals.as_ref().unwrap().notes.contains(n))
+    {
+        assert!(analysis::current_evidence(&checked, &timing, note).is_some_and(|e| e.uncertain));
+    }
 }

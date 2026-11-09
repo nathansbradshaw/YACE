@@ -295,8 +295,17 @@ pub async fn adaptive_comparison(
     )?;
     drop(source);
     drop(vocals);
-    let model = Runtime::load("vocal-rmvpe", progress, false).await?;
+    let weights = crate::model_assets::load("vocal-rmvpe", progress).await?;
+    let mut model = Runtime::from_bytes_variable(&weights).await?;
     while let Some(window) = review.next_window()? {
+        if review.pass_count() > 0
+            && review
+                .pass_count()
+                .is_multiple_of(crate::vocal_adaptive::INFERENCE_BATCH)
+        {
+            model.release().await?;
+            model = Runtime::from_bytes_variable(&weights).await?;
+        }
         progress(format!(
             "Deep vocal review · pass {} · {:.2}–{:.2}s · depth {}",
             review.pass_count() + 1,
@@ -329,6 +338,7 @@ pub async fn adaptive_comparison(
             && models::hash_file(&stem.path)? == stem.sha256,
         "Vocal sources changed during deep review"
     );
+    model.release().await?;
     review.finish()
 }
 
@@ -369,6 +379,7 @@ async fn rmvpe(
             &output.values[input.skip * 360..(input.skip + input.count) * 360],
         )?);
     }
+    model.release().await?;
     crate::vocal_rmvpe::finish_pcm(pcm, frames)
 }
 

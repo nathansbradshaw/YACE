@@ -158,7 +158,7 @@ fn section_review(
             label{class:"form-check",input{r#type:"checkbox",checked:include_pitch(),onchange:move|e|include_pitch.set(e.checked())},"Include supported pitch corrections"}
             button{class:"studio-tool",disabled:!can_apply,onclick:move |_|studio.dispatch(Action::ApplyVocalSectionRepairs{indices:indices.clone(),include_pitch:include_pitch()}),"Apply selected repairs"}
         }
-        if a.section.repairs.is_empty(){p{class:"field-hint","No section repairs meet the independent acoustic support rules. This does not certify every sung note."}}
+        if a.section.repairs.is_empty(){p{class:"field-hint","No section repairs meet the acoustic support rules. This does not certify every sung note."}}
         for (i,r) in a.section.repairs.iter().enumerate() {
             {let (start,end)=r.bounds();let start=timing.seconds(start);let end=timing.seconds(end);let label=r.kind.label();let time=format!("{start:.2}–{end:.2}s");
             let before=if r.before.is_empty(){"gap".into()}else{r.before.iter().filter_map(|n|match n.tone{crate::vocals::VocalTone::Pitched{midi}=>Some(crate::vocal_pitch_analysis::note_name(midi)),_=>None}).collect::<Vec<_>>().join(", ")};

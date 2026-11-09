@@ -16,6 +16,9 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 pub const ALGORITHM: &str = "experimental-adaptive-vocal-review-v1";
+/// Rebuild stateless inference sessions so temporary model allocations cannot
+/// accumulate for the whole recursive job. No acoustic thresholds change.
+pub const INFERENCE_BATCH: usize = 8;
 pub fn implementation_hash() -> String {
     let mut h = Sha256::new();
     h.update(include_bytes!("vocal_adaptive.rs"));
