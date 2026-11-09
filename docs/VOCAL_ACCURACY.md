@@ -422,10 +422,80 @@ round-tripped with identical notes and phrases.
 
 The frozen candidate passes the numerical comparison against faster High on
 this regression material, but not the stricter 20% improvement over the prior
-multi-model option. It is not integrated into the app or promoted: fresh
-validation, runtime/resource verification and musical acceptance remain open.
+multi-model option. It is not integrated into the app or promoted. Its next
+validation failed as described below; resource verification and musical
+acceptance also remain separate requirements.
 The recordings, trained coefficients, feature recipes, frozen executables,
 exposure history and detailed reports remain private and outside Git.
+
+### Fresh validation and original-source preservation
+
+The same frozen candidate was subsequently tested on eight artists excluded
+from the recorded exposure history before inference. Five recordings supplied
+original professional vocal channels; three required pinned native HTDemucs6s
+isolation from their full mixes. Every compared method received the same vocal
+input and original recording clock. Predictions and MIDI round-trips completed
+before authored target notes were read. No validation targets trained or
+selected the candidate.
+
+Against faster High, missing-plus-wrong frame error fell by 32.35% for contours
+and 34.62% for exported notes. Exported-note pitch accuracy rose from 32.08% to
+55.59%, and voiced recall rose from 34.55% to 62.00%. However, the wrong-pitch
+proportion rose from 11.61% to 13.93%, and false voicing rose from 7.92% to
+10.74%. These failures prevent promotion despite the coverage improvement.
+
+An additional comparison with current Standard, including Basic Pitch and
+SwiftF0 assistance and no transcription, passed the numerical checks: exported
+note error fell by 29.60%, wrong-pitch proportion fell from 16.23% to 13.93%,
+and false voicing rose from 9.26% to 10.74%. This secondary comparison does not
+override the failed primary High comparison. Against the existing multi-model
+option, the reduction in exported-note error was only 15.22%, and wrong-pitch
+proportion worsened from 8.98% to 13.93%.
+
+Error decomposition identified an unsafe decision in this experimental
+decoder: retaining original voicing still allowed its pitch to be replaced by
+the derived lead's accepted pitch. That replacement did not require stronger
+support and caused substantial damage on one recording. An experimental
+revision preserves each accepted original pitch, requires original-source
+neural corroboration for recovered gaps, and blocks recovery in exact
+zero-energy parent frames. Quiet nonzero parent energy is not rejected by
+this silence guard. Its threshold and corroboration requirement were selected
+using only leave-one-development-artist-out predictions.
+
+The revised frozen executable passed controlled checks for silent-parent
+artifacts, quiet recovery, conflicting child octaves and child-only votes.
+Existing original pitches were retained on twenty regression recordings.
+These checks verify source-preservation behavior, not pitch correctness.
+Results on the newly exposed eight artists are regression evidence for the
+revision; they cannot establish its held-out quality gate. Another eight
+previously untested artists were selected and its settings frozen before
+reading their target notes.
+
+### Additional acoustic estimator research
+
+[Recent voting research](https://arxiv.org/abs/2602.01727) examines temporal
+and frequency alignment and correlated estimator errors. It motivates testing
+different acoustic methods; it does not establish that extra votes or inferred
+frequency offsets improve YACE, especially when different singers overlap.
+
+A separate Rust evaluation used unmodified Apache-2.0
+[REAPER](https://github.com/google/REAPER) source at revision
+`1d6e9b95e6b08b500fccbc9a043989dbda747276`. The pinned source archive SHA-256 is
+`152af842bedc98e9d12e2f59352ba1e2487ce2689bf2fbf65c68c031ab173d02`.
+The native estimator uses glottal-epoch tracking without trained model weights.
+The Rust wrapper preserves input amplitude, quantizes 16 kHz mono to signed
+16-bit PCM, retains the publisher's default high-pass/Hilbert settings, and
+uses a fixed 50–1100 Hz search and 10 ms output clock. There is no lyric input,
+target fitting, key prior or octave correction.
+
+On the four development artists, REAPER on derived lead audio reached 67.00%
+exported-note pitch accuracy and 75.78% voiced recall, but its 11.35% wrong-pitch
+proportion and 14.93% false voicing prevented replacement of the existing
+methods. Adding eight REAPER features to the acoustic ranker changed its best
+eligible development note accuracy by only 0.016 percentage point. The
+original frozen candidate and new validation protocol were retained; REAPER
+remains experimental. These are chart-relative development results, not
+measured continuous-F0 accuracy or musical acceptance.
 
 Keep every corpus, recording, reference, salience cache and detailed report in a
 private directory outside Git. Use distinct development/validation artists;
