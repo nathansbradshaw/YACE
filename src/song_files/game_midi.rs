@@ -349,6 +349,38 @@ pub fn warnings(song: &Path) -> Result<Vec<String>> {
     Ok(source(song)?.map_or_else(Vec::new, |(s, _)| s.warnings))
 }
 
+/// Read a percussion view only after the ordinary immutable source receipt has
+/// validated. Unsupported source data stays read-only; never invent a baseline.
+pub fn percussion_view(song: &Path) -> Result<Option<crate::vocal_percussion::PercussionChart>> {
+    use crate::vocal_percussion::Part;
+    let Some((imported, directory)) = source(song)? else {
+        return Ok(None);
+    };
+    let Some(mut chart) =
+        crate::vocal_percussion::import_midi(&fs::read(directory.join("notes.mid"))?)?
+    else {
+        return Ok(None);
+    };
+    // The immutable archive also contains explicitly omitted parts. Inherit
+    // only the active export scope, including percussion-only opaque owners.
+    let extras = extra_parts(song)?;
+    let lead = retained_vocal_controls(song)?;
+    let harmony = retained_harmony_controls(song)?;
+    chart.tracks.retain(|part, _| match part {
+        Part::Lead if imported.baseline_vocals_sha256.is_some() => lead,
+        Part::Harm1 if imported.baseline_harmonies_sha256.is_some() => harmony,
+        _ => extras
+            .iter()
+            .filter_map(|key| key.strip_prefix("MIDI: "))
+            .any(|label| Part::from_midi(label) == Some(*part)),
+    });
+    if chart.tracks.is_empty() {
+        return Ok(None);
+    }
+    chart.validate()?;
+    Ok(Some(chart))
+}
+
 /// A standard MIDI part shares phrase events across its difficulty pitches.
 /// Keep the editing views in agreement so removing a phrase cannot be undone
 /// accidentally by an untouched difficulty when the MIDI is regenerated.

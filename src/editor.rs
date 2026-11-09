@@ -178,6 +178,8 @@ pub struct Content {
     pub vocals: Option<crate::vocals::VocalChart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harmonies: Option<crate::vocal_harmonies::HarmonyChart>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vocal_percussion: Option<crate::vocal_percussion::State>,
     #[serde(default)]
     pub vocal_review: Option<crate::vocal_review::VocalReviewMap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -382,6 +384,10 @@ pub enum Action {
     EditHarmonies {
         edit: crate::vocal_harmonies::Edit,
     },
+    SetVocalPercussion {
+        document: crate::vocal_percussion::PercussionChart,
+    },
+    ClearVocalPercussion,
     DeleteVocalNote {
         index: usize,
     },
@@ -1322,6 +1328,7 @@ impl Store {
                         None
                     }
                 },
+                vocal_percussion: None,
                 analysis_sources: Default::default(),
                 difficulty_links: Default::default(),
                 vocal_review: None,
@@ -1398,6 +1405,15 @@ impl Store {
         #[cfg(target_arch = "wasm32")]
         crate::storage::remember_project(&self.root, &doc);
         Ok(doc)
+    }
+    pub fn vocal_percussion(
+        &self,
+        doc: &Project,
+    ) -> Result<Option<crate::vocal_percussion::PercussionChart>> {
+        match &doc.content.vocal_percussion {
+            Some(state) => Ok(state.document().cloned()),
+            None => crate::song_files::game_midi::percussion_view(&self.root.join("source")),
+        }
     }
     /// Synth recognition reads the original recording. A piano-labelled
     /// separation stem is not a synth isolation, even when it is available.
@@ -1751,6 +1767,8 @@ impl Store {
                 | Action::SetHarmonies { .. }
                 | Action::ClearHarmonies
                 | Action::EditHarmonies { .. }
+                | Action::SetVocalPercussion { .. }
+                | Action::ClearVocalPercussion
                 | Action::DeleteVocalNote { .. }
                 | Action::SetVocalGeneration { .. }
                 | Action::SetVocalReview { .. }
@@ -2260,6 +2278,25 @@ impl Store {
                 )?;
                 doc.content.harmonies = next;
             }
+            Action::SetVocalPercussion { document } => {
+                document.validate_timing(&doc.timing(self)?, doc.duration)?;
+                document.validate_with_singing(
+                    doc.content.vocals.as_ref(),
+                    doc.content.harmonies.as_ref(),
+                )?;
+                crate::song_files::game_midi::percussion_view(&self.root.join("source"))?;
+                doc.content.vocal_percussion = Some(crate::vocal_percussion::State::Authored {
+                    document: document.clone(),
+                });
+            }
+            Action::ClearVocalPercussion => {
+                crate::song_files::game_midi::percussion_view(&self.root.join("source"))?;
+                ensure!(
+                    self.vocal_percussion(&doc)?.is_some(),
+                    "No editable vocal percussion"
+                );
+                doc.content.vocal_percussion = Some(crate::vocal_percussion::State::Cleared);
+            }
             Action::DeleteVocalNote { index } => {
                 let chart = doc.content.vocals.as_mut().context("No vocal chart")?;
                 ensure!(*index < chart.notes.len(), "Unknown vocal note");
@@ -2650,6 +2687,10 @@ impl Store {
         actor: &Actor,
         options: &crate::export_options::Options,
     ) -> Result<()> {
+        ensure!(
+            doc.content.vocal_percussion.is_none(),
+            "Playable export of percussion edits is not available yet. Save an editable backup to retain them."
+        );
         let selected = options.selected(self, doc)?;
         let all_parts = crate::export_options::available(self, doc)?;
         let midi_export = options.midi(self, doc)?;

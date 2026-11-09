@@ -84,6 +84,23 @@ pub struct PercussionChart {
     pub tracks: BTreeMap<Part, Track>,
 }
 
+/// Absence in legacy content inherits its verified original percussion. An
+/// explicit clear is a separate state, so restart/Undo cannot revive old hits.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub enum State {
+    Authored { document: PercussionChart },
+    Cleared,
+}
+impl State {
+    pub fn document(&self) -> Option<&PercussionChart> {
+        match self {
+            Self::Authored { document } => Some(document),
+            Self::Cleared => None,
+        }
+    }
+}
+
 fn attributes(value: Option<&NoteAttributes>, zero_length: bool) -> Result<()> {
     if let Some(value) = value {
         value.validate()?;
@@ -249,6 +266,9 @@ impl PercussionChart {
     }
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "vocal_percussion/project_tests.rs"]
+mod project_tests;
 #[cfg(test)]
 #[path = "vocal_percussion/tests.rs"]
 mod tests;

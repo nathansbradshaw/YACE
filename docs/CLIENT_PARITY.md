@@ -22,9 +22,13 @@ not qualify those workflows.
 Vocal percussion authoring remains a gap in both applications. A separate Rust
 document on the feature branch validates displayed/hidden hits and dedicated
 percussion scoring phrases without changing pitched/talkie syllables. It refuses
-phrases that overlap the applicable lead or harmony singing phrases. Project
-persistence, export/history wiring, placement/selection/Undo/preview controls and
-actual native, browser and game acceptance remain open. A strict MIDI reader extracts
+phrases that overlap the applicable lead or harmony singing phrases. Typed project
+commands persist authored hits or an explicit clear, with content-addressed
+Undo/Redo and portable project relocation. Legacy documents inherit only active
+source parts; reopening an instrument-only export does not revive omitted hits.
+Playable export of these edits currently refuses safely until export integration
+is connected. Placement/selection/preview controls and actual native, browser and
+game acceptance remain open. A strict MIDI reader extracts
 dedicated source phrases with original hit and scoring-marker attributes;
 ambiguous, mixed singing/percussion and uncovered source hits refuse the editable
 view. Shared scoring ranges used by unmanaged harmony percussion also remain
