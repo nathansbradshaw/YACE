@@ -1,0 +1,18 @@
+[package]
+name = "yace-vocal-lead-support-trainer"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+[[bin]]
+name = "yace-vocal-note-agreement"
+path = "src/bin/note-agreement.rs"
+[workspace]
+[dependencies]
+chart-engine = { path = "../..", default-features = false }
+vocal-boundary-benchmark = { path = "../vocal-boundary-benchmark" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+candle-core = { path = "../../vendor/candle-core", default-features = false }
