@@ -435,6 +435,16 @@ fn main() -> Result<()> {
         .context("Missing recordings")?;
     let game = entries.iter().any(|e| e.get("game_features").is_some());
     let role = entries.iter().any(|e| e.get("role_features").is_some());
+    let spectral = entries.iter().any(|e| e.get("spectral_features").is_some());
+    ensure!(
+        !spectral
+            || (game
+                && role
+                && entries
+                    .iter()
+                    .all(|e| e["spectral_features"].as_str().is_some())),
+        "Spectral study requires GAME, role and spectral evidence for every source"
+    );
     ensure!(
         !game
             || entries
@@ -449,11 +459,15 @@ fn main() -> Result<()> {
                 .all(|e| e["role_features"].as_str().is_some()),
         "Lead/backing context requires evidence for every source"
     );
-    let schema = match (role, game) {
-        (true, true) => "rmvpe_jdc_game_small_lead_backing_context_v6_148",
-        (true, false) => "rmvpe_jdc_lead_backing_context_v6_117",
-        (false, true) => "rmvpe_jdc_game_small_context_v5_116",
-        (false, false) => "rmvpe_jdc_relative_context_v2_85",
+    let schema = if spectral {
+        "rmvpe_jdc_game_small_lead_backing_context_v6_148+spectral_v7_184"
+    } else {
+        match (role, game) {
+            (true, true) => "rmvpe_jdc_game_small_lead_backing_context_v6_148",
+            (true, false) => "rmvpe_jdc_lead_backing_context_v6_117",
+            (false, true) => "rmvpe_jdc_game_small_context_v5_116",
+            (false, false) => "rmvpe_jdc_relative_context_v2_85",
+        }
     };
     ensure!(
         entries.len() == 16,
@@ -578,6 +592,21 @@ fn main() -> Result<()> {
                     .unwrap(),
             )?;
             input_pins.last_mut().unwrap()["role_features_sha256"] = json!(hash);
+        }
+        if spectral {
+            let hash = context::append_spectral(
+                &g,
+                &c,
+                &mut x,
+                Path::new(entry["spectral_features"].as_str().unwrap()),
+                input_pins.last().unwrap()["generation_sha256"]
+                    .as_str()
+                    .unwrap(),
+                input_pins.last().unwrap()["game_features_sha256"]
+                    .as_str()
+                    .unwrap(),
+            )?;
+            input_pins.last_mut().unwrap()["spectral_features_sha256"] = json!(hash);
         }
         data.push(Data {
             id: entry["id"].as_str().unwrap().into(),

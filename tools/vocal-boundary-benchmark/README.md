@@ -70,6 +70,50 @@ or satisfies the requested substantial improvement without retention losses.
 
 ## Run
 
+### Spectral and within-song timbre study
+
+`vocal-spectral-evidence` extracts 20 audio-only features per native RMVPE time:
+32-band mel shape, twelve normalized cepstral coefficients, energy, flatness,
+spectral change, harmonic support and distances to three-cluster within-song
+templates. Template seeds use fixed GAME singing confidence and raw pitch
+confidence before reference labels are read. These are rough acoustic cues,
+not calibrated lead-singer identities. No neural weights are downloaded.
+
+```sh
+cargo run --locked --release --manifest-path tools/vocal-boundary-benchmark/Cargo.toml \
+  --bin vocal-spectral-evidence -- SOURCE_INVENTORY.json NEW_SPECTRAL_DIR
+```
+
+Each inventory recording supplies `id`, `generation`, `vocal_stem` and
+`game_features`. Stems must match the generation's source hash and clock.
+The extractor uses 16 kHz mono, a centered 1024-sample Hann window and 80–6000 Hz
+mel bands. It opens no reference files. Add each produced path as
+`spectral_features` alongside existing GAME and role paths in the benchmark
+manifest; the model gains 36 features, including 50/200 ms neighboring summaries.
+All source, generation, GAME, feature and receipt hashes must match.
+
+The fixed V7 recipe 149 on eight exposed mixed recordings increased macro F1
+from 23.771% to 26.954%, correct-pitch coverage from 62.562% to 63.778%, and
+reduced gap false-note time from 12.025% to 10.927%. It gained 209 strict matches
+but lost 121 previously matched identities and 29.588 seconds of previously
+correct pitch coverage. Wrong-pitch share also rose. **Rejected for production.**
+These are source-excluded development results, not independent validation.
+
+A separate one-rule note filter using these cues removed 19 of 2,785 predictions
+while retaining all 677 matched identities and all previous correct-pitch time.
+F1 was 23.870%; gap false-note time was 11.968%. This remains a tiny improvement
+and fails the unchanged development guard. Stronger rules lost correct pitches.
+Semantic instrument/choir scores, boosted classifiers, short edge crops and
+protected trees were also tested privately. Even the mildest 10 ms edge-crop
+setting lost 0.01875 seconds of previously correct pitch and was rejected.
+Pure same-pitch fragment merging offered only one additional match even with
+reference guidance; that oracle diagnostic is not an algorithm score.
+
+Role separation and identity conditioning are relevant research directions;
+see [lead separation with phoneme conditioning](https://arxiv.org/abs/2609.06488)
+and [VocalRep](https://aclanthology.org/2026.findings-acl.1785/). This small
+spectral study does not reproduce either system or establish their performance.
+
 Reuse the repository's existing Cargo target cache. No models or audio are
 downloaded. All data and fitted models stay outside public Git.
 

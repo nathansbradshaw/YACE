@@ -7,6 +7,95 @@ use serde_json::Value;
 use std::path::Path;
 use vocal_boundary_benchmark::read;
 #[derive(Deserialize)]
+struct SpectralEvidence {
+    audio_sha256: String,
+    vocal_stem_sha256: String,
+    generation_sha256: String,
+    game_sha256: String,
+    times: Vec<f64>,
+    frames: Vec<[f64; 20]>,
+}
+fn spectral_context(rows: &[[f64; 20]], i: usize) -> Vec<f64> {
+    let mut out = rows[i].to_vec();
+    for w in [5, 20] {
+        for (a, b) in [
+            (i.saturating_sub(w), i),
+            ((i + 1).min(rows.len()), (i + w + 1).min(rows.len())),
+        ] {
+            for j in [0, 3, 16, 18] {
+                out.push(if a < b {
+                    rows[a..b].iter().map(|r| r[j]).sum::<f64>() / (b - a) as f64
+                } else {
+                    rows[i][j]
+                });
+            }
+        }
+    }
+    out
+}
+pub(crate) fn append_spectral(
+    g: &Generation,
+    c: &[Cell],
+    x: &mut [Vec<f64>],
+    path: &Path,
+    generation_sha256: &str,
+    game_sha256: &str,
+) -> Result<String> {
+    let e: SpectralEvidence = read(path)?;
+    ensure!(
+        e.audio_sha256 == g.audio_sha256
+            && e.vocal_stem_sha256 == g.vocal_stem_sha256
+            && e.generation_sha256 == generation_sha256
+            && e.game_sha256 == game_sha256,
+        "Spectral source lineage mismatch"
+    );
+    ensure!(
+        !c.is_empty()
+            && x.len() == c.len()
+            && e.times.len() == c.len()
+            && e.frames.len() == c.len()
+            && e.times
+                .iter()
+                .zip(c)
+                .all(|(t, c)| t.is_finite() && (t - c.t).abs() < 1e-9)
+            && e.frames.iter().flatten().all(|v| v.is_finite()),
+        "Spectral native clock/values mismatch"
+    );
+    let receipt: Value = read(
+        path.parent()
+            .context("Spectral parent")?
+            .join("inference-receipt.json"),
+    )?;
+    let file = path
+        .file_name()
+        .context("Spectral file")?
+        .to_str()
+        .context("UTF8 spectral path")?;
+    let pins: Vec<_> = receipt["inputs"]
+        .as_array()
+        .context("Spectral pins")?
+        .iter()
+        .filter(|p| p["file"] == file)
+        .collect();
+    let hash = chart_engine::models::hash_file(path)?;
+    ensure!(
+        receipt["reads_reference_labels"] == false
+            && receipt["schema"] == "spectral-v1-20-16khz-1024-hann-32mel-80-6000-source-template"
+            && pins.len() == 1
+            && pins[0]["sha256"] == hash,
+        "Spectral receipt/protocol mismatch"
+    );
+    for (i, row) in x.iter_mut().enumerate() {
+        ensure!(
+            row.len() == 148,
+            "Spectral study requires frozen GAME+role features"
+        );
+        row.extend(spectral_context(&e.frames, i));
+        ensure!(row.len() == 184, "Spectral feature width");
+    }
+    Ok(hash)
+}
+#[derive(Deserialize)]
 struct GameRow {
     boundary: bool,
     presence_confidence: f64,
@@ -252,6 +341,20 @@ pub(crate) fn append_role(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn spectral_context_preserves_native_origin_and_bounds_both_edges() {
+        let rows: Vec<_> = (0..30).map(|i| [i as f64; 20]).collect();
+        let a = spectral_context(&rows, 0);
+        let b = spectral_context(&rows, 29);
+        assert_eq!(a.len(), 36);
+        assert_eq!(&a[..20], &[0.; 20]);
+        assert_eq!(&a[20..24], &[0.; 4]);
+        assert_eq!(&a[24..28], &[3.; 4]);
+        assert_eq!(&b[..20], &[29.; 20]);
+        assert_eq!(&b[20..24], &[26.; 4]);
+        assert_eq!(&b[24..28], &[29.; 4]);
+        assert_eq!(spectral_context(&[[2.; 20]], 0), vec![2.; 36]);
+    }
     #[test]
     fn game_pitch_context_is_relative_and_missing_pitch_has_no_fixed_origin() {
         let mut e = GameEvidence {
