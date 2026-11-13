@@ -157,6 +157,17 @@ restart contained identical project JSON. A native CLI opened the failed-save
 recovery ZIP's extracted project and undid/redid 1500→1560→1500. This qualifies
 that controlled commit-failure/recovery/retry case. It does not establish
 eviction, hardware disk failure or every browser/platform failure mode.
+The actual browser saved-project importer also reopened the failed-save ZIP;
+Undo/Redo retained 1500→1560→1500. Its subsequent complete backup verified 14
+references and three Undo checkpoints with identical content, source binding
+and Undo/Redo stacks to the recovered draft.
+
+Removing the isolated profile's authoritative IndexedDB project store and
+reloading produced an explicit unavailable-project warning. Opening its verified
+complete backup restored revision 5 and usable Undo/Redo; the resulting backup
+retained identical content, source binding and history. This is controlled
+storage removal, rather than evidence of a browser's real pressure-eviction
+policy.
 
 Terminal big rock ending authoring at `00e7481` shares Rust coda/range controls,
 Undo/Redo, timeline bands and recording-clock preview labels across clients.
