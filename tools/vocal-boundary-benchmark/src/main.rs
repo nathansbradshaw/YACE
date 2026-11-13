@@ -696,7 +696,7 @@ fn main() -> Result<()> {
                 );
                 let metrics = vb::score_exported_notes(&reference, &report)?;
                 let intervals = vb::score_note_intervals(&canonical, &report)?;
-                rows.push(json!({"id":d.id,"annotation":a+1,"recipe_index":rid,"events":rates(&metrics),"performed_f0":metrics,"note_intervals":intervals,"reference_boundary_normalizations":normalizations}));
+                rows.push(json!({"id":d.id,"annotation":a+1,"recipe_index":rid,"events":rates(&metrics),"reference_frame_diagnostic":metrics,"reference_kind":reference.reference_kind,"note_intervals":intervals,"reference_boundary_normalizations":normalizations}));
             }
         }
     }
