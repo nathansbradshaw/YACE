@@ -37,8 +37,11 @@ pub use harmonies::{
 pub(crate) use merge::{absolute as midi_events, encode as encode_midi_owner};
 pub(crate) use merge::{chunks as midi_chunks, validate_complete as validate_midi_complete};
 pub use overdrive::{edit_overdrive, export_overdrive, read_overdrive_state, source_overdrive};
+#[path = "game_midi/bre.rs"]
+mod bre;
 #[path = "game_midi/drum_mix.rs"]
 mod drum_mix;
+pub use bre::{import_bre, rewrite_bre};
 pub use drum_mix::{edit_drum_mix, export_drum_mix, read_drum_mix_state, source_drum_mix};
 pub(crate) use percussion::can_begin_harmonies;
 pub(crate) use percussion::logical_owner as logical_vocal_owner;

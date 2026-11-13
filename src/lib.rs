@@ -3,6 +3,7 @@ pub mod analysis_validation;
 pub mod assistant;
 pub mod bass_analysis;
 pub mod benchmark;
+pub mod bre;
 pub mod chart;
 pub mod chart_library;
 pub mod clean;
