@@ -25,6 +25,13 @@ export, Undo and Redo matched the browser MIDI and WAV byte-for-byte. This
 qualifies those controlled workflows. Native GUI, target-game behavior,
 listening and broader fault coverage remain open.
 
+On `d4c1f15`, the actual browser retained the project after an owned browser
+process restart, created a Hard Pro Keys part with no notes and a trill, and
+exported its new physical MIDI owner. Independent parsing verified that owner,
+separate Expert/Easy Pro Keys ranges, the continued Guitar clear, every other
+raw owner/event and the original recording. New-owner and representable
+chart-to-MIDI scope cases also pass the codec regressions.
+
 Harmony authoring has actual static-browser verification for the supported
 editing subset below. Shared Rust controls expose HARM1–3 notes and lyrics,
 recording loops, Undo/Redo, and the format's shared HARM1 scoring and HARM2 lyric
