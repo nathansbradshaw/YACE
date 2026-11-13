@@ -55,6 +55,9 @@ impl Studio {
         });
     }
     pub fn copy_selection(mut self, cut: bool) {
+        if (self.group_busy)() {
+            return;
+        }
         let prepared = (|| -> Result<_> {
             let project = self.snapshot().context("Open a chart first")?;
             let root = self
@@ -103,12 +106,8 @@ impl Studio {
                 self.error.set(None);
                 if cut {
                     self.edit_group(Edit::Delete { selection });
-                }
-                if (self.error)().is_none() {
-                    self.status.set(format!(
-                        "{} {count} notes",
-                        if cut { "Cut" } else { "Copied" }
-                    ));
+                } else if (self.error)().is_none() {
+                    self.status.set(format!("Copied {count} notes"));
                 }
                 Ok::<_, anyhow::Error>(())
             }
@@ -119,6 +118,9 @@ impl Studio {
         });
     }
     pub fn paste_selection(mut self) {
+        if (self.group_busy)() {
+            return;
+        }
         let prepared = (|| -> Result<_> {
             let project = self.snapshot().context("Open a chart first")?;
             let root = self

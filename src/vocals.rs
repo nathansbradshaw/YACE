@@ -137,20 +137,22 @@ impl VocalChart {
             }
             ensure!(
                 self.phrases
-                    .iter()
-                    .filter(|p| p.start <= note.start && note.end <= p.end)
-                    .count()
-                    == 1,
+                    .partition_point(|p| p.start <= note.start)
+                    .checked_sub(1)
+                    .and_then(|i| self.phrases.get(i))
+                    .is_some_and(|p| note.end <= p.end),
                 "Every vocal note must fit wholly inside one scoring phrase"
             );
         }
         for phrase in &self.phrases {
-            let notes: Vec<_> = self
-                .notes
-                .iter()
-                .filter(|n| phrase.start <= n.start && n.end <= phrase.end)
-                .collect();
+            let start = self.notes.partition_point(|n| n.start < phrase.start);
+            let end = self.notes.partition_point(|n| n.start < phrase.end);
+            let notes = &self.notes[start..end];
             ensure!(!notes.is_empty(), "Empty scoring phrase");
+            let final_text = notes
+                .iter()
+                .rposition(|n| matches!(n.lyric, Syllable::Text { .. }));
+            let mut known_owner = false;
             for (index, note) in notes.iter().enumerate() {
                 if matches!(note.lyric, Syllable::Continue | Syllable::ContinueWord) {
                     ensure!(
@@ -159,17 +161,7 @@ impl VocalChart {
                             && matches!(notes[index - 1].tone, VocalTone::Pitched { .. }),
                         "Continuation needs a preceding pitched syllable in the same phrase"
                     );
-                    ensure!(
-                        notes[..index]
-                            .iter()
-                            .rev()
-                            .find(|n| !matches!(
-                                n.lyric,
-                                Syllable::Continue | Syllable::ContinueWord
-                            ))
-                            .is_some_and(|n| matches!(n.lyric, Syllable::Text { .. })),
-                        "Continuation needs a known preceding syllable"
-                    );
+                    ensure!(known_owner, "Continuation needs a known preceding syllable");
                 }
                 if matches!(
                     &note.lyric,
@@ -179,11 +171,12 @@ impl VocalChart {
                     }
                 ) {
                     ensure!(
-                        notes[index + 1..]
-                            .iter()
-                            .any(|n| matches!(n.lyric, Syllable::Text { .. })),
+                        final_text.is_some_and(|last| last > index),
                         "Joined syllable needs a following text syllable in the same phrase"
                     );
+                }
+                if !matches!(note.lyric, Syllable::Continue | Syllable::ContinueWord) {
+                    known_owner = matches!(note.lyric, Syllable::Text { .. });
                 }
             }
         }

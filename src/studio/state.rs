@@ -591,6 +591,7 @@ pub struct Studio {
     pub generation_target: Signal<Option<String>>,
     pub vocal_note: Signal<Option<usize>>,
     pub group: Signal<crate::note_groups::Selection>,
+    pub group_busy: Signal<bool>,
     pub selection_dragging: Signal<bool>,
     pub editor_focus: Signal<Option<Rc<MountedData>>>,
     #[cfg(not(feature = "browser"))]
@@ -2702,6 +2703,7 @@ pub fn use_studio() -> Studio {
         generation_target: use_signal(|| None),
         vocal_note: use_signal(|| None),
         group: use_signal(Default::default),
+        group_busy: use_signal(|| false),
         selection_dragging: use_signal(|| false),
         editor_focus: use_signal(|| None),
         #[cfg(not(feature = "browser"))]

@@ -94,7 +94,10 @@ pub fn BusyLabel(busy: bool, label: String, active: String) -> Element {
 #[component]
 pub fn Status(studio: Studio, title: String) -> Element {
     let action = (studio.file_activity)();
-    let busy = action.is_some() || (studio.library_busy)() || (studio.export_busy)();
+    let busy = action.is_some()
+        || (studio.library_busy)()
+        || (studio.export_busy)()
+        || (studio.group_busy)();
     let text = (studio.status)();
     rsx! {
         style { {include_str!("../../assets/activity.css")} }

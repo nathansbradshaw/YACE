@@ -5,6 +5,28 @@ before additional product features ship. Use one source revision and the same
 full-length song project for acceptance. Sharing Rust modules establishes shared
 rules; it does not establish that both applications expose working controls.
 
+Bulk note groups now accept up to 100,000 notes and 32 MiB clipboards, with
+indexed collision, shared-flag and vocal-word handling. The shared inspector
+offers relative tick/row moves, operation status and explicit atomic failures.
+An operation refuses if the project or selection changes before dispatch.
+
+Actual static-browser checks at `8c0182f` copied 12,001 notes, moved them by
+120 ticks and one row, refused an out-of-grid move without advancing revision,
+used Undo/Redo, deleted the group and pasted the original copy. The downloaded
+song and complete backup retained all 8,001 HOPO/tap flags, unrelated parts,
+unknown events and original audio. Seven content-addressed backup files and
+three history checkpoints verified independently; reopening that backup in
+the browser and native CLI retained working Undo/Redo and exact native export.
+Eighteen group regressions also cover large independent vocal phrases,
+word ownership, collisions and oversized no-commit failures.
+
+On this controlled 12,001-note browser run, moving/deleting/pasting displayed
+progress before completion (about 0.20–0.68 seconds from start to completion).
+The move included a 621 ms main-thread task; this does not establish uninterrupted
+playback or broad performance parity. The maximum-size workload, actual native
+GUI, hosted qualification, other browsers, full-length musical/game workflows
+and comparative resource measurements remain separate acceptance gates.
+
 Vocal overdrive now has shared native/static controls for independent Lead and
 shared HARM1 power ranges. HARM1 supplies power to HARM2 and HARM3 in the target
 parser; their original opaque power events remain untouched. Tick editing,
