@@ -176,6 +176,8 @@ pub struct Content {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub midi_drum_mix: Option<crate::drum_mix::AuthoredMidi>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi_drum_attributes: Option<crate::song_files::game_midi::DrumAttributes>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bre: Option<crate::bre::State>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub lane_ranges: crate::lane_ranges::Tracks,
@@ -1414,6 +1416,9 @@ impl Store {
                 solos: Default::default(),
                 drum_ranges: Default::default(),
                 disco_ranges: Default::default(),
+                midi_drum_attributes: crate::song_files::game_midi::read_drum_attributes(
+                    &self.root.join("source"),
+                )?,
                 bre: crate::song_files::game_midi::read_bre_state(
                     &self.root.join("source"),
                     &chart,
@@ -3234,6 +3239,12 @@ impl Store {
                 &source,
                 &self.source_chart(doc)?.chart,
                 doc.content.bre.as_ref(),
+                &midi,
+                &selected,
+            )?;
+            let midi = crate::song_files::game_midi::export_drum_attributes(
+                &source,
+                doc.content.midi_drum_attributes.as_ref(),
                 &midi,
                 &selected,
             )?;

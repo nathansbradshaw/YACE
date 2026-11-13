@@ -138,7 +138,8 @@ impl Proposal {
             "Lane range changes are not supported in note proposals; share the saved project instead"
         );
         ensure!(
-            base.content.drum_ranges == edited.content.drum_ranges,
+            base.content.drum_ranges == edited.content.drum_ranges
+                && base.content.midi_drum_attributes == edited.content.midi_drum_attributes,
             "Drum range changes are not supported in note proposals; share the saved project instead"
         );
         ensure!(
@@ -201,6 +202,7 @@ fn power_fingerprint(project: &Project) -> Result<Option<String>> {
         && project.content.vocal_overdrive.is_none()
         && project.content.disco_ranges.is_empty()
         && project.content.midi_drum_mix.is_none()
+        && project.content.midi_drum_attributes.is_none()
         && project.content.bre.is_none()
     {
         return Ok(None);
@@ -247,6 +249,10 @@ fn power_fingerprint(project: &Project) -> Result<Option<String>> {
     };
     let bytes = match &project.content.bre {
         Some(bre) => serde_json::to_vec(&(bytes, bre))?,
+        None => bytes,
+    };
+    let bytes = match &project.content.midi_drum_attributes {
+        Some(attrs) => serde_json::to_vec(&(bytes, attrs))?,
         None => bytes,
     };
     Ok(Some(format!("{:x}", Sha256::digest(bytes))))

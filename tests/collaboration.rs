@@ -79,6 +79,7 @@ fn fixture(root: &Path) -> Store {
             drum_ranges: Default::default(),
             disco_ranges: Default::default(),
             midi_drum_mix: None,
+            midi_drum_attributes: None,
             bre: None,
             lane_ranges: Default::default(),
             midi_lane_ranges: None,

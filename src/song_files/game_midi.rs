@@ -42,9 +42,14 @@ mod bre;
 #[path = "game_midi/bre_project.rs"]
 mod bre_project;
 pub use bre_project::{export_bre, read_bre_state, source_bre};
+#[path = "game_midi/drum_attributes.rs"]
+mod drum_attributes;
 #[path = "game_midi/drum_mix.rs"]
 mod drum_mix;
 pub use bre::{import_bre, rewrite_bre};
+pub use drum_attributes::{
+    State as DrumAttributes, export as export_drum_attributes, read as read_drum_attributes,
+};
 pub use drum_mix::{edit_drum_mix, export_drum_mix, read_drum_mix_state, source_drum_mix};
 pub(crate) use percussion::can_begin_harmonies;
 pub(crate) use percussion::logical_owner as logical_vocal_owner;
@@ -728,10 +733,18 @@ pub fn edit_drum_ranges(
         .insert(edit.track().into(), ranges);
     crate::drum_ranges::apply(&mut candidate, chart, edit)?;
     let ranges = candidate.content.drum_ranges[edit.track()].clone();
+    let attributes = drum_attributes::edited(
+        song,
+        project.content.midi_drum_attributes.as_ref(),
+        chart,
+        edit,
+        &ranges,
+    )?;
     for name in tracks {
         candidate.content.drum_ranges.insert(name, ranges.clone());
     }
     project.content.drum_ranges = candidate.content.drum_ranges;
+    project.content.midi_drum_attributes = Some(attributes);
     Ok(())
 }
 
