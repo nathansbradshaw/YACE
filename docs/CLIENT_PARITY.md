@@ -26,9 +26,23 @@ backup restored 18 verified files and four Undo checkpoints in a pinned native
 CLI; native exports and Undo/Redo matched the browser MIDI/WAV byte-for-byte.
 Ten focused core/project regressions include chart-origin creation, marker-only
 and inherited percussion-only owners, export/reopen, clear and omission/re-authoring.
-Native GUI, hosted
+Native GUI, broader hosted
 qualification, game/controller, listening, selected-note bounds and broader
 fault coverage remain open; shared source and CLI checks do not close them.
+
+The hosted `0bd3c56` runtime also passed first-power creation in an inherited
+percussion-only HARM1 owner, independent Lead creation/resize, Undo/Redo and
+downloaded MIDI preservation checks using invented MIDI without audio. Its
+20,689,261-byte WASM matched the local SHA-256
+`ac4129d5c61a5d105d87040ec65717df4878a51091442e634caa5fbc36e20a41`.
+Complete backups before and after terminating only the verification browser and
+restarting its isolated profile each verified 16 file references and four Undo
+checkpoints. The revision-7 project JSON was byte-identical:
+`1564a41b54b8991e04ef258bff0d602aaad701716051f22dc5902f2431a2e51b`.
+The restored controls displayed both Lead ranges and shared harmony power.
+Removing shared harmony power afterward retained the Lead ranges and passed
+another independent export audit. These controlled checks retain the separate
+native GUI, musical/game, current-loop and broader fault acceptance gates.
 
 Instrument trill and tremolo editing now has shared inspector controls and a
 timeline lane. Chart sources keep independent difficulty ranges. Imported MIDI
