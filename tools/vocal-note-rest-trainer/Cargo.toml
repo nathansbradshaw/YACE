@@ -1,0 +1,14 @@
+[package]
+name = "yace-vocal-note-rest-trainer"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+[workspace]
+[dependencies]
+chart-engine = { path = "../..", default-features = false }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+sha2 = "0.10"
+candle-core = { path = "../../vendor/candle-core", default-features = false }
