@@ -84,6 +84,229 @@ fn word(text: &str, join_next: bool) -> Syllable {
     }
 }
 
+fn large_fixture(root: &std::path::Path) -> Store {
+    use std::fmt::Write;
+    let source = root.join("source");
+    fs::create_dir(&source).unwrap();
+    let mut text = String::from(
+        "[Song]\n{\n Resolution = 480\n}\n[SyncTrack]\n{\n 0 = B 120000\n}\n[Events]\n{\n 0 = E \"section Large selection\"\n}\n[ExpertSingle]\n{\n 481 = N 1 0\n",
+    );
+    for i in 0..12_001u64 {
+        let tick = 480 + 120 * i;
+        writeln!(text, " {tick} = N {} 30", i % 3).unwrap();
+        if i % 3 != 2 {
+            writeln!(text, " {tick} = N {} 0", 5 + i % 3).unwrap();
+        }
+    }
+    text.push_str("}\n");
+    fs::write(source.join("notes.chart"), text).unwrap();
+    fs::write(
+        source.join("song.ini"),
+        "[song]\nname = Large selection\nsong_length = 4000000\n",
+    )
+    .unwrap();
+    let store = Store::new(root);
+    store.initialize(&source, None, 4000.).unwrap();
+    store
+}
+fn large_selection(store: &Store) -> Selection {
+    let doc = store.load().unwrap();
+    Selection {
+        track: "ExpertSingle".into(),
+        ids: doc.content.tracks["ExpertSingle"]
+            .iter()
+            .filter(|n| n.note.tick % 120 == 0 && doc.playable("ExpertSingle", n.note.lane))
+            .map(|n| n.id.clone())
+            .collect(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn large_group_copy_move_paste_delete_and_history_keep_source_and_flags() {
+    let root = tempfile::tempdir().unwrap();
+    let store = large_fixture(root.path());
+    let source = fs::read(root.path().join("source/notes.chart")).unwrap();
+    let group = large_selection(&store);
+    assert_eq!(group.len(), 12_001);
+    let start = std::time::Instant::now();
+    let clipboard = copied(&store, &group);
+    let clipboard = Clipboard::decode(&clipboard.encode().unwrap()).unwrap();
+    let copied_in = start.elapsed();
+    let original = store.load().unwrap();
+    let start = std::time::Instant::now();
+    edit(
+        &store,
+        Edit::Move {
+            selection: snap(&store, &group),
+            ticks: 60,
+            rows: 0,
+        },
+    )
+    .unwrap();
+    let moved_in = start.elapsed();
+    let moved = store.load().unwrap();
+    assert_eq!(moved.undo.len(), 1);
+    let after: std::collections::BTreeMap<_, _> = moved.content.tracks["ExpertSingle"]
+        .iter()
+        .map(|n| (&n.id, n))
+        .collect();
+    for note in &original.content.tracks["ExpertSingle"] {
+        if group.ids.contains(&note.id) {
+            let current = after[&note.id];
+            assert_eq!(current.note.tick, note.note.tick + 60);
+            assert_eq!(current.note.lane, note.note.lane);
+            assert_eq!(current.note.sustain, note.note.sustain);
+        }
+    }
+    let flags: BTreeSet<_> = moved.content.tracks["ExpertSingle"]
+        .iter()
+        .filter(|n| !moved.playable("ExpertSingle", n.note.lane))
+        .map(|n| (n.note.tick, n.note.lane))
+        .collect();
+    for note in original.content.tracks["ExpertSingle"]
+        .iter()
+        .filter(|n| !original.playable("ExpertSingle", n.note.lane))
+    {
+        assert!(flags.contains(&(note.note.tick + 60, note.note.lane)));
+    }
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(
+        serde_json::to_value(&store.load().unwrap().content).unwrap(),
+        serde_json::to_value(&original.content).unwrap()
+    );
+    apply(&store, Action::Redo).unwrap();
+    let start = std::time::Instant::now();
+    edit(
+        &store,
+        Edit::Paste {
+            track: "ExpertSingle".into(),
+            tick: 2_000_000,
+            clipboard,
+        },
+    )
+    .unwrap();
+    let pasted_in = start.elapsed();
+    let pasted = store.load().unwrap();
+    assert_eq!(
+        pasted.content.tracks["ExpertSingle"]
+            .iter()
+            .filter(|n| pasted.playable("ExpertSingle", n.note.lane))
+            .count(),
+        24_003
+    );
+    let start = std::time::Instant::now();
+    edit(
+        &store,
+        Edit::Delete {
+            selection: snap(&store, &group),
+        },
+    )
+    .unwrap();
+    let deleted_in = start.elapsed();
+    let deleted = store.load().unwrap();
+    assert_eq!(
+        deleted.content.tracks["ExpertSingle"]
+            .iter()
+            .filter(|n| deleted.playable("ExpertSingle", n.note.lane))
+            .count(),
+        12_002
+    );
+    assert_eq!(
+        deleted.content.tracks["ExpertSingle"]
+            .iter()
+            .filter(|n| !deleted.playable("ExpertSingle", n.note.lane))
+            .map(|n| n.note.tick)
+            .min(),
+        Some(2_000_000)
+    );
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(
+        serde_json::to_value(&store.load().unwrap().content).unwrap(),
+        serde_json::to_value(pasted.content).unwrap()
+    );
+    assert_eq!(
+        source,
+        fs::read(root.path().join("source/notes.chart")).unwrap()
+    );
+    eprintln!(
+        "large_group native debug: copy={copied_in:?} move={moved_in:?} paste={pasted_in:?} delete={deleted_in:?}"
+    );
+}
+
+#[test]
+fn large_group_destination_collision_leaves_committed_project_unchanged() {
+    let root = tempfile::tempdir().unwrap();
+    let store = large_fixture(root.path());
+    let group = large_selection(&store);
+    let before = fs::read(root.path().join("project.json")).unwrap();
+    let result = edit(
+        &store,
+        Edit::Move {
+            selection: snap(&store, &group),
+            ticks: 1,
+            rows: 1,
+        },
+    );
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Nothing was changed")
+    );
+    assert_eq!(before, fs::read(root.path().join("project.json")).unwrap());
+    assert!(store.load().unwrap().undo.is_empty());
+}
+
+#[test]
+fn oversized_bulk_requests_and_clipboard_bytes_refuse_without_committing() {
+    let root = tempfile::tempdir().unwrap();
+    let store = support::fixture(root.path());
+    let group = selected(&store, "ExpertSingle", &[480]);
+    let mut clipboard = copied(&store, &group);
+    if let note_groups::Payload::Instrument { notes, .. } = &mut clipboard.payload {
+        notes.resize(100_001, notes[0].clone());
+    }
+    assert!(
+        clipboard
+            .encode()
+            .unwrap_err()
+            .to_string()
+            .contains("100,000")
+    );
+    let untrusted = format!(
+        "YACE notes v1\n{}",
+        serde_json::to_string(&clipboard).unwrap()
+    );
+    assert!(
+        Clipboard::decode(&untrusted)
+            .unwrap_err()
+            .to_string()
+            .contains("100,000")
+    );
+    let before = fs::read(root.path().join("project.json")).unwrap();
+    assert!(
+        edit(
+            &store,
+            Edit::Paste {
+                track: "ExpertSingle".into(),
+                tick: 0,
+                clipboard
+            }
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("100,000")
+    );
+    assert_eq!(before, fs::read(root.path().join("project.json")).unwrap());
+    assert!(
+        Clipboard::decode(&"x".repeat(32 * 1024 * 1024 + 1))
+            .unwrap_err()
+            .to_string()
+            .contains("32 MiB")
+    );
+}
+
 #[test]
 fn moving_a_group_is_one_undo_and_preserves_original_sources() {
     let root = tempfile::tempdir().unwrap();

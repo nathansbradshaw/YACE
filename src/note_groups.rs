@@ -11,7 +11,8 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 const PREFIX: &str = "YACE notes v1\n";
-const MAX_NOTES: usize = 10_000;
+pub const MAX_NOTES: usize = 100_000;
+pub const MAX_CLIPBOARD_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Selection {
@@ -118,7 +119,7 @@ impl Snapshot {
     pub fn capture(project: &Project, selected: &Selection) -> Result<Self> {
         ensure!(
             !selected.is_empty() && selected.len() <= MAX_NOTES,
-            "Select 1–10,000 notes"
+            "Select 1–100,000 notes; larger operations must be split"
         );
         if selected.track == "Vocals" {
             let chart = project.content.vocals.as_ref().context("No vocal chart")?;
@@ -287,23 +288,37 @@ pub fn copy(project: &Project, timing: &TempoMap, selection: &Selection) -> Resu
 }
 impl Clipboard {
     pub fn encode(&self) -> Result<String> {
-        Ok(format!("{PREFIX}{}", serde_json::to_string(self)?))
+        self.validate()?;
+        let encoded = format!("{PREFIX}{}", serde_json::to_string(self)?);
+        ensure!(
+            encoded.len() <= MAX_CLIPBOARD_BYTES,
+            "Clipboard selection exceeds 32 MiB; copy fewer notes"
+        );
+        Ok(encoded)
     }
     pub fn decode(text: &str) -> Result<Self> {
         ensure!(
-            text.len() <= 4 * 1024 * 1024,
-            "Clipboard selection is too large"
+            text.len() <= MAX_CLIPBOARD_BYTES,
+            "Clipboard selection exceeds 32 MiB; copy fewer notes"
         );
         let value: Self = serde_json::from_str(
             text.strip_prefix(PREFIX)
                 .context("Copy notes in YACE before pasting")?,
         )?;
+        value.validate()?;
+        Ok(value)
+    }
+    fn validate(&self) -> Result<()> {
         ensure!(
-            value.version == 1 && value.resolution > 0,
+            self.version == 1 && self.resolution > 0,
             "Unsupported note clipboard"
         );
-        match &value.payload {
+        match &self.payload {
             Payload::Instrument { family, notes } => {
+                ensure!(
+                    notes.len() <= MAX_NOTES,
+                    "Clipboard contains more than 100,000 notes; split the selection"
+                );
                 ensure!(
                     [
                         "frets",
@@ -318,8 +333,7 @@ impl Clipboard {
                         "pro_bass_22"
                     ]
                     .contains(&family.as_str())
-                        && !notes.is_empty()
-                        && notes.len() <= MAX_NOTES,
+                        && !notes.is_empty(),
                     "Invalid note clipboard"
                 );
                 ensure!(
@@ -329,13 +343,17 @@ impl Clipboard {
             }
             Payload::Vocals { chart } => {
                 ensure!(
-                    chart.notes.len() <= MAX_NOTES && chart.resolution == value.resolution,
+                    chart.notes.len() <= MAX_NOTES,
+                    "Clipboard contains more than 100,000 notes; split the selection"
+                );
+                ensure!(
+                    chart.resolution == self.resolution,
                     "Invalid vocal clipboard"
                 );
                 chart.validate()?;
             }
         }
-        Ok(value)
+        Ok(())
     }
 }
 
@@ -367,18 +385,59 @@ fn remove_gems(project: &mut Project, selection: &Snapshot) {
     let lanes = project.lane_rows(track);
     let notes = project.content.tracks.get_mut(track).unwrap();
     notes.retain(|item| !selection.ids.contains(&item.id));
+    let shared: BTreeSet<_> = notes
+        .iter()
+        .filter(|n| lanes.contains(&n.note.lane))
+        .map(|n| n.note.tick)
+        .collect();
+    let mut removed_flags = BTreeSet::new();
     for gem in chosen {
-        let shared = notes
-            .iter()
-            .any(|item| item.note.tick == gem.note.tick && lanes.contains(&item.note.lane));
-        notes.retain(|item| {
-            !(item.note.tick == gem.note.tick
-                && owns_flag(layout, track, gem.note.lane, item.note.lane)
-                && (track.ends_with("Drums") || !shared))
-        });
+        if track.ends_with("Drums") || !shared.contains(&gem.note.tick) {
+            removed_flags.extend(
+                gem.flags
+                    .into_iter()
+                    .filter(|flag| owns_flag(layout, track, gem.note.lane, *flag))
+                    .map(|flag| (gem.note.tick, flag)),
+            );
+        }
+    }
+    notes.retain(|item| !removed_flags.contains(&(item.note.tick, item.note.lane)));
+}
+struct DestinationIndex {
+    occupied: BTreeMap<u64, BTreeSet<u8>>,
+    markers: BTreeSet<(u64, u8)>,
+}
+impl DestinationIndex {
+    fn new(project: &Project, track: &str) -> Result<Self> {
+        let notes = project
+            .content
+            .tracks
+            .get(track)
+            .context("Select an existing destination track")?;
+        let mut index = Self {
+            occupied: BTreeMap::new(),
+            markers: BTreeSet::new(),
+        };
+        for item in notes {
+            index.markers.insert((item.note.tick, item.note.lane));
+            if project.playable(track, item.note.lane) {
+                index
+                    .occupied
+                    .entry(item.note.tick)
+                    .or_default()
+                    .insert(item.note.lane);
+            }
+        }
+        Ok(index)
     }
 }
-fn insert_gem(project: &mut Project, track: &str, gem: Gem, id: Option<String>) -> Result<String> {
+fn insert_gem(
+    project: &mut Project,
+    track: &str,
+    gem: Gem,
+    id: Option<String>,
+    index: &mut DestinationIndex,
+) -> Result<String> {
     if crate::pro_guitar::is_track(track) {
         crate::pro_guitar::validate_attributes(track, gem.midi.as_ref())?;
     }
@@ -395,18 +454,24 @@ fn insert_gem(project: &mut Project, track: &str, gem: Gem, id: Option<String>) 
             .all(|flag| owns_flag(project.drum_layout(), track, gem.note.lane, *flag)),
         "This flag does not fit the destination lane"
     );
-    let existing = project
-        .content
-        .tracks
-        .get(track)
-        .context("Select an existing destination track")?;
     ensure!(
-        !existing.iter().any(|item| item.note.tick == gem.note.tick
-            && project.playable(track, item.note.lane)
-            && (item.note.lane == gem.note.lane
-                || (!track.ends_with("Drums") && ((item.note.lane == 7) != (gem.note.lane == 7))))),
+        index.occupied.get(&gem.note.tick).is_none_or(|lanes| {
+            !lanes.contains(&gem.note.lane)
+                && (track.ends_with("Drums")
+                    || if gem.note.lane == 7 {
+                        lanes.iter().all(|lane| *lane == 7)
+                    } else {
+                        !lanes.contains(&7)
+                    })
+        }),
         "Notes already occupy the destination. Nothing was changed."
     );
+    index
+        .occupied
+        .entry(gem.note.tick)
+        .or_default()
+        .insert(gem.note.lane);
+    index.markers.insert((gem.note.tick, gem.note.lane));
     let id = if let Some(id) = id {
         id
     } else {
@@ -416,10 +481,7 @@ fn insert_gem(project: &mut Project, track: &str, gem: Gem, id: Option<String>) 
     };
     let notes = project.content.tracks.get_mut(track).unwrap();
     for lane in gem.flags {
-        if !notes
-            .iter()
-            .any(|item| item.note.tick == gem.note.tick && item.note.lane == lane)
-        {
+        if index.markers.insert((gem.note.tick, lane)) {
             let marker = format!("edit-note-{}", project.next_id);
             project.next_id = project.next_id.checked_add(1).context("Note ID overflow")?;
             notes.push(EditorNote {
@@ -463,6 +525,7 @@ pub fn apply(project: &mut Project, timing: &TempoMap, edit: &Edit) -> Result<()
                 remove_gems(project, selection);
                 if let Edit::Move { ticks, rows, .. } = edit {
                     let lanes = project.lane_rows(&selection.track);
+                    let mut index = DestinationIndex::new(project, &selection.track)?;
                     for (item, gem) in selected.iter().zip(&mut bundles) {
                         let row = lanes
                             .iter()
@@ -488,6 +551,7 @@ pub fn apply(project: &mut Project, timing: &TempoMap, edit: &Edit) -> Result<()
                             &selection.track,
                             gem.clone(),
                             Some(item.id.clone()),
+                            &mut index,
                         )?;
                     }
                 }
@@ -515,6 +579,7 @@ pub fn apply(project: &mut Project, timing: &TempoMap, edit: &Edit) -> Result<()
                         "Choose a compatible track before pasting"
                     );
                     let mut first = None;
+                    let mut index = DestinationIndex::new(project, track)?;
                     for gem in &mut notes {
                         let end = scaled(
                             gem.note
@@ -539,7 +604,7 @@ pub fn apply(project: &mut Project, timing: &TempoMap, edit: &Edit) -> Result<()
                             "This chart resolution is too small for the copied sustain"
                         );
                         gem.note.sustain = sustain;
-                        let id = insert_gem(project, track, gem.clone(), None)?;
+                        let id = insert_gem(project, track, gem.clone(), None, &mut index)?;
                         if first.is_none() {
                             first = Some(id);
                         }
