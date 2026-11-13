@@ -32,6 +32,7 @@ pub use harmonies::{
     RetainedHarmonyPhrases, export_harmonies, retained_harmony_controls, retained_harmony_phrases,
     validate_harmony_edit,
 };
+pub(crate) use merge::{absolute as midi_events, encode as encode_midi_owner};
 pub(crate) use merge::{chunks as midi_chunks, validate_complete as validate_midi_complete};
 pub(crate) use percussion::can_begin_harmonies;
 pub(crate) use percussion::logical_owner as logical_vocal_owner;

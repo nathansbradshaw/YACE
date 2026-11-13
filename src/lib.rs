@@ -119,6 +119,7 @@ pub mod vocal_harmonies;
 pub mod vocal_independent;
 pub mod vocal_note_consensus;
 pub mod vocal_note_recipe;
+pub mod vocal_overdrive;
 pub mod vocal_percussion;
 pub mod vocal_pitch;
 pub mod vocal_pitch_analysis;
