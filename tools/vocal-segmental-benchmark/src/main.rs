@@ -13,7 +13,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
 };
-use vocal_segmental_benchmark::{Config, Note, Sample, segment};
+use vocal_segmental_benchmark::{Config, Method, Note, Sample, decode, fidelity};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -38,6 +38,8 @@ struct Recipe {
     articulation_db: Option<f64>,
     #[serde(default)]
     baseline_mask: bool,
+    #[serde(default)]
+    method: Method,
 }
 #[derive(Deserialize)]
 struct Singing {
@@ -334,17 +336,19 @@ fn main() -> Result<()> {
                 "Invalid gate"
             );
             let samples = observations(&g, &jdc, r)?;
-            let decoded = segment(
+            let decoded = decode(
                 &samples,
                 Config {
                     penalty: r.penalty,
                     articulation_db: r.articulation_db,
                     ..Config::default()
                 },
+                r.method,
             )?;
+            let audit = fidelity(&samples, &decoded.notes)?;
             let frame = rounded(&samples);
             let bytes = serde_json::to_vec(
-                &json!({"id":entry.id,"recipe":r,"notes":decoded.notes,"frame_rounding":frame,"accepted_seconds":decoded.accepted_seconds,"cost_evaluations":decoded.cost_evaluations}),
+                &json!({"id":entry.id,"recipe":r,"notes":decoded.notes,"frame_rounding":frame,"accepted_seconds":decoded.accepted_seconds,"cost_evaluations":decoded.cost_evaluations,"pitch_fidelity":audit}),
             )?;
             let path = output.join(format!("{}-{i:03}.json", entry.id));
             fs::write(&path, &bytes)?;

@@ -1,6 +1,6 @@
 //! Continuous-pitch segmentation for offline research, independent of references.
 //! PELT pruning uses the superadditivity of within-segment squared error.
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -47,7 +47,7 @@ pub struct Decode {
     pub accepted_seconds: f64,
 }
 
-pub fn segment(samples: &[Sample], config: Config) -> Result<Decode> {
+fn validate_samples(samples: &[Sample], config: Config) -> Result<()> {
     ensure!(
         config.penalty.is_finite() && config.penalty > 0.0,
         "Penalty must be positive"
@@ -77,6 +77,11 @@ pub fn segment(samples: &[Sample], config: Config) -> Result<Decode> {
         samples.windows(2).all(|s| s[0].end <= s[1].start + 1e-9),
         "Overlapping sample cells"
     );
+    Ok(())
+}
+
+pub fn segment(samples: &[Sample], config: Config) -> Result<Decode> {
+    validate_samples(samples, config)?;
     let mut result = Decode::default();
     let mut i = 0;
     while i < samples.len() {
@@ -198,7 +203,7 @@ fn fit_run(
 }
 
 fn articulations(samples: &[Sample], threshold: f64) -> Vec<usize> {
-    if samples.len() < 15 {
+    if samples.len() < 3 {
         return vec![];
     }
     let level: Vec<f64> = samples
@@ -246,6 +251,208 @@ fn articulations(samples: &[Sample], threshold: f64) -> Vec<usize> {
     }
     accepted.sort_unstable();
     accepted
+}
+
+/// Explicit alternatives; legacy output stays reproducible. No reference or
+/// annotation enters the method selection or the protected-frame decisions.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Method {
+    #[default]
+    Legacy,
+    PitchExact,
+    Guarded {
+        maximum_residual: f64,
+        maximum_excursion_seconds: f64,
+    },
+}
+
+#[derive(Debug, Serialize)]
+pub struct Fidelity {
+    pub accepted_cells: usize,
+    pub changed_midi_cells: usize,
+    pub changed_midi_seconds: f64,
+    pub maximum_residual: f64,
+}
+
+pub fn fidelity(samples: &[Sample], notes: &[Note]) -> Result<Fidelity> {
+    validate_samples(samples, Config::default())?;
+    ensure!(
+        notes.len() <= samples.len()
+            && notes.iter().all(|n| n.start.is_finite()
+                && n.end.is_finite()
+                && n.start >= 0.0
+                && n.start < n.end
+                && n.midi <= 127
+                && n.continuous_pitch.is_finite()
+                && (0.0..=127.0).contains(&n.continuous_pitch))
+            && notes.windows(2).all(|n| n[0].end <= n[1].start + 1e-9),
+        "Invalid emitted notes"
+    );
+    let accepted_seconds = samples
+        .iter()
+        .filter(|s| s.pitch.is_some())
+        .map(|s| s.end - s.start)
+        .sum::<f64>();
+    let emitted_seconds = notes.iter().map(|n| n.end - n.start).sum::<f64>();
+    ensure!(
+        (accepted_seconds - emitted_seconds).abs() < 1e-7,
+        "Decoder changed accepted duration"
+    );
+    let mut audit = Fidelity {
+        accepted_cells: 0,
+        changed_midi_cells: 0,
+        changed_midi_seconds: 0.0,
+        maximum_residual: 0.0,
+    };
+    for s in samples {
+        let at = (s.start + s.end) / 2.0;
+        let i = notes.partition_point(|n| n.start <= at);
+        let note = i
+            .checked_sub(1)
+            .and_then(|j| notes.get(j))
+            .filter(|n| at < n.end);
+        ensure!(
+            note.is_some() == s.pitch.is_some(),
+            "Decoder changed source voicing"
+        );
+        if let Some(pitch) = s.pitch {
+            let note = note.unwrap();
+            ensure!(
+                note.start <= s.start + 1e-9 && note.end >= s.end - 1e-9,
+                "Decoder changed an accepted cell boundary"
+            );
+            let midi = note.midi;
+            audit.accepted_cells += 1;
+            audit.maximum_residual = audit.maximum_residual.max((pitch - midi as f64).abs());
+            if midi != pitch.round() as u8 {
+                audit.changed_midi_cells += 1;
+                audit.changed_midi_seconds += s.end - s.start;
+            }
+        }
+    }
+    Ok(audit)
+}
+
+/// Retain every accepted cell. Guarded smoothing can alter only a brief rounded
+/// excursion near a semitone boundary; clear pitches and sustained notes veto
+/// a segment-center proposal. PitchExact forbids all MIDI label changes.
+pub fn decode(samples: &[Sample], config: Config, method: Method) -> Result<Decode> {
+    if method == Method::Legacy {
+        return segment(samples, config);
+    }
+    validate_samples(samples, config)?;
+    let original: Vec<Option<u8>> = samples
+        .iter()
+        .map(|s| s.pitch.map(|p| p.round() as u8))
+        .collect();
+    let mut selected = original.clone();
+    let mut cost_evaluations = 0;
+    if let Method::Guarded {
+        maximum_residual,
+        maximum_excursion_seconds,
+    } = method
+    {
+        ensure!(
+            maximum_residual.is_finite()
+                && (0.5..=1.0).contains(&maximum_residual)
+                && maximum_excursion_seconds.is_finite()
+                && (0.0..=0.2).contains(&maximum_excursion_seconds),
+            "Invalid pitch protection"
+        );
+        let proposal = segment(
+            samples,
+            Config {
+                articulation_db: None,
+                ..config
+            },
+        )?;
+        cost_evaluations = proposal.cost_evaluations;
+        let mut a = 0;
+        while a < samples.len() {
+            let mut b = a + 1;
+            while b < samples.len()
+                && original[b] == original[a]
+                && (samples[b - 1].end - samples[b].start).abs() < 1e-8
+            {
+                b += 1;
+            }
+            if original[a].is_some()
+                && samples[b - 1].end - samples[a].start <= maximum_excursion_seconds + 1e-12
+            {
+                for i in a..b {
+                    let at = (samples[i].start + samples[i].end) / 2.0;
+                    let p = proposal.notes.partition_point(|n| n.start <= at);
+                    let note = p
+                        .checked_sub(1)
+                        .and_then(|j| proposal.notes.get(j))
+                        .filter(|n| at < n.end)
+                        .context("Proposal lost accepted pitch")?;
+                    if (samples[i].pitch.unwrap() - note.midi as f64).abs() < maximum_residual {
+                        selected[i] = Some(note.midi);
+                    }
+                }
+            }
+            a = b;
+        }
+    }
+    let mut result = Decode {
+        cost_evaluations,
+        ..Decode::default()
+    };
+    let mut a = 0;
+    while a < samples.len() {
+        let Some(midi) = selected[a] else {
+            a += 1;
+            continue;
+        };
+        let mut b = a + 1;
+        while b < samples.len()
+            && selected[b] == Some(midi)
+            && (samples[b - 1].end - samples[b].start).abs() < 1e-8
+        {
+            b += 1;
+        }
+        let mut boundaries = vec![a];
+        if let Some(db) = config.articulation_db {
+            boundaries.extend(articulations(&samples[a..b], db).into_iter().map(|i| i + a));
+        }
+        boundaries.push(b);
+        for pair in boundaries.windows(2) {
+            let cells = &samples[pair[0]..pair[1]];
+            let duration = cells.iter().map(|s| s.end - s.start).sum::<f64>();
+            let continuous_pitch = cells
+                .iter()
+                .map(|s| s.pitch.unwrap() * (s.end - s.start))
+                .sum::<f64>()
+                / duration;
+            result.accepted_seconds += duration;
+            result.notes.push(Note {
+                start: cells[0].start,
+                end: cells.last().unwrap().end,
+                continuous_pitch,
+                midi,
+            });
+        }
+        a = b;
+    }
+    let audit = fidelity(samples, &result.notes)?;
+    if method == Method::PitchExact {
+        ensure!(
+            audit.changed_midi_cells == 0,
+            "Pitch-exact mode changed a MIDI label"
+        );
+    }
+    if let Method::Guarded {
+        maximum_residual, ..
+    } = method
+    {
+        ensure!(
+            audit.maximum_residual <= maximum_residual + 1e-9,
+            "Guarded mode exceeded its pitch residual bound"
+        );
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -413,5 +620,165 @@ mod tests {
         s[1].start = 0.01;
         s[0].pitch = Some(f64::NAN);
         assert!(segment(&s, Config::default()).is_err());
+    }
+
+    #[test]
+    fn pitch_exact_preserves_exhaustive_pitch_rest_patterns() {
+        let choices = [None, Some(59.49), Some(59.5), Some(60.0), Some(72.0)];
+        for code in 0..5usize.pow(6) {
+            let mut number = code;
+            let p: Vec<_> = (0..6)
+                .map(|_| {
+                    let p = choices[number % 5];
+                    number /= 5;
+                    p
+                })
+                .collect();
+            let s = samples(&p, 0.01);
+            let d = decode(
+                &s,
+                Config {
+                    max_cost_evaluations: 1,
+                    ..Default::default()
+                },
+                Method::PitchExact,
+            )
+            .unwrap();
+            let audit = fidelity(&s, &d.notes).unwrap();
+            assert_eq!(audit.changed_midi_cells, 0);
+            assert_eq!(d.cost_evaluations, 0);
+            let accepted = s
+                .iter()
+                .filter(|s| s.pitch.is_some())
+                .map(|s| s.end - s.start)
+                .sum::<f64>();
+            assert!((accepted - d.accepted_seconds).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn protection_restores_short_real_note_that_legacy_smooths() {
+        let p = [
+            vec![Some(60.0); 30],
+            vec![Some(61.0); 4],
+            vec![Some(60.0); 30],
+        ]
+        .concat();
+        let s = samples(&p, 0.01);
+        let config = Config {
+            penalty: 0.08,
+            ..Default::default()
+        };
+        let legacy = segment(&s, config).unwrap();
+        assert_eq!(legacy.notes.len(), 1);
+        let d = decode(
+            &s,
+            config,
+            Method::Guarded {
+                maximum_residual: 0.55,
+                maximum_excursion_seconds: 0.04,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            d.notes.iter().map(|n| n.midi).collect::<Vec<_>>(),
+            [60, 61, 60]
+        );
+        assert_eq!(fidelity(&s, &d.notes).unwrap().changed_midi_cells, 0);
+    }
+
+    #[test]
+    fn guard_only_changes_brief_ambiguous_excursion() {
+        let p = [
+            vec![Some(60.2); 30],
+            vec![Some(60.51); 2],
+            vec![Some(60.2); 30],
+            vec![Some(60.51); 10],
+            vec![Some(60.2); 30],
+        ]
+        .concat();
+        let s = samples(&p, 0.01);
+        let method = Method::Guarded {
+            maximum_residual: 0.55,
+            maximum_excursion_seconds: 0.04,
+        };
+        let d = decode(
+            &s,
+            Config {
+                penalty: 0.08,
+                ..Default::default()
+            },
+            method,
+        )
+        .unwrap();
+        let audit = fidelity(&s, &d.notes).unwrap();
+        assert_eq!(audit.changed_midi_cells, 2);
+        assert!(audit.maximum_residual < 0.55);
+        assert!((audit.changed_midi_seconds - 0.02).abs() < 1e-9);
+        assert!(
+            d.notes
+                .iter()
+                .any(|n| n.midi == 61 && (n.end - n.start - 0.1).abs() < 1e-8)
+        );
+        let doubled: Vec<_> = p.iter().flat_map(|&p| [p, p]).collect();
+        let s2 = samples(&doubled, 0.005);
+        let d2 = decode(
+            &s2,
+            Config {
+                penalty: 0.08,
+                ..Default::default()
+            },
+            method,
+        )
+        .unwrap();
+        let b = fidelity(&s2, &d2.notes).unwrap();
+        assert!((audit.changed_midi_seconds - b.changed_midi_seconds).abs() < 1e-9);
+    }
+
+    #[test]
+    fn exact_rearticulation_preserves_pitch_and_rejects_invalid_guard() {
+        let mut s = samples(&vec![Some(60.0); 100], 0.01);
+        for cell in &mut s[47..53] {
+            cell.rms = 0.01;
+        }
+        let d = decode(
+            &s,
+            Config {
+                articulation_db: Some(3.0),
+                ..Default::default()
+            },
+            Method::PitchExact,
+        )
+        .unwrap();
+        assert_eq!(d.notes.len(), 2);
+        assert_eq!(fidelity(&s, &d.notes).unwrap().changed_midi_cells, 0);
+        assert!(
+            decode(
+                &s,
+                Config::default(),
+                Method::Guarded {
+                    maximum_residual: f64::NAN,
+                    maximum_excursion_seconds: 0.04
+                }
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn fidelity_rejects_cell_truncation_gap_filling_and_invalid_notes() {
+        let s = samples(&[Some(60.0), None, Some(60.0)], 0.01);
+        let d = decode(&s, Config::default(), Method::PitchExact).unwrap();
+        let mut truncated = d.notes.clone();
+        truncated[0].start += 0.001;
+        truncated[1].end += 0.001;
+        assert!(fidelity(&s, &truncated).is_err());
+        let mut bridged = d.notes.clone();
+        bridged[0].end = bridged[1].end;
+        bridged.pop();
+        assert!(fidelity(&s, &bridged).is_err());
+        let mut invalid = d.notes.clone();
+        invalid[0].continuous_pitch = f64::NAN;
+        assert!(fidelity(&s, &invalid).is_err());
     }
 }
