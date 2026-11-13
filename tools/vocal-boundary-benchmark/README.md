@@ -4,9 +4,10 @@ Offline Rust research, not a production detector. Predict musical note presence
 and attacks separately from the original RMVPE contour. Preserve raw evidence;
 compare actual exported MIDI with both musicians' note events.
 
-**Mixed-song status: unresolved.** The follow-up tested 487 development
-configurations. None reduced false notes while preserving previously correct
-notes and pitch time. The new paired audit below makes those losses explicit.
+**Mixed-song status: unresolved.** Several follow-ups tested learned boundaries,
+independent neural cues, lead/backing evidence and conservative corrections.
+None met the paired false-note reduction and retention requirement. The audit
+below makes losses of previously correct notes and pitch time explicit.
 These experiments do not change the app's production detector.
 
 ## Run
@@ -188,6 +189,81 @@ a source-separated singer-identity truth set. A diagnostic using reference
 boundaries found roughly 72% of excess note time attached to partly real notes,
 and about two thirds within 50 ms of a reference boundary. That is failure
 decomposition, not an available-at-inference oracle or proof that trimming is safe.
+
+## Lead-only neural context follow-up
+
+The requested target is the lead vocal line. Generic singing presence is useful
+evidence, but does not establish whether a voice belongs to that line. Added two
+optional research inputs to test this separately from the original pitch contour:
+
+- `game_features`: 31 features from the official GAME small ONNX model's
+  boundaries, presence confidence and relative pitch agreement. The encoder
+  includes its own waveform front end. A protobuf output-only modification
+  exposes the estimator's existing confidence tensor. Original presence and
+  pitch outputs must match the unmodified model exactly on each recording's
+  first chunk. This checks instrumentation, not end-to-end PyTorch parity.
+- `role_features`: 32 features from pinned MDX karaoke lead/backing proposals:
+  local energy, amplitude share and correlation at the original pitch's period,
+  twice that period and half that period. Context covers 50/200 ms on each side.
+  Both proposed stems are evidence; neither is treated as a singer-identity label.
+  The original RMVPE contour remains the pitch source for the note decoder.
+
+Either field must appear for all 16 sources if used. Feature schemas are V2/85
+without extras, V5/116 with GAME, V6/117 with role evidence, and V6/148 with both.
+Source clocks, model pins, feature hashes and parent generation hashes are
+checked. Reused models must match feature schema, width and training sources.
+
+Same fixed recipe 149, same eight exposed mixed songs, macro averages:
+
+| Variant | Note F1 | Pitch time | Recall | False/gap time | Previously matched notes lost |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original V2 comparator | 23.77% | 62.56% | 73.68% | 12.02% | 0 |
+| GAME K2 context | 27.92% | 65.03% | 75.94% | 11.77% | 71 |
+| GAME K8 context | 27.10% | 63.90% | 75.52% | 11.44% | 78 |
+| GAME K8 + lead/backing context | 26.11% | 63.31% | 74.59% | 10.74% | 127 |
+| Other agent's saved High-gap recovery + PENN, recipe 0 | 8.87% | 64.81% | 82.76% | 25.29% | 318 |
+
+The other agent's row is rescored from frozen exported charts on these same
+eight sources; its newly exposed singers are excluded. It uses a different
+gate, so this is an end-to-end comparison. No new model satisfies the retention
+guard. For example, GAME K2 gains 167 matched notes but loses 71 old matches and
+15.873 seconds of previously correct pitch coverage. Role + GAME gains 190 but
+loses 127 and 30.771 seconds. Whole-note vetoes and bounded glide corrections
+also failed; preserving retained note pitches alone did not preserve all real
+coverage. No production detector change, untouched-corpus result or listening
+acceptance is claimed.
+
+### Generate private evidence in Rust
+
+Both producers require a compatible native ONNX Runtime through `ORT_DYLIB_PATH`.
+No Python runtime, model export, model download or app installation is performed.
+Models and audio are supplied explicitly and remain private. GAME code/pipeline
+attribution is in `licenses/GAME-MIT.txt`; the released weights have separate
+[CC BY-NC-SA 4.0 terms](https://github.com/openvpi/GAME/releases/tag/v1.0.0).
+
+```sh
+cargo run --locked --release --manifest-path tools/vocal-boundary-benchmark/Cargo.toml \
+  --bin vocal-game-observations -- MODEL_DIR STEM.wav EXPECTED_STEM_SHA NEW_CUE.json 8 0
+cargo run --locked --release --manifest-path tools/vocal-boundary-benchmark/Cargo.toml \
+  --bin vocal-lead-evidence -- SOURCE_INVENTORY.json KARAOKE_MODEL.onnx NEW_ROLE_DIR
+```
+
+For the lead producer, each inventory recording has `id`, `generation`, and
+either `vocal_stem` or `separation_cache`. A cache contains `separation.json`,
+`lead.wav` and `backing.wav`; their parent/model/file hashes must match. The
+producer returns a manifest with `role_features`, plus its inference receipt.
+No annotated reference files are opened by either evidence producer.
+
+GAME context uses 20-second owned cores with one second of context per side,
+universal language 0 and K2/K8 sampling. Its native encoder supplies only complete
+10 ms frames; the sub-10 ms tail is explicitly reported. Custom chunking and
+FFmpeg decoding are not claimed equivalent to the publisher's full inference
+pipeline. Multi-step boundary removal is stochastic; the study freezes one
+realization per recording. For training, add `game_features` paths to the
+manifest and pin their files in sibling `inference-receipt.json`:
+`{"steps":8,"rows":[{"id":"mixed-1","file":"mixed-1.json","stem_sha256":"...","sha256":"..."}]}`.
+Use the main benchmark's existing source-excluded training and paired comparison
+commands. Do not infer independent validation from an exposed-data guard.
 
 For context, the two human annotations score 65.25% / 66.30% event F1 against
 each other under this same strict timing-and-pitch criterion. This measures
