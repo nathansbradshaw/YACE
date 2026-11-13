@@ -29,11 +29,9 @@ mod generation_actions;
 mod generation_jobs;
 #[path = "../../../src/studio/generation_status.rs"]
 mod generation_status;
+pub mod github;
 #[path = "../../../src/studio/harmony_editor.rs"]
 mod harmony_editor;
-#[path = "../../../src/studio/percussion_editor.rs"]
-mod percussion_editor;
-pub mod github;
 #[path = "../../../src/studio/icons.rs"]
 mod icons;
 #[path = "../../../src/studio/inline_review.rs"]
@@ -57,6 +55,8 @@ mod note_types;
 mod part_analysis;
 #[path = "../../../src/studio/parts.rs"]
 mod parts;
+#[path = "../../../src/studio/percussion_editor.rs"]
+mod percussion_editor;
 #[path = "../../../src/studio/practice.rs"]
 mod practice;
 #[path = "../../../src/studio/project_bar.rs"]
@@ -79,14 +79,14 @@ mod session;
 mod sheet;
 #[path = "../../../src/studio/shortcuts.rs"]
 mod shortcuts;
+#[path = "../../../src/studio/solo_editor.rs"]
+mod solo_editor;
 #[path = "../../../src/studio/song_overview.rs"]
 mod song_overview;
 #[path = "../../../src/studio/source_choice.rs"]
 mod source_choice;
 #[path = "../../../src/studio/star_power.rs"]
 mod star_power;
-#[path = "../../../src/studio/solo_editor.rs"]
-mod solo_editor;
 pub(crate) mod state;
 #[path = "../../../src/studio/stem_generation.rs"]
 mod stem_generation;

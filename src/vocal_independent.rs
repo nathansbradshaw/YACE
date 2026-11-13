@@ -259,14 +259,29 @@ fn publish_raw(temp: &Path, destination: &Path) -> Result<()> {
     crate::generation::write_json(destination, &v)?;
     Ok(())
 }
-pub fn analyze(
+/// Source-bound raw outputs. The exclusive cache lock remains held while
+/// callers inspect the files; this is not a generated vocal chart.
+pub struct Observations {
+    cache: PathBuf,
+    tools: PathBuf,
+    runtime: Option<crate::vocal_runtime::Runtime>,
+    _lock: fs::File,
+}
+impl Observations {
+    pub fn directory(&self) -> &Path {
+        &self.cache
+    }
+}
+/// Extract pinned acoustic model outputs without invoking the fused decoder.
+/// No recognition or note generation is performed.
+pub fn extract_observations(
     baseline: &Generation,
     audio: &Path,
     stem: &Path,
     model_root: &Path,
     cache_root: &Path,
     control: Arc<Control>,
-) -> Result<Generation> {
+) -> Result<Observations> {
     ensure!(
         baseline.policy.analysis_mode == crate::vocal_generation::AnalysisMode::HighAccuracy,
         "Multi-model pitch requires acoustic High accuracy boundaries"
@@ -405,6 +420,41 @@ pub fn analyze(
         }
         fs::rename(file, &note_file)?;
     }
+    control.check()?;
+    ensure!(
+        models::hash_file(audio)? == baseline.audio_sha256
+            && models::hash_file(stem)? == baseline.vocal_stem_sha256,
+        "Sources changed during independent observation extraction"
+    );
+    Ok(Observations {
+        cache,
+        tools,
+        runtime,
+        _lock: lock,
+    })
+}
+pub fn analyze(
+    baseline: &Generation,
+    audio: &Path,
+    stem: &Path,
+    model_root: &Path,
+    cache_root: &Path,
+    control: Arc<Control>,
+) -> Result<Generation> {
+    let Observations {
+        cache,
+        tools,
+        runtime,
+        _lock,
+    } = extract_observations(
+        baseline,
+        audio,
+        stem,
+        model_root,
+        cache_root,
+        control.clone(),
+    )?;
+    let baseline_file = cache.join("baseline.json");
     let corpus = crate::vocal_benchmark::Corpus {
         version: 1,
         recordings: vec![crate::vocal_benchmark::Recording {
@@ -484,6 +534,28 @@ pub fn analyze(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn observations_hold_the_cache_lock_until_the_reader_finishes() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("analysis.lock");
+        let lock = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        lock.try_lock().unwrap();
+        let observations = Observations {
+            cache: temp.path().into(),
+            tools: PathBuf::new(),
+            runtime: None,
+            _lock: lock,
+        };
+        let competing = fs::OpenOptions::new().write(true).open(path).unwrap();
+        assert!(competing.try_lock().is_err());
+        assert_eq!(observations.directory(), temp.path());
+        drop(observations);
+        competing.try_lock().unwrap();
+    }
     #[test]
     fn helper_receipts_reject_missing_replaced_and_duplicate_resources() {
         let temp = tempfile::tempdir().unwrap();
