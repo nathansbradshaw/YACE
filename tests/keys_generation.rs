@@ -251,6 +251,7 @@ fn piano_only_song_opens_edits_undoes_and_exports_one_midi_with_bound_recovery_m
         resolution: 480,
         source: "Supplied test vocal".into(),
         phrases: vec![chart_engine::vocals::VocalPhrase {
+            midi: None,
             start: 400,
             end: 900,
             player: 1,

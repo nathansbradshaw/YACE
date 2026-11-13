@@ -53,6 +53,7 @@ impl PhraseDraft {
     }
     fn parse(&self) -> Result<VocalPhrase, String> {
         Ok(VocalPhrase {
+            midi: None,
             start: self
                 .start
                 .parse()
@@ -92,6 +93,7 @@ fn initial(
         .find(|p| p.start <= hint && hint < p.end)
         .cloned()
         .unwrap_or(VocalPhrase {
+            midi: None,
             start: hint,
             end: hint.saturating_add(u64::from(resolution).max(1)),
             player: 1,
@@ -284,6 +286,7 @@ fn HarmonyNoteForm(
                 .saturating_add((u64::from(resolution) / 2).max(1))
                 .to_string();
             let phrase = VocalPhrase {
+                midi: None,
                 start: tick,
                 end: tick.saturating_add(u64::from(resolution).max(1)),
                 player: 1,

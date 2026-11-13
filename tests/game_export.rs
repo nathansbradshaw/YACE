@@ -16,6 +16,7 @@ fn vocal() -> VocalChart {
         resolution: 480,
         source: "Known test pitch and authored timing".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 400,
             end: 1500,
             player: 1,

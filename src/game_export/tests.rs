@@ -19,6 +19,7 @@ fn vocals() -> VocalChart {
         resolution: 480,
         source: "Authored fixture".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 0,
             end: 960,
             player: 1,

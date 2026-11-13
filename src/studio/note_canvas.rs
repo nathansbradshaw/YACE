@@ -282,6 +282,7 @@ fn place_vocal(studio: Studio, event: &MouseEvent, width: f64) {
             .unwrap_or_else(|| map.tick(doc.duration).unwrap_or(end));
         end = end.min(phrase_end);
         chart.phrases.push(VocalPhrase {
+            midi: None,
             start: phrase_start,
             end: phrase_end,
             player: 1,

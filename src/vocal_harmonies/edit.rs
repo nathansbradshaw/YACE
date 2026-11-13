@@ -227,6 +227,7 @@ impl Edit {
                 target.insert(
                     index + 1,
                     VocalPhrase {
+                        midi: None,
                         start: *tick,
                         end: expected.end,
                         player: expected.player,

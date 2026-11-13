@@ -183,6 +183,7 @@ fn read_phrases(events: &[(u64, K<'_>)]) -> Result<Vec<VocalPhrase>> {
                     .remove(&(channel.as_int(), key.as_int()))
                     .context("Unmatched harmony phrase end")?;
                 phrases.push(VocalPhrase {
+                    midi: None,
                     start,
                     end: tick,
                     player: if key.as_int() == 106 { 2 } else { 1 },
@@ -227,6 +228,7 @@ fn owned_phrase_events(
                 .remove(&identity)
                 .context("Unmatched harmony phrase marker")?;
             let range = VocalPhrase {
+                midi: None,
                 start,
                 end: tick,
                 player: if key == 106 { 2 } else { 1 },
@@ -711,6 +713,7 @@ mod tests {
                     source: "Manual HARM1 percussion".into(),
                     phrases: vec![Phrase {
                         range: VocalPhrase {
+                            midi: None,
                             start: 960,
                             end: 1920,
                             player: 1,

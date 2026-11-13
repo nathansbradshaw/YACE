@@ -1778,6 +1778,7 @@ fn chart_from_spans(
                     );
                 }
                 chart.phrases.push(VocalPhrase {
+                    midi: None,
                     start: phrase_start,
                     end: previous.end,
                     player: 1,
@@ -1821,6 +1822,7 @@ fn chart_from_spans(
         chart.notes.push(note);
     }
     chart.phrases.push(VocalPhrase {
+        midi: None,
         start: phrase_start,
         end: chart.notes.last().unwrap().end,
         player: 1,

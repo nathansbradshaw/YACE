@@ -292,6 +292,7 @@ fn chart_only_generated_vocals_reopen_without_attaching_checks_for_omitted_audio
         resolution: 480,
         source: "Synthetic export fixture".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 480,
             end: 960,
             player: 1,
@@ -411,6 +412,7 @@ fn deselected_vocals_and_pro_keys_do_not_return_when_a_chart_export_is_reopened(
         resolution: 480,
         source: "Synthetic export fixture".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 480,
             end: 960,
             player: 1,

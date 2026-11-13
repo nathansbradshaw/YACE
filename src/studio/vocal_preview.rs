@@ -236,6 +236,7 @@ mod tests {
                 .last()
                 .map(|n| {
                     vec![VocalPhrase {
+                        midi: None,
                         start: 0,
                         end: n.end,
                         player: 1,
@@ -333,6 +334,7 @@ mod tests {
             resolution: 480,
             source: "fixture".into(),
             phrases: vec![VocalPhrase {
+                midi: None,
                 start: 0,
                 end: 1440,
                 player: 105,

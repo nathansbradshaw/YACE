@@ -122,6 +122,7 @@ fn main() -> Result<()> {
                 resolution: timing.resolution,
                 source: "ROSVOT Rust note-event experiment; no reference input".into(),
                 phrases: vec![VocalPhrase {
+                    midi: None,
                     start: notes[0].start,
                     end: notes.last().unwrap().end,
                     player: 1,

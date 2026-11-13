@@ -247,6 +247,7 @@ fn unsupported_chart_to_midi_conversion_never_publishes_a_partial_song() {
         resolution: 480,
         source: "Fixture".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 480,
             end: 960,
             player: 1,

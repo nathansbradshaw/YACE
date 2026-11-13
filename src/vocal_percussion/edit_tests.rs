@@ -16,6 +16,7 @@ fn attributes(zero_length: bool) -> crate::song_files::game_midi::NoteAttributes
 fn phrase(start: u64, end: u64) -> Phrase {
     Phrase {
         range: VocalPhrase {
+            midi: None,
             start,
             end,
             player: 1,

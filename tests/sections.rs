@@ -268,6 +268,7 @@ fn section_export_retains_chart_and_midi_events_with_vocal_pitch_uncertainty() {
                 resolution: 480,
                 source: "Practice".into(),
                 phrases: vec![VocalPhrase {
+                    midi: None,
                     start: 480,
                     end: 720,
                     player: 1,

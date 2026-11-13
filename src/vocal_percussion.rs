@@ -179,6 +179,7 @@ impl PercussionChart {
                 ensure!(
                     range.start < range.end
                         && range.end <= u64::from(u32::MAX)
+                        && range.midi.is_none()
                         && matches!(range.player, 1 | 2),
                     "Invalid percussion scoring phrase span or player"
                 );

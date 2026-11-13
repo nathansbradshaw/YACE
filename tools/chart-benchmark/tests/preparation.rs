@@ -42,6 +42,7 @@ fn fixture(root: &Path) {
         resolution: 480,
         source: "Synthetic text fixture".into(),
         phrases: vec![VocalPhrase {
+ midi: None,
             start: 0,
             end: 10,
             player: 1,

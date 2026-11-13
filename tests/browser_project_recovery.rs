@@ -194,6 +194,7 @@ fn recovery_keeps_live_edits_available_files_and_history_without_loading_store()
         resolution: 480,
         source: "Authored recovery test".into(),
         phrases: vec![chart_engine::vocals::VocalPhrase {
+            midi: None,
             start: 0,
             end: 1920,
             player: 1,

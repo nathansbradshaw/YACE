@@ -163,6 +163,7 @@ fn draft(store: &Store, job: &Path, track: &str) {
                     resolution: 480,
                     source: "Model-free import fixture".into(),
                     phrases: vec![VocalPhrase {
+                        midi: None,
                         start: 480,
                         end: 1440,
                         player: 1,

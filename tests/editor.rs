@@ -406,6 +406,7 @@ fn erasing_final_vocal_note_is_undoable_and_removes_empty_phrase() {
         resolution: 480,
         source: "Test".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 480,
             end: 960,
             player: 1,

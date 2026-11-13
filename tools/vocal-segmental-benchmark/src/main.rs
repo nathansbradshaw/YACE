@@ -246,6 +246,7 @@ fn with_notes(original: &Generation, notes: &[Note]) -> Result<Generation> {
             resolution: timing.resolution,
             source: "Continuous-pitch segmental research comparison; not approved".into(),
             phrases: vec![VocalPhrase {
+ midi: None,
                 start,
                 end,
                 player: 1,

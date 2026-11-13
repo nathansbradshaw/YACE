@@ -8,6 +8,7 @@ pub(super) fn fixture() -> PercussionChart {
         source: "Manual percussion".into(),
         phrases: vec![Phrase {
             range: VocalPhrase {
+                midi: None,
                 start: 0,
                 end: 960,
                 player: 1,
@@ -95,6 +96,7 @@ fn hidden_hits_need_a_complete_phrase_and_empty_or_overlapping_phrases_refuse() 
         .phrases
         .push(Phrase {
             range: VocalPhrase {
+                midi: None,
                 start: 960,
                 end: 1920,
                 player: 2,
@@ -148,6 +150,7 @@ fn percussion_cannot_reclassify_lead_or_other_harmony_singers_scoring_phrases() 
         midi: None,
     };
     let range = VocalPhrase {
+        midi: None,
         start: 0,
         end: 960,
         player: 1,
