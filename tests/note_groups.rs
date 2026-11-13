@@ -84,6 +84,144 @@ fn word(text: &str, join_next: bool) -> Syllable {
     }
 }
 
+fn padded_vocal_fixture(root: &std::path::Path) -> Store {
+    let store = support::fixture(root);
+    apply(
+        &store,
+        Action::SetVocals {
+            document: VocalChart {
+                version: 1,
+                resolution: 480,
+                source: "Padded scoring phrases".into(),
+                notes: vec![
+                    syllable(480, 720, word("one", false)),
+                    syllable(1440, 1680, word("two", false)),
+                ],
+                phrases: vec![
+                    VocalPhrase {
+                        start: 400,
+                        end: 1000,
+                        player: 1,
+                    },
+                    VocalPhrase {
+                        start: 1200,
+                        end: 2000,
+                        player: 2,
+                    },
+                ],
+            },
+        },
+    )
+    .unwrap();
+    store
+}
+
+#[test]
+fn vocal_group_move_preserves_scoring_padding_and_unselected_phrase_edges() {
+    let root = tempfile::tempdir().unwrap();
+    let store = padded_vocal_fixture(root.path());
+    let original = store.load().unwrap().content.vocals.unwrap();
+    let selection = snap(&store, &vocal_selection(&[0]));
+    edit(
+        &store,
+        Edit::Move {
+            selection,
+            ticks: 120,
+            rows: 0,
+        },
+    )
+    .unwrap();
+    let moved = store.load().unwrap().content.vocals.unwrap();
+    assert_eq!(
+        moved.phrases[1], original.phrases[1],
+        "Unselected scoring phrase lost its original boundaries"
+    );
+    assert_eq!(
+        moved.phrases[0],
+        VocalPhrase {
+            start: 520,
+            end: 1120,
+            player: 1
+        }
+    );
+    assert_eq!(moved.notes[1], original.notes[1]);
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(store.load().unwrap().content.vocals.unwrap(), original);
+    apply(&store, Action::Redo).unwrap();
+    assert_eq!(store.load().unwrap().content.vocals.unwrap(), moved);
+}
+
+#[test]
+fn vocal_group_delete_keeps_the_remaining_phrase_padding() {
+    let root = tempfile::tempdir().unwrap();
+    let store = padded_vocal_fixture(root.path());
+    let original = store.load().unwrap().content.vocals.unwrap();
+    let selection = snap(&store, &vocal_selection(&[0]));
+    edit(&store, Edit::Delete { selection }).unwrap();
+    let remaining = store.load().unwrap().content.vocals.unwrap();
+    assert_eq!(
+        remaining.phrases,
+        vec![original.phrases[1].clone()],
+        "Deleting another phrase changed retained scoring boundaries"
+    );
+    assert_eq!(remaining.notes, vec![original.notes[1].clone()]);
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(store.load().unwrap().content.vocals.unwrap(), original);
+}
+
+#[test]
+fn partial_vocal_move_keeps_phrase_edges_and_preserves_unselected_notes() {
+    let root = tempfile::tempdir().unwrap();
+    let store = padded_vocal_fixture(root.path());
+    let mut chart = store.load().unwrap().content.vocals.unwrap();
+    chart
+        .notes
+        .insert(1, syllable(780, 900, word("extra", false)));
+    apply(
+        &store,
+        Action::SetVocals {
+            document: chart.clone(),
+        },
+    )
+    .unwrap();
+    let selection = snap(&store, &vocal_selection(&[0]));
+    edit(
+        &store,
+        Edit::Move {
+            selection,
+            ticks: 30,
+            rows: 0,
+        },
+    )
+    .unwrap();
+    let moved = store.load().unwrap().content.vocals.unwrap();
+    assert_eq!(moved.phrases, chart.phrases);
+    assert_eq!(&moved.notes[1..], &chart.notes[1..]);
+    assert_eq!((moved.notes[0].start, moved.notes[0].end), (510, 750));
+}
+
+#[test]
+fn vocal_group_refuses_overlapping_scoring_phrases_without_a_commit() {
+    let root = tempfile::tempdir().unwrap();
+    let store = padded_vocal_fixture(root.path());
+    let mut chart = store.load().unwrap().content.vocals.unwrap();
+    chart.phrases[1].player = 1;
+    apply(&store, Action::SetVocals { document: chart }).unwrap();
+    let selection = snap(&store, &vocal_selection(&[0]));
+    let before = fs::read(store.root.join("project.json")).unwrap();
+    let error = edit(
+        &store,
+        Edit::Move {
+            selection,
+            ticks: 360,
+            rows: 0,
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("scoring phrases"), "{error:#}");
+    assert_eq!(fs::read(store.root.join("project.json")).unwrap(), before);
+}
+
 fn large_fixture(root: &std::path::Path) -> Store {
     use std::fmt::Write;
     let source = root.join("source");
