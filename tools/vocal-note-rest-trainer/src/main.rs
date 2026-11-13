@@ -1,4 +1,5 @@
 //! Local acoustic note/rest training. Labels never enter feature extraction or prediction.
+mod segmentation;
 use anyhow::{Context, Result, ensure};
 use candle_core::{DType, Device, Tensor, Var};
 use chart_engine::{
@@ -54,6 +55,14 @@ struct Recipe {
     bias: f64,
     penalty: f64,
     locked: bool,
+    /// Missing in existing frozen recipes: retain their original 0.16 reward.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attack_reward: Option<f64>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    full_run: bool,
+}
+fn is_false(v: &bool) -> bool {
+    !v
 }
 #[derive(Serialize, Deserialize)]
 struct Model {
@@ -488,6 +497,11 @@ fn infer(d: &Data, m: &Model) -> Result<Vec<[f64; 3]>> {
 }
 fn decode(d: &Data, prob: &[[f64; 3]], r: Recipe) -> Result<Generation> {
     ensure!(
+        r.attack_reward
+            .is_none_or(|v| v.is_finite() && (0. ..=4.).contains(&v)),
+        "Invalid attack reward"
+    );
+    ensure!(
         r.bias.is_finite() && r.penalty.is_finite() && r.penalty >= 0.,
         "Invalid decoding recipe"
     );
@@ -569,6 +583,7 @@ fn decode(d: &Data, prob: &[[f64; 3]], r: Recipe) -> Result<Generation> {
         .collect::<Vec<_>>();
     let clock = d.g.timing.as_ref().context("MIDI clock")?;
     let mut notes = vec![];
+    let mut remaining_work = 30_000_000;
     let mut a = 0;
     while a < n {
         if !active[a] {
@@ -580,42 +595,58 @@ fn decode(d: &Data, prob: &[[f64; 3]], r: Recipe) -> Result<Generation> {
             b += 1;
         }
         let len = b - a;
-        let mut sx = vec![0.; len + 1];
-        let mut sxx = sx.clone();
-        for k in 0..len {
-            let p = pitch[a + k].unwrap();
-            sx[k + 1] = sx[k] + p;
-            sxx[k + 1] = sxx[k] + p * p;
-        }
-        let mut cost = vec![f64::INFINITY; len + 1];
-        let mut prev = vec![0; len + 1];
-        cost[0] = 0.;
-        for end in 1..=len {
-            for start in end.saturating_sub(300)..end {
-                let count = end - start;
-                let sum = sx[end] - sx[start];
-                let sse = ((sxx[end] - sxx[start]) - sum * sum / count as f64).max(0.) * 0.01;
-                let c = cost[start]
-                    + sse
-                    + if start == 0 {
-                        0.
-                    } else {
-                        r.penalty - 0.16 * peaks[a + start]
-                    };
-                if c < cost[end] {
-                    cost[end] = c;
-                    prev[end] = start;
+        let spans = if r.full_run {
+            let values = pitch[a..b].iter().map(|p| p.unwrap()).collect::<Vec<_>>();
+            let boundary = (0..len)
+                .map(|i| r.penalty - r.attack_reward.unwrap_or(0.16) * peaks[a + i])
+                .collect::<Vec<_>>();
+            let fitted = segmentation::fit(&values, &boundary, remaining_work)?;
+            ensure!(fitted.cost.is_finite(), "Nonfinite full-run segmentation");
+            remaining_work -= fitted.evaluations;
+            fitted
+                .spans
+                .into_iter()
+                .map(|(lo, hi)| (a + lo, a + hi))
+                .collect::<Vec<_>>()
+        } else {
+            let mut sx = vec![0.; len + 1];
+            let mut sxx = sx.clone();
+            for k in 0..len {
+                let p = pitch[a + k].unwrap();
+                sx[k + 1] = sx[k] + p;
+                sxx[k + 1] = sxx[k] + p * p;
+            }
+            let mut cost = vec![f64::INFINITY; len + 1];
+            let mut prev = vec![0; len + 1];
+            cost[0] = 0.;
+            for end in 1..=len {
+                for start in end.saturating_sub(300)..end {
+                    let count = end - start;
+                    let sum = sx[end] - sx[start];
+                    let sse = ((sxx[end] - sxx[start]) - sum * sum / count as f64).max(0.) * 0.01;
+                    let c = cost[start]
+                        + sse
+                        + if start == 0 {
+                            0.
+                        } else {
+                            r.penalty - r.attack_reward.unwrap_or(0.16) * peaks[a + start]
+                        };
+                    if c < cost[end] {
+                        cost[end] = c;
+                        prev[end] = start;
+                    }
                 }
             }
-        }
-        let mut spans = vec![];
-        let mut end = len;
-        while end > 0 {
-            let start = prev[end];
-            spans.push((a + start, a + end));
-            end = start;
-        }
-        spans.reverse();
+            let mut spans = vec![];
+            let mut end = len;
+            while end > 0 {
+                let start = prev[end];
+                spans.push((a + start, a + end));
+                end = start;
+            }
+            spans.reverse();
+            spans
+        };
         for (start, end) in spans {
             let mut p = pitch[start..end]
                 .iter()
@@ -754,18 +785,40 @@ fn train(manifest: &Path, features: &Path, out: &Path) -> Result<()> {
         .iter()
         .map(|e| load(e, features))
         .collect::<Result<Vec<_>>>()?;
-    let recipes = [false, true]
-        .into_iter()
-        .flat_map(|locked| {
-            [0., 1., 2.].into_iter().flat_map(move |bias| {
-                [0.08, 0.16].into_iter().map(move |penalty| Recipe {
+    let mut recipes = Vec::new();
+    for locked in [false, true] {
+        for bias in [0., 1., 2.] {
+            for penalty in [0.08, 0.16] {
+                recipes.push(Recipe {
                     bias,
                     penalty,
                     locked,
-                })
-            })
+                    attack_reward: None,
+                    full_run: false,
+                });
+                // A certain attack must be able to justify a repeated-pitch boundary.
+                // Keep the legacy recipes too: stronger attacks remain experimental.
+                if penalty == 0.16 {
+                    recipes.push(Recipe {
+                        bias,
+                        penalty,
+                        locked,
+                        attack_reward: Some(2. * penalty),
+                        full_run: false,
+                    });
+                }
+            }
+        }
+    }
+    let full_run = recipes
+        .iter()
+        .copied()
+        .map(|r| Recipe {
+            full_run: true,
+            ..r
         })
         .collect::<Vec<_>>();
+    recipes.extend(full_run);
     save(
         out.join("protocol.json"),
         &json!({"status":"TRAINING_AND_SOURCE_EXCLUDED_DEVELOPMENT_NOT_PROMOTION","reference_use":"Four trusted game-chart training sources only; each calibration source excluded from its fold; final four-source model frozen before fresh targets","manifest_sha256":models::hash_file(manifest)?,"epochs":EPOCHS,"hidden":H,"heads":["pitched-note-presence","attack","release"],"pitch_policy":"Immutable original RMVPE; classifier predicts no frequencies or note pitches; median only for MIDI after segmentation; absent F0 is a gap","recipes":recipes,"helper_sha256":models::hash_file(&std::env::current_exe()?)?}),
@@ -1059,7 +1112,98 @@ mod tests {
             bias: 0.,
             penalty: 0.16,
             locked,
+            attack_reward: Some(0.32),
+            full_run: true,
         }
+    }
+    #[test]
+    fn confident_attack_splits_repeated_pitch_without_silence() {
+        let d = data();
+        let mut p = vec![[0.999, 0., 0.]; 21];
+        p[10][1] = 0.99;
+        let g = decode(&d, &p, recipe(false)).unwrap();
+        let c = g.chart.unwrap();
+        assert_eq!(c.notes.len(), 2);
+        assert_eq!(c.notes[0].end, c.notes[1].start);
+        assert!(
+            c.notes
+                .iter()
+                .all(|n| n.tone == VocalTone::Pitched { midi: 69 })
+        );
+        let plain = decode(&d, &vec![[0.999, 0., 0.]; 21], recipe(false)).unwrap();
+        assert_eq!(plain.chart.unwrap().notes.len(), 1);
+    }
+    #[test]
+    fn attacks_preserve_short_legato_semitone_changes() {
+        let mut d = data();
+        for f in &mut d.g.rmvpe_pitch.as_mut().unwrap().frames[8..10] {
+            f.frequency_hz = Some(440. * 2f64.powf(1. / 12.));
+        }
+        let mut p = vec![[0.999, 0., 0.]; 21];
+        p[8][1] = 0.99;
+        p[10][1] = 0.99;
+        let g = decode(&d, &p, recipe(false)).unwrap();
+        let c = g.chart.unwrap();
+        assert_eq!(c.notes.len(), 3);
+        assert_eq!(c.notes[1].tone, VocalTone::Pitched { midi: 70 });
+        assert_eq!(c.notes[0].end, c.notes[1].start);
+        assert_eq!(c.notes[1].end, c.notes[2].start);
+    }
+    #[test]
+    fn legacy_frozen_recipe_keeps_its_original_behavior_and_encoding() {
+        let json = r#"{"bias":0.0,"penalty":0.16,"locked":false}"#;
+        let legacy: Recipe = serde_json::from_str(json).unwrap();
+        assert_eq!(serde_json::to_string(&legacy).unwrap(), json);
+        let mut p = vec![[0.999, 0., 0.]; 21];
+        p[10][1] = 0.99;
+        let g = decode(&data(), &p, legacy).unwrap();
+        assert_eq!(g.chart.unwrap().notes.len(), 1);
+        let mut bad = recipe(false);
+        bad.attack_reward = Some(f64::NAN);
+        assert!(decode(&data(), &p, bad).is_err());
+    }
+    #[test]
+    fn full_run_note_exceeds_legacy_window_and_roundtrips_unchanged() {
+        let mut d = data();
+        let mut raw = vocal_rmvpe::finish_pcm(
+            &vec![0.; 64_000],
+            (0..=400)
+                .map(|i| Frame {
+                    time_seconds: i as f64 * 0.01,
+                    frequency_hz: Some(440.),
+                    confidence: 0.9,
+                    rms: 0.1,
+                })
+                .collect(),
+        )
+        .unwrap();
+        raw.audio_sha256 = d.g.audio_sha256.clone();
+        raw.vocal_stem_sha256 = d.g.vocal_stem_sha256.clone();
+        d.g.rmvpe_pitch = Some(raw);
+        d.g.duration_seconds = 4.;
+        let before = serde_json::to_value(&d.g.rmvpe_pitch).unwrap();
+        let p = vec![[0.999, 0., 0.]; 401];
+        let g = decode(&d, &p, recipe(false)).unwrap();
+        let c = g.chart.as_ref().unwrap();
+        assert_eq!(c.notes.len(), 1);
+        assert_eq!(
+            c.notes[0].end,
+            d.g.timing.as_ref().unwrap().tick(4.).unwrap()
+        );
+        assert_eq!(serde_json::to_value(&g.rmvpe_pitch).unwrap(), before);
+        let mut legacy = recipe(false);
+        legacy.full_run = false;
+        assert_eq!(
+            decode(&d, &p, legacy).unwrap().chart.unwrap().notes.len(),
+            2
+        );
+        let path = std::env::temp_dir().join(format!(
+            "yace-acoustic-note-rest-{}-long.mid",
+            std::process::id()
+        ));
+        assert!(!path.exists());
+        roundtrip(&g, &path).unwrap();
+        fs::remove_file(path).unwrap();
     }
     #[test]
     fn missing_f0_stays_gap_even_with_certain_singing() {
