@@ -142,6 +142,11 @@ impl Proposal {
             "Drum range changes are not supported in note proposals; share the saved project instead"
         );
         ensure!(
+            base.content.disco_ranges == edited.content.disco_ranges
+                && base.content.midi_drum_mix == edited.content.midi_drum_mix,
+            "Disco changes are not supported in note proposals; share the saved project instead"
+        );
+        ensure!(
             sync_fingerprint(base)? == sync_fingerprint(edited)?,
             "Timing changes are not supported in note proposals; share the saved project instead"
         );
@@ -190,6 +195,8 @@ fn power_fingerprint(project: &Project) -> Result<Option<String>> {
         && project.content.lane_ranges.is_empty()
         && project.content.midi_lane_ranges.is_none()
         && project.content.vocal_overdrive.is_none()
+        && project.content.disco_ranges.is_empty()
+        && project.content.midi_drum_mix.is_none()
     {
         return Ok(None);
     }
@@ -222,6 +229,15 @@ fn power_fingerprint(project: &Project) -> Result<Option<String>> {
     };
     let bytes = match &project.content.vocal_overdrive {
         Some(power) => serde_json::to_vec(&(bytes, power))?,
+        None => bytes,
+    };
+    let bytes = if project.content.disco_ranges.is_empty() {
+        bytes
+    } else {
+        serde_json::to_vec(&(bytes, &project.content.disco_ranges))?
+    };
+    let bytes = match &project.content.midi_drum_mix {
+        Some(mix) => serde_json::to_vec(&(bytes, mix))?,
         None => bytes,
     };
     Ok(Some(format!("{:x}", Sha256::digest(bytes))))

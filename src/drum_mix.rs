@@ -10,6 +10,9 @@ pub use midi::{State, hash, import_midi, rewrite_midi};
 #[path = "drum_mix_chart.rs"]
 mod chart;
 pub use chart::{Tracks, difficulty, import_chart, render_chart};
+#[path = "drum_mix_project.rs"]
+mod project;
+pub use project::{AuthoredMidi, Source, all, apply, source, validate_chart, view};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -103,6 +106,25 @@ impl Mix {
     }
 }
 
+/// Interpret a retained note without changing its source lane or articulation.
+pub fn preview_lane(
+    events: &[Event],
+    difficulty: u8,
+    tick: u64,
+    lane: u8,
+    cymbal: bool,
+) -> (u8, bool) {
+    let active = events
+        .iter()
+        .rev()
+        .find(|e| e.mix.difficulty == difficulty && e.tick <= tick)
+        .is_some_and(|e| e.mix.setting == Setting::Disco);
+    match (active, lane) {
+        (true, 1) => (2, true),
+        (true, 2) => (1, false),
+        _ => (lane, cymbal),
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Event {
@@ -294,6 +316,9 @@ pub fn edited(events: &[Event], difficulty: u8, edit: &Edit) -> Result<Vec<Event
 #[cfg(test)]
 #[path = "drum_mix_midi_tests.rs"]
 mod midi_tests;
+#[cfg(test)]
+#[path = "drum_mix_project_tests.rs"]
+mod project_tests;
 #[cfg(test)]
 #[path = "drum_mix_tests.rs"]
 mod tests;

@@ -77,6 +77,8 @@ fn fixture(root: &Path) -> Store {
             star_power: Default::default(),
             solos: Default::default(),
             drum_ranges: Default::default(),
+            disco_ranges: Default::default(),
+            midi_drum_mix: None,
             lane_ranges: Default::default(),
             midi_lane_ranges: None,
             sync: None,
