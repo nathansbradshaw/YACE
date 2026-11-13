@@ -145,6 +145,30 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 
 ## Acceptance ledger
 
+Controlled hosted storage failure on `00e7481` used an isolated browser profile
+and a one-byte origin quota. The accepted revision 2 retained coda 1560; editing
+to 1500 produced revision 3 with an explicit autosave failure and unsaved status.
+The recovery action downloaded a valid 13-entry ZIP containing the draft,
+original MIDI and three hash-verified Undo checkpoints. A fresh tab independently
+reopened accepted revision 2 with coda 1560. After restoring quota, Undo/Redo
+saved the retained draft successfully. The revision-7 complete backup verified
+12 references and three Undo checkpoints; another backup after owned browser
+restart contained identical project JSON. A native CLI opened the failed-save
+recovery ZIP's extracted project and undid/redid 1500→1560→1500. This qualifies
+that controlled commit-failure/recovery/retry case. It does not establish
+eviction, hardware disk failure or every browser/platform failure mode.
+The actual browser saved-project importer also reopened the failed-save ZIP;
+Undo/Redo retained 1500→1560→1500. Its subsequent complete backup verified 14
+references and three Undo checkpoints with identical content, source binding
+and Undo/Redo stacks to the recovered draft.
+
+Removing the isolated profile's authoritative IndexedDB project store and
+reloading produced an explicit unavailable-project warning. Opening its verified
+complete backup restored revision 5 and usable Undo/Redo; the resulting backup
+retained identical content, source binding and history. This is controlled
+storage removal, rather than evidence of a browser's real pressure-eviction
+policy.
+
 Terminal big rock ending authoring at `00e7481` shares Rust coda/range controls,
 Undo/Redo, timeline bands and recording-clock preview labels across clients.
 Five-fret guitar, bass, rhythm/co-op and standard Keys use physical MIDI
