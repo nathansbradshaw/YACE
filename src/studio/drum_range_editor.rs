@@ -181,7 +181,7 @@ pub fn Controls(mut studio: Studio, track: String) -> Element {
         .is_some_and(|range| !ranges.contains(range));
     rsx! {details {class:"context-fold drum-range-controls",onkeydown:move|event|event.stop_propagation(),
         summary {"Drum fills and rolls · {ranges.len()}"}
-        p {class:"field-hint","Set tick bounds to create, move or resize a range. MIDI drum markers share one source track; game support can differ by difficulty. Fill and activation markers do not distinguish a big rock ending."}
+        p {class:"field-hint","Set tick bounds to create, move or resize a range. MIDI drum markers share one source track; game support can differ by difficulty. A global coda classifies later activation ranges as big rock endings."}
         if !activation {p {class:"field-hint",role:"status","Original activation lanes cannot be represented as one range. They remain read-only; roll editing is available."}}
         div {class:"vocal-syllables",role:"group",aria_label:"Drum ranges",
             for range in ranges.iter().skip(at*PAGE).take(PAGE) {{let target=range.clone();let label=name(range.kind);rsx!{button {class:if selected.as_ref()==Some(range){"studio-tool active"}else{"studio-tool"},aria_pressed:selected.as_ref()==Some(range),onclick:move |_|{chosen.set(Some(target.clone()));draft.set(Draft::from(target.clone()));error.set(None);},"{label} · {range.start}–{range.end} ticks"}}}}
@@ -218,7 +218,11 @@ pub fn Controls(mut studio: Studio, track: String) -> Element {
 
 #[component]
 pub fn Preview(studio: Studio, track: String, position: f64) -> Element {
-    let ranges = current(studio, &track).unwrap_or_default();
+    let ranges: Vec<_> = current(studio, &track)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| !super::bre_editor::is_drum_bre(studio, r))
+        .collect();
     let Some(map) = (studio.timing)() else {
         return rsx! {};
     };
@@ -230,7 +234,11 @@ pub fn Preview(studio: Studio, track: String, position: f64) -> Element {
 }
 #[component]
 pub fn Lane(studio: Studio, track: String) -> Element {
-    let ranges = current(studio, &track).unwrap_or_default();
+    let ranges: Vec<_> = current(studio, &track)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| !super::bre_editor::is_drum_bre(studio, r))
+        .collect();
     let Some(map) = (studio.timing)() else {
         return rsx! {};
     };

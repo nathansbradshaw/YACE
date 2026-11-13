@@ -2,6 +2,8 @@
 mod activity;
 #[path = "../../../src/studio/brand.rs"]
 mod brand;
+#[path="../../../src/studio/bre_editor.rs"]
+mod bre_editor;
 #[path = "../../../src/studio/browser_viewport.rs"]
 mod browser_viewport;
 #[path = "../../../src/studio/chart_desk.rs"]

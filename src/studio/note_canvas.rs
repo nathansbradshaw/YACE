@@ -569,6 +569,7 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
         InstrumentWaveform{studio,track:track.clone()}
         super::star_power::Lane {studio,track:track.clone()}
         super::solo_editor::Lane {studio,track:track.clone()}
+        if track.ends_with("Drums")||crate::bre::owner(&track).is_some(){super::bre_editor::Lane{studio,track:track.clone()}}
         if crate::lane_ranges::supports(&track,crate::lane_ranges::Kind::Trill) {super::lane_range_editor::Lane {studio,track:track.clone()}}
         if track.ends_with("Drums") {super::drum_range_editor::Lane {studio,track:track.clone()}}
         if track.ends_with("Drums") {super::disco_editor::Lane {studio,track:track.clone()}}

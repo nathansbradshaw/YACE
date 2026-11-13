@@ -245,6 +245,7 @@ pub fn SelectionDesk(studio: Studio) -> Element {
                 div { hidden: !vocals || count > 1, super::vocal_editor::VocalEditor { studio } }
                 ReviewQueue { studio }
                 if !vocals {super::star_power::Controls {key:"{document.selected_track}",studio,track:document.selected_track.clone()}}
+                if document.selected_track.ends_with("Drums")||crate::bre::owner(&document.selected_track).is_some(){super::bre_editor::Controls{key:"bre:{solo_key}",studio,track:document.selected_track.clone()}}
                 if !vocals {super::solo_editor::Controls {key:"{solo_key}",studio,track:document.selected_track.clone()}}
                 if crate::lane_ranges::supports(&document.selected_track,crate::lane_ranges::Kind::Trill) {super::lane_range_editor::Controls {key:"{solo_key}",studio,track:document.selected_track.clone()}}
                 if document.selected_track.ends_with("Drums") {

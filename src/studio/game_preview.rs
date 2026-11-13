@@ -345,6 +345,7 @@ fn Highway(
         if unknown_policy&&!drums&&!crate::keys::is_keys(&track){div{class:"game-preview-policy-warning","HOPO policy unknown · neutral note caps"}}
         if let Some(error)=classification_error {div{class:"game-preview-policy-warning","{error}"}}
         if drums {super::drum_range_editor::Preview {studio,track:track.clone(),position}}
+        if drums||crate::bre::owner(&track).is_some(){super::bre_editor::Preview{studio,track:track.clone(),position}}
     }}
 }
 const PREVIEW_STYLE: &str = include_str!("../../assets/game-preview.css");
