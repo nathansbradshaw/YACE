@@ -1028,6 +1028,7 @@ version = "2.0.0-rc.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fa7e49bd669d32d7bc2a15ec540a527e7764aec722a45467814005725bcd721"
 dependencies = [
+ "libloading",
  "ndarray",
  "ort-sys",
  "smallvec 2.0.0-alpha.10",
@@ -1896,6 +1897,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chart-engine",
+ "ort",
+ "rustfft",
  "serde",
  "serde_json",
  "sha2",
