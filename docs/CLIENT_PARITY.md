@@ -24,8 +24,38 @@ On this controlled 12,001-note browser run, moving/deleting/pasting displayed
 progress before completion (about 0.20–0.68 seconds from start to completion).
 The move included a 621 ms main-thread task; this does not establish uninterrupted
 playback or broad performance parity. The maximum-size workload, actual native
-GUI, hosted qualification, other browsers, full-length musical/game workflows
+GUI, other browsers, full-length musical/game workflows
 and comparative resource measurements remain separate acceptance gates.
+
+The hosted `8c0182f` runtime also passed 12,001-note copy/move/delete/paste,
+export and owned-browser restart checks with an invented, audio-free fixture.
+Its 22,923,206-byte WASM matched the local SHA-256
+`9132276906cdba93dfc95228f9e76fe8e28d0f1739084c1202c59f2e3f564bf2`.
+Complete backups before and after restart retained identical revision-7 project
+JSON and three Undo checkpoints. Post-restart Undo removed the pasted group;
+Redo restored all 12,001 notes. Independent export checks retained the flags,
+unknown events and unrelated parts. This qualifies that controlled hosted subset.
+
+Snap now offers custom 1–1024 steps per beat and fine musical presets through
+1/1024. Placement, dragging, sustain ends and visible grid lines use the same
+rounded musical positions, including unusual PPQ and tempo changes. Pointer
+positions retain their fractional tick until the musical grid is chosen.
+Dance uses its 48-row resolution consistently for the roll, placement,
+keyboard navigation and atomic selection quantization; finer subdivisions can
+share a representable row. Dense grid rendering is bounded.
+
+Actual static-browser checks at `994ff6e` reproduced and corrected a 7-PPQ
+triplet placement from tick 0 to tick 2. Custom five-step placement, dragging
+tick 7 to 13, resizing its sustain to four ticks, fine placement, invalid-value
+refusal and Undo/Redo passed. A ten-file backup retained five verified history
+checkpoints; native CLI restore/history/export retained exact timing, IDs,
+technique flags, unknown events, other parts and original audio. Actual Dance
+checks placed and quantized onto row 10, restored row 13 with Undo, redid row 10,
+advanced one row with a fine-grid keyboard step and reopened its complete backup.
+The SM export retained the other difficulty, custom metadata and original audio.
+Four grid, four timeline and 21 Dance regressions cover the underlying rules.
+Native GUI, hosted grid qualification, other platforms and musical/game
+acceptance remain open.
 
 Vocal overdrive now has shared native/static controls for independent Lead and
 shared HARM1 power ranges. HARM1 supplies power to HARM2 and HARM3 in the target
