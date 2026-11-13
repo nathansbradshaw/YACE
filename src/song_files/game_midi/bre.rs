@@ -71,6 +71,11 @@ pub fn import_bre(bytes: &[u8]) -> Result<State> {
         let Some(name) = owner(track)? else { continue };
         if name == "EVENTS" {
             for (tick, kind) in merge::absolute(track) {
+                if let Kind::Meta(Meta::Text(bytes)) = kind
+                    && let Ok(text) = std::str::from_utf8(bytes)
+                {
+                    bre::supported_context(text)?;
+                }
                 if let Some(marker) = coda(tick, kind) {
                     ensure!(
                         state.coda.replace(marker).is_none(),

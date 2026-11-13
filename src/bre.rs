@@ -31,6 +31,16 @@ pub struct Coda {
 pub fn is_coda(text: &str) -> bool {
     matches!(text.trim(), "coda" | "[coda]")
 }
+pub fn supported_context(text: &str) -> Result<()> {
+    ensure!(
+        !matches!(
+            text.trim().trim_matches(['[', ']']),
+            "midcoda" | "midcoda_end"
+        ),
+        "Mid-song coda contexts remain read-only; retain their original events"
+    );
+    Ok(())
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Range {
@@ -236,6 +246,7 @@ fn row(line: &str) -> Result<Option<(u64, String)>> {
         .strip_prefix('"')
         .and_then(|s| s.strip_suffix('"'))
         .unwrap_or(text);
+    supported_context(text)?;
     if !is_coda(text) {
         return Ok(None);
     }

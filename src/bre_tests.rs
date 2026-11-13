@@ -294,3 +294,20 @@ fn bre_chart_coda_retains_other_rows_and_rejects_guitar_encoding() {
     .unwrap();
     assert!(render_chart(output, Some(&guitar)).is_err());
 }
+
+#[test]
+fn bre_mid_song_context_is_read_only_instead_of_becoming_a_terminal_coda() {
+    let bytes = encode(
+        Format::Parallel,
+        vec![track(
+            b"EVENTS",
+            vec![
+                (960, K::Meta(M::Text(b"[midcoda]"))),
+                (1920, K::Meta(M::Text(b"[midcoda_end]"))),
+            ],
+        )],
+    );
+    assert!(import_bre(&bytes).is_err());
+    let chart=Chart::parse("[Song]\n{\nResolution = 480\n}\n[SyncTrack]\n{\n0 = B 120000\n}\n[Events]\n{\n960 = E \"midcoda\"\n1920 = E \"midcoda_end\"\n}\n".into()).unwrap();
+    assert!(chart_coda(&chart).is_err());
+}
