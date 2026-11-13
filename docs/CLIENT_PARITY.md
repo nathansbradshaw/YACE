@@ -169,6 +169,13 @@ retained identical content, source binding and history. This is controlled
 storage removal, rather than evidence of a browser's real pressure-eviction
 policy.
 
+Browser backup restoration now clears an earlier unavailable-project recovery
+warning after the new project opens successfully, provided that no newer error
+has replaced it. Actual local checks repeated storage removal and backup import,
+then waited for idle: the restored revision stayed saved with no stale alert.
+A separate one-byte-quota restore still displayed its new autosave failure and
+unsaved status; restoring quota allowed Undo/Redo and saving again.
+
 Terminal big rock ending authoring at `00e7481` shares Rust coda/range controls,
 Undo/Redo, timeline bands and recording-clock preview labels across clients.
 Five-fret guitar, bass, rhythm/co-op and standard Keys use physical MIDI
