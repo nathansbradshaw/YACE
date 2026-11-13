@@ -188,6 +188,8 @@ pub struct Content {
     pub harmonies: Option<crate::vocal_harmonies::HarmonyChart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vocal_percussion: Option<crate::vocal_percussion::State>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vocal_overdrive: Option<crate::vocal_overdrive::State>,
     #[serde(default)]
     pub vocal_review: Option<crate::vocal_review::VocalReviewMap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -301,6 +303,10 @@ pub enum Action {
         owner: String,
         scope: crate::song_files::game_midi::LaneScope,
         edit: crate::lane_ranges::Edit,
+    },
+    EditVocalOverdrive {
+        part: crate::vocal_overdrive::Part,
+        edit: crate::vocal_overdrive::Edit,
     },
     EditSync {
         edit: crate::sync_track::Edit,
@@ -1027,6 +1033,15 @@ impl Store {
             &self.source_chart(project)?.chart,
         ))
     }
+    pub fn source_vocal_overdrive(
+        &self,
+        project: &Project,
+    ) -> Result<crate::vocal_overdrive::State> {
+        crate::song_files::game_midi::source_overdrive(
+            &self.root.join("source"),
+            self.source_chart(project)?.timing.resolution,
+        )
+    }
     pub fn source_drum_ranges(&self, project: &Project) -> Result<crate::drum_ranges::Source> {
         Ok(crate::drum_ranges::source(
             project,
@@ -1400,6 +1415,10 @@ impl Store {
                 },
                 vocal_percussion: crate::song_files::game_midi::read_percussion_state(
                     &self.root.join("source"),
+                )?,
+                vocal_overdrive: crate::song_files::game_midi::read_overdrive_state(
+                    &self.root.join("source"),
+                    chart.timing.resolution,
                 )?,
                 analysis_sources: Default::default(),
                 difficulty_links: Default::default(),
@@ -1851,6 +1870,7 @@ impl Store {
                 | Action::EditDrumRange { .. }
                 | Action::EditLaneRange { .. }
                 | Action::EditMidiLaneRange { .. }
+                | Action::EditVocalOverdrive { .. }
                 | Action::ApplyGeneratedPart { .. }
                 | Action::AddNote { .. }
                 | Action::UpdateNote { .. }
@@ -2006,6 +2026,16 @@ impl Store {
                     &self.root.join("source"),
                     owner,
                     scope,
+                    edit,
+                )?;
+            }
+            Action::EditVocalOverdrive { part, edit } => {
+                let source = self.source_chart(&doc)?;
+                crate::song_files::game_midi::edit_overdrive(
+                    &mut doc,
+                    &source.chart,
+                    &self.root.join("source"),
+                    *part,
                     edit,
                 )?;
             }
@@ -3121,11 +3151,18 @@ impl Store {
                     lead: doc.content.vocals.as_ref(),
                     harmonies: doc.content.harmonies.as_ref(),
                     percussion: doc.content.vocal_percussion.as_ref(),
+                    overdrive: doc.content.vocal_overdrive.as_ref(),
                     selected: &selected,
                 },
             )?;
             let midi = match &doc.content.midi_lane_ranges {
                 Some(state) => crate::song_files::game_midi::export_lane_ranges(
+                    &source, state, &midi, &selected,
+                )?,
+                None => midi,
+            };
+            let midi = match &doc.content.vocal_overdrive {
+                Some(state) => crate::song_files::game_midi::export_overdrive(
                     &source, state, &midi, &selected,
                 )?,
                 None => midi,

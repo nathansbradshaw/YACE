@@ -102,6 +102,8 @@ mod track_picker;
 mod track_views;
 #[path = "../../../src/studio/vocal_editor.rs"]
 mod vocal_editor;
+#[path = "../../../src/studio/vocal_overdrive_editor.rs"]
+mod vocal_overdrive_editor;
 #[path = "../../../src/studio/vocal_pitch_analysis.rs"]
 mod vocal_pitch_analysis;
 #[path = "../../../src/studio/vocal_preview.rs"]

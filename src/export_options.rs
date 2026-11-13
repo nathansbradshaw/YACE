@@ -63,10 +63,13 @@ pub fn available(store: &Store, doc: &Project) -> Result<BTreeSet<String>> {
     {
         tracks.insert("Harmonies".into());
     }
-    let owners = crate::song_files::game_midi::percussion_owners(
+    let mut owners = crate::song_files::game_midi::percussion_owners(
         &store.root.join("source"),
         doc.content.vocal_percussion.as_ref(),
     )?;
+    if let Some(state) = &doc.content.vocal_overdrive {
+        owners.extend(state.tracks.keys().copied());
+    }
     if owners.contains(&crate::vocal_percussion::Part::Lead) {
         tracks.insert("Vocals".into());
     }

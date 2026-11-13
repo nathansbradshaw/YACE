@@ -202,6 +202,8 @@ pub mod vocal_generation;
 #[path = "../../src/vocal_harmonies.rs"]
 pub mod vocal_harmonies;
 pub mod vocal_inference;
+#[path = "../../src/vocal_overdrive.rs"]
+pub mod vocal_overdrive;
 #[path = "../../src/vocal_percussion.rs"]
 pub mod vocal_percussion;
 #[path = "../../src/vocal_pitch.rs"]
