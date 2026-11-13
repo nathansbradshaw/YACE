@@ -297,3 +297,89 @@ fn vocal_overdrive_chart_origin_authoring_exports_and_reopens_new_lead_owner() {
     let reopened = Store::create(&path, None, &root.path().join("reopened")).unwrap();
     assert_eq!(export(&reopened, &root.path().join("again"), None), bytes);
 }
+
+#[test]
+fn vocal_overdrive_first_power_in_an_inherited_percussion_owner_preserves_its_controls() {
+    let (root, _) = project(false);
+    let original = super::tests::original();
+    let smf = Smf::parse(&original).unwrap();
+    let mut events: Vec<_> = game_midi::midi_events(&smf.tracks[1])
+        .into_iter()
+        .enumerate()
+        .filter(|(_, (_, e))| matches!(e, Event::Meta(Meta::TrackName(_) | Meta::EndOfTrack)))
+        .map(|(i, (t, e))| (t, 1, i, e))
+        .collect();
+    for (tick, on, key, velocity) in [
+        (3600, true, 105, 92),
+        (4560, false, 105, 23),
+        (3720, true, 96, 79),
+        (3768, false, 96, 21),
+    ] {
+        events.push((
+            tick,
+            1,
+            events.len(),
+            Event::Midi {
+                channel: u4::new(4),
+                message: if on {
+                    Note::NoteOn {
+                        key: u7::new(key),
+                        vel: u7::new(velocity),
+                    }
+                } else {
+                    Note::NoteOff {
+                        key: u7::new(key),
+                        vel: u7::new(velocity),
+                    }
+                },
+            },
+        ));
+    }
+    let raw = game_midi::encode_midi_owner(events, smf.header).unwrap();
+    let (_, chunks) = game_midi::midi_chunks(&original, 4).unwrap();
+    let mut bytes = original[..14].to_vec();
+    bytes.extend_from_slice(chunks[0]);
+    bytes.extend(raw);
+    bytes.extend_from_slice(chunks[2]);
+    bytes.extend_from_slice(chunks[3]);
+    let song = root.path().join("pc-song");
+    fs::create_dir(&song).unwrap();
+    fs::write(song.join("notes.mid"), &bytes).unwrap();
+    fs::write(
+        song.join("song.ini"),
+        "[song]\nname = First harmony power\nsong_length = 12000\n",
+    )
+    .unwrap();
+    let store = Store::create(&song, None, &root.path().join("pc-project")).unwrap();
+    let doc = store.load().unwrap();
+    assert!(doc.content.harmonies.is_none());
+    assert!(doc.content.vocal_percussion.is_none());
+    assert!(current(&store).tracks[&Part::Harm1].phrases.is_empty());
+    edit(&store, Part::Harm1, None, 3600, 4560).unwrap();
+    let output = export(&store, &root.path().join("pc-export"), None);
+    assert_eq!(
+        markers(&output, Part::Harm1),
+        vec![Range {
+            start: 3600,
+            end: 4560
+        }]
+    );
+    let retained = |data: &[u8]| {
+        let midi = Smf::parse(data).unwrap();
+        let track = midi
+            .tracks
+            .iter()
+            .find(|track| {
+                track
+                    .iter()
+                    .any(|e| matches!(e.kind, Event::Meta(Meta::TrackName(b"PART HARM1"))))
+            })
+            .unwrap();
+        game_midi::midi_events(track)
+            .into_iter()
+            .filter(|(t, e)| edge(*t, *e).is_none())
+            .map(|(t, e)| (t, format!("{e:?}")))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(retained(&output), retained(&bytes));
+}
