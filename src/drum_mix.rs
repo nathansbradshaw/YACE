@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 #[path = "drum_mix_midi.rs"]
 mod midi;
 pub use midi::{State, hash, import_midi, rewrite_midi};
+#[path = "drum_mix_chart.rs"]
+mod chart;
+pub use chart::{Tracks, difficulty, import_chart, render_chart};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
