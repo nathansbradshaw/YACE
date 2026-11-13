@@ -40,6 +40,7 @@ pub mod review_git;
 pub mod review_repository;
 pub mod sections;
 pub mod six_fret;
+pub mod snap_grid;
 pub mod solos;
 pub mod song_files;
 pub mod song_layout;

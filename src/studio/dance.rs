@@ -53,7 +53,7 @@ pub struct DanceStudio {
     clipboard: Signal<Vec<sm::Note>>,
     view_row: Signal<i64>,
     cursor: Signal<i64>,
-    snap_rows: Signal<i64>,
+    snap_divisions: Signal<u32>,
     note_kind: Signal<NoteKind>,
     epoch: Signal<u64>,
 }
@@ -88,7 +88,7 @@ pub fn provide() {
         clipboard: Signal::new(Vec::new()),
         view_row: Signal::new(0),
         cursor: Signal::new(0),
-        snap_rows: Signal::new(12),
+        snap_divisions: Signal::new(4),
         note_kind: Signal::new(NoteKind::Tap),
         epoch: Signal::new(0),
     });
@@ -1849,20 +1849,29 @@ pub fn select_all() {
 }
 pub fn set_snap(value: u32) {
     if let Some(mut s) = try_consume_context::<DanceStudio>() {
-        s.snap_rows.set(if value == 0 {
-            1
-        } else {
-            (48 / value.max(1)) as i64
-        });
+        s.snap_divisions.set(value);
     }
 }
 pub fn handle_navigation(event: &KeyboardEvent) -> bool {
     let mut s = consume_context::<DanceStudio>();
     match event.key() {
-        Key::ArrowUp => s.cursor.set(((s.cursor)() - (s.snap_rows)()).max(0)),
-        Key::ArrowDown => s
-            .cursor
-            .set(((s.cursor)() + (s.snap_rows)()).min(sm::MAX_ROW)),
+        Key::ArrowUp | Key::ArrowDown => {
+            let forward = event.key() == Key::ArrowDown;
+            let current = (s.cursor)().max(0) as u64;
+            let next = if (s.snap_divisions)() == 0 {
+                if forward {
+                    current.saturating_add(1)
+                } else {
+                    current.saturating_sub(1)
+                }
+            } else {
+                crate::snap_grid::Grid::new(48, (s.snap_divisions)())
+                    .ok()
+                    .and_then(|grid| grid.adjacent(current, forward))
+                    .unwrap_or(if forward { sm::MAX_ROW as u64 } else { 0 })
+            };
+            s.cursor.set(next.min(sm::MAX_ROW as u64) as i64);
+        }
         Key::PageUp => s.view_row.set(((s.view_row)() - 192).max(0)),
         Key::PageDown => s.view_row.set(((s.view_row)() + 192).min(sm::MAX_ROW)),
         Key::Home => {

@@ -160,6 +160,8 @@ pub mod sections;
 pub mod separation;
 #[path = "../../src/six_fret.rs"]
 pub mod six_fret;
+#[path = "../../src/snap_grid.rs"]
+pub mod snap_grid;
 #[path = "../../src/solos.rs"]
 pub mod solos;
 #[path = "../../src/song_files.rs"]

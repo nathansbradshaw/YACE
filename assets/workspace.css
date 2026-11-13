@@ -439,6 +439,11 @@
   width:160px;
 }
 
+.snap-controls { display:flex; align-items:center; gap:4px; }
+.snap-custom-panel { display:grid; gap:12px; width:360px; padding:16px; overflow:auto; background:var(--bg-secondary); border:1px solid var(--border-color); }
+.snap-custom-panel h2, .snap-custom-panel p { margin:0; }
+.snap-custom-panel label { display:grid; gap:6px; }
+
 .edit-tools, .edit-history, .edit-zoom {
   display:flex;
   align-items:center;
