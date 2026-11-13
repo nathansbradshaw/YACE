@@ -171,6 +171,10 @@ pub struct Content {
     pub solos: crate::solos::Tracks,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub drum_ranges: crate::drum_ranges::Tracks,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub lane_ranges: crate::lane_ranges::Tracks,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi_lane_ranges: Option<crate::song_files::game_midi::LaneState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync: Option<crate::sync_track::SyncTrack>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -288,6 +292,15 @@ pub enum Action {
     },
     EditDrumRange {
         edit: crate::drum_ranges::Edit,
+    },
+    EditLaneRange {
+        track: String,
+        edit: crate::lane_ranges::Edit,
+    },
+    EditMidiLaneRange {
+        owner: String,
+        scope: crate::song_files::game_midi::LaneScope,
+        edit: crate::lane_ranges::Edit,
     },
     EditSync {
         edit: crate::sync_track::Edit,
@@ -582,6 +595,11 @@ impl Project {
                 && self.content.solos.get(track).is_none_or(Vec::is_empty)
                 && self
                     .content
+                    .lane_ranges
+                    .get(track)
+                    .is_none_or(Vec::is_empty)
+                && self
+                    .content
                     .drum_ranges
                     .get(track)
                     .is_none_or(Vec::is_empty)
@@ -601,7 +619,8 @@ impl Project {
         let text = crate::sync_track::render(text, &self.content.sync)?;
         let text = crate::star_power::render(text, &self.content.star_power)?;
         let text = crate::solos::render(text, &self.content.solos)?;
-        crate::drum_ranges::render(text, &self.content.drum_ranges)
+        let text = crate::drum_ranges::render(text, &self.content.drum_ranges)?;
+        crate::lane_ranges::render(text, &self.content.lane_ranges)
     }
     pub fn chart_hash(&self, store: &Store) -> Result<String> {
         Ok(hash(self.chart_text(store)?.as_bytes()))
@@ -1001,6 +1020,13 @@ impl Store {
             &self.source_chart(project)?.chart,
         ))
     }
+    pub fn source_lane_ranges(&self, project: &Project) -> Result<crate::lane_ranges::Source> {
+        Ok(crate::lane_ranges::source(
+            self,
+            project,
+            &self.source_chart(project)?.chart,
+        ))
+    }
     pub fn source_drum_ranges(&self, project: &Project) -> Result<crate::drum_ranges::Source> {
         Ok(crate::drum_ranges::source(
             project,
@@ -1344,6 +1370,10 @@ impl Store {
                 star_power: Default::default(),
                 solos: Default::default(),
                 drum_ranges: Default::default(),
+                lane_ranges: Default::default(),
+                midi_lane_ranges: crate::song_files::game_midi::read_lane_state(
+                    &self.root.join("source"),
+                )?,
                 sync: None,
                 sections: None,
                 track_origins: Default::default(),
@@ -1819,6 +1849,8 @@ impl Store {
                 | Action::EditStarPower { .. }
                 | Action::EditSolo { .. }
                 | Action::EditDrumRange { .. }
+                | Action::EditLaneRange { .. }
+                | Action::EditMidiLaneRange { .. }
                 | Action::ApplyGeneratedPart { .. }
                 | Action::AddNote { .. }
                 | Action::UpdateNote { .. }
@@ -1957,6 +1989,25 @@ impl Store {
                 } else {
                     crate::drum_ranges::apply(&mut doc, &source, edit)?;
                 }
+            }
+            Action::EditLaneRange { track, edit } => {
+                ensure!(
+                    !crate::song_files::game_midi::exists(&self.root.join("source")),
+                    "Use the scoped MIDI lane controls; track-only edits cannot preserve physical MIDI scope"
+                );
+                let source = self.source_chart(&doc)?;
+                crate::lane_ranges::apply(&mut doc, &source.chart, track, edit)?;
+            }
+            Action::EditMidiLaneRange { owner, scope, edit } => {
+                let source = self.source_chart(&doc)?;
+                crate::song_files::game_midi::edit_lane_ranges(
+                    &mut doc,
+                    &source.chart,
+                    &self.root.join("source"),
+                    owner,
+                    scope,
+                    edit,
+                )?;
             }
             Action::EditSync { edit } => {
                 let source = self.source_chart(&doc)?;
@@ -3073,6 +3124,12 @@ impl Store {
                     selected: &selected,
                 },
             )?;
+            let midi = match &doc.content.midi_lane_ranges {
+                Some(state) => crate::song_files::game_midi::export_lane_ranges(
+                    &source, state, &midi, &selected,
+                )?,
+                None => midi,
+            };
             exported_chart_sha256 = hash(&midi);
             fs::write(stage.join("notes.mid"), midi)?;
             fs::rename(stage.join("notes.chart"), archive.join("notes.chart"))?;

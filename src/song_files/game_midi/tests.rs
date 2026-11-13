@@ -11,6 +11,411 @@ use midly::{
 use std::collections::BTreeSet;
 
 type Event = (u64, TrackEventKind<'static>);
+
+#[test]
+fn instrument_lane_ranges_new_owners_and_chart_midi_conversion_keep_applicable_scope() {
+    use crate::lane_ranges::{Kind, Range};
+    let root = tempfile::tempdir().unwrap();
+    let bytes = encode(vec![track(
+        b"PART GUITAR",
+        vec![(0, on(0, 84, 100)), (120, off(0, 84, 0))],
+    )]);
+    let store = store(root.path(), &bytes, 0);
+    apply(
+        &store,
+        Action::EditMidiLaneRange {
+            owner: "PART GUITAR".into(),
+            scope: LaneScope::ExpertHard,
+            edit: crate::lane_ranges::Edit::Put {
+                previous: None,
+                range: Range {
+                    start: 240,
+                    end: 480,
+                    kind: Kind::Trill,
+                },
+            },
+        },
+    )
+    .unwrap();
+    apply(
+        &store,
+        Action::CreateTrack {
+            track: "ExpertProKeys".into(),
+        },
+    )
+    .unwrap();
+    apply(
+        &store,
+        Action::EditMidiLaneRange {
+            owner: "PART REAL_KEYS_X".into(),
+            scope: LaneScope::Dedicated {
+                track: "ExpertProKeys".into(),
+            },
+            edit: crate::lane_ranges::Edit::Put {
+                previous: None,
+                range: Range {
+                    start: 720,
+                    end: 960,
+                    kind: Kind::Trill,
+                },
+            },
+        },
+    )
+    .unwrap();
+    let output = export(&store, &root.path().join("export"));
+    let actual = decoded_lane_sources(&output).unwrap();
+    assert_eq!(actual.len(), 2);
+    assert!(actual.iter().any(|r| r.owner == "PART REAL_KEYS_X"));
+    let text = "[Song]\n{\nResolution = 480\n}\n[SyncTrack]\n{\n0 = B 120000\n}\n[ExpertSingle]\n{\n0 = N 0 120\n240 = S 65 240\n960 = S 66 240\n}\n[HardSingle]\n{\n240 = S 65 240\n}\n[EasyProKeys]\n{\n0 = N 48 120\n480 = S 66 240\n}\n";
+    let chart = Chart::parse(text.into()).unwrap();
+    let midi = crate::game_export::song(&chart, None).unwrap().0;
+    let ranges = decoded_lane_sources(&midi).unwrap();
+    assert_eq!(ranges.len(), 3);
+    assert!(
+        ranges
+            .iter()
+            .any(|r| r.scope == LaneScope::ExpertHard && r.range.kind == Kind::Tremolo)
+    );
+    assert!(ranges.iter().any(|r| r.scope
+        == LaneScope::Dedicated {
+            track: "EasyProKeys".into()
+        }));
+    let unsupported = Chart::parse(text.replace("[HardSingle]", "[MediumSingle]")).unwrap();
+    assert!(
+        crate::game_export::song(&unsupported, None)
+            .unwrap_err()
+            .to_string()
+            .contains("standard MIDI scope")
+    );
+}
+
+#[test]
+fn instrument_lane_ranges_commands_keep_history_late_tiers_export_and_reopen() {
+    use crate::lane_ranges::{Edit, Kind, Range};
+    let bytes = encode(vec![
+        track(
+            b"PART GUITAR",
+            vec![
+                (0, on(1, 96, 87)),
+                (120, off(1, 96, 25)),
+                (240, on(6, 126, 44)),
+                (480, on(6, 126, 0)),
+            ],
+        ),
+        track(
+            b"PART REAL_KEYS_H",
+            vec![
+                (0, on(3, 72, 95)),
+                (120, off(3, 72, 15)),
+                (960, on(5, 127, 42)),
+                (1200, off(5, 127, 17)),
+            ],
+        ),
+        track(b"VENUE", vec![(240, on(2, 60, 89)), (960, off(2, 60, 12))]),
+    ]);
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &bytes, 0);
+    let original = lane_state(&store.root.join("source")).unwrap().unwrap();
+    let old = original.ranges[0].range.clone();
+    let range = Range {
+        start: 360,
+        end: 720,
+        kind: Kind::Tremolo,
+    };
+    let edit = |edit| Action::EditMidiLaneRange {
+        owner: "PART GUITAR".into(),
+        scope: LaneScope::ExpertHard,
+        edit,
+    };
+    apply(
+        &store,
+        edit(Edit::Put {
+            previous: Some(old.clone()),
+            range: range.clone(),
+        }),
+    )
+    .unwrap();
+    let saved = fs::read(store.root.join("project.json")).unwrap();
+    assert!(apply(&store, edit(Edit::Remove { range: old })).is_err());
+    assert_eq!(saved, fs::read(store.root.join("project.json")).unwrap());
+    apply(&store, Action::Undo).unwrap();
+    assert!(store.load().unwrap().content.midi_lane_ranges.is_none());
+    apply(&store, Action::Redo).unwrap();
+    apply(
+        &store,
+        Action::CreateTrack {
+            track: "HardSingle".into(),
+        },
+    )
+    .unwrap();
+    let doc = store.load().unwrap();
+    let source = store.source_lane_ranges(&doc).unwrap();
+    assert_eq!(
+        crate::lane_ranges::view(&doc, &source, "HardSingle").unwrap()[0].range,
+        range
+    );
+    let output = root.path().join("authored");
+    let written = export(&store, &output);
+    assert_eq!(
+        decoded_lane_sources(&written).unwrap(),
+        doc.content.midi_lane_ranges.unwrap().ranges
+    );
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    assert!(reopened.load().unwrap().content.midi_lane_ranges.is_some());
+    assert_eq!(written, export(&reopened, &root.path().join("again")));
+    apply(&store, edit(Edit::Remove { range })).unwrap();
+    let clear = root.path().join("clear");
+    let cleared = export(&store, &clear);
+    let current = decoded_lane_sources(&cleared).unwrap();
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0].owner, "PART REAL_KEYS_H");
+    let reopened = Store::create(&clear, None, &root.path().join("clear-reopened")).unwrap();
+    let doc = reopened.load().unwrap();
+    let source = reopened.source_lane_ranges(&doc).unwrap();
+    assert!(
+        crate::lane_ranges::view(&doc, &source, "HardSingle")
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(cleared, export(&reopened, &root.path().join("clear-again")));
+    let scoped = crate::export_options::Options {
+        tracks: Some(["ExpertSingle".to_string()].into_iter().collect()),
+        ..Default::default()
+    };
+    reopened
+        .export_with_options(
+            &doc,
+            &root.path().join("scoped"),
+            &Actor {
+                kind: ActorKind::Human,
+                name: "Lane regression".into(),
+            },
+            &scoped,
+        )
+        .unwrap();
+    assert!(
+        decoded_lane_sources(&fs::read(root.path().join("scoped/notes.mid")).unwrap())
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn instrument_lane_ranges_writer_preserves_scope_attributes_and_other_raw_tracks() {
+    let bytes = encode(vec![
+        track(
+            b"PART GUITAR",
+            vec![
+                (0, on(2, 96, 83)),
+                (120, off(2, 96, 27)),
+                (240, on(6, 126, 44)),
+                (480, on(6, 126, 0)),
+                (720, on(3, 127, 91)),
+                (960, off(3, 127, 23)),
+                (
+                    1020,
+                    TrackEventKind::Midi {
+                        channel: u4::new(4),
+                        message: MidiMessage::Controller {
+                            controller: u7::new(11),
+                            value: u7::new(71),
+                        },
+                    },
+                ),
+            ],
+        ),
+        track(
+            b"PART REAL_KEYS_H",
+            vec![
+                (240, on(5, 127, 42)),
+                (480, off(5, 127, 17)),
+                (1200, on(7, 126, 89)),
+            ],
+        ),
+        track(
+            b"PART DRUMS",
+            vec![(0, on(0, 126, 81)), (480, off(0, 126, 3))],
+        ),
+    ]);
+    let before = decoded_lane_sources(&bytes).unwrap();
+    assert_eq!(
+        lane_ranges::rewrite(&bytes, &before, &before).unwrap(),
+        bytes
+    );
+    let mut after = before.clone();
+    after[0].range.start = 360;
+    after[0].range.end = 600;
+    let output = lane_ranges::rewrite(&bytes, &before, &after).unwrap();
+    assert_eq!(decoded_lane_sources(&output).unwrap(), after);
+    let (_, old) = merge::chunks(&bytes, 3).unwrap();
+    let (_, new) = merge::chunks(&output, 3).unwrap();
+    assert_eq!(old[1], new[1]);
+    assert_eq!(old[2], new[2]);
+    let events = |b: &[u8]| {
+        let m = Smf::parse(b).unwrap();
+        merge::absolute(&m.tracks[0]).into_iter().filter(|(_,kind)|!matches!(kind,TrackEventKind::Midi {message:MidiMessage::NoteOn{key,..}|MidiMessage::NoteOff{key,..},..} if key.as_int()==126)).map(|(tick,kind)|(tick,format!("{kind:?}"))).collect::<Vec<_>>()
+    };
+    assert_eq!(events(&bytes), events(&output));
+    let clear = lane_ranges::rewrite(&bytes, &before, &[]).unwrap();
+    assert!(decoded_lane_sources(&clear).unwrap().is_empty());
+    let (_, cleared) = merge::chunks(&clear, 3).unwrap();
+    assert_eq!(old[2], cleared[2]);
+    let keys = Smf::parse(&clear).unwrap();
+    assert!(
+        merge::absolute(&keys.tracks[1])
+            .iter()
+            .any(|(tick, kind)| *tick == 1200 && *kind == on(7, 126, 89))
+    );
+    assert!(lane_ranges::rewrite(&output, &before, &after).is_err());
+    let mut invalid = after.clone();
+    invalid[0].scope = LaneScope::Expert;
+    assert!(lane_ranges::rewrite(&bytes, &before, &invalid).is_err());
+    let mut overlap = after.clone();
+    overlap[1].range.start = 400;
+    overlap[1].range.kind = crate::lane_ranges::Kind::Tremolo;
+    assert!(lane_ranges::rewrite(&bytes, &before, &overlap).is_err());
+}
+
+#[test]
+fn instrument_lane_ranges_read_physical_expert_hard_and_dedicated_keys_scopes() {
+    use crate::lane_ranges::{Kind, Range};
+    let guitar = track(
+        b"PART GUITAR",
+        vec![
+            (100, on(4, 126, 89)),
+            (240, off(4, 126, 22)),
+            (300, on(5, 127, 45)),
+            (600, off(5, 127, 33)),
+        ],
+    );
+    let keys = track(
+        b"PART REAL_KEYS_X",
+        vec![
+            (720, on(6, 127, 45)),
+            (960, off(6, 127, 18)),
+            (0, on(3, 126, 100)),
+        ],
+    ); // Opaque glissando is not a tremolo.
+    let hard_keys = track(
+        b"PART REAL_KEYS_H",
+        vec![(0, on(2, 127, 88)), (480, off(2, 127, 12))],
+    );
+    let ghl = track(b"PART GUITAR GHL", vec![(0, on(0, 127, 100))]);
+    let drums = track(b"PART DRUMS", vec![(0, on(0, 126, 100))]);
+    let bytes = encode(vec![guitar, keys, hard_keys, ghl, drums]);
+    let physical = decoded_lane_sources(&bytes).unwrap();
+    assert_eq!(physical.len(), 4);
+    assert_eq!(physical[0].owner, "PART GUITAR");
+    assert_eq!(physical[0].scope, LaneScope::Expert);
+    assert_eq!(
+        physical[0].attributes,
+        NoteAttributes {
+            channel: 4,
+            velocity: 89,
+            off_velocity: 22,
+            off_as_note_on: false,
+            zero_length: false,
+            talkie_pitch: None
+        }
+    );
+    assert_eq!(physical[1].scope, LaneScope::ExpertHard);
+    assert_eq!(physical[1].attributes.channel, 5);
+    assert_eq!(physical[1].attributes.velocity, 45);
+    assert_eq!(physical[1].attributes.off_velocity, 33);
+    assert_eq!(
+        physical[2].scope,
+        LaneScope::Dedicated {
+            track: "ExpertProKeys".into()
+        }
+    );
+    assert_eq!(physical[2].attributes.velocity, 45);
+    assert_eq!(
+        physical[3].scope,
+        LaneScope::Dedicated {
+            track: "HardProKeys".into()
+        }
+    );
+    let ranges = decoded_lane_ranges(&bytes).unwrap();
+    let tremolo = Range {
+        start: 100,
+        end: 240,
+        kind: Kind::Tremolo,
+    };
+    let trill = Range {
+        start: 300,
+        end: 600,
+        kind: Kind::Trill,
+    };
+    assert_eq!(ranges["ExpertSingle"], vec![tremolo, trill.clone()]);
+    assert_eq!(ranges["HardSingle"], vec![trill]);
+    assert!(!ranges.contains_key("MediumSingle"));
+    assert!(!ranges.contains_key("EasySingle"));
+    assert_eq!(
+        ranges["ExpertProKeys"],
+        vec![Range {
+            start: 720,
+            end: 960,
+            kind: Kind::Trill
+        }]
+    );
+    assert_eq!(
+        ranges["HardProKeys"],
+        vec![Range {
+            start: 0,
+            end: 480,
+            kind: Kind::Trill
+        }]
+    );
+    assert_eq!(ranges.len(), 4);
+}
+
+#[test]
+fn instrument_lane_ranges_refuse_ambiguous_or_incomplete_managed_source() {
+    let incomplete = encode(vec![track(b"PART GUITAR", vec![(0, on(0, 127, 100))])]);
+    assert!(decoded_lane_ranges(&incomplete).is_err());
+    let overlap = encode(vec![track(
+        b"PART BASS",
+        vec![
+            (0, on(0, 126, 100)),
+            (120, on(1, 126, 80)),
+            (240, off(0, 126, 10)),
+            (360, off(1, 126, 20)),
+        ],
+    )]);
+    assert!(decoded_lane_ranges(&overlap).is_err());
+    assert!(decoded_lane_sources(&overlap).is_err());
+    let duplicate = encode(vec![
+        track(b"PART GUITAR", vec![]),
+        track(b"PART GUITAR", vec![]),
+    ]);
+    assert!(decoded_lane_ranges(&duplicate).is_err());
+}
+
+#[test]
+fn instrument_lane_ranges_keep_zero_velocity_off_encoding_and_reject_empty_ranges() {
+    let bytes = encode(vec![track(
+        b"PART GUITAR",
+        vec![(0, on(6, 126, 44)), (240, on(6, 126, 0))],
+    )]);
+    let source = decoded_lane_sources(&bytes).unwrap();
+    assert_eq!(source[0].scope, LaneScope::ExpertHard);
+    assert_eq!(
+        source[0].attributes,
+        NoteAttributes {
+            channel: 6,
+            velocity: 44,
+            off_velocity: 0,
+            off_as_note_on: true,
+            zero_length: false,
+            talkie_pitch: None
+        }
+    );
+    let empty = encode(vec![track(
+        b"PART GUITAR",
+        vec![(0, on(6, 126, 44)), (0, on(6, 126, 0))],
+    )]);
+    assert!(decoded_lane_sources(&empty).is_err());
+}
 fn on(channel: u8, key: u8, velocity: u8) -> TrackEventKind<'static> {
     TrackEventKind::Midi {
         channel: u4::new(channel),
