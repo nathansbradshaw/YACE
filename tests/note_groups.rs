@@ -308,6 +308,98 @@ fn oversized_bulk_requests_and_clipboard_bytes_refuse_without_committing() {
 }
 
 #[test]
+fn large_vocal_groups_keep_independent_phrases_and_undoable_words() {
+    let root = tempfile::tempdir().unwrap();
+    let store = large_fixture(root.path());
+    let notes: Vec<_> = (0..12_001u64)
+        .map(|i| syllable(480 + i * 120, 540 + i * 120, word("ah", false)))
+        .collect();
+    let phrases = notes
+        .iter()
+        .map(|n| VocalPhrase {
+            start: n.start,
+            end: n.end,
+            player: 1,
+        })
+        .collect();
+    apply(
+        &store,
+        Action::SetVocals {
+            document: VocalChart {
+                version: 1,
+                resolution: 480,
+                source: "Controlled bulk vocal fixture".into(),
+                notes,
+                phrases,
+            },
+        },
+    )
+    .unwrap();
+    let selection = Selection {
+        track: "Vocals".into(),
+        vocals: (0..12_001).collect(),
+        ..Default::default()
+    };
+    let before = store.load().unwrap();
+    let start = std::time::Instant::now();
+    let clipboard = copied(&store, &selection);
+    edit(
+        &store,
+        Edit::Move {
+            selection: snap(&store, &selection),
+            ticks: 48,
+            rows: 1,
+        },
+    )
+    .unwrap();
+    let moved = store.load().unwrap();
+    let chart = moved.content.vocals.as_ref().unwrap();
+    assert_eq!(chart.phrases.len(), 12_001);
+    assert_eq!(chart.notes[0].start, 528);
+    assert_eq!(chart.notes[0].tone, VocalTone::Pitched { midi: 59 });
+    apply(&store, Action::Undo).unwrap();
+    assert_eq!(store.load().unwrap().content.vocals, before.content.vocals);
+    apply(&store, Action::Redo).unwrap();
+    edit(
+        &store,
+        Edit::Paste {
+            track: "Vocals".into(),
+            tick: 2_000_000,
+            clipboard,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        store
+            .load()
+            .unwrap()
+            .content
+            .vocals
+            .as_ref()
+            .unwrap()
+            .notes
+            .len(),
+        24_002
+    );
+    edit(
+        &store,
+        Edit::Delete {
+            selection: snap(&store, &selection),
+        },
+    )
+    .unwrap();
+    let remaining = store.load().unwrap();
+    let chart = remaining.content.vocals.as_ref().unwrap();
+    assert_eq!(chart.notes.len(), 12_001);
+    assert_eq!(chart.phrases.len(), 12_001);
+    assert_eq!(chart.notes[0].start, 2_000_000);
+    eprintln!(
+        "large_vocal_group native debug complete copy/move/UndoRedo/paste/delete={:?}",
+        start.elapsed()
+    );
+}
+
+#[test]
 fn moving_a_group_is_one_undo_and_preserves_original_sources() {
     let root = tempfile::tempdir().unwrap();
     let store = support::fixture(root.path());

@@ -192,6 +192,8 @@ fn ReviewQueue(mut studio: Studio) -> Element {
 
 #[component]
 pub fn SelectionDesk(studio: Studio) -> Element {
+    let mut shift_ticks = use_signal(|| "0".to_string());
+    let mut shift_rows = use_signal(|| "0".to_string());
     if super::dance::active() {
         return rsx! {super::dance::Inspector{key:"{super::dance::view_epoch()}",studio}};
     }
@@ -204,6 +206,7 @@ pub fn SelectionDesk(studio: Studio) -> Element {
         .and_then(|id| document.find_note(id));
     let vocals = document.selected_track == "Vocals";
     let count = studio.selection().len();
+    let group_busy = (studio.group_busy)();
     let solo_key = format!(
         "{:?}:{}:{}:{}",
         studio.store.read().as_ref().map(|store| &store.root),
@@ -234,9 +237,20 @@ pub fn SelectionDesk(studio: Studio) -> Element {
                         super::note_types::NoteTypes {studio}
                         super::drum_dynamics::DrumDynamics {studio}
                         div { class: "selection-actions",
-                            button { onclick: move |_| studio.copy_selection(false), "Copy" }
-                            button { onclick: move |_| studio.delete_selection(), "Delete" }
+                            button {disabled:group_busy,onclick: move |_| studio.copy_selection(false), "Copy" }
+                            button {disabled:group_busy,onclick: move |_| studio.copy_selection(true), "Cut" }
+                            button {disabled:group_busy,onclick: move |_| studio.paste_selection(), "Paste" }
+                            button {disabled:group_busy,onclick: move |_| studio.delete_selection(), "Delete" }
                         }
+                        div{class:"selection-timing",
+                            label{"Shift ticks" input{aria_label:"Selection tick shift",r#type:"number",value:"{shift_ticks}",disabled:group_busy,oninput:move|e|shift_ticks.set(e.value()),onkeydown:move|e|e.stop_propagation()}}
+                            label{"Shift rows" input{aria_label:"Selection row shift",r#type:"number",value:"{shift_rows}",disabled:group_busy,oninput:move|e|shift_rows.set(e.value()),onkeydown:move|e|e.stop_propagation()}}
+                        }
+                        button{class:"field-button",disabled:group_busy,onclick:move|_|{
+                            let (Ok(ticks),Ok(rows))=(shift_ticks().parse::<i64>(),shift_rows().parse::<i16>())else{let mut s=studio;s.error.set(Some("Use whole numbers for tick and row shifts".into()));return;};
+                            if ticks==0&&rows==0{return;}
+                            if let Some(selection)=studio.selection_snapshot(){studio.edit_group(crate::note_groups::Edit::Move{selection,ticks,rows});}
+                        },"Move selected notes"}
                     }
                 } else if !vocals {
                     if let Some((track, item)) = selected { NoteSelection { studio, track: track.to_owned(), item: item.clone() } }

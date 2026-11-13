@@ -95,6 +95,7 @@ pub struct Studio {
     pub blank_chart: Signal<bool>,
     pub vocal_note: Signal<Option<usize>>,
     pub group: Signal<crate::note_groups::Selection>,
+    pub group_busy: Signal<bool>,
     pub selection_dragging: Signal<bool>,
     pub editor_focus: Signal<Option<Rc<MountedData>>>,
     pub metadata: Signal<BTreeMap<String, String>>,
@@ -176,6 +177,7 @@ pub fn use_studio() -> Studio {
         blank_chart: use_signal(|| false),
         vocal_note: use_signal(|| None),
         group: use_signal(Default::default),
+        group_busy: use_signal(|| false),
         selection_dragging: use_signal(|| false),
         editor_focus: use_signal(|| None),
         metadata: use_signal(BTreeMap::new),
@@ -2038,6 +2040,9 @@ impl Studio {
         });
     }
     pub fn copy_selection(mut self, cut: bool) {
+        if (self.group_busy)() {
+            return;
+        }
         let root = self.store.read().as_ref().map(|s| s.root.clone());
         let track = self.snapshot().map(|d| d.selected_track.clone());
         let result = (|| -> Result<_> {
@@ -2061,12 +2066,15 @@ impl Studio {
                                     .set("Notes copied; the active chart changed".into());
                                 return;
                             }
+                            let count = selected.ids.len() + selected.vocals.len();
                             if cut {
                                 self.edit_group(crate::note_groups::Edit::Delete {
                                     selection: selected,
                                 });
                             }
-                            self.status.set("Notes copied".into());
+                            if !cut {
+                                self.status.set(format!("Copied {count} notes"));
+                            }
                         }
                         Err(error) => self.error.set(Some(format!("Clipboard: {error:?}"))),
                     }
@@ -2076,6 +2084,9 @@ impl Studio {
         }
     }
     pub fn paste_selection(mut self) {
+        if (self.group_busy)() {
+            return;
+        }
         let root = self.store.read().as_ref().map(|s| s.root.clone());
         let track = self.snapshot().map(|d| d.selected_track.clone());
         let tick = super::note_canvas::snap(self, (self.playhead)());

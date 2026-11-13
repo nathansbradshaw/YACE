@@ -120,101 +120,179 @@ impl Studio {
             });
         }
     }
-    pub fn selection_snapshot(self) -> Option<Snapshot> {
+    pub fn selection_snapshot(mut self) -> Option<Snapshot> {
         let project = self.snapshot()?;
-        Snapshot::capture(&project, &self.selection()).ok()
+        let selection = self.selection();
+        if selection.is_empty() {
+            return None;
+        }
+        match Snapshot::capture(&project, &selection) {
+            Ok(snapshot) => Some(snapshot),
+            Err(error) => {
+                self.error.set(Some(format!("{error:#}")));
+                None
+            }
+        }
     }
     pub fn delete_selection(self) {
         if let Some(selection) = self.selection_snapshot() {
             self.edit_group(Edit::Delete { selection });
         }
     }
-    pub fn edit_group(self, edit: Edit) {
+    pub fn edit_group(mut self, edit: Edit) {
         let Some(before) = self.snapshot() else {
             return;
         };
+        let root = self.store.read().as_ref().map(|s| s.root.clone());
+        let selection = self.selection();
+        let Some(guard) = super::activity::BusyGuard::start(self.group_busy) else {
+            return;
+        };
+        let (count, active, done) = match &edit {
+            Edit::Move { selection, .. } => (
+                selection.ids.len() + selection.vocals.len(),
+                "Moving",
+                "Moved",
+            ),
+            Edit::Delete { selection } => (
+                selection.ids.len() + selection.vocals.len(),
+                "Deleting",
+                "Deleted",
+            ),
+            Edit::Paste { clipboard, .. } => (
+                match &clipboard.payload {
+                    crate::note_groups::Payload::Instrument { notes, .. } => notes.len(),
+                    crate::note_groups::Payload::Vocals { chart } => chart.notes.len(),
+                },
+                "Pasting",
+                "Pasted",
+            ),
+        };
+        self.status.set(format!("{active} {count} notes…"));
+        spawn(async move {
+            let _guard = guard;
+            // Paint the status before the bounded transaction, including when
+            // a native window is hidden (requestAnimationFrame may suspend).
+            #[cfg(target_arch = "wasm32")]
+            gloo_timers::future::TimeoutFuture::new(20).await;
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            if self.store.read().as_ref().map(|s| s.root.clone()) != root
+                || self
+                    .snapshot()
+                    .is_none_or(|doc| doc.revision != before.revision)
+                || self.selection() != selection
+            {
+                self.error.set(Some("The project or selection changed before the operation started. Select notes again; nothing was changed.".into()));
+                self.status
+                    .set("Note operation cancelled · project or selection changed".into());
+                return;
+            }
+            let accepted = self.finish_edit_group(edit);
+            self.status.set(if !accepted {
+                "Note operation failed · no edit was committed".into()
+            } else if (self.error)().is_some() {
+                "Notes edited; selection refresh failed · see error details".into()
+            } else {
+                format!("{done} {count} notes")
+            });
+        });
+    }
+    fn finish_edit_group(self, edit: Edit) -> bool {
+        let Some(before) = self.snapshot() else {
+            return false;
+        };
         let chosen = self.selection();
         // Sorting can change vocal indices. Recover moved notes by value.
-        let moved_vocals: Vec<_> = if let Edit::Move { ticks, rows, .. } = &edit {
-            before
-                .content
-                .vocals
-                .as_ref()
-                .map(|chart| {
-                    chosen
-                        .vocals
-                        .iter()
-                        .filter_map(|&i| {
-                            let mut note = chart.notes.get(i)?.clone();
-                            note.start = note.start.checked_add_signed(*ticks)?;
-                            note.end = note.end.checked_add_signed(*ticks)?;
-                            if let crate::vocals::VocalTone::Pitched { midi } = &mut note.tone {
-                                *midi = u8::try_from(*midi as i16 - rows).ok()?;
-                            }
-                            Some(note)
-                        })
-                        .collect()
-                })
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        self.dispatch(Action::EditNoteGroup { edit: edit.clone() });
-        if (self.error)().is_some() {
-            return;
+        let moved_vocals: std::collections::BTreeMap<_, _> =
+            if let Edit::Move { ticks, rows, .. } = &edit {
+                before
+                    .content
+                    .vocals
+                    .as_ref()
+                    .map(|chart| {
+                        chosen
+                            .vocals
+                            .iter()
+                            .filter_map(|&i| {
+                                let mut note = chart.notes.get(i)?.clone();
+                                note.start = note.start.checked_add_signed(*ticks)?;
+                                note.end = note.end.checked_add_signed(*ticks)?;
+                                if let crate::vocals::VocalTone::Pitched { midi } = &mut note.tone {
+                                    *midi = u8::try_from(*midi as i16 - rows).ok()?;
+                                }
+                                Some((note.start, note))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                Default::default()
+            };
+        let moving = matches!(&edit, Edit::Move { .. });
+        let pasting = matches!(&edit, Edit::Paste { .. });
+        if !self.try_dispatch(Action::EditNoteGroup { edit }) {
+            return false;
         }
-        let Some(after) = self.snapshot() else { return };
+        let Some(after) = self.snapshot() else {
+            return true;
+        };
         let mut group = Selection {
             track: after.selected_track.clone(),
             ..Selection::default()
         };
-        match edit {
-            Edit::Move { .. } => {
-                group.ids = chosen.ids;
+        if moving {
+            group.ids = chosen.ids;
+            if let Some(chart) = &after.content.vocals {
+                group.vocals.extend(
+                    chart
+                        .notes
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, n)| moved_vocals.get(&n.start) == Some(n))
+                        .map(|(i, _)| i),
+                );
+            }
+        } else if pasting {
+            if group.track == "Vocals" {
                 if let Some(chart) = &after.content.vocals {
+                    let old: std::collections::BTreeMap<_, _> = before
+                        .content
+                        .vocals
+                        .as_ref()
+                        .into_iter()
+                        .flat_map(|c| c.notes.iter().map(|n| (n.start, n)))
+                        .collect();
                     group.vocals.extend(
                         chart
                             .notes
                             .iter()
                             .enumerate()
-                            .filter(|(_, n)| moved_vocals.contains(n))
+                            .filter(|(_, n)| old.get(&n.start) != Some(n))
                             .map(|(i, _)| i),
                     );
                 }
+            } else if let Some(notes) = after.content.tracks.get(&group.track) {
+                let old: std::collections::BTreeSet<_> = before
+                    .content
+                    .tracks
+                    .values()
+                    .flatten()
+                    .map(|n| n.id.as_str())
+                    .collect();
+                group.ids.extend(
+                    notes
+                        .iter()
+                        .filter(|n| {
+                            after.playable(&group.track, n.note.lane)
+                                && !old.contains(n.id.as_str())
+                        })
+                        .map(|n| n.id.clone()),
+                );
             }
-            Edit::Paste { .. } => {
-                if group.track == "Vocals" {
-                    if let Some(chart) = &after.content.vocals {
-                        group.vocals.extend(
-                            chart
-                                .notes
-                                .iter()
-                                .enumerate()
-                                .filter(|(_, n)| {
-                                    before
-                                        .content
-                                        .vocals
-                                        .as_ref()
-                                        .is_none_or(|old| !old.notes.contains(n))
-                                })
-                                .map(|(i, _)| i),
-                        );
-                    }
-                } else if let Some(notes) = after.content.tracks.get(&group.track) {
-                    group.ids.extend(
-                        notes
-                            .iter()
-                            .filter(|n| {
-                                after.playable(&group.track, n.note.lane)
-                                    && before.find_note(&n.id).is_none()
-                            })
-                            .map(|n| n.id.clone()),
-                    );
-                }
-            }
-            Edit::Delete { .. } => {}
         }
         self.set_selection(group);
+        true
     }
     #[cfg(not(feature = "browser"))]
     pub fn copy_drum_range(mut self, range: crate::drum_ranges::Range) {
@@ -253,6 +331,9 @@ impl Studio {
     }
     #[cfg(not(feature = "browser"))]
     pub fn copy_selection(mut self, cut: bool) {
+        if (self.group_busy)() {
+            return;
+        }
         let result = (|| {
             let doc = self.snapshot().context("Open a chart first")?;
             let timing = (self.timing)().context("Chart timing unavailable")?;
@@ -268,12 +349,8 @@ impl Studio {
                 self.error.set(None);
                 if cut {
                     self.delete_selection();
-                }
-                if (self.error)().is_none() {
-                    self.status.set(format!(
-                        "{} {count} notes",
-                        if cut { "Cut" } else { "Copied" }
-                    ));
+                } else if (self.error)().is_none() {
+                    self.status.set(format!("Copied {count} notes"));
                 }
             }
             Err(error) => self.error.set(Some(format!("{error:#}"))),
@@ -281,6 +358,9 @@ impl Studio {
     }
     #[cfg(not(feature = "browser"))]
     pub fn paste_selection(mut self) {
+        if (self.group_busy)() {
+            return;
+        }
         let result = (|| {
             let text = self.with_clipboard(|clipboard| Ok(clipboard.get_text()?))?;
             let clipboard = Clipboard::decode(&text)?;

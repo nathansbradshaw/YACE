@@ -236,10 +236,9 @@ pub fn copy(project: &Project, timing: &TempoMap, selection: &Selection) -> Resu
             .phrases
             .iter()
             .filter_map(|phrase| {
-                let owned: Vec<_> = notes
-                    .iter()
-                    .filter(|note| phrase.start <= note.start && note.end <= phrase.end)
-                    .collect();
+                let start = notes.partition_point(|n| n.start < phrase.start);
+                let end = notes.partition_point(|n| n.end <= phrase.end);
+                let owned = notes.get(start..end)?;
                 Some(VocalPhrase {
                     start: owned.first()?.start,
                     end: owned.last()?.end,
@@ -647,11 +646,14 @@ fn word_links(chart: &VocalChart) -> BTreeSet<(usize, usize, bool)> {
     for phrase in &chart.phrases {
         let mut owner = None;
         let mut joined = None;
+        let start = chart.notes.partition_point(|n| n.start < phrase.start);
+        let end = chart.notes.partition_point(|n| n.end <= phrase.end);
         for (i, note) in chart
             .notes
             .iter()
             .enumerate()
-            .filter(|(_, n)| phrase.start <= n.start && n.end <= phrase.end)
+            .skip(start)
+            .take(end.saturating_sub(start))
         {
             match &note.lyric {
                 Syllable::Text { join_next, .. } => {
@@ -739,27 +741,34 @@ fn edit_vocals(project: &mut Project, selection: &Snapshot, edit: &Edit) -> Resu
         project.content.vocal_review = None;
         return Ok(());
     }
+    let mut bounds = vec![None::<(u64, u64)>; original.phrases.len()];
+    for (i, note) in &notes {
+        let index = original
+            .phrases
+            .partition_point(|p| p.start <= original.notes[*i].start)
+            .checked_sub(1)
+            .context("Vocal note lost its scoring phrase")?;
+        let entry = &mut bounds[index];
+        *entry = Some(entry.map_or((note.start, note.end), |(start, end)| {
+            (start.min(note.start), end.max(note.end))
+        }));
+    }
     let mut phrases = Vec::new();
-    for phrase in &original.phrases {
-        let owned: Vec<_> = notes
-            .iter()
-            .filter(|(i, _)| {
-                phrase.start <= original.notes[*i].start && original.notes[*i].end <= phrase.end
-            })
-            .collect();
-        if !owned.is_empty() {
+    for (phrase, bound) in original.phrases.iter().zip(bounds) {
+        if let Some((start, end)) = bound {
             phrases.push(VocalPhrase {
-                start: owned.iter().map(|(_, n)| n.start).min().unwrap(),
-                end: owned.iter().map(|(_, n)| n.end).max().unwrap(),
+                start,
+                end,
                 player: phrase.player,
             });
         }
     }
     notes.sort_by_key(|(_, note)| note.start);
     let tags: Vec<_> = notes.iter().map(|(i, _)| *i).collect();
+    let retained: BTreeSet<_> = tags.iter().copied().collect();
     let expected = word_links(original)
         .into_iter()
-        .filter(|(a, b, _)| tags.contains(a) && tags.contains(b))
+        .filter(|(a, b, _)| retained.contains(a) && retained.contains(b))
         .collect();
     let chart = VocalChart {
         notes: notes.into_iter().map(|(_, note)| note).collect(),
