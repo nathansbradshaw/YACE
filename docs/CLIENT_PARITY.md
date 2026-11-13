@@ -191,6 +191,14 @@ drum-attribute preservation cases and 28 existing MIDI integrations pass with
 strict native/WASM checks. Native GUI, target-game/listening, current-loop
 controls and wider fault acceptance remain open.
 
+Hosted acceptance on the same `00e7481` release repeated coda, guitar and drum
+edits, stale refusal and Undo/Redo with an invented fixture containing no audio.
+The actual downloaded MIDI matched the locally audited export byte for byte,
+including the moved original drum attributes. The complete backup verified 13
+references and four Undo checkpoints; another backup after owned browser
+restart contained identical project JSON. The live app loaded the verified
+20,911,415-byte WASM and displayed the guitar ending at the matching clock time.
+
 Disco authoring at `3ed7142` exposes independent drum difficulties through shared
 Rust inspector controls, tick bounds, current-loop bounds, removal, Undo/Redo
 and timeline bands. The Pro Drums preview interprets red/yellow swaps at each
