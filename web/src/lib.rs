@@ -154,6 +154,8 @@ pub mod sections;
 pub mod separation;
 #[path = "../../src/six_fret.rs"]
 pub mod six_fret;
+#[path = "../../src/solos.rs"]
+pub mod solos;
 #[path = "../../src/song_files.rs"]
 pub mod song_files;
 pub mod song_import;
@@ -163,8 +165,6 @@ pub mod song_layout;
 pub mod song_metadata;
 #[path = "../../src/star_power.rs"]
 pub mod star_power;
-#[path = "../../src/solos.rs"]
-pub mod solos;
 pub mod stem_import;
 #[path = "../../src/stem_review.rs"]
 pub mod stem_review;
@@ -195,7 +195,11 @@ pub mod vocal_adaptive_planner;
 pub mod vocal_alignment;
 #[path = "../../src/vocal_generation.rs"]
 pub mod vocal_generation;
+#[path = "../../src/vocal_harmonies.rs"]
+pub mod vocal_harmonies;
 pub mod vocal_inference;
+#[path = "../../src/vocal_percussion.rs"]
+pub mod vocal_percussion;
 #[path = "../../src/vocal_pitch.rs"]
 pub mod vocal_pitch;
 #[path = "../../src/vocal_pitch_analysis.rs"]
@@ -218,10 +222,6 @@ pub mod vocal_singing;
 pub mod vocal_singing_tracking;
 #[path = "../../src/vocals.rs"]
 pub mod vocals;
-#[path = "../../src/vocal_harmonies.rs"]
-pub mod vocal_harmonies;
-#[path = "../../src/vocal_percussion.rs"]
-pub mod vocal_percussion;
 #[path = "../../src/waveform.rs"]
 pub mod waveform;
 pub mod worker;
