@@ -2,6 +2,7 @@
 mod activity;
 mod assistant;
 mod brand;
+mod bre_editor;
 #[cfg(feature = "browser")]
 mod browser_clipboard;
 mod browser_viewport;

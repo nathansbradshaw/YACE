@@ -23,7 +23,7 @@ fn owner(track: &[midly::TrackEvent<'_>]) -> Result<Option<String>> {
     let relevant = label
         .as_ref()
         .is_some_and(|s| bre::OWNERS.iter().any(|(n, _)| n == s));
-    if relevant {
+    if relevant || label.as_deref() == Some("EVENTS") {
         ensure!(
             names.len() == 1 && Some(names[0]) == label.as_deref().map(str::as_bytes),
             "Ambiguous BRE owner labels; retain source"
@@ -31,7 +31,12 @@ fn owner(track: &[midly::TrackEvent<'_>]) -> Result<Option<String>> {
         ensure!(
             track
                 .last()
-                .is_some_and(|e| matches!(e.kind, Kind::Meta(Meta::EndOfTrack))),
+                .is_some_and(|e| matches!(e.kind, Kind::Meta(Meta::EndOfTrack)))
+                && track
+                    .iter()
+                    .filter(|e| matches!(e.kind, Kind::Meta(Meta::EndOfTrack)))
+                    .count()
+                    == 1,
             "Incomplete BRE owner ending"
         );
     }
@@ -66,6 +71,11 @@ pub fn import_bre(bytes: &[u8]) -> Result<State> {
         let Some(name) = owner(track)? else { continue };
         if name == "EVENTS" {
             for (tick, kind) in merge::absolute(track) {
+                if let Kind::Meta(Meta::Text(bytes)) = kind
+                    && let Ok(text) = std::str::from_utf8(bytes)
+                {
+                    bre::supported_context(text)?;
+                }
                 if let Some(marker) = coda(tick, kind) {
                     ensure!(
                         state.coda.replace(marker).is_none(),

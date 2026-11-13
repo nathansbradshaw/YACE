@@ -175,6 +175,10 @@ pub struct Content {
     pub disco_ranges: crate::drum_mix::Tracks,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub midi_drum_mix: Option<crate::drum_mix::AuthoredMidi>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi_drum_attributes: Option<crate::song_files::game_midi::DrumAttributes>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bre: Option<crate::bre::State>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub lane_ranges: crate::lane_ranges::Tracks,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -298,6 +302,9 @@ pub enum Action {
     },
     EditDrumRange {
         edit: crate::drum_ranges::Edit,
+    },
+    EditBre {
+        edit: crate::bre::Edit,
     },
     EditDiscoRange {
         track: String,
@@ -635,6 +642,11 @@ impl Project {
         let text = crate::solos::render(text, &self.content.solos)?;
         let text = crate::drum_ranges::render(text, &self.content.drum_ranges)?;
         let text = crate::drum_mix::render_chart(text, &self.content.disco_ranges)?;
+        let text = crate::bre::render_project(
+            text,
+            self.content.bre.as_ref(),
+            crate::song_files::game_midi::exists(&store.root.join("source")),
+        )?;
         crate::lane_ranges::render(text, &self.content.lane_ranges)
     }
     pub fn chart_hash(&self, store: &Store) -> Result<String> {
@@ -1068,6 +1080,9 @@ impl Store {
             &self.source_chart(project)?.chart,
         ))
     }
+    pub fn source_bre(&self, project: &Project) -> Result<crate::bre::State> {
+        crate::bre::source(self, &self.source_chart(project)?.chart)
+    }
     fn source_chart(&self, project: &Project) -> Result<Arc<SourceSnapshot>> {
         let bytes = fs::read(self.root.join("source/notes.chart"))?;
         let mut cache = self
@@ -1401,6 +1416,23 @@ impl Store {
                 solos: Default::default(),
                 drum_ranges: Default::default(),
                 disco_ranges: Default::default(),
+                midi_drum_attributes: crate::song_files::game_midi::read_drum_attributes(
+                    &self.root.join("source"),
+                )?,
+                bre: crate::song_files::game_midi::read_bre_state(
+                    &self.root.join("source"),
+                    &chart,
+                )?
+                .or_else(|| {
+                    // A physical coda/BRE may not appear in the normalized
+                    // chart. Bind its original context in new note proposals.
+                    crate::song_files::game_midi::source_bre(&self.root.join("source"), &chart)
+                        .ok()
+                        .filter(|state| {
+                            (state.coda.is_some() || !state.owners.is_empty())
+                                && state.validate(&chart.timing, duration).is_ok()
+                        })
+                }),
                 midi_drum_mix: crate::song_files::game_midi::read_drum_mix_state(
                     &self.root.join("source"),
                     chart.timing.resolution,
@@ -1889,6 +1921,7 @@ impl Store {
                 | Action::EditSolo { .. }
                 | Action::EditDrumRange { .. }
                 | Action::EditDiscoRange { .. }
+                | Action::EditBre { .. }
                 | Action::EditLaneRange { .. }
                 | Action::EditMidiLaneRange { .. }
                 | Action::EditVocalOverdrive { .. }
@@ -2030,6 +2063,10 @@ impl Store {
                 } else {
                     crate::drum_ranges::apply(&mut doc, &source, edit)?;
                 }
+            }
+            Action::EditBre { edit } => {
+                let source = self.source_chart(&doc)?;
+                crate::bre::apply(self, &mut doc, &source.chart, edit)?;
             }
             Action::EditDiscoRange { track, edit } => {
                 let source = self.source_chart(&doc)?;
@@ -3195,6 +3232,19 @@ impl Store {
             let midi = crate::song_files::game_midi::export_drum_mix(
                 &source,
                 doc.content.midi_drum_mix.as_ref(),
+                &midi,
+                &selected,
+            )?;
+            let midi = crate::song_files::game_midi::export_bre(
+                &source,
+                &self.source_chart(doc)?.chart,
+                doc.content.bre.as_ref(),
+                &midi,
+                &selected,
+            )?;
+            let midi = crate::song_files::game_midi::export_drum_attributes(
+                &source,
+                doc.content.midi_drum_attributes.as_ref(),
                 &midi,
                 &selected,
             )?;
