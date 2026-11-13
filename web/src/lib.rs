@@ -10,6 +10,8 @@ mod audio_identity;
 mod audio_resample;
 #[path = "../../src/bass_analysis.rs"]
 pub mod bass_analysis;
+#[path = "../../src/bre.rs"]
+pub mod bre;
 #[path = "../../src/chart.rs"]
 pub mod chart;
 #[path = "../../src/chart_library.rs"]
@@ -37,8 +39,6 @@ pub mod drum_dynamics;
 pub mod drum_layout;
 #[path = "../../src/drum_mix.rs"]
 pub mod drum_mix;
-#[path = "../../src/bre.rs"]
-pub mod bre;
 #[path = "../../src/drum_parts.rs"]
 pub mod drum_parts;
 #[path = "../../src/drum_ranges.rs"]

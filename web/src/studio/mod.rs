@@ -2,7 +2,7 @@
 mod activity;
 #[path = "../../../src/studio/brand.rs"]
 mod brand;
-#[path="../../../src/studio/bre_editor.rs"]
+#[path = "../../../src/studio/bre_editor.rs"]
 mod bre_editor;
 #[path = "../../../src/studio/browser_viewport.rs"]
 mod browser_viewport;
@@ -17,12 +17,12 @@ mod dance;
 mod dialogs;
 #[path = "../../../src/studio/difficulty.rs"]
 mod difficulty;
+#[path = "../../../src/studio/disco_editor.rs"]
+mod disco_editor;
 #[path = "../../../src/studio/drum_dynamics.rs"]
 mod drum_dynamics;
 #[path = "../../../src/studio/drum_range_editor.rs"]
 mod drum_range_editor;
-#[path = "../../../src/studio/disco_editor.rs"]
-mod disco_editor;
 #[path = "../../../src/studio/export.rs"]
 mod export;
 #[path = "../../../src/studio/field_reset.rs"]

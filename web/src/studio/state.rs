@@ -1390,6 +1390,11 @@ impl Studio {
             location.as_ref().is_none_or(|choice| choice.ready()),
             "Choose where to save this project before creating it"
         );
+        let previous_recovery_warning = self
+            .error
+            .peek()
+            .clone()
+            .filter(|message| message.starts_with("Browser recovery storage: "));
         self.analysis_preview.set(None);
         super::dance::flush().await?;
         if super::dance::try_open_path(&source)? {
@@ -1545,8 +1550,17 @@ impl Studio {
         self.source_solos.set(solos);
         self.source_lane_ranges
             .set(store.source_lane_ranges(&doc).unwrap_or_default());
-        self.source_drum_mix.set(store.source_drum_mix(&doc).unwrap_or_else(|e|crate::drum_mix::Source{error:Some(format!("{e:#}")),..Default::default()}));
-        self.source_bre.set(Some(store.source_bre(&doc).map_err(|e|format!("{e:#}"))));
+        self.source_drum_mix
+            .set(
+                store
+                    .source_drum_mix(&doc)
+                    .unwrap_or_else(|e| crate::drum_mix::Source {
+                        error: Some(format!("{e:#}")),
+                        ..Default::default()
+                    }),
+            );
+        self.source_bre
+            .set(Some(store.source_bre(&doc).map_err(|e| format!("{e:#}"))));
         self.source_vocal_overdrive.set(Some(
             store
                 .source_vocal_overdrive(&doc)
@@ -1575,6 +1589,12 @@ impl Studio {
         self.audio_ready.set(true);
         self.stem_status.set(kit_notice.unwrap_or(notice));
         self.status.set("Ready".into());
+        if previous_recovery_warning
+            .as_ref()
+            .is_some_and(|message| self.error.peek().as_ref() == Some(message))
+        {
+            self.error.set(None);
+        }
         if linked && let Err(error) = crate::workspace_recovery::remember_folder() {
             self.error.set(Some(format!(
                 "Project saved to folder; workspace preference could not be saved: {error:#}"
