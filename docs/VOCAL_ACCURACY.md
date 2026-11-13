@@ -723,6 +723,13 @@ accuracy. Detailed reports, references and recordings stay outside public Git.
 
 ## Grade continuous pitch and musical notes separately
 
+The separate [singing-note model probe](../tools/vocal-note-probe/README.md)
+runs a pinned OpenUtau SOME 0.0.1 ONNX export in Rust. It retains independent
+boundary, rest and continuous note-pitch hypotheses without reading lyrics,
+changing a project or replacing RMVPE evidence. Resources fail explicitly if
+missing or different. This native research tool is not a browser/desktop quality
+option, and the model is not bundled or promoted.
+
 An explicit `vocal-benchmark --note-intervals` diagnostic adds duration-weighted
 pitch and presence measurements against **reviewed note intervals**. It keeps
 the existing F0 evaluation and gate under `legacy_f0_evaluation`; the outer
