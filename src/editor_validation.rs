@@ -42,6 +42,9 @@ pub(crate) fn is_link_created_track(project: &Project, chart: &Chart, track: &st
 
 pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
     let timing = crate::sync_track::effective(project, &chart.timing)?;
+    if let Some(state) = &project.content.bre {
+        crate::bre::validate(state, &timing, project.duration)?;
+    }
     crate::drum_mix::validate_chart(&project.content.disco_ranges, project, &timing)?;
     if let Some(state) = &project.content.midi_drum_mix {
         ensure!(

@@ -45,7 +45,7 @@ fn encode(format: Format, tracks: Vec<Vec<TrackEvent<'static>>>) -> Vec<u8> {
     .unwrap();
     bytes
 }
-fn fixture() -> Vec<u8> {
+pub(super) fn fixture() -> Vec<u8> {
     let mut events = vec![
         (0, note(true, 96, 2, 89)),
         (120, note(false, 96, 2, 17)),
@@ -53,7 +53,14 @@ fn fixture() -> Vec<u8> {
     ];
     for key in 120..=124 {
         events.push((1920, note(true, key, key - 120, 70 + key - 120)));
-        events.push((2400, note(false, key, key - 120, 10 + key - 120)));
+        events.push((
+            2400,
+            if key == 124 {
+                note(true, key, key - 120, 0)
+            } else {
+                note(false, key, key - 120, 10 + key - 120)
+            },
+        ));
     }
     encode(
         Format::Parallel,
@@ -69,6 +76,8 @@ fn fixture() -> Vec<u8> {
             track(
                 b"PART DRUMS",
                 vec![
+                    (0, note(true, 96, 3, 91)),
+                    (120, note(false, 96, 3, 19)),
                     (1920, note(true, 120, 4, 88)),
                     (2400, note(false, 120, 4, 21)),
                 ],

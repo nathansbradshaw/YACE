@@ -115,15 +115,28 @@ impl Options {
             .is_none_or(|tracks| tracks.contains(track))
     }
     pub fn selected(&self, store: &Store, doc: &Project) -> Result<BTreeSet<String>> {
+        self.validate_for(
+            doc,
+            &available(store, doc)?,
+            crate::song_files::game_midi::exists(&store.root.join("source")),
+        )
+    }
+    pub fn validate_for(
+        &self,
+        doc: &Project,
+        available: &BTreeSet<String>,
+        imported_midi: bool,
+    ) -> Result<BTreeSet<String>> {
         ensure!(
             self.format != Format::Chart || doc.content.midi_lane_ranges.is_none(),
             "Physical MIDI lane markers require MIDI export; use a project backup for editable history"
         );
-        let available = available(store, doc)?;
-        self.validate(
-            &available,
-            crate::song_files::game_midi::exists(&store.root.join("source")),
-        )
+        let selected = self.validate(available, imported_midi)?;
+        ensure!(
+            self.format != Format::Chart || !crate::bre::midi_required(doc, &selected),
+            "Guitar/keys BRE requires MIDI; choose Automatic or MIDI"
+        );
+        Ok(selected)
     }
     pub fn validate(
         &self,
@@ -168,10 +181,11 @@ impl Options {
     }
     pub fn midi(&self, store: &Store, doc: &Project) -> Result<bool> {
         let selected = self.selected(store, doc)?;
-        Ok(self.use_midi(
-            &selected,
-            crate::song_files::game_midi::exists(&store.root.join("source")),
-        ))
+        Ok(crate::bre::midi_required(doc, &selected)
+            || self.use_midi(
+                &selected,
+                crate::song_files::game_midi::exists(&store.root.join("source")),
+            ))
     }
     pub fn use_midi(&self, selected: &BTreeSet<String>, imported_midi: bool) -> bool {
         match self.format {

@@ -39,6 +39,9 @@ pub(crate) use merge::{chunks as midi_chunks, validate_complete as validate_midi
 pub use overdrive::{edit_overdrive, export_overdrive, read_overdrive_state, source_overdrive};
 #[path = "game_midi/bre.rs"]
 mod bre;
+#[path = "game_midi/bre_project.rs"]
+mod bre_project;
+pub use bre_project::{export_bre, read_bre_state, source_bre};
 #[path = "game_midi/drum_mix.rs"]
 mod drum_mix;
 pub use bre::{import_bre, rewrite_bre};
