@@ -1543,7 +1543,15 @@ impl Studio {
         self.source_solos.set(solos);
         self.source_lane_ranges
             .set(store.source_lane_ranges(&doc).unwrap_or_default());
-        self.source_drum_mix.set(store.source_drum_mix(&doc).unwrap_or_else(|e|crate::drum_mix::Source{error:Some(format!("{e:#}")),..Default::default()}));
+        self.source_drum_mix
+            .set(
+                store
+                    .source_drum_mix(&doc)
+                    .unwrap_or_else(|e| crate::drum_mix::Source {
+                        error: Some(format!("{e:#}")),
+                        ..Default::default()
+                    }),
+            );
         self.source_vocal_overdrive.set(Some(
             store
                 .source_vocal_overdrive(&doc)
