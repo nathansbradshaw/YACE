@@ -10,6 +10,64 @@ None met the paired false-note reduction and retention requirement. The audit
 below makes losses of previously correct notes and pitch time explicit.
 These experiments do not change the app's production detector.
 
+## Protected note rejection experiment
+
+The Rust library's `rejection` module fits small rejection rules from supplied
+note-level features. A correct training example means same-pitch reference
+overlap, or a same-pitch event within the unchanged scoring tolerances. Any
+singing overlap alone is insufficient: that label also protects wrong notes.
+References are used for training labels and evaluation, never inference.
+
+Each rule has at most two conditions, touches no supplied correct example and
+requires at least 20 negative examples, including five from each of three
+recordings. At most eight rules are fitted. `limited(1)` restricts rejection;
+unfamiliar feature ranges, nonfinite values and wrong feature widths keep the
+note. Callers must exclude the tested recording from all training stages.
+This protects known training examples, not an unseen recording. The module does
+not identify a singer or alter note pitch, onset or offset.
+
+On the exposed eight-song mixed set, a source-excluded one-rule study using GAME
+and lead/backing evidence removed 14 of 2,785 predicted notes. All 677 previously
+matched reference-note identities and all previously correct pitch-time coverage
+were retained. Solo predictions were unchanged under both annotations. The
+public learner reproduced all 128 note-output files from the private prototype
+byte for byte; scoring includes actual MIDI export/import.
+
+| Mixed recordings, macro average | Frozen V2 | One-rule rejection |
+| --- | ---: | ---: |
+| Event F1 | 23.771% | 23.841% |
+| Correct-pitch coverage | 62.562% | 62.562% |
+| Any-pitch presence recall | 73.685% | 73.415% |
+| False pitch during reference gaps | 12.025% | 11.983% |
+| Wrong-pitch share of detected reference time | 14.816% | 14.522% |
+
+The presence reduction removes wrong-pitch coverage according to these chart
+references. It still fails the existing development guard, which also requires
+unchanged any-pitch presence and at least 20% less false-note time. The reduction
+is tiny and is not a production fix. These repeatedly exposed authored charts
+are neither independent validation nor complete lead-singer ground truth.
+
+Without the existing High-note support guard, one rule removed 22 notes and
+retained the same matched identities and correct-pitch coverage; presence fell
+to 72.943%. Stronger rule budgets lost correct notes or pitch time. A separate
+short-core guard retained all matched events but still lost 0.777 seconds of
+previously correct pitch coverage at its fixed eight-rule setting, so it was
+rejected. No averaging or unchanged raw contour excuses those losses.
+
+Adding independent GAME agreement with each candidate note's actual MIDI pitch
+at three tolerances removed 15 notes with the High support guard (23 without).
+Both retained all previous matched identities and correct pitch time. The
+guarded version scored 23.846% F1, 62.562% correct-pitch coverage and 11.978%
+gap false-note time. It also fails the development guard. This extra feature
+study is another exposed-data ablation, not independent confirmation.
+
+Fresh paired scoring of the other agent's frozen mixed runs gave 21.203% event
+F1 / 63.276% correct-pitch coverage for VOCANO boundaries, and 8.868% / 64.815%
+for gap recovery. Their gap false-note rates were 24.395% and 25.286%. Our filter
+has higher event F1 and fewer gap false positives on this set; the other runs
+cover more correct pitch overall. Neither result establishes an overall winner
+or satisfies the requested substantial improvement without retention losses.
+
 ## Run
 
 Reuse the repository's existing Cargo target cache. No models or audio are
