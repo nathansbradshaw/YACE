@@ -17,6 +17,7 @@ pub mod difficulty_links;
 pub mod drum_articulation;
 pub mod drum_dynamics;
 pub mod drum_layout;
+pub mod drum_mix;
 pub mod drum_parts;
 pub mod drum_ranges;
 pub mod editor;
