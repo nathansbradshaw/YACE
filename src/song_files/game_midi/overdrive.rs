@@ -57,17 +57,11 @@ pub fn read_overdrive_state(song: &Path, resolution: u32) -> Result<Option<State
     Ok(Some(current))
 }
 
-fn applicable(project: &crate::editor::Project, source: &State, part: Part) -> bool {
-    if project
-        .content
-        .vocal_overdrive
-        .as_ref()
-        .is_some_and(|s| s.tracks.contains_key(&part))
-        || source
-            .tracks
-            .get(&part)
-            .is_some_and(|t| !t.phrases.is_empty())
-    {
+fn applicable(project: &crate::editor::Project, current: &State, part: Part) -> bool {
+    // A retained physical vocal owner can receive its first power range even
+    // when it contains percussion alone. Explicit omissions use the current
+    // empty working state, so this cannot revive an archived owner.
+    if current.tracks.contains_key(&part) {
         return true;
     }
     let singing = match part {

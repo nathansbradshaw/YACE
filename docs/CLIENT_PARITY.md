@@ -12,7 +12,8 @@ timeline markers, current-loop bounds and witnessed Undo/Redo use a source-bound
 MIDI writer that preserves channel, onset velocity and note-off encoding.
 Unsupported or ambiguous originals remain read-only. Explicit clears and export
 omissions survive reopen; re-authoring an omitted singer does not restore its
-archived power ranges.
+archived power ranges. A retained percussion-only vocal owner can receive its
+first power range without inventing singer notes or replacing its controls.
 
 Actual static-browser checks at `a0701d5` moved Lead 480–960 to 720–1200, added
 1920–2400, moved shared harmony 960–1440 to 1080–1560 and added 2880–3360.
@@ -23,8 +24,9 @@ attributes, unchanged singer notes/lyrics/scoring/percussion, opaque HARM2/3
 controls, all other raw tracks and the original recording. The complete browser
 backup restored 18 verified files and four Undo checkpoints in a pinned native
 CLI; native exports and Undo/Redo matched the browser MIDI/WAV byte-for-byte.
-Nine focused core/project regressions include chart-origin creation, marker-only
-owners, export/reopen, clear and omission/re-authoring. Native GUI, hosted
+Ten focused core/project regressions include chart-origin creation, marker-only
+and inherited percussion-only owners, export/reopen, clear and omission/re-authoring.
+Native GUI, hosted
 qualification, game/controller, listening, selected-note bounds and broader
 fault coverage remain open; shared source and CLI checks do not close them.
 
