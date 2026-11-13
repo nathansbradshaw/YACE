@@ -71,6 +71,14 @@ jobs:
           cargo test --locked --manifest-path tools/vocal-segmental-benchmark/Cargo.toml
           cargo clippy --locked --manifest-path tools/vocal-segmental-benchmark/Cargo.toml --all-targets -- -D warnings
 
+      - name: Verify learned vocal boundary research without models
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: |
+          cargo fmt --manifest-path tools/vocal-boundary-benchmark/Cargo.toml -- --check
+          cargo test --locked --manifest-path tools/vocal-boundary-benchmark/Cargo.toml
+          cargo clippy --locked --manifest-path tools/vocal-boundary-benchmark/Cargo.toml --all-targets -- -D warnings
+
   performance-probe:
     name: Rust performance probe
     runs-on: ubuntu-latest
