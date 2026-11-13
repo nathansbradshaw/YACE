@@ -67,7 +67,8 @@ corpus needs folds grouped by performer and source family.
 ## November 13 result
 
 Same eight exposed solo and eight exposed mixed recordings as the previous
-comparison. The recipe below is the same for both learned styles: penalty 0.16,
+comparison. Values are macro averages by recording, separately per annotation.
+The recipe below is the same for both learned styles: penalty 0.16,
 onset weight 0.32, presence 0.7, maximum hole 80 ms (recipe index 149 in this
 expanded grid; index 80 in the initial 81-setting grid).
 
@@ -93,6 +94,9 @@ and performed-F0 scoring unchanged. It is not the MIDI/performed-F0 frame score.
 The public tool reports the original event/F0 metrics alongside the shared
 note-interval scorer. Normalizations are counted per reference; genuine
 overlapping annotations fail. The reference bases remain separately named.
+Each row pairs `reference_frame_diagnostic` with `reference_kind`: performed
+contour data and authored-chart data keep their own meanings. Mixed chart frames are not
+presented as physical performed-F0 truth.
 
 **Still not production-ready.** Solo-trained false-note time is 7.41% / 12.21%
 on the solo annotations versus High's 3.30% / 4.43%, and 18.50% on mixed songs
