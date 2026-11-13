@@ -18,8 +18,14 @@ mod decode;
 #[path = "game_midi/harmonies.rs"]
 mod harmonies;
 pub(crate) use harmonies::harmony_percussion_ranges;
+#[path = "game_midi/lane_ranges.rs"]
+mod lane_ranges;
 #[path = "game_midi/merge.rs"]
 mod merge;
+pub use lane_ranges::{
+    LaneState, edit_lane_ranges, export_lane_ranges, lane_state, read_lane_state,
+    validate as validate_lane_state,
+};
 #[path = "game_midi/percussion.rs"]
 mod percussion;
 pub use harmonies::{
@@ -555,6 +561,134 @@ pub fn drum_activation_editable(song: &Path) -> Result<bool> {
         let spans = decode::spans(track, |key| (120..=124).contains(&key))?;
         Ok(decode::fills_representable(&decode::ranges(&spans)))
     })
+}
+
+/// Read applicable physical lane scopes without normalizing source attributes.
+/// Conventional MIDI markers always include Expert and optionally Hard at
+/// velocities 41..=50. Dedicated Pro Keys owners retain their own difficulty.
+pub fn lane_ranges(song: &Path) -> Result<Option<crate::lane_ranges::Tracks>> {
+    source(song)?
+        .map(|(_, directory)| decoded_lane_ranges(&fs::read(directory.join("notes.mid"))?))
+        .transpose()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LaneScope {
+    Expert,
+    ExpertHard,
+    Dedicated { track: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhysicalLaneRange {
+    pub owner: String,
+    pub range: crate::lane_ranges::Range,
+    pub scope: LaneScope,
+    pub attributes: NoteAttributes,
+}
+
+pub fn lane_range_sources(song: &Path) -> Result<Option<Vec<PhysicalLaneRange>>> {
+    source(song)?
+        .map(|(_, directory)| decoded_lane_sources(&fs::read(directory.join("notes.mid"))?))
+        .transpose()
+}
+
+fn decoded_lane_ranges(bytes: &[u8]) -> Result<crate::lane_ranges::Tracks> {
+    lane_source_view(&decoded_lane_sources(bytes)?)
+}
+
+fn lane_source_view(records: &[PhysicalLaneRange]) -> Result<crate::lane_ranges::Tracks> {
+    use crate::lane_ranges::{self, Tracks};
+    let mut result = Tracks::new();
+    for record in records {
+        let (suffix, difficulty) =
+            decode::part(&record.owner).context("Missing lane-range owner")?;
+        record.attributes.validate()?;
+        ensure!(
+            self::lane_ranges::record_scope(record, suffix, difficulty),
+            "Lane marker scope or attributes do not match its physical MIDI owner"
+        );
+        let targets = match &record.scope {
+            LaneScope::Expert => vec![format!("Expert{suffix}")],
+            LaneScope::ExpertHard => vec![format!("Expert{suffix}"), format!("Hard{suffix}")],
+            LaneScope::Dedicated { track } => vec![track.clone()],
+        };
+        for track in targets {
+            result.entry(track).or_default().push(record.range.clone());
+        }
+    }
+    for (track, ranges) in &mut result {
+        ranges.sort_by_key(|r| (r.start, r.kind, r.end));
+        lane_ranges::validate_shape(track, ranges)?;
+    }
+    Ok(result)
+}
+
+fn decoded_lane_sources(bytes: &[u8]) -> Result<Vec<PhysicalLaneRange>> {
+    use crate::lane_ranges::{self, Kind, Range};
+    merge::validate_complete(bytes)?;
+    let midi = midly::Smf::parse(bytes)?;
+    let mut result = Vec::new();
+    let mut owners = std::collections::BTreeSet::new();
+    for physical in &midi.tracks {
+        let Some(name) = decode::label(physical) else {
+            continue;
+        };
+        let Some((suffix, difficulty)) = decode::part(&name) else {
+            continue;
+        };
+        if !lane_ranges::supports(&format!("Expert{suffix}"), Kind::Trill) {
+            continue;
+        }
+        ensure!(
+            owners.insert(name.clone()),
+            "Duplicate MIDI lane owners are ambiguous; source retained"
+        );
+        let keys = difficulty.is_some();
+        let spans = decode::spans(physical, |key| key == 127 || !keys && key == 126)?;
+        for span in spans {
+            let range = Range {
+                start: span.start,
+                end: span.end,
+                kind: if span.key == 127 {
+                    Kind::Trill
+                } else {
+                    Kind::Tremolo
+                },
+            };
+            let scope = if let Some(difficulty) = difficulty {
+                LaneScope::Dedicated {
+                    track: format!(
+                        "{}{suffix}",
+                        ["Easy", "Medium", "Hard", "Expert"][difficulty]
+                    ),
+                }
+            } else if (41..=50).contains(&span.velocity) {
+                LaneScope::ExpertHard
+            } else {
+                LaneScope::Expert
+            };
+            let attributes = NoteAttributes {
+                channel: span.channel,
+                velocity: span.velocity,
+                off_velocity: span.off_velocity,
+                off_as_note_on: span.off_as_note_on,
+                zero_length: span.start == span.end,
+                talkie_pitch: None,
+            };
+            attributes.validate()?;
+            result.push(PhysicalLaneRange {
+                owner: name.clone(),
+                range,
+                scope,
+                attributes,
+            });
+        }
+    }
+    lane_source_view(&result)?;
+    Ok(result)
 }
 
 pub fn edit_drum_ranges(

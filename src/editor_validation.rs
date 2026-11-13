@@ -42,6 +42,21 @@ pub(crate) fn is_link_created_track(project: &Project, chart: &Chart, track: &st
 
 pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
     let timing = crate::sync_track::effective(project, &chart.timing)?;
+    if let Some(state) = &project.content.midi_lane_ranges {
+        ensure!(
+            project.content.lane_ranges.is_empty(),
+            "Chart and physical MIDI lane edits cannot be mixed"
+        );
+        crate::song_files::game_midi::validate_lane_state(state, project, chart)?;
+    }
+    for (track, ranges) in &project.content.lane_ranges {
+        ensure!(
+            project.content.tracks.contains_key(track),
+            "Lane ranges belong to an unknown instrument track"
+        );
+        crate::lane_ranges::imported(chart, track)?;
+        crate::lane_ranges::validate(track, ranges, &timing, project.duration)?;
+    }
     for (track, phrases) in &project.content.solos {
         ensure!(
             supported_track(track) && project.content.tracks.contains_key(track),

@@ -85,7 +85,7 @@ pub(crate) fn validate_complete(bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn absolute<'a>(track: &[TrackEvent<'a>]) -> Vec<(u64, TrackEventKind<'a>)> {
+pub(super) fn absolute<'a>(track: &[TrackEvent<'a>]) -> Vec<(u64, TrackEventKind<'a>)> {
     let mut tick = 0;
     track
         .iter()
@@ -96,7 +96,7 @@ fn absolute<'a>(track: &[TrackEvent<'a>]) -> Vec<(u64, TrackEventKind<'a>)> {
         .collect()
 }
 
-fn encode<'a>(
+pub(super) fn encode<'a>(
     mut events: Vec<(u64, u8, usize, TrackEventKind<'a>)>,
     header: midly::Header,
 ) -> Result<Vec<u8>> {

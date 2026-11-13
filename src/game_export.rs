@@ -185,6 +185,9 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
         let events = instruments
             .entry(label)
             .or_insert(vec![(0, 1, meta(3, label.as_bytes())?)]);
+        if crate::lane_ranges::supports(&section.name, crate::lane_ranges::Kind::Trill) {
+            crate::lane_ranges::imported(chart, &section.name)?;
+        }
         let notes = chart.notes(&section.name)?;
         let pro_guitar = crate::pro_guitar::is_track(suffix);
         let six_fret = matches!(
@@ -371,6 +374,51 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
                         _ => unreachable!(),
                     }
                 }
+                ["S", code @ ("65" | "66"), duration]
+                    if crate::lane_ranges::supports(
+                        &section.name,
+                        crate::lane_ranges::Kind::Trill,
+                    ) =>
+                {
+                    use crate::lane_ranges::{Kind, Range};
+                    let duration = duration.parse::<u64>()?;
+                    let range = Range {
+                        start: tick,
+                        end: tick
+                            .checked_add(duration)
+                            .context("Lane marker tick overflow")?,
+                        kind: if *code == "65" {
+                            Kind::Tremolo
+                        } else {
+                            Kind::Trill
+                        },
+                    };
+                    if suffix == "ProKeys" {
+                        ensure!(
+                            range.kind == Kind::Trill,
+                            "Pro Keys tremolo is not a supported MIDI marker"
+                        );
+                        note(events, tick, duration, 127, 100)?;
+                    } else {
+                        let expert =
+                            crate::lane_ranges::imported(chart, &format!("Expert{suffix}"))?;
+                        let hard = crate::lane_ranges::imported(chart, &format!("Hard{suffix}"))?;
+                        if difficulty == 3 {
+                            note(
+                                events,
+                                tick,
+                                duration,
+                                if range.kind == Kind::Trill { 127 } else { 126 },
+                                if hard.contains(&range) { 45 } else { 100 },
+                            )?;
+                        } else {
+                            ensure!(
+                                difficulty == 2 && expert.contains(&range),
+                                "This independent chart-tier lane marker cannot be represented by standard MIDI scope; export .chart instead"
+                            );
+                        }
+                    }
+                }
                 ["E", ..] => {
                     let text = body[1..].trim();
                     let text = if text.starts_with('"') {
@@ -423,7 +471,7 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
     // Shared phrases and drum markers from multiple difficulties must not become
     // duplicate simultaneous note-ons in the MIDI track.
     let mut chunks = vec![track(tempo)?, track(global)?];
-    for (_, mut events) in instruments {
+    for (owner, mut events) in instruments {
         events.sort();
         // Phrase and tom markers are shared across difficulty tracks.
         // Union their intervals so overlapping profiles cannot turn one marker
@@ -431,6 +479,11 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
         for key in [
             103, 110, 111, 112, 115, 116, 120, 121, 122, 123, 124, 126, 127,
         ] {
+            // Instrument lane markers were already checked and scoped above.
+            // Unioning them at velocity 100 would erase Expert+Hard scope.
+            if matches!(key, 126 | 127) && owner != "PART DRUMS" {
+                continue;
+            }
             let mut spans = Vec::new();
             // Derive spans from all onset/end pairs with an overlap counter,
             // rather than pairing one onset with the first off event.

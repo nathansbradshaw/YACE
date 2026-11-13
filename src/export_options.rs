@@ -93,6 +93,10 @@ impl Options {
             .is_none_or(|tracks| tracks.contains(track))
     }
     pub fn selected(&self, store: &Store, doc: &Project) -> Result<BTreeSet<String>> {
+        ensure!(
+            self.format != Format::Chart || doc.content.midi_lane_ranges.is_none(),
+            "Physical MIDI lane markers require MIDI export; use a project backup for editable history"
+        );
         let available = available(store, doc)?;
         self.validate(
             &available,

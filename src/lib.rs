@@ -24,6 +24,7 @@ pub mod export_options;
 pub mod export_state;
 pub mod github_reviews;
 pub mod kit_audition;
+pub mod lane_ranges;
 #[cfg(feature = "browser")]
 mod media_clock;
 pub mod note_groups;

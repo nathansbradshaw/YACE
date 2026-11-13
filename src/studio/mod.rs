@@ -23,6 +23,7 @@ mod generation_status;
 mod harmony_editor;
 mod icons;
 mod inline_review;
+mod lane_range_editor;
 mod modal;
 mod new_blank;
 mod new_location;
