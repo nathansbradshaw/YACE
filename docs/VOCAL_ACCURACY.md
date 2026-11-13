@@ -696,6 +696,9 @@ The numeric values above reproduce a development experiment, not a quality
 preset. Output includes a generation report, playable MIDI when pitches exist,
 and a recipe with source/implementation witnesses and a MIDI round-trip check.
 No model, runtime, chart, or live quality mode is silently replaced.
+MIDI retains chart ticks and tempos. A `.chart` recording Offset cannot be stored
+in standalone MIDI; it remains in `generation.json` and the recipe. Use the
+original project's recording offset when importing those MIDI notes.
 
 On eight **already exposed isolated-singing clips**, unrounded RMVPE observations
 at confidence 0.03 had 97.79% pitch accuracy during annotated singing, 99.88%
@@ -717,3 +720,34 @@ Rust in private development; its extra unvoiced-section notes failed this gate.
 GAME weights declare CC BY-NC-SA 4.0 and were not bundled or integrated. Further
 note grouping must be tested for fragmentation and attacks as well as frame
 accuracy. Detailed reports, references and recordings stay outside public Git.
+
+## Grade continuous pitch and musical notes separately
+
+An explicit `vocal-benchmark --note-intervals` diagnostic adds duration-weighted
+pitch and presence measurements against **reviewed note intervals**. It keeps
+the existing F0 evaluation and gate under `legacy_f0_evaluation`; the outer
+supplementary report is always ineligible for promotion. This does not silently
+change an old accuracy percentage or weaken its gate.
+
+The distinction matters: the exact published human note sequences on eight
+exposed solo clips score only 68.61% (annotator A1) and 64.15% (A2) against the
+independently annotated instantaneous F0 curve. Vibrato, slides and boundaries
+make a fixed MIDI note different from that curve. This is an **oracle reference
+consistency check, not a detector result**. Finished MIDI needs note-target and
+event measurements as well as a separately retained performed-F0 diagnostic.
+
+`score_note_intervals` measures correct, wrong, missing and extra pitched time by
+exact interval overlap on the original recording clock. It counts real gaps and
+octave errors, reports notes outside the recording separately, and uses no
+lyrics or target-based offset fit. Source, duration, MIDI resolution and tempo
+map must agree. Overlapping note targets need adjudication; only arithmetic
+overlap up to one nanosecond is normalized, with its count reported. References
+and their original F0 frames remain unchanged. Missing or ambiguous diagnostics
+carry an unavailable reason rather than zero errors or a substituted reference.
+
+Tests give exact reference MIDI full note-interval credit while preserving its
+lower F0 score, count missing and wrong notes equally, and check breaths, octave
+errors, tempo changes, recording offset and MIDI round-trip. A revised promotion
+protocol must be declared before fresh material is evaluated. Neither this
+measurement correction nor the exposed-data replays promote a new backend or
+establish listening/game acceptance.

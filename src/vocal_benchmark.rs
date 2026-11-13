@@ -1,6 +1,10 @@
 //! Private, reference-bound evaluation. Generated notes never become truth.
+mod note_intervals;
 use crate::{clean::AlignedWord, models, vocal_generation::Generation, vocals::VocalTone};
 use anyhow::{Context, Result, ensure};
+pub use note_intervals::{
+    NoteIntervalComparison, NoteIntervalMetrics, diagnose_note_intervals, score_note_intervals,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
