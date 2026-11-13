@@ -81,6 +81,8 @@ mod sheet;
 mod shortcuts;
 #[path = "../../../src/studio/solo_editor.rs"]
 mod solo_editor;
+#[path = "../../../src/studio/lane_range_editor.rs"]
+mod lane_range_editor;
 #[path = "../../../src/studio/song_overview.rs"]
 mod song_overview;
 #[path = "../../../src/studio/source_choice.rs"]
