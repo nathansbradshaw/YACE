@@ -735,7 +735,7 @@ pub(super) fn rewrite(
             .any(|phrase| phrase.midi.is_some())
     {
         anyhow::bail!(
-            "This older vocal document lacks original scoring-marker MIDI attributes. Reimport the retained source MIDI before editing phrase boundaries; source and project retained"
+            "This older vocal document lacks original scoring-marker MIDI attributes. Exporting edited phrase boundaries would reset them; original source and current project retained"
         );
     }
     let mut generated_tracks: BTreeMap<_, _> = new
