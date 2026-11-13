@@ -12,6 +12,7 @@ mod dance;
 mod diagnostics;
 mod dialogs;
 mod difficulty;
+mod disco_editor;
 mod drum_dynamics;
 mod drum_range_editor;
 mod export;

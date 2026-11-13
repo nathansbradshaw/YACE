@@ -19,6 +19,8 @@ mod difficulty;
 mod drum_dynamics;
 #[path = "../../../src/studio/drum_range_editor.rs"]
 mod drum_range_editor;
+#[path = "../../../src/studio/disco_editor.rs"]
+mod disco_editor;
 #[path = "../../../src/studio/export.rs"]
 mod export;
 #[path = "../../../src/studio/field_reset.rs"]
