@@ -91,12 +91,13 @@ pub fn color_in(layout: crate::drum_layout::Layout, track: &str, lane: u8) -> &'
 pub(super) fn snap(studio: Studio, seconds: f64) -> Option<u64> {
     let map = studio.timing.read();
     let map = map.as_ref()?;
-    let tick = map.tick(seconds)?;
+    let tick = map.tick_position(seconds)?;
     if (studio.snap)() == 0 {
-        Some(tick)
+        Some(tick.round() as u64)
     } else {
-        let step = map.resolution as f64 / (studio.snap)() as f64;
-        Some((tick as f64 / step).round().mul_add(step, 0.0).round() as u64)
+        crate::snap_grid::Grid::new(map.resolution, (studio.snap)())
+            .ok()?
+            .snap(tick)
     }
 }
 fn place(studio: Studio, track: &str, event: &MouseEvent, width: f64) {
@@ -200,10 +201,7 @@ pub(super) fn VocalRoll(mut studio: Studio) -> Element {
                     },
                     onmouseleave:move |_|{drag.set(None);gestures.cancel();},
                     for row in 0..50{line{x1:"0",x2:"{width}",y1:"{row*8}",y2:"{row*8}",stroke:"#30343b",pointer_events:"none"}}
-                    {let first=timing.tick(start.max(timing.offset)).unwrap_or(0);let last=timing.tick(start+span).unwrap_or(first);let step=(timing.resolution as u64/4).max(1);
-                    rsx!{for tick in (first/step*step..=last).step_by(step as usize){
-                        line{x1:"{(timing.seconds(tick)-start)/span*width()}",x2:"{(timing.seconds(tick)-start)/span*width()}",y1:"0",y2:"400",stroke:if tick%timing.resolution as u64==0{"#51515c"}else{"#292b34"},pointer_events:"none"}
-                    }}}
+                    GridLines {studio,width:width(),height:400.}
                     BarLines {studio,width:width(),height:400.}
                     if let Some(chart)=doc.content.vocals.as_ref(){for phrase in &chart.phrases{
                         rect{x:"{(timing.seconds(phrase.start)-start)/span*width()}",y:"0",width:"{(timing.seconds(phrase.end)-timing.seconds(phrase.start))/span*width()}",height:"400",fill:"#41c6b8",opacity:"0.04",stroke:"#41c6b8",pointer_events:"none"}
@@ -258,7 +256,10 @@ fn place_vocal(studio: Studio, event: &MouseEvent, width: f64) {
     } else {
         (studio.snap)() as u64
     };
-    let mut end = start.saturating_add((map.resolution as u64 / division).max(1));
+    let mut end = crate::snap_grid::Grid::new(map.resolution, division as u32)
+        .ok()
+        .and_then(|grid| grid.adjacent(start, true))
+        .unwrap_or(start.saturating_add(1));
     if let Some(phrase) = chart
         .phrases
         .iter()
@@ -485,6 +486,26 @@ fn BarLines(studio: Studio, width: f64, height: f64) -> Element {
         line {x1:"{x}",x2:"{x}",y1:"0",y2:"{height}",stroke:"#9c9583",stroke_opacity:"0.65"}
     }}}
 }
+
+#[component]
+fn GridLines(studio: Studio, width: f64, height: f64) -> Element {
+    let Some(map) = (studio.timing)() else {
+        return rsx! {};
+    };
+    let start = (studio.view_start)();
+    let span = (studio.span)();
+    let first = map.tick(start.max(map.offset)).unwrap_or(0);
+    let last = map.tick(start + span).unwrap_or(first);
+    let divisions = (studio.snap)();
+    let ticks = crate::snap_grid::Grid::new(map.resolution, divisions.max(1))
+        .ok()
+        .map_or_else(Vec::new, |g| g.visible(first, last, 2048));
+    rsx! {g{"aria-label":"Snap grid",pointer_events:"none",
+        for tick in ticks {
+            line{"data-grid-tick":"{tick}",x1:"{(map.seconds(tick)-start)/span*width}",x2:"{(map.seconds(tick)-start)/span*width}",y1:"0",y2:"{height}",stroke:if tick%map.resolution as u64==0{"#51515c"}else{"#292b34"}}
+        }
+    }}
+}
 #[component]
 pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) -> Element {
     let links = super::difficulty::shared_snapshot();
@@ -584,6 +605,7 @@ pub(super) fn TrackRoll(mut studio: Studio, track: String, show_hidden: bool) ->
                     onmouseup:on_release,
                     onmouseleave:move |_|{drag.set(None);delta.set((0.0,0.0));gestures.cancel();},
                     g{pointer_events:"none",dangerous_inner_html:"{grid}"}
+                    GridLines {studio,width:width(),height}
                     BarLines {studio,width:width(),height}
                     for item in notes{
                         {let overridden=links.as_ref().is_some_and(|snapshot|super::difficulty::is_override(snapshot,&track,&item.id));
@@ -653,18 +675,6 @@ fn track_geometry(
                 flag_color(doc, &region.id, track, timing)
             );
         }
-    }
-    let first = timing.tick(start.max(timing.offset)).unwrap_or(0);
-    let last = timing.tick(start + span).unwrap_or(first);
-    let step = (timing.resolution as u64 / 4).max(1);
-    for tick in (first / step * step..=last).step_by(step as usize) {
-        let x = (timing.seconds(tick) - start) / span * width;
-        let beat = tick % timing.resolution as u64 == 0;
-        let _ = write!(
-            grid,
-            "<path d='M{x} 0V{height}' stroke='{}'/>",
-            if beat { "#51515c" } else { "#292b34" }
-        );
     }
     let notes: Vec<_> = doc.content.tracks[track]
         .iter()

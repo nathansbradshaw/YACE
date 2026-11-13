@@ -109,9 +109,18 @@ enum Drag {
         revision: u64,
     },
 }
-fn row_at(start: i64, span: f64, x: f64, width: f64, snap: i64) -> i64 {
+fn row_at(start: i64, span: f64, x: f64, width: f64, divisions: u32) -> i64 {
     let row = start as f64 + x / width.max(1.) * span * 48.;
-    ((row / snap as f64).round() as i64 * snap).clamp(0, sm::MAX_ROW)
+    let row = row.clamp(0., sm::MAX_ROW as f64);
+    if divisions == 0 {
+        row.round() as i64
+    } else {
+        crate::snap_grid::Grid::new(48, divisions)
+            .ok()
+            .and_then(|g| g.snap(row))
+            .unwrap_or(0)
+            .min(sm::MAX_ROW as u64) as i64
+    }
 }
 fn place(s: DanceStudio, row: i64, lane: u8) {
     let kind = (s.note_kind)();
@@ -147,7 +156,16 @@ pub fn Roll(mut studio: Studio) -> Element {
     let map = timing(s);
     let start = (s.view_row)();
     let span = (studio.span)();
-    let snap = (s.snap_rows)();
+    let snap = (s.snap_divisions)();
+    let grid = crate::snap_grid::Grid::new(48, snap.max(1))
+        .ok()
+        .map_or_else(Vec::new, |g| {
+            g.visible(
+                start.max(0) as u64,
+                (start as f64 + span * 48.).min(sm::MAX_ROW as f64) as u64,
+                2048,
+            )
+        });
     let end = (start as f64 + span * 48.).min(sm::MAX_ROW as f64) as i64;
     let cursor = (s.cursor)();
     let play_row = beat(&map, super::super::session::position(studio)) * 48.;
@@ -172,7 +190,7 @@ pub fn Roll(mut studio: Studio) -> Element {
                     ol{class:"lane-labels",for arrow in ["← Left","↓ Down","↑ Up","→ Right"]{li{class:"lane-label",style:"height:40px","{arrow}"}}}
                     div{class:"lane-plot",onresize:move|e|if let Ok(size)=e.get_content_box_size(){width.set(size.width.max(1.));},
                         svg{class:"studio-note-svg",height:"160",view_box:"0 0 {width} 160",preserve_aspect_ratio:"none","aria-label":"Stable beat grid",
-                            onmousedown:move|e:MouseEvent|{if (studio.tool)()==EditTool::Select{drag.set(Some(Drag::Box{row:row_at(start,span,e.element_coordinates().x,width(),1),lane:(e.element_coordinates().y/40.).floor().clamp(0.,3.)as u8,x:e.page_coordinates().x,y:e.page_coordinates().y,additive:e.modifiers().shift()}));delta.set((0.,0.));}},
+                            onmousedown:move|e:MouseEvent|{if (studio.tool)()==EditTool::Select{drag.set(Some(Drag::Box{row:row_at(start,span,e.element_coordinates().x,width(),0),lane:(e.element_coordinates().y/40.).floor().clamp(0.,3.)as u8,x:e.page_coordinates().x,y:e.page_coordinates().y,additive:e.modifiers().shift()}));delta.set((0.,0.));}},
                             onmousemove:move|e:MouseEvent|{if let Some(d)=drag.read().as_ref(){let (x,y)=match d{Drag::Box{x,y,..}|Drag::Note{x,y,..}=>(*x,*y)};delta.set((e.page_coordinates().x-x,e.page_coordinates().y-y));}},
                             onmouseleave:move |_|drag.set(None),
                             onmouseup:move|e:MouseEvent|{
@@ -180,10 +198,12 @@ pub fn Roll(mut studio: Studio) -> Element {
                                 let dx=e.page_coordinates().x-ox;let dy=e.page_coordinates().y-oy;
                                 if dx.abs()+dy.abs()<3. {return;}suppress.set(true);
                                 match d {
-                                    Drag::Box{row,lane,additive,..}=>{let last=row_at(start,span,x(row as f64)+dx,width(),1);let last_lane=(lane as f64+dy/40.).floor().clamp(0.,3.)as u8;if !additive{s.selection.set(Default::default());}for n in &drag_notes{if (row.min(last)..=row.max(last)).contains(&n.row)&&(lane.min(last_lane)..=lane.max(last_lane)).contains(&n.lane){s.selection.write().insert(n.id.clone());}}},
+                                    Drag::Box{row,lane,additive,..}=>{let last=row_at(start,span,x(row as f64)+dx,width(),0);let last_lane=(lane as f64+dy/40.).floor().clamp(0.,3.)as u8;if !additive{s.selection.set(Default::default());}for n in &drag_notes{if (row.min(last)..=row.max(last)).contains(&n.row)&&(lane.min(last_lane)..=lane.max(last_lane)).contains(&n.lane){s.selection.write().insert(n.id.clone());}}},
                                     Drag::Note{mut note,resize,revision:expected,..}=>{
                                         if readonly||s.project.read().as_ref().is_none_or(|p|p.revision!=expected){return;}
-                                        let rows=((dx/width()*span*48.)/snap as f64).round()as i64*snap;
+                                        let anchor=if resize{note.end_row.unwrap_or(note.row+48)}else{note.row};
+                                        let destination=row_at(start,span,x(anchor as f64)+dx,width(),snap);
+                                        let rows=destination-anchor;
                                         if resize{note.end_row=Some((note.end_row.unwrap_or(note.row+48)+rows).max(note.row+1));s.apply(Action::UpdateNote{chart_id:(s.selected)(),note});}
                                         else if s.selection.read().len()>1{s.edit_selection(SelectionEdit::MoveLanes{rows,lanes:(dy/40.).round().clamp(-4.,4.)as i8});}
                                         else{let destination=note.row+rows;if destination<0{return;}note.end_row=note.end_row.map(|end|end+rows);note.row=destination;note.lane=(note.lane as i16+(dy/40.).round()as i16).clamp(0,3)as u8;s.apply(Action::UpdateNote{chart_id:(s.selected)(),note});}
@@ -193,7 +213,7 @@ pub fn Roll(mut studio: Studio) -> Element {
                             onclick:move|e:MouseEvent|{if suppress.replace(false){return;}studio.focus_editor();let row=row_at(start,span,e.element_coordinates().x,width(),snap);s.cursor.set(row);if (studio.tool)()==EditTool::Place&&!readonly{place(s,row,(e.element_coordinates().y/40.).floor().clamp(0.,3.)as u8);}else if (studio.tool)()==EditTool::Select&&!e.modifiers().shift(){s.selection.set(Default::default());}},
                             ondoubleclick:move|e:MouseEvent|{if (studio.tool)()==EditTool::Select&&!readonly{place(s,row_at(start,span,e.element_coordinates().x,width(),snap),(e.element_coordinates().y/40.).floor().clamp(0.,3.)as u8);}},
                             for lane in 0..4 {line{x1:"0",x2:"{width}",y1:"{lane*40}",y2:"{lane*40}",stroke:"var(--border-color)",pointer_events:"none"}}
-                            for r in (start/12*12..=end).step_by(12){line{x1:"{x(r as f64)}",x2:"{x(r as f64)}",y1:"0",y2:"160",stroke:"var(--border-color)",stroke_opacity:if r%48==0{"1"}else{"0.35"},pointer_events:"none"}}
+                            for r in grid{line{"data-grid-tick":"{r}",x1:"{x(r as f64)}",x2:"{x(r as f64)}",y1:"0",y2:"160",stroke:"var(--border-color)",stroke_opacity:if r%48==0{"1"}else{"0.35"},pointer_events:"none"}}
                             for n in notes.iter().filter(|n|n.row<=end&&n.end_row.unwrap_or(n.row)>=start){
                                 g{key:"{n.id}","data-note-id":"{n.id}",
                                     onmousedown:{let n=n.clone();move|e:MouseEvent|{e.stop_propagation();if (studio.tool)()==EditTool::Select&&!e.modifiers().shift(){if !s.selection.read().contains(&n.id){s.selection.set([n.id.clone()].into());}drag.set(Some(Drag::Note{note:n.clone(),x:e.page_coordinates().x,y:e.page_coordinates().y,resize:false,revision}));}}},
@@ -251,7 +271,7 @@ pub fn Inspector(studio: Studio) -> Element {
                     NoteProperties{key:"{note.id}",s,note,profile}
                 }}
                 if count>0{div{class:"selection-actions",button{onclick:move |_|super::super::session::copy(studio,false),"Copy"}button{onclick:move |_|super::delete(),"Delete"}}}
-                div{class:"selection-actions",button{disabled:count==0,onclick:move |_|s.edit_selection(SelectionEdit::Mirror),"Mirror"}button{disabled:count==0,onclick:move |_|s.edit_selection(SelectionEdit::Quantize{rows:(s.snap_rows)()}),"Quantize"}}
+                div{class:"selection-actions",button{disabled:count==0,onclick:move |_|s.edit_selection(SelectionEdit::Mirror),"Mirror"}button{disabled:count==0||(s.snap_divisions)()==0,onclick:move |_|s.edit_selection(SelectionEdit::QuantizeDivisions{divisions:(s.snap_divisions)()}),"Quantize"}}
             }
             details{class:"context-fold",summary{"Difficulty"}for chart in [chart.clone()]{ChartProperties{key:"{chart.id}",s,chart}}
                 button{title:"Add a chart for {profile.name()}",onclick:move |_|{s.apply(Action::AddChart{difficulty:Difficulty::Edit,meter:1,description:"Manual chart".into()});if let Some(c)=s.project.read().as_ref().and_then(|p|p.content.document.charts.last()){s.selected.set(c.id.clone());s.selection.set(Default::default());}},"Add difficulty"}

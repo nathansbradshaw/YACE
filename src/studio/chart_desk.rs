@@ -65,11 +65,7 @@ fn EditingToolbar(mut studio: Studio, mut hidden_flags: Signal<bool>) -> Element
                         button { title: "Copy notes (Command/Ctrl+C)", aria_label: "Copy notes", disabled: !super::session::selected(studio), onclick: move |_| super::session::copy(studio,false), Icon { name: "copy", size: 14 } }
                         button { title: "Paste at playhead (Command/Ctrl+V)", aria_label: "Paste notes", onclick: move |_| super::session::paste(studio), Icon { name: "clipboard", size: 14 } }
                     }
-                    label { class: "edit-snap", "Snap"
-                        select { aria_label: "Snap", value: "{studio.snap}", onkeydown: move |event| event.stop_propagation(), onchange: move |event| { if let Ok(value) = event.value().parse() { studio.snap.set(value);super::dance::set_snap(value); } },
-                        for (value, label) in [(0,"Off"),(1,"1/4"),(2,"1/8"),(3,"1/12"),(4,"1/16"),(6,"1/24"),(8,"1/32"),(12,"1/48"),(16,"1/64"),(24,"1/96"),(48,"1/192")] { option { value: "{value}", selected: value == (studio.snap)(), "{label}" } }
-                        }
-                    }
+                    SnapControls {studio}
                     div { class: "edit-zoom", role: "group", aria_label: "Timeline zoom",
                         button { title: "Zoom out", aria_label: "Zoom out", onclick: move |_| studio.span.set(((studio.span)() * 1.5).min(48.0)), Icon { name: "minus", size: 14 } }
                         output { if super::dance::active(){"{(studio.span)():.1} beats"}else{"{(studio.span)():.1}s"} }
@@ -79,4 +75,57 @@ fn EditingToolbar(mut studio: Studio, mut hidden_flags: Signal<bool>) -> Element
                     if !super::dance::active(){label { class: "toolbar-toggle", input { r#type: "checkbox", checked: hidden_flags(), onkeydown: move |event| event.stop_propagation(), onchange: move |event| hidden_flags.set(event.checked()) } "Hidden flags" }}
                 }
     }
+}
+
+const SNAP_PRESETS: &[(u32, &str)] = &[
+    (0, "Off"),
+    (1, "1/4"),
+    (2, "1/8"),
+    (3, "1/12"),
+    (4, "1/16"),
+    (6, "1/24"),
+    (8, "1/32"),
+    (12, "1/48"),
+    (16, "1/64"),
+    (24, "1/96"),
+    (48, "1/192"),
+    (64, "1/256"),
+    (96, "1/384"),
+    (192, "1/768"),
+    (256, "1/1024"),
+];
+
+#[component]
+fn SnapControls(mut studio: Studio) -> Element {
+    let mut open = use_signal(|| false);
+    let mut custom = use_signal(|| "7".to_string());
+    let mut error = use_signal(|| None::<String>);
+    let value = (studio.snap)();
+    rsx! {div{class:"snap-controls",
+        label{class:"edit-snap","Snap"
+            select{aria_label:"Snap",value:"{value}",onkeydown:move|e|e.stop_propagation(),onchange:move|e|{
+                if let Ok(value)=e.value().parse::<u32>() && (value==0||crate::snap_grid::Grid::new(1,value).is_ok()){
+                    studio.snap.set(value);super::dance::set_snap(value);
+                }
+            },
+                for &(n,label) in SNAP_PRESETS {option{value:"{n}",selected:n==value,"{label}"}}
+                if !SNAP_PRESETS.iter().any(|(n,_)|*n==value){option{value:"{value}",selected:true,"Custom · {value}/beat"}}
+            }
+        }
+        button{class:"studio-tool",aria_label:"Custom snap grid",aria_expanded:open().to_string(),onclick:move|_|open.toggle(),"Custom…"}
+        if open(){super::modal::Modal{id:"snap-grid-dialog",label:"Custom snap settings",onclose:move|_|open.set(false),div{class:"snap-custom-panel",
+            h2{"Custom snap grid"}
+            label{"Steps per beat" input{aria_label:"Snap steps per beat",r#type:"number",min:"1",max:"1024",step:"1",value:"{custom}",oninput:move|e|{custom.set(e.value());error.set(None);},onkeydown:move|e|e.stop_propagation()}}
+            p{class:"field-hint","3 gives eighth-note triplets; 7 divides each beat into seven steps. Fine grids round to the chart's ticks. Zoom in to reveal dense grid lines."}
+            if super::dance::active(){p{class:"field-hint","Dance files have 48 rows per beat. Finer steps share the same row."}}
+            if let Some(message)=error(){p{role:"alert","{message}"}}
+            button{class:"action-primary",onclick:move|_|{
+                match custom().parse::<u32>().ok().filter(|n|crate::snap_grid::Grid::new(1,*n).is_ok()){
+                    Some(n)=>{studio.snap.set(n);super::dance::set_snap(n);studio.status.set(format!("Snap: {n} steps per beat"));error.set(None);open.set(false);},
+                    None=>error.set(Some("Use a whole number from 1 to 1024 steps per beat".into())),
+                }
+            },"Apply snap grid"}
+            button{onclick:move|_|open.set(false),"Close snap settings"}
+        }}}
+    }}
 }

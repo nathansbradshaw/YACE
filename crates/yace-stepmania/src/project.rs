@@ -123,6 +123,7 @@ pub enum SelectionEdit {
     MoveLanes { rows: i64, lanes: i8 },
     Mirror,
     Quantize { rows: i64 },
+    QuantizeDivisions { divisions: u32 },
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -336,6 +337,21 @@ impl Project {
                                 n.end_row = n
                                     .end_row
                                     .map(|end| ((end as f64 / rows as f64).round() as i64) * rows);
+                            }
+                            SelectionEdit::QuantizeDivisions { divisions } => {
+                                ensure!(
+                                    (1..=1024).contains(&divisions),
+                                    "Use 1–1024 steps per beat"
+                                );
+                                let snap = |row: i64| -> Result<i64> {
+                                    ensure!(row >= 0, "Negative note row");
+                                    let index = (row as u128 * divisions as u128 + 24) / 48;
+                                    Ok(i64::try_from(
+                                        (index * 48 + divisions as u128 / 2) / divisions as u128,
+                                    )?)
+                                };
+                                n.row = snap(n.row)?;
+                                n.end_row = n.end_row.map(snap).transpose()?;
                             }
                             SelectionEdit::Delete => unreachable!(),
                         }

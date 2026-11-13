@@ -66,6 +66,11 @@ impl TempoMap {
     /// Audio seconds -> chart ticks. Events before chart tick zero are rejected,
     /// rather than collapsed into a false chord at tick zero.
     pub fn tick(&self, seconds: f64) -> Option<u64> {
+        self.tick_position(seconds).map(|tick| tick.round() as u64)
+    }
+
+    /// Fractional tick position for musical quantization without double rounding.
+    pub fn tick_position(&self, seconds: f64) -> Option<f64> {
         if !seconds.is_finite() || seconds < self.offset {
             return None;
         }
@@ -80,7 +85,7 @@ impl TempoMap {
                 }
             }
             let tick = tempo.tick as f64 + (seconds - start) / step;
-            return (tick <= u64::MAX as f64).then_some(tick.round() as u64);
+            return (tick < u64::MAX as f64).then_some(tick);
         }
         None
     }
