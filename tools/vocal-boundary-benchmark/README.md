@@ -4,6 +4,11 @@ Offline Rust research, not a production detector. Predict musical note presence
 and attacks separately from the original RMVPE contour. Preserve raw evidence;
 compare actual exported MIDI with both musicians' note events.
 
+**Mixed-song status: unresolved.** The follow-up tested 487 development
+configurations. None reduced false notes while preserving previously correct
+notes and pitch time. The new paired audit below makes those losses explicit.
+These experiments do not change the app's production detector.
+
 ## Run
 
 Reuse the repository's existing Cargo target cache. No models or audio are
@@ -29,6 +34,38 @@ format matches `vocal-segmental-benchmark`: each recording has unique `id`,
 existing source-bound High generation reports, native JDC probabilities and
 reviewed reference JSON. RMVPE observations must use their native 100 Hz clock.
 The output directory must not exist.
+
+## Paired retention audit
+
+```sh
+cargo run --locked --manifest-path tools/vocal-boundary-benchmark/Cargo.toml \
+  --bin compare -- /private/manifest.json \
+  /private/baseline-run 149 /private/candidate-run 4 /private/new-audit.json
+```
+
+Compare frozen predictions from two runs on exactly the same 16 recordings and
+24 references. Each run needs `prediction-receipt.json` and its selected
+`ID-NNN.json` notes. The baseline must pin the source generation reports and
+references. The candidate must pin those same inputs or the baseline receipt
+from which it was derived. Edited predictions, duplicate pins, changed source
+reports, changed references and different recording hashes are rejected.
+Receipts detect changes; they do not certify an experiment's independence.
+
+All notes are exported on the saved source tempo map and checked through actual
+MIDI export/import before scoring. The report records every formerly matched
+reference-note index lost, every newly matched index gained, and seconds of
+previously correct pitch time no longer covered by the same pitch. A net gain
+cannot hide a different real note disappearing. Keeping note count and MIDI
+pitches constant also cannot hide damage from moving correct boundaries.
+Auxiliary event matching must agree with the owning scorer's match count.
+
+The exposed development guard requires at least 20% lower macro false-note time,
+no loss in presence recall, pitch-time accuracy, event recall or event F1,
+no increase in wrong pitch, zero lost matched events, and zero previously
+correct pitch time removed (10 ns arithmetic tolerance). Every recording must
+also avoid regression. These are intentionally strict research requirements,
+not a statistical guarantee. `promotion_eligible` always remains false: passing
+an exposed-data audit would still require independent validation and acceptance.
 
 ## Method
 
@@ -104,6 +141,53 @@ versus High's 7.16%. Mixed-source training improves mixed event F1 but still
 leaves 12.02% false-note time. These failures prevent promotion despite the
 larger note-detection gain. No untouched voices, listening or gameplay acceptance
 are claimed.
+
+## Mixed-song follow-up
+
+The fixed comparator is the all-source model above, recipe 149. We tested
+additional pitch estimators and acoustic voice evidence, experimental independent
+boundary cues, offset-only trimming, conservative whole-note vetoes, bounded
+boundary regression, a boundary-confidence guard, and joint note/rest duration
+decoding. All 487 settings use the already exposed recordings; they are neither
+487 independent experiments nor fresh validation. No candidate met the
+retention requirement. The independent boundary observations are experimental,
+without verified upstream numerical parity or cleared weight redistribution;
+they remain private evaluation inputs and are not bundled or promoted here.
+
+One later regression trial also trains its upstream proposal models with nested
+source exclusion. Within each outer fold, each training proposal's frame model
+excludes both that proposal's fold and the outer test fold. This prevents the
+boundary learner from training only on proposals from a frame model that already
+saw those labels. Models, source pins and outputs remain private.
+
+Same eight mixed recordings, macro averages; these are selected, explicitly
+identified development recipes, not a fresh leaderboard:
+
+| Mixed-song recipe | Note F1 | Pitch-time accuracy | Presence recall | False-note time | Old matched events lost |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Previous all-source baseline, 149 | 23.77% | 62.56% | 73.68% | 12.02% | 0 |
+| Conservative boundary regression, 0 | 24.93% | 62.74% | 73.70% | 11.90% | 9 |
+| Nested boundary regression, 4 | 25.74% | 62.79% | 73.56% | 11.77% | 19 |
+| Boundary-confidence guard, 6 | 23.90% | 62.53% | 73.62% | 11.97% | 0 |
+| Other agent's frozen boundary model, duration 0 / no phase decoder | 21.20% | 63.28% | 77.44% | 24.40% | 394 |
+
+“Lost” is relative to the previous all-source baseline and the unchanged strict
+event-matching criterion. The nested regression retained every output note and
+its MIDI pitch, but moved 19 previously matched notes outside timing tolerance;
+73 other reference notes became matched. It removed 5.553 seconds of previously
+correct pitch coverage despite a small net increase in pitch-time accuracy.
+The guarded recipe lost no matched events, but removed 0.373 seconds of correct
+pitch coverage. Both fail. The other agent's exported charts were frozen,
+source/clock checked, MIDI-round-tripped and rescored here; they use a different
+voicing gate, so that row is an end-to-end comparison, not a decoder ablation.
+
+False-note time is false pitched seconds divided by annotated gap seconds;
+pitch-time accuracy and presence recall use annotated pitched seconds. Mixed
+references are reviewed authored musical targets, not measured performed F0 or
+a source-separated singer-identity truth set. A diagnostic using reference
+boundaries found roughly 72% of excess note time attached to partly real notes,
+and about two thirds within 50 ms of a reference boundary. That is failure
+decomposition, not an available-at-inference oracle or proof that trimming is safe.
 
 For context, the two human annotations score 65.25% / 66.30% event F1 against
 each other under this same strict timing-and-pitch criterion. This measures
