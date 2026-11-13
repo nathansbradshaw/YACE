@@ -248,6 +248,9 @@ pub fn SelectionDesk(studio: Studio) -> Element {
                 if !vocals {super::solo_editor::Controls {key:"{solo_key}",studio,track:document.selected_track.clone()}}
                 if crate::lane_ranges::supports(&document.selected_track,crate::lane_ranges::Kind::Trill) {super::lane_range_editor::Controls {key:"{solo_key}",studio,track:document.selected_track.clone()}}
                 if document.selected_track.ends_with("Drums") {
+                    super::disco_editor::Controls {key:"disco:{solo_key}",studio,track:document.selected_track.clone()}
+                }
+                if document.selected_track.ends_with("Drums") {
                     super::drum_range_editor::Controls {key:"{studio.store.read().as_ref().map(|s|s.root.display().to_string()).unwrap_or_default()}:{document.selected_track}",studio,track:document.selected_track.clone()}
                 }
                 details { class: "context-fold", summary { "Song details" }

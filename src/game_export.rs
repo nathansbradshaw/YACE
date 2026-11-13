@@ -429,6 +429,15 @@ fn chart_ticks_to_midi(chart: &Chart, ini: &BTreeMap<String, String>) -> Result<
                     match text.as_str() {
                         "solo" => solo_boundaries.push((tick, true)),
                         "soloend" => solo_boundaries.push((tick, false)),
+                        _ if suffix == "Drums" => {
+                            let mix = crate::drum_mix::parse(&text)?
+                                .context("Unsupported local drum event; source project retained")?;
+                            ensure!(
+                                usize::from(mix.difficulty) == difficulty,
+                                "Drum mix event targets another difficulty; source project retained"
+                            );
+                            events.push((tick, 1, meta(1, text.as_bytes())?));
+                        }
                         _ => bail!(
                             "Unsupported event in {}: {body}; source project retained",
                             section.name

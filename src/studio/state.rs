@@ -583,6 +583,7 @@ pub struct Studio {
     pub source_lane_ranges: Signal<crate::lane_ranges::Source>,
     pub source_vocal_overdrive: Signal<Option<Result<crate::vocal_overdrive::State, String>>>,
     pub source_drum_ranges: Signal<crate::drum_ranges::Source>,
+    pub source_drum_mix: Signal<crate::drum_mix::Source>,
     pub drum_activation_editable: Signal<bool>,
     pub star_power_open: Signal<bool>,
     pub star_power_target: Signal<Option<crate::star_power::Phrase>>,
@@ -2367,6 +2368,15 @@ impl Studio {
         self.update_library_for_project(&store.root);
         self.source_lane_ranges
             .set(store.source_lane_ranges(&doc).unwrap_or_default());
+        self.source_drum_mix
+            .set(
+                store
+                    .source_drum_mix(&doc)
+                    .unwrap_or_else(|e| crate::drum_mix::Source {
+                        error: Some(format!("{e:#}")),
+                        ..Default::default()
+                    }),
+            );
         self.source_vocal_overdrive.set(Some(
             store
                 .source_vocal_overdrive(&doc)
@@ -2681,6 +2691,7 @@ pub fn use_studio() -> Studio {
         source_lane_ranges: use_signal(Default::default),
         source_vocal_overdrive: use_signal(|| None),
         source_drum_ranges: use_signal(Default::default),
+        source_drum_mix: use_signal(Default::default),
         drum_activation_editable: use_signal(|| false),
         star_power_open: use_signal(|| false),
         star_power_target: use_signal(|| None),

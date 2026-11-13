@@ -172,6 +172,10 @@ pub struct Content {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub drum_ranges: crate::drum_ranges::Tracks,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub disco_ranges: crate::drum_mix::Tracks,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi_drum_mix: Option<crate::drum_mix::AuthoredMidi>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub lane_ranges: crate::lane_ranges::Tracks,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub midi_lane_ranges: Option<crate::song_files::game_midi::LaneState>,
@@ -294,6 +298,10 @@ pub enum Action {
     },
     EditDrumRange {
         edit: crate::drum_ranges::Edit,
+    },
+    EditDiscoRange {
+        track: String,
+        edit: crate::drum_mix::Edit,
     },
     EditLaneRange {
         track: String,
@@ -626,6 +634,7 @@ impl Project {
         let text = crate::star_power::render(text, &self.content.star_power)?;
         let text = crate::solos::render(text, &self.content.solos)?;
         let text = crate::drum_ranges::render(text, &self.content.drum_ranges)?;
+        let text = crate::drum_mix::render_chart(text, &self.content.disco_ranges)?;
         crate::lane_ranges::render(text, &self.content.lane_ranges)
     }
     pub fn chart_hash(&self, store: &Store) -> Result<String> {
@@ -1053,6 +1062,12 @@ impl Store {
         crate::song_files::game_midi::drum_activation_editable(&self.root.join("source"))
             .unwrap_or(false)
     }
+    pub fn source_drum_mix(&self, project: &Project) -> Result<crate::drum_mix::Source> {
+        Ok(crate::drum_mix::source(
+            self,
+            &self.source_chart(project)?.chart,
+        ))
+    }
     fn source_chart(&self, project: &Project) -> Result<Arc<SourceSnapshot>> {
         let bytes = fs::read(self.root.join("source/notes.chart"))?;
         let mut cache = self
@@ -1385,6 +1400,11 @@ impl Store {
                 star_power: Default::default(),
                 solos: Default::default(),
                 drum_ranges: Default::default(),
+                disco_ranges: Default::default(),
+                midi_drum_mix: crate::song_files::game_midi::read_drum_mix_state(
+                    &self.root.join("source"),
+                    chart.timing.resolution,
+                )?,
                 lane_ranges: Default::default(),
                 midi_lane_ranges: crate::song_files::game_midi::read_lane_state(
                     &self.root.join("source"),
@@ -1868,6 +1888,7 @@ impl Store {
                 | Action::EditStarPower { .. }
                 | Action::EditSolo { .. }
                 | Action::EditDrumRange { .. }
+                | Action::EditDiscoRange { .. }
                 | Action::EditLaneRange { .. }
                 | Action::EditMidiLaneRange { .. }
                 | Action::EditVocalOverdrive { .. }
@@ -2009,6 +2030,10 @@ impl Store {
                 } else {
                     crate::drum_ranges::apply(&mut doc, &source, edit)?;
                 }
+            }
+            Action::EditDiscoRange { track, edit } => {
+                let source = self.source_chart(&doc)?;
+                crate::drum_mix::apply(self, &mut doc, &source.chart, track, edit)?;
             }
             Action::EditLaneRange { track, edit } => {
                 ensure!(
@@ -3167,6 +3192,12 @@ impl Store {
                 )?,
                 None => midi,
             };
+            let midi = crate::song_files::game_midi::export_drum_mix(
+                &source,
+                doc.content.midi_drum_mix.as_ref(),
+                &midi,
+                &selected,
+            )?;
             exported_chart_sha256 = hash(&midi);
             fs::write(stage.join("notes.mid"), midi)?;
             fs::rename(stage.join("notes.chart"), archive.join("notes.chart"))?;

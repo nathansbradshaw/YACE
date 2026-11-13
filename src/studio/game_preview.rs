@@ -114,6 +114,7 @@ fn scene_notes(
     timing: &TempoMap,
     policy: &Policy,
     track: &str,
+    disco: &[crate::drum_mix::Event],
 ) -> Result<Vec<PreviewNote>> {
     let selected = doc
         .selected_note
@@ -129,14 +130,28 @@ fn scene_notes(
     let raw: Vec<_> = items.iter().map(|item| item.note.clone()).collect();
     Ok(gameplay_view::classify(track, &raw, timing, policy)?
         .into_iter()
-        .map(|gem| PreviewNote {
-            start: gem.seconds,
-            end: gem.end_seconds,
-            lane: gem.lane,
-            cymbal: gem.shape == GemShape::Cymbal,
-            selected: selected == Some((gem.tick, gem.lane)),
-            technique: gem.technique,
-            dynamics: gem.dynamics,
+        .map(|gem| {
+            let (lane, cymbal) = crate::drum_mix::difficulty(track).ok().map_or(
+                (gem.lane, gem.shape == GemShape::Cymbal),
+                |difficulty| {
+                    crate::drum_mix::preview_lane(
+                        disco,
+                        difficulty,
+                        gem.tick,
+                        gem.lane,
+                        gem.shape == GemShape::Cymbal,
+                    )
+                },
+            );
+            PreviewNote {
+                start: gem.seconds,
+                end: gem.end_seconds,
+                lane,
+                cymbal,
+                selected: selected == Some((gem.tick, gem.lane)),
+                technique: gem.technique,
+                dynamics: gem.dynamics,
+            }
         })
         .collect())
 }
@@ -236,7 +251,13 @@ fn Highway(
                 return Err("Chart timing unavailable".into());
             };
             let (policy, unknown) = preview_policy(studio, &timing, pro_drums());
-            scene_notes(&doc, &timing, &policy, &track)
+            let disco = if track.ends_with("Drums") && policy.drums == gameplay_view::DrumMode::Pro
+            {
+                super::disco_editor::preview_events(studio, &track)
+            } else {
+                vec![]
+            };
+            scene_notes(&doc, &timing, &policy, &track, &disco)
                 .map(|notes| (notes, unknown))
                 .map_err(|error| format!("Cannot interpret this track: {error:#}"))
         },

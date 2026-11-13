@@ -35,6 +35,10 @@ pub mod drum_articulation;
 pub mod drum_dynamics;
 #[path = "../../src/drum_layout.rs"]
 pub mod drum_layout;
+#[path = "../../src/drum_mix.rs"]
+pub mod drum_mix;
+#[path = "../../src/bre.rs"]
+pub mod bre;
 #[path = "../../src/drum_parts.rs"]
 pub mod drum_parts;
 #[path = "../../src/drum_ranges.rs"]
