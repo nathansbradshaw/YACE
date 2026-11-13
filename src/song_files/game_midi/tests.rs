@@ -13,6 +13,83 @@ use std::collections::BTreeSet;
 type Event = (u64, TrackEventKind<'static>);
 
 #[test]
+fn instrument_lane_ranges_new_owners_and_chart_midi_conversion_keep_applicable_scope() {
+    use crate::lane_ranges::{Kind, Range};
+    let root = tempfile::tempdir().unwrap();
+    let bytes = encode(vec![track(
+        b"PART GUITAR",
+        vec![(0, on(0, 84, 100)), (120, off(0, 84, 0))],
+    )]);
+    let store = store(root.path(), &bytes, 0);
+    apply(
+        &store,
+        Action::EditMidiLaneRange {
+            owner: "PART GUITAR".into(),
+            scope: LaneScope::ExpertHard,
+            edit: crate::lane_ranges::Edit::Put {
+                previous: None,
+                range: Range {
+                    start: 240,
+                    end: 480,
+                    kind: Kind::Trill,
+                },
+            },
+        },
+    )
+    .unwrap();
+    apply(
+        &store,
+        Action::CreateTrack {
+            track: "ExpertProKeys".into(),
+        },
+    )
+    .unwrap();
+    apply(
+        &store,
+        Action::EditMidiLaneRange {
+            owner: "PART REAL_KEYS_X".into(),
+            scope: LaneScope::Dedicated {
+                track: "ExpertProKeys".into(),
+            },
+            edit: crate::lane_ranges::Edit::Put {
+                previous: None,
+                range: Range {
+                    start: 720,
+                    end: 960,
+                    kind: Kind::Trill,
+                },
+            },
+        },
+    )
+    .unwrap();
+    let output = export(&store, &root.path().join("export"));
+    let actual = decoded_lane_sources(&output).unwrap();
+    assert_eq!(actual.len(), 2);
+    assert!(actual.iter().any(|r| r.owner == "PART REAL_KEYS_X"));
+    let text = "[Song]\n{\nResolution = 480\n}\n[SyncTrack]\n{\n0 = B 120000\n}\n[ExpertSingle]\n{\n0 = N 0 120\n240 = S 65 240\n960 = S 66 240\n}\n[HardSingle]\n{\n240 = S 65 240\n}\n[EasyProKeys]\n{\n0 = N 48 120\n480 = S 66 240\n}\n";
+    let chart = Chart::parse(text.into()).unwrap();
+    let midi = crate::game_export::song(&chart, None).unwrap().0;
+    let ranges = decoded_lane_sources(&midi).unwrap();
+    assert_eq!(ranges.len(), 3);
+    assert!(
+        ranges
+            .iter()
+            .any(|r| r.scope == LaneScope::ExpertHard && r.range.kind == Kind::Tremolo)
+    );
+    assert!(ranges.iter().any(|r| r.scope
+        == LaneScope::Dedicated {
+            track: "EasyProKeys".into()
+        }));
+    let unsupported = Chart::parse(text.replace("[HardSingle]", "[MediumSingle]")).unwrap();
+    assert!(
+        crate::game_export::song(&unsupported, None)
+            .unwrap_err()
+            .to_string()
+            .contains("standard MIDI scope")
+    );
+}
+
+#[test]
 fn instrument_lane_ranges_commands_keep_history_late_tiers_export_and_reopen() {
     use crate::lane_ranges::{Edit, Kind, Range};
     let bytes = encode(vec![
@@ -101,7 +178,10 @@ fn instrument_lane_ranges_commands_keep_history_late_tiers_export_and_reopen() {
             .is_empty()
     );
     assert_eq!(cleared, export(&reopened, &root.path().join("clear-again")));
-    let scoped = crate::export_options::Options { tracks: Some(["ExpertSingle".to_string()].into_iter().collect()), ..Default::default() };
+    let scoped = crate::export_options::Options {
+        tracks: Some(["ExpertSingle".to_string()].into_iter().collect()),
+        ..Default::default()
+    };
     reopened
         .export_with_options(
             &doc,

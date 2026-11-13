@@ -115,7 +115,12 @@ pub fn edit_lane_ranges(
         LaneScope::Dedicated { track } => track.clone(),
     };
     ensure!(
-        project.content.tracks.contains_key(&track),
+        project.content.tracks.contains_key(&track)
+            || *scope == LaneScope::ExpertHard
+                && project
+                    .content
+                    .tracks
+                    .contains_key(&format!("Hard{suffix}")),
         "Choose an existing instrument track"
     );
     let current: Vec<_> = state
@@ -198,7 +203,12 @@ pub fn validate(state: &LaneState, project: &Project, chart: &Chart) -> Result<(
     Ok(())
 }
 
-pub fn export_lane_ranges(song: &Path, state: &LaneState, bytes: &[u8]) -> Result<Vec<u8>> {
+pub fn export_lane_ranges(
+    song: &Path,
+    state: &LaneState,
+    bytes: &[u8],
+    selected: &BTreeSet<String>,
+) -> Result<Vec<u8>> {
     let original = lane_state(song)?.context("Missing MIDI lane source")?;
     ensure!(
         original.source_sha256 == state.source_sha256,
@@ -218,7 +228,25 @@ pub fn export_lane_ranges(song: &Path, state: &LaneState, bytes: &[u8]) -> Resul
     let after: Vec<_> = state
         .ranges
         .iter()
-        .filter(|r| owners.contains(&r.owner))
+        .filter(|r| {
+            selected.contains(&format!("MIDI: {}", r.owner))
+                || selected.iter().any(|track| {
+                    let track = if let Some(suffix) = track
+                        .strip_prefix("Medium")
+                        .or_else(|| track.strip_prefix("Easy"))
+                    {
+                        if suffix == "ProKeys" {
+                            track.clone()
+                        } else {
+                            format!("Expert{suffix}")
+                        }
+                    } else {
+                        track.clone()
+                    };
+                    crate::lane_ranges::midi_owner(&track)
+                        .is_some_and(|(owner, _)| owner == r.owner)
+                })
+        })
         .cloned()
         .collect();
     rewrite(bytes, &before, &after)
@@ -351,10 +379,61 @@ pub(super) fn rewrite(
         }
         output.extend(merge::encode(events, smf.header)?);
     }
-    ensure!(
-        seen == changed,
-        "Create the instrument MIDI track before adding lane markers"
-    );
+    let mut count = smf.tracks.len();
+    for owner in changed.difference(&seen) {
+        let records = after.get(owner).context("Missing physical lane owner")?;
+        let mut events = vec![(
+            0,
+            1,
+            0,
+            TrackEventKind::Meta(midly::MetaMessage::TrackName(owner.as_bytes())),
+        )];
+        for (index, r) in records.iter().enumerate() {
+            let key = u7::new(if r.range.kind == crate::lane_ranges::Kind::Trill {
+                127
+            } else {
+                126
+            });
+            let channel = u4::new(r.attributes.channel);
+            events.push((
+                r.range.start,
+                2,
+                index,
+                TrackEventKind::Midi {
+                    channel,
+                    message: MidiMessage::NoteOn {
+                        key,
+                        vel: u7::new(r.attributes.velocity),
+                    },
+                },
+            ));
+            let message = if r.attributes.off_as_note_on {
+                MidiMessage::NoteOn {
+                    key,
+                    vel: u7::new(0),
+                }
+            } else {
+                MidiMessage::NoteOff {
+                    key,
+                    vel: u7::new(r.attributes.off_velocity),
+                }
+            };
+            events.push((
+                r.range.end,
+                0,
+                index,
+                TrackEventKind::Midi { channel, message },
+            ));
+        }
+        output.extend(merge::encode(events, smf.header)?);
+        count += 1;
+    }
+    if count != smf.tracks.len() {
+        output[10..12].copy_from_slice(&u16::try_from(count)?.to_be_bytes());
+        if smf.header.format == midly::Format::SingleTrack {
+            output[8..10].copy_from_slice(&1u16.to_be_bytes());
+        }
+    }
     let expected: Vec<_> = after.values().flatten().cloned().collect();
     ensure!(
         canonical(&super::decoded_lane_sources(&output)?)? == canonical(&expected)?,

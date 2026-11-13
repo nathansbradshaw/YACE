@@ -5,6 +5,26 @@ before additional product features ship. Use one source revision and the same
 full-length song project for acceptance. Sharing Rust modules establishes shared
 rules; it does not establish that both applications expose working controls.
 
+Instrument trill and tremolo editing now has shared inspector controls and a
+timeline lane. Chart sources keep independent difficulty ranges. Imported MIDI
+exposes Expert and Expert+Hard scopes separately; Pro Keys trills belong to
+their dedicated difficulty owner. Moving or resizing an imported marker keeps
+its exact channel, onset velocity and note-off encoding. Unsupported or
+ambiguous original markers stay read-only. MIDI conversion refuses independent
+chart-tier ranges that the destination cannot represent.
+
+Actual static-browser checks at `ff45171` used a controlled fixture to move a
+shared tremolo, add an Expert trill, refuse a stale Apply after Undo, restore
+with Redo, create Hard, and clear all Guitar ranges. Timeline labels, scope
+filtering, reload, game export/reopen and the complete project download passed.
+An independent MIDI parser checked the exact marker edges, all unrelated Guitar
+events, every other raw track and the original WAV. Separate Pro Keys tiers
+displayed independent trills. The actual browser backup restored 16 verified
+file references and six Undo checkpoints in a pinned native executable; native
+export, Undo and Redo matched the browser MIDI and WAV byte-for-byte. This
+qualifies those controlled workflows. Native GUI, target-game behavior,
+listening and broader fault coverage remain open.
+
 Harmony authoring has actual static-browser verification for the supported
 editing subset below. Shared Rust controls expose HARM1–3 notes and lyrics,
 recording loops, Undo/Redo, and the format's shared HARM1 scoring and HARM2 lyric

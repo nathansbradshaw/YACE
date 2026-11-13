@@ -3125,9 +3125,9 @@ impl Store {
                 },
             )?;
             let midi = match &doc.content.midi_lane_ranges {
-                Some(state) => {
-                    crate::song_files::game_midi::export_lane_ranges(&source, state, &midi)?
-                }
+                Some(state) => crate::song_files::game_midi::export_lane_ranges(
+                    &source, state, &midi, &selected,
+                )?,
                 None => midi,
             };
             exported_chart_sha256 = hash(&midi);
