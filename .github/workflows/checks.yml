@@ -17,7 +17,7 @@ jobs:
   core:
     name: Format, core tests and desktop build
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       CCACHE_DISABLE: "1"
       CARGO_BUILD_JOBS: "2"

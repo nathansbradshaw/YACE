@@ -65,13 +65,29 @@ that a source was previously unseen.
   sampled; each source has equal total weight. Rest weight 2, presence weight
   1; onset/offset positive weight 5, negative weight 1. Boundaries use ±15 ms.
 - Four leave-one-artist-out development folds; final model trains on all four.
-  Twelve predeclared decoding recipes: presence cost 0/1/2, segmentation penalty
-  .08/.16, existing-note lock off/on. The selection objective and constraints
+  Thirty-six predeclared decoding recipes: the original twelve combine presence
+  cost 0/1/2, segmentation penalty .08/.16, and existing-note lock off/on. Six
+  additional .16-penalty recipes use attack reward .32, allowing a confident
+  same-pitch attack to justify a boundary. Stronger attacks remain experimental;
+  over-segmentation still counts in evaluation. These eighteen recipes each have
+  an additional `full_run: true` variant using pruned dynamic programming instead
+  of the legacy 300-frame window. The selection objective and constraints
   are recorded in `frozen.json` before fresh scoring.
+
+An existing frozen recipe without `attack_reward` or `full_run` keeps its
+original .16 reward, legacy window, and serialized representation. Its predictions
+are not silently reinterpreted. New frozen recipes explicitly pin either option.
+No production analysis mode changes.
 - Two-state voice/rest dynamic program and bounded piecewise-constant contour
   segmentation; learned attacks/releases affect transitions. No 100 ms minimum
   note filter. Valid F0 needs confidence ≥.03, RMS ≥.0015, and MIDI range
   [35.5,84.5). No octave folding or range clamping.
+- Full-run segmentation does not force a boundary after three seconds. Its
+  variable attack-cost pruning is compared with exhaustive optimization, including
+  negative and zero boundary costs. Ties prefer fewer notes. It fails explicitly
+  after 30 million segment-cost evaluations across the recording; no duration cap
+  or fallback silently replaces the requested profile. Long sustains, repeated
+  notes, and short legato changes with strong attacks have focused MIDI tests.
 - Locked recipes retain every existing note's pitch, onset, offset, and lyric
   exactly and add only in its gaps. Consequently they also retain existing
   mistakes. They cannot independently solve wrong baseline notes.
