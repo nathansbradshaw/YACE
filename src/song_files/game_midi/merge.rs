@@ -720,6 +720,24 @@ pub(super) fn rewrite(
     if !timing_changed && !sections_changed && changed.is_empty() {
         return Ok(original.to_vec());
     }
+    // Older editable vocal documents did not retain scoring-marker attributes.
+    // Never silently replace non-default source attributes with generated defaults.
+    if changed
+        .get("PART VOCALS")
+        .is_some_and(|set| set.contains(&Component::VocalPhrases))
+        && let (Some(before), Some(after)) = (before.vocals, after.vocals)
+        && before.phrases.iter().all(|phrase| phrase.midi.is_none())
+        && after.phrases.iter().any(|phrase| phrase.midi.is_none())
+        && let Some(view) = vocal_view(original)?
+        && crate::vocals::import_midi(&view)?
+            .phrases
+            .iter()
+            .any(|phrase| phrase.midi.is_some())
+    {
+        anyhow::bail!(
+            "This older vocal document lacks original scoring-marker MIDI attributes. Reimport the retained source MIDI before editing phrase boundaries; source and project retained"
+        );
+    }
     let mut generated_tracks: BTreeMap<_, _> = new
         .tracks
         .iter()

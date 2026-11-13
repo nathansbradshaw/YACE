@@ -32,6 +32,9 @@ pub struct VocalPhrase {
     pub end: u64,
     /// MIDI phrase marker 105 (player 1) or 106 (player 2).
     pub player: u8,
+    /// Original scoring marker attributes; absent in older editable documents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi: Option<crate::song_files::game_midi::NoteAttributes>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,6 +95,13 @@ impl VocalChart {
         };
         for phrase in &self.phrases {
             span(phrase.start, phrase.end)?;
+            if let Some(midi) = &phrase.midi {
+                midi.validate()?;
+                ensure!(
+                    !midi.zero_length && midi.talkie_pitch.is_none(),
+                    "Invalid scoring phrase MIDI attributes"
+                );
+            }
             ensure!(
                 matches!(phrase.player, 1 | 2),
                 "Vocal phrase player must be 1 or 2"
@@ -287,7 +297,12 @@ pub fn append_midi(original: &[u8], vocals: &VocalChart) -> Result<Vec<u8>> {
             ));
         };
     for phrase in &vocals.phrases {
-        push_note(phrase.start, phrase.end, 104 + phrase.player, None);
+        push_note(
+            phrase.start,
+            phrase.end,
+            104 + phrase.player,
+            phrase.midi.as_ref(),
+        );
     }
     for note in &vocals.notes {
         let key = match note.tone {
@@ -464,30 +479,27 @@ pub fn import_midi(bytes: &[u8]) -> Result<VocalChart> {
                         .remove(&(channel.as_int(), key))
                         .context("Unmatched vocal note-off")?;
                     ensure!(start < tick, "Zero-length vocal event");
+                    let (off_velocity, off_as_note_on) = match message {
+                        MidiMessage::NoteOff { vel, .. } => (vel.as_int(), false),
+                        _ => (0, true),
+                    };
+                    let attributes = crate::song_files::game_midi::NoteAttributes {
+                        channel: channel.as_int(),
+                        velocity,
+                        off_velocity,
+                        off_as_note_on,
+                        zero_length: false,
+                        talkie_pitch: None,
+                    };
                     if key == 105 || key == 106 {
                         out.phrases.push(VocalPhrase {
+                            midi: (!attributes.is_default()).then_some(attributes),
                             start,
                             end: tick,
                             player: key - 104,
                         });
                     } else {
-                        let (off_velocity, off_as_note_on) = match message {
-                            MidiMessage::NoteOff { vel, .. } => (vel.as_int(), false),
-                            _ => (0, true),
-                        };
-                        notes.push((
-                            start,
-                            tick,
-                            key,
-                            crate::song_files::game_midi::NoteAttributes {
-                                channel: channel.as_int(),
-                                velocity,
-                                off_velocity,
-                                off_as_note_on,
-                                zero_length: false,
-                                talkie_pitch: None,
-                            },
-                        ));
+                        notes.push((start, tick, key, attributes));
                     }
                 }
                 _ => bail!("Unsupported vocal MIDI message; retain source MIDI"),

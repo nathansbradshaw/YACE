@@ -21,6 +21,37 @@ fn vocal_json_is_editable_and_rejects_unknown_fields() {
 }
 
 #[test]
+fn scoring_marker_attributes_survive_editable_json_and_midi_round_trip() {
+    let mut expected = fixture();
+    for (i, phrase) in expected.phrases.iter_mut().enumerate() {
+        phrase.midi = Some(chart_engine::song_files::game_midi::NoteAttributes {
+            channel: 3 + i as u8,
+            velocity: 77 + i as u8,
+            off_velocity: if i == 0 { 19 } else { 0 },
+            off_as_note_on: i != 0,
+            zero_length: false,
+            talkie_pitch: None,
+        });
+    }
+    let json = serde_json::to_vec(&expected).unwrap();
+    let restored: VocalChart = serde_json::from_slice(&json).unwrap();
+    let original = midi::new_midi(&TempoMap::constant(120.).unwrap(), &Tracks::new()).unwrap();
+    let output = vocals::append_midi(&original, &restored).unwrap();
+    let actual = vocals::import_midi(&output).unwrap();
+    assert_eq!(actual.phrases, expected.phrases);
+    for invalid in 0..3 {
+        let mut bad = expected.clone();
+        let attributes = bad.phrases[0].midi.as_mut().unwrap();
+        match invalid {
+            0 => attributes.channel = 16,
+            1 => attributes.zero_length = true,
+            _ => attributes.talkie_pitch = Some(60),
+        }
+        assert!(bad.validate().is_err());
+    }
+}
+
+#[test]
 fn pitched_talkie_slide_and_join_round_trip_preserves_original_tracks() {
     let authored = Tracks::from([(
         "ExpertSingle".into(),
@@ -270,6 +301,7 @@ fn malformed_phrases_and_polyphonic_lead_are_rejected() {
     assert!(bad.validate().is_err());
     let mut bad = valid.clone();
     bad.phrases.push(VocalPhrase {
+        midi: None,
         start: 4000,
         end: 5000,
         player: 1,

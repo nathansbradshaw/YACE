@@ -242,7 +242,7 @@ pub fn copy(project: &Project, timing: &TempoMap, selection: &Selection) -> Resu
                 Some(VocalPhrase {
                     start: owned.first()?.start,
                     end: owned.last()?.end,
-                    player: phrase.player,
+                    ..phrase.clone()
                 })
             })
             .collect();
@@ -630,8 +630,8 @@ fn merge_phrases(mut phrases: Vec<VocalPhrase>) -> Result<Vec<VocalPhrase>> {
             && phrase.start < last.end
         {
             ensure!(
-                last.player == phrase.player,
-                "Vocal phrases belong to different players"
+                last.player == phrase.player && last.midi == phrase.midi,
+                "Vocal phrases have different players or MIDI attributes"
             );
             last.end = last.end.max(phrase.end);
         } else {

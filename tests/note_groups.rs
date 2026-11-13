@@ -58,6 +58,7 @@ fn vocals(store: &Store, notes: Vec<VocalNote>) {
                 resolution: 480,
                 source: "Practice recording".into(),
                 phrases: vec![VocalPhrase {
+                    midi: None,
                     start: notes[0].start,
                     end: notes.last().unwrap().end,
                     player: 1,
@@ -99,11 +100,13 @@ fn padded_vocal_fixture(root: &std::path::Path) -> Store {
                 ],
                 phrases: vec![
                     VocalPhrase {
+                        midi: None,
                         start: 400,
                         end: 1000,
                         player: 1,
                     },
                     VocalPhrase {
+                        midi: None,
                         start: 1200,
                         end: 2000,
                         player: 2,
@@ -139,6 +142,7 @@ fn vocal_group_move_preserves_scoring_padding_and_unselected_phrase_edges() {
     assert_eq!(
         moved.phrases[0],
         VocalPhrase {
+            midi: None,
             start: 520,
             end: 1120,
             player: 1
@@ -455,6 +459,7 @@ fn large_vocal_groups_keep_independent_phrases_and_undoable_words() {
     let phrases = notes
         .iter()
         .map(|n| VocalPhrase {
+            midi: None,
             start: n.start,
             end: n.end,
             player: 1,
