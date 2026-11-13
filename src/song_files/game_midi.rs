@@ -26,6 +26,8 @@ pub use lane_ranges::{
     LaneState, edit_lane_ranges, export_lane_ranges, lane_state, read_lane_state,
     validate as validate_lane_state,
 };
+#[path = "game_midi/overdrive.rs"]
+mod overdrive;
 #[path = "game_midi/percussion.rs"]
 mod percussion;
 pub use harmonies::{
@@ -34,6 +36,7 @@ pub use harmonies::{
 };
 pub(crate) use merge::{absolute as midi_events, encode as encode_midi_owner};
 pub(crate) use merge::{chunks as midi_chunks, validate_complete as validate_midi_complete};
+pub use overdrive::{edit_overdrive, export_overdrive, read_overdrive_state, source_overdrive};
 pub(crate) use percussion::can_begin_harmonies;
 pub(crate) use percussion::logical_owner as logical_vocal_owner;
 pub(crate) use percussion::validate_harmony_authoring;
