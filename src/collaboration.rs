@@ -125,6 +125,10 @@ impl Proposal {
             "Star Power changes are not supported in note proposals; share the saved project instead"
         );
         ensure!(
+            base.content.vocal_overdrive == edited.content.vocal_overdrive,
+            "Vocal overdrive changes are not supported in note proposals; share the saved project instead"
+        );
+        ensure!(
             base.content.solos == edited.content.solos,
             "Solo changes are not supported in note proposals; share the saved project instead"
         );
@@ -185,6 +189,7 @@ fn power_fingerprint(project: &Project) -> Result<Option<String>> {
         && project.content.drum_ranges.is_empty()
         && project.content.lane_ranges.is_empty()
         && project.content.midi_lane_ranges.is_none()
+        && project.content.vocal_overdrive.is_none()
     {
         return Ok(None);
     }
@@ -213,6 +218,10 @@ fn power_fingerprint(project: &Project) -> Result<Option<String>> {
     };
     let bytes = match &project.content.midi_lane_ranges {
         Some(ranges) => serde_json::to_vec(&(bytes, ranges))?,
+        None => bytes,
+    };
+    let bytes = match &project.content.vocal_overdrive {
+        Some(power) => serde_json::to_vec(&(bytes, power))?,
         None => bytes,
     };
     Ok(Some(format!("{:x}", Sha256::digest(bytes))))

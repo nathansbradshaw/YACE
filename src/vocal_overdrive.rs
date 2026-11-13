@@ -469,5 +469,8 @@ pub fn rewrite_midi(
 }
 
 #[cfg(test)]
+#[path = "vocal_overdrive_project_tests.rs"]
+mod project_tests;
+#[cfg(test)]
 #[path = "vocal_overdrive_tests.rs"]
 mod tests;

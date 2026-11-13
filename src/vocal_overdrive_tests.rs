@@ -49,7 +49,7 @@ fn encode(tracks: Vec<Vec<TrackEvent<'static>>>) -> Vec<u8> {
     .unwrap();
     output
 }
-fn original() -> Vec<u8> {
+pub(super) fn original() -> Vec<u8> {
     encode(vec![
         track(
             b"PART VOCALS",
@@ -83,6 +83,8 @@ fn original() -> Vec<u8> {
                 (0, on(3, 64, 91)),
                 (240, off(3, 64, 18)),
                 (0, Event::Meta(Meta::Lyric(b"Beta"))),
+                (0, on(3, 105, 81)),
+                (480, off(3, 105, 21)),
                 (960, on(6, 116, 71)),
                 (1440, off(6, 116, 19)),
             ],

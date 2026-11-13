@@ -39,8 +39,6 @@ pub mod drum_layout;
 pub mod drum_parts;
 #[path = "../../src/drum_ranges.rs"]
 pub mod drum_ranges;
-#[path = "../../src/lane_ranges.rs"]
-pub mod lane_ranges;
 #[path = "../../src/editor.rs"]
 pub mod editor;
 #[path = "../../src/editor_validation.rs"]
@@ -88,6 +86,8 @@ pub mod keyboard_voicing;
 pub mod keys;
 #[path = "../../src/kit_audition.rs"]
 pub mod kit_audition;
+#[path = "../../src/lane_ranges.rs"]
+pub mod lane_ranges;
 pub mod larsnet;
 #[path = "../../src/larsnet_receipt.rs"]
 pub mod larsnet_receipt;
@@ -200,10 +200,10 @@ pub mod vocal_generation;
 #[path = "../../src/vocal_harmonies.rs"]
 pub mod vocal_harmonies;
 pub mod vocal_inference;
-#[path = "../../src/vocal_percussion.rs"]
-pub mod vocal_percussion;
 #[path = "../../src/vocal_overdrive.rs"]
 pub mod vocal_overdrive;
+#[path = "../../src/vocal_percussion.rs"]
+pub mod vocal_percussion;
 #[path = "../../src/vocal_pitch.rs"]
 pub mod vocal_pitch;
 #[path = "../../src/vocal_pitch_analysis.rs"]

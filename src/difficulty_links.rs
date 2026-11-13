@@ -138,6 +138,7 @@ pub fn reduce_generated(
         vocals: None,
         harmonies: None,
         vocal_percussion: None,
+        vocal_overdrive: None,
         vocal_review: None,
         vocal_pitch_analysis: None,
         tracks: effective

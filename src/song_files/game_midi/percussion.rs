@@ -84,13 +84,17 @@ pub(crate) fn logical_owner(name: Option<&str>, owners: &BTreeSet<Part>) -> Opti
         None
     }
 }
-fn working_source(song: &Path) -> Result<Option<Vec<u8>>> {
+fn working_source(song: &Path, strip_percussion: bool) -> Result<Option<Vec<u8>>> {
     let Some((receipt, directory)) = source(song)? else {
         return Ok(None);
     };
     let bytes = fs::read(directory.join("notes.mid"))?;
-    let before = pc::import_midi(&bytes)?;
-    let stripped = pc::rewrite_midi(&bytes, &receipt.midi_sha256, before.as_ref(), None)?;
+    let stripped = if strip_percussion {
+        let before = pc::import_midi(&bytes)?;
+        pc::rewrite_midi(&bytes, &receipt.midi_sha256, before.as_ref(), None)?
+    } else {
+        bytes
+    };
     let all = original_extra_parts(song, false)?;
     let active = extra_parts(song)?;
     let parsed = midly::Smf::parse(&stripped)?;
@@ -148,7 +152,7 @@ pub(crate) fn validate_harmony_authoring(
         owners.contains(&Part::Harm1),
         "Original harmony tracks are not managed percussion owners; source retained"
     );
-    if let Some(working) = working_source(song)? {
+    if let Some(working) = working_source(song, true)? {
         harmonies::export_harmonies_inner(song, working, Some(after), true, true)?;
     }
     Ok(())
@@ -163,7 +167,7 @@ pub(crate) fn can_begin_harmonies(song: &Path, state: Option<&State>) -> Result<
     if !percussion_owners(song, state)?.contains(&Part::Harm1) {
         return Ok(false);
     }
-    Ok(working_source(song)?.is_none_or(|bytes| {
+    Ok(working_source(song, true)?.is_none_or(|bytes| {
         crate::vocal_harmonies::import_midi(&bytes).is_ok_and(|view| view.is_none())
     }))
 }
@@ -171,6 +175,7 @@ pub(crate) struct VocalExport<'a> {
     pub lead: Option<&'a VocalChart>,
     pub harmonies: Option<&'a HarmonyChart>,
     pub percussion: Option<&'a State>,
+    pub overdrive: Option<&'a crate::vocal_overdrive::State>,
     pub selected: &'a BTreeSet<String>,
 }
 pub(crate) fn export_vocals(
@@ -181,9 +186,12 @@ pub(crate) fn export_vocals(
     generated: &[u8],
     vocals: VocalExport<'_>,
 ) -> Result<Vec<u8>> {
-    let owners = percussion_owners(song, vocals.percussion)?;
-    let working = if vocals.percussion.is_some() {
-        working_source(song)?
+    let mut owners = percussion_owners(song, vocals.percussion)?;
+    if let Some(state) = vocals.overdrive {
+        owners.extend(state.tracks.keys().copied());
+    }
+    let working = if vocals.percussion.is_some() || vocals.overdrive.is_some() {
+        working_source(song, vocals.percussion.is_some())?
     } else {
         None
     };

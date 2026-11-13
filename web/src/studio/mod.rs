@@ -36,6 +36,8 @@ mod harmony_editor;
 mod icons;
 #[path = "../../../src/studio/inline_review.rs"]
 mod inline_review;
+#[path = "../../../src/studio/lane_range_editor.rs"]
+mod lane_range_editor;
 mod media;
 #[path = "../../../src/studio/modal.rs"]
 mod modal;
@@ -81,8 +83,6 @@ mod sheet;
 mod shortcuts;
 #[path = "../../../src/studio/solo_editor.rs"]
 mod solo_editor;
-#[path = "../../../src/studio/lane_range_editor.rs"]
-mod lane_range_editor;
 #[path = "../../../src/studio/song_overview.rs"]
 mod song_overview;
 #[path = "../../../src/studio/source_choice.rs"]
@@ -102,6 +102,8 @@ mod track_picker;
 mod track_views;
 #[path = "../../../src/studio/vocal_editor.rs"]
 mod vocal_editor;
+#[path = "../../../src/studio/vocal_overdrive_editor.rs"]
+mod vocal_overdrive_editor;
 #[path = "../../../src/studio/vocal_pitch_analysis.rs"]
 mod vocal_pitch_analysis;
 #[path = "../../../src/studio/vocal_preview.rs"]

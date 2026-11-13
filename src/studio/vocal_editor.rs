@@ -141,6 +141,7 @@ pub fn VocalEditor(studio: Studio) -> Element {
         else if !present{div{class:"vocal-empty","No vocal chart yet"}}
         {rsx!{super::harmony_editor::HarmonyEditor {key:"{harmony_key}",studio}}}
         {rsx!{super::percussion_editor::PercussionEditor {key:"{harmony_key}:percussion",studio}}}
+        {rsx!{super::vocal_overdrive_editor::Controls {key:"{harmony_key}:overdrive",studio}}}
     }}
 }
 
@@ -770,5 +771,6 @@ pub fn VocalEditor(mut studio: Studio) -> Element {
     button{class:"studio-tool",disabled:!studio.snapshot().is_some_and(|doc|doc.content.vocals.is_some()),onclick:move |_|{if let Some(doc)=studio.snapshot()&& let Some(chart)=&doc.content.vocals{let result=serde_json::to_vec_pretty(chart).map_err(anyhow::Error::from).and_then(|bytes|crate::files::download("vocals.json",&bytes));if let Err(error)=result{studio.error.set(Some(format!("{error:#}")));}}},"Save JSON"}
     }p{class:"field-hint","Place notes, import a vocal document, or generate a source-bound pitch draft. Missing lyrics stay marked for review."}
     {rsx!{super::harmony_editor::HarmonyEditor {key:"{harmony_key}",studio}}}
-    {rsx!{super::percussion_editor::PercussionEditor {key:"{harmony_key}:percussion",studio}}}}
+    {rsx!{super::percussion_editor::PercussionEditor {key:"{harmony_key}:percussion",studio}}}
+    {rsx!{super::vocal_overdrive_editor::Controls {key:"{harmony_key}:overdrive",studio}}}}
 }
