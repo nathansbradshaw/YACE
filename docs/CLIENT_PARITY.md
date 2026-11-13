@@ -145,6 +145,34 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 
 ## Acceptance ledger
 
+Disco authoring at `3ed7142` exposes independent drum difficulties through shared
+Rust inspector controls, tick bounds, current-loop bounds, removal, Undo/Redo
+and timeline bands. The Pro Drums preview interprets red/yellow swaps at each
+note's original tick; Standard Drums retains its original interpretation.
+Original text, stem configuration and explicit resets are retained. Open-ended
+flips, changing stem configurations and ambiguous transitions remain read-only.
+Mix-only difficulties without playable notes are included in export choices;
+explicitly omitting one remains effective after export/reopen.
+
+Actual static-browser controls moved Expert 480–960 to 720–1200, added
+1920–2400, created a Hard part and moved its independent range to 1080–1560.
+Stale Apply refused while retaining the draft. Extending the Expert range over
+a yellow cymbal changed the actual Pro preview to a red tom; Standard showed
+a yellow tom, and Undo restored the yellow cymbal. Downloaded MIDI retained the
+other difficulty's non-flip mix text, original non-mix drum events, unrelated
+raw tracks and WAV. Removing both Expert ranges, Undo/Redo and reopening the
+game ZIP retained the clear and the independent Hard range.
+
+The actual revision-8 complete backup verified 15 references and four Undo
+checkpoints. A pinned native CLI opened it and produced byte-identical MIDI/WAV,
+including after native Undo/Redo. The later revision-15 backup verified 18
+references and six Undo checkpoints. Terminating only the verification browser
+and reopening its profile produced an identical project JSON in a second
+complete backup. Eighteen drum-mix regressions and 28 existing MIDI integration
+cases pass. Native GUI, musical/game/listening, current-loop controls and wider
+recovery acceptance remain open. BRE authoring controls are still unavailable;
+a drum activation interval alone does not establish BRE context.
+
 Static-browser controls at `131f989` independently created three simultaneous
 harmony singers beside retained lead and percussion. Each singer then held two
 adjacent notes at ticks 0–240 and 240–480. Timing, pitch and lyric edits, shared
