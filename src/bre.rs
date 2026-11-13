@@ -3,9 +3,17 @@ use crate::{chart::Chart, song_files::game_midi::NoteAttributes, timing::TempoMa
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+#[path = "bre_project.rs"]
+mod project;
+#[cfg(test)]
+#[path = "bre_project_tests.rs"]
+mod project_tests;
 #[cfg(test)]
 #[path = "bre_tests.rs"]
 mod tests;
+pub use project::{
+    apply, current, midi_required, owner, render_project, selected, source, validate,
+};
 
 pub const OWNERS: [(&str, &str); 5] = [
     ("PART GUITAR", "Single"),
@@ -22,6 +30,16 @@ pub struct Coda {
 }
 pub fn is_coda(text: &str) -> bool {
     matches!(text.trim(), "coda" | "[coda]")
+}
+pub fn supported_context(text: &str) -> Result<()> {
+    ensure!(
+        !matches!(
+            text.trim().trim_matches(['[', ']']),
+            "midcoda" | "midcoda_end"
+        ),
+        "Mid-song coda contexts remain read-only; retain their original events"
+    );
+    Ok(())
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -120,6 +138,15 @@ impl State {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Edit {
+    DrumPut {
+        track: String,
+        previous: Option<crate::drum_ranges::Range>,
+        range: Range,
+    },
+    DrumRemove {
+        track: String,
+        range: crate::drum_ranges::Range,
+    },
     SetCoda {
         previous: Option<Coda>,
         tick: Option<u64>,
@@ -138,6 +165,9 @@ pub fn edited(state: &State, edit: &Edit) -> Result<State> {
     state.validate_shape()?;
     let mut next = state.clone();
     match edit {
+        Edit::DrumPut { .. } | Edit::DrumRemove { .. } => {
+            anyhow::bail!("Drum BRE uses the project's existing activation ranges")
+        }
         Edit::SetCoda { previous, tick } => {
             ensure!(*previous == state.coda, "Coda changed. Select it again.");
             next.coda = tick.map(|tick| Coda {
@@ -216,6 +246,7 @@ fn row(line: &str) -> Result<Option<(u64, String)>> {
         .strip_prefix('"')
         .and_then(|s| s.strip_suffix('"'))
         .unwrap_or(text);
+    supported_context(text)?;
     if !is_coda(text) {
         return Ok(None);
     }

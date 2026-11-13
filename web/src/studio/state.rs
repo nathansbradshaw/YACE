@@ -83,6 +83,7 @@ pub struct Studio {
     pub source_solos: Signal<crate::solos::Source>,
     pub source_lane_ranges: Signal<crate::lane_ranges::Source>,
     pub source_vocal_overdrive: Signal<Option<Result<crate::vocal_overdrive::State, String>>>,
+    pub source_bre: Signal<Option<Result<crate::bre::State, String>>>,
     pub source_drum_ranges: Signal<crate::drum_ranges::Source>,
     pub source_drum_mix: Signal<crate::drum_mix::Source>,
     pub drum_activation_editable: Signal<bool>,
@@ -163,6 +164,7 @@ pub fn use_studio() -> Studio {
         source_solos: use_signal(Default::default),
         source_lane_ranges: use_signal(Default::default),
         source_vocal_overdrive: use_signal(|| None),
+        source_bre: use_signal(|| None),
         source_drum_ranges: use_signal(Default::default),
         source_drum_mix: use_signal(Default::default),
         drum_activation_editable: use_signal(|| false),
@@ -1552,6 +1554,8 @@ impl Studio {
                         ..Default::default()
                     }),
             );
+        self.source_bre
+            .set(Some(store.source_bre(&doc).map_err(|e| format!("{e:#}"))));
         self.source_vocal_overdrive.set(Some(
             store
                 .source_vocal_overdrive(&doc)

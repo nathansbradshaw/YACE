@@ -145,6 +145,60 @@ see [the acceptance record and the disabled HQ model exception](BROWSER_GENERATO
 
 ## Acceptance ledger
 
+Terminal big rock ending authoring at `00e7481` shares Rust coda/range controls,
+Undo/Redo, timeline bands and recording-clock preview labels across clients.
+Five-fret guitar, bass, rhythm/co-op and standard Keys use physical MIDI
+120–124 controls; drums use their existing activation ranges plus global coda
+context. Guitar/keys endings force MIDI in Automatic and block `.chart` in the
+export dialog. Drum endings can use `.chart` coda plus S64, as documented in the
+[primary format reference](https://github.com/TheNathannator/GuitarGame_ChartFormats/blob/main/docs/Chart-File-Formats/chart-format/Tracks/Drums.md#special-phrase-mechanics).
+Middle-of-song coda pairs, incomplete guitar lane groups and ambiguous source
+contexts remain read-only; their original bytes stay retained.
+
+Actual static-browser controls moved coda 1920→1680, guitar 1920–2400→2160–2640,
+added guitar 3840–4320 and moved drums 1920–2400→2880–3360. Stale coda/range
+actions refused while keeping the draft; Undo/Redo restored the corresponding
+states. Preview labels appeared inside the guitar/drum endings and disappeared
+outside, without a conflicting drum-fill label. Independent downloaded-MIDI
+inspection verified the coda, ranges, original guitar lane channels/velocities
+and note-on-zero releases, all other notes/text/techniques/mix events/raw owners
+and the unchanged WAV. A fresh import on the final build also retained the
+moved drum ending's original channel, attack velocity and release velocity.
+The same source-bound preservation path covers fill and roll moves; ambiguous
+physical attributes refuse edits while retaining the original source.
+
+The revision-15 complete backup verified 14 references and four Undo checkpoints.
+A pinned native CLI opened it and exported identical MIDI/WAV before and after
+native Undo/Redo. Restarting only the owned browser on the final guarded build
+produced identical project JSON in another complete backup. Removing all three
+endings, Undo/Redo, game export and actual ZIP reopen retained both explicit
+clears and coda context.
+
+The final preservation build repeated these edits from a fresh import. Its
+revision-11 backup verified 14 references and four Undo checkpoints, and native
+CLI export/Undo/Redo again matched the browser MIDI and recording exactly.
+After a selected-track change and owned browser restart, revision 12 retained
+identical authored content and Undo/Redo stacks, including the physical drum
+attributes. Transport/selection revisions are separate from content history.
+
+A new chart without audio authored a marker-only guitar ending. Actual `.chart`
+selection disabled preparation with the format error; Automatic produced MIDI
+with the five expected lanes and reopened as an editable empty guitar part.
+After clearing guitar and adding a drum ending, actual `.chart` export/reopen
+retained coda 1920 and S64 at 2880–3360. A separate middle-coda fixture exposed
+read-only controls and exported byte-for-byte unchanged. Ten BRE cases, two
+drum-attribute preservation cases and 28 existing MIDI integrations pass with
+strict native/WASM checks. Native GUI, target-game/listening, current-loop
+controls and wider fault acceptance remain open.
+
+Hosted acceptance on the same `00e7481` release repeated coda, guitar and drum
+edits, stale refusal and Undo/Redo with an invented fixture containing no audio.
+The actual downloaded MIDI matched the locally audited export byte for byte,
+including the moved original drum attributes. The complete backup verified 13
+references and four Undo checkpoints; another backup after owned browser
+restart contained identical project JSON. The live app loaded the verified
+20,911,415-byte WASM and displayed the guitar ending at the matching clock time.
+
 Disco authoring at `3ed7142` exposes independent drum difficulties through shared
 Rust inspector controls, tick bounds, current-loop bounds, removal, Undo/Redo
 and timeline bands. The Pro Drums preview interprets red/yellow swaps at each
@@ -170,8 +224,16 @@ references and six Undo checkpoints. Terminating only the verification browser
 and reopening its profile produced an identical project JSON in a second
 complete backup. Eighteen drum-mix regressions and 28 existing MIDI integration
 cases pass. Native GUI, musical/game/listening, current-loop controls and wider
-recovery acceptance remain open. BRE authoring controls are still unavailable;
-a drum activation interval alone does not establish BRE context.
+recovery acceptance remain open. A drum activation interval alone does not
+establish BRE context.
+
+The deployed `3ed7142` runtime repeated independent Expert 1920–2400 and Hard
+480–960 disco creation, Pro preview and Undo/Redo using invented data without
+audio. Independent downloaded-MIDI inspection retained every original drum
+note/fill/roll attribute and other raw owner. Complete revision-5 backups before
+and after restarting only the verification browser verified the same 14
+references, two Undo checkpoints and byte-identical project JSON. The loaded
+20,461,479-byte WASM matched the locally tested artifact.
 
 Static-browser controls at `131f989` independently created three simultaneous
 harmony singers beside retained lead and percussion. Each singer then held two
