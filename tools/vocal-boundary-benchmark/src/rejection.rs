@@ -219,9 +219,61 @@ fn fit_inner(points: &[Example]) -> Rejector {
     );
     model
 }
+/// Intersect conservative experts' retained-note sets. This edits neither pitch
+/// nor timing. The caller must bind every expert to the same recording and
+/// frozen baseline; correctness of the retained notes is still unproven.
+pub fn combine_retained_notes(baseline: &[Note], experts: &[Vec<Note>]) -> Result<Vec<Note>> {
+    use std::collections::BTreeSet;
+    ensure!(!experts.is_empty() && experts.len() <= 16, "Expert budget");
+    let key = |n: &Note| (n.start.to_bits(), n.end.to_bits(), n.midi);
+    ensure!(
+        baseline
+            .iter()
+            .all(|n| n.start.is_finite() && n.end.is_finite() && n.start >= 0. && n.start < n.end),
+        "Invalid baseline geometry"
+    );
+    let original: BTreeSet<_> = baseline.iter().map(key).collect();
+    ensure!(original.len() == baseline.len(), "Duplicate baseline note");
+    let mut keep = original.clone();
+    for notes in experts {
+        let keys: BTreeSet<_> = notes.iter().map(key).collect();
+        ensure!(
+            keys.len() == notes.len() && keys.is_subset(&original),
+            "Expert changed pitch/timing or introduced/duplicated a note"
+        );
+        keep.retain(|n| keys.contains(n));
+    }
+    Ok(baseline
+        .iter()
+        .filter(|n| keep.contains(&key(n)))
+        .cloned()
+        .collect())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn composition_preserves_exact_geometry_and_rejects_unrelated_edits() {
+        let n = |start, midi| Note {
+            start,
+            end: start + 1.,
+            midi,
+        };
+        let base = vec![n(0., 60), n(1., 62), n(2., 64)];
+        let out = combine_retained_notes(
+            &base,
+            &[
+                vec![base[0].clone(), base[2].clone()],
+                vec![base[0].clone(), base[1].clone()],
+            ],
+        )
+        .unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].start.to_bits(), base[0].start.to_bits());
+        assert_eq!(out[0].midi, 60);
+        assert!(combine_retained_notes(&base, &[vec![n(0., 61)]]).is_err());
+        assert!(combine_retained_notes(&base, &[vec![base[0].clone(), base[0].clone()]]).is_err());
+    }
     fn examples() -> Vec<Example> {
         let mut p = vec![];
         for s in 0..3 {
