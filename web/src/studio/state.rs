@@ -1537,7 +1537,8 @@ impl Studio {
         self.source_sync.set(sync);
         self.source_star_power.set(star_power);
         self.source_solos.set(solos);
-        self.source_lane_ranges.set(store.source_lane_ranges(&doc).unwrap_or_default());
+        self.source_lane_ranges
+            .set(store.source_lane_ranges(&doc).unwrap_or_default());
         self.source_drum_ranges.set(drum_ranges);
         self.drum_activation_editable.set(drum_activation);
         self.star_power_open.set(false);

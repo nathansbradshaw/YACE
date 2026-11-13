@@ -39,8 +39,6 @@ pub mod drum_layout;
 pub mod drum_parts;
 #[path = "../../src/drum_ranges.rs"]
 pub mod drum_ranges;
-#[path = "../../src/lane_ranges.rs"]
-pub mod lane_ranges;
 #[path = "../../src/editor.rs"]
 pub mod editor;
 #[path = "../../src/editor_validation.rs"]
@@ -88,6 +86,8 @@ pub mod keyboard_voicing;
 pub mod keys;
 #[path = "../../src/kit_audition.rs"]
 pub mod kit_audition;
+#[path = "../../src/lane_ranges.rs"]
+pub mod lane_ranges;
 pub mod larsnet;
 #[path = "../../src/larsnet_receipt.rs"]
 pub mod larsnet_receipt;
