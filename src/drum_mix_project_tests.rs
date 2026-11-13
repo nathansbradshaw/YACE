@@ -192,3 +192,58 @@ fn drum_mix_proposal_binding_and_preview_boundaries() {
     assert_eq!(preview_lane(&events, 2, 240, 1, false), (1, false));
     assert_eq!(preview_lane(&events, 3, 240, 0, false), (0, false));
 }
+
+#[test]
+fn drum_mix_marker_only_tier_is_available_preserved_and_explicitly_omittable() {
+    let (root, base) = project(true);
+    let source = base.root.join("source");
+    let bytes = fs::read(root.path().join("song/notes.mid")).unwrap();
+    let before = import_midi(&bytes).unwrap();
+    let mut after = before.clone();
+    after.events.push(Event::new(
+        1440,
+        Mix {
+            difficulty: 1,
+            configuration: 0,
+            setting: Setting::DiscoNoFlip,
+        },
+    ));
+    after.events.sort_by_key(|e| (e.tick, e.mix.difficulty));
+    let midi = rewrite_midi(&bytes, &hash(&bytes), &before, &after).unwrap();
+    let song = root.path().join("marker-song");
+    fs::create_dir(&song).unwrap();
+    fs::write(song.join("notes.mid"), midi).unwrap();
+    fs::copy(source.join("song.ini"), song.join("song.ini")).unwrap();
+    let store = Store::create(&song, None, &root.path().join("marker-project")).unwrap();
+    let doc = store.load().unwrap();
+    assert!(!doc.content.tracks.contains_key("MediumDrums"));
+    assert!(
+        crate::export_options::available(&store, &doc)
+            .unwrap()
+            .contains("MediumDrums")
+    );
+    edit(&store, None, 1920, 2400).unwrap();
+    let kept = export(&store, &root.path().join("marker-kept"), None);
+    assert!(
+        import_midi(&kept)
+            .unwrap()
+            .events
+            .iter()
+            .any(|e| e.mix.difficulty == 1 && e.mix.setting == Setting::DiscoNoFlip)
+    );
+    let omitted = root.path().join("marker-omitted");
+    export(&store, &omitted, Some(["ExpertDrums".into()].into()));
+    let reopened = Store::create(&omitted, None, &root.path().join("marker-reopened")).unwrap();
+    assert!(
+        !crate::export_options::available(&reopened, &reopened.load().unwrap())
+            .unwrap()
+            .contains("MediumDrums")
+    );
+    assert!(
+        import_midi(&export(&reopened, &root.path().join("marker-later"), None))
+            .unwrap()
+            .events
+            .iter()
+            .all(|e| e.mix.difficulty == 3)
+    );
+}

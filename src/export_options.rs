@@ -53,6 +53,25 @@ pub fn available(store: &Store, doc: &Project) -> Result<BTreeSet<String>> {
         .filter(|s| is_track(&s.name))
         .map(|s| s.name.clone())
         .collect();
+    // Local mix text can own a difficulty even when it has no playable notes.
+    // Keep that source control selectable so the default export cannot omit it.
+    if let Ok(source) = store.source_drum_mix(doc)
+        && source.midi
+        && source.error.is_none()
+        && let Some(state) = doc
+            .content
+            .midi_drum_mix
+            .as_ref()
+            .map(|s| &s.state)
+            .or(source.physical.as_ref())
+    {
+        tracks.extend(
+            state
+                .events
+                .iter()
+                .map(|e| crate::drum_ranges::TRACKS[usize::from(e.mix.difficulty)].to_owned()),
+        );
+    }
     if doc.content.vocals.is_some()
         || crate::song_files::game_midi::retained_vocal_controls(&store.root.join("source"))?
     {
