@@ -213,7 +213,11 @@ fn main() -> Result<()> {
                 .as_ref()
                 .map(|chart| {
                     let clock = draft.timing.as_ref().context("Missing MIDI clock")?;
-                    let empty = chart_engine::midi::new_midi(clock, &Default::default())?;
+                    // Standalone MIDI cannot carry .chart recording Offset.
+                    // Keep it in the source-bound report, not in shifted ticks.
+                    let mut midi_clock = clock.clone();
+                    midi_clock.offset = 0.;
+                    let empty = chart_engine::midi::new_midi(&midi_clock, &Default::default())?;
                     let midi = chart_engine::vocals::append_midi(&empty, chart)?;
                     let read = chart_engine::vocals::import_midi(&midi)?;
                     ensure!(
@@ -249,6 +253,8 @@ fn main() -> Result<()> {
                 "algorithm":vocal_generation::NOTE_CELLS_ALGORITHM,
                 "raw_pitch_retained":draft.rmvpe_pitch.as_ref().map(serde_json::to_value).transpose()? == base.rmvpe_pitch.as_ref().map(serde_json::to_value).transpose()?,
                 "midi_round_trip_checked":draft.chart.is_some(),"recording_clock_unchanged":true,
+                "recording_offset_seconds":draft.timing.as_ref().map(|m|m.offset),
+                "midi_offset_policy":"Original chart ticks and tempos; retain the recording Offset from generation.json/original project. MIDI alone cannot carry .chart Offset.",
                 "quality_gate_passed":false}),
             )?;
         }
