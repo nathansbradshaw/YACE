@@ -1,5 +1,6 @@
 pub mod rejection;
 pub mod spectral;
+pub mod voice_profile;
 use anyhow::{Context, Result, ensure};
 use chart_engine::{
     vocal_benchmark::Metrics,

@@ -70,6 +70,49 @@ or satisfies the requested substantial improvement without retention losses.
 
 ## Run
 
+### Native voice-consistency evidence
+
+The separate `vocal-voice-profile-evidence` runner tests anonymous within-song
+voice consistency using the publisher's WeSpeaker VoxCeleb CAM++ ONNX export.
+This is a speech embedding experiment; it neither identifies people nor
+establishes reliable singer or lead-vocal identity. It opens no note references
+and does not alter any pitch observations or chart notes.
+
+```sh
+cargo run --locked --release --manifest-path tools/vocal-boundary-benchmark/Cargo.toml \
+  --bin vocal-voice-profile-evidence -- SOURCE_INVENTORY.json CAMPLUS.onnx \
+  b50810498b5bcf5773d086f6993d344476bd0c88b566a41e8d801aaf8461efad \
+  /private/libonnxruntime.dylib NEW_OUTPUT_DIR 0.5
+```
+
+Use the same explicit source inventory as the spectral extractor. Supply a
+compatible native ONNX Runtime and the [publisher's pinned model](https://huggingface.co/Wespeaker/wespeaker-voxceleb-campplus/tree/acf623ad8ca746e50baa432255cf8fc57c669c45).
+No weights are bundled or downloaded by the runner; consult the publisher's
+model and dataset terms. The enforced checksum is the publisher's LFS digest.
+
+The Rust frontend follows the [declared inference settings](https://github.com/wenet-e2e/wespeaker/blob/master/wespeaker/bin/infer_onnx.py):
+16 kHz, 25 ms Hamming frames, 10 ms stride, 80 Kaldi-style mel bins,
+pre-emphasis and mean normalization without variance normalization. No Python
+runtime or helper is used. Numerical parity with torchaudio/Kaldi is unverified.
+Embeddings cover two-second windows centered every half second, with explicit
+zero padding at recording edges. They do not have 10 ms temporal resolution.
+Three-cluster profiles use at most 32 fixed high-confidence positive and negative
+GAME/RMVPE seed windows from that same song, without reference annotations.
+
+On the exposed eight-song mixed study, a separate conservative note filter using
+these cues removed 39 of 2,785 predictions. The paired audit retained all 677
+matched identities and all previous correct-pitch coverage. F1 was 23.965% and
+gap false-note time was 11.890%, versus 23.771% and 12.025% for frozen V2.
+Stronger settings lost correct pitch coverage or matched notes and were rejected.
+
+Combining four frozen conservative primary filters removed 52 predictions while
+retaining the same matched identities and correct-pitch coverage. F1 was 24.021%
+and gap false-note time 11.850%. The library's `combine_retained_notes` validates
+that experts only retain exact baseline notes; callers must verify source and
+receipt bindings. This combination was constructed on exposed development data.
+It remains a small improvement, fails the unchanged development guard and is
+not enabled in the app. Both solo annotations remain unchanged.
+
 ### Spectral and within-song timbre study
 
 `vocal-spectral-evidence` extracts 20 audio-only features per native RMVPE time:
