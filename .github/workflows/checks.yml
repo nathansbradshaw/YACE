@@ -55,6 +55,13 @@ jobs:
           cargo clippy --locked --manifest-path tools/vocal-speech-probe/Cargo.toml --all-targets -- -D warnings
       - name: Test the archive converter
         run: cargo test --locked --manifest-path tools/larsnet-convert/Cargo.toml
+      - name: Verify singing note research without model downloads
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: |
+          cargo fmt --manifest-path tools/vocal-note-probe/Cargo.toml -- --check
+          cargo test --locked --manifest-path tools/vocal-note-probe/Cargo.toml
+          cargo clippy --locked --manifest-path tools/vocal-note-probe/Cargo.toml --all-targets -- -D warnings
       - name: Verify JDC research without model downloads
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/target
