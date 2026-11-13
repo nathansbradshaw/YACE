@@ -129,7 +129,8 @@ impl Proposal {
             "Solo changes are not supported in note proposals; share the saved project instead"
         );
         ensure!(
-            base.content.lane_ranges == edited.content.lane_ranges,
+            base.content.lane_ranges == edited.content.lane_ranges
+                && base.content.midi_lane_ranges == edited.content.midi_lane_ranges,
             "Lane range changes are not supported in note proposals; share the saved project instead"
         );
         ensure!(
@@ -183,6 +184,7 @@ fn power_fingerprint(project: &Project) -> Result<Option<String>> {
         && project.content.solos.is_empty()
         && project.content.drum_ranges.is_empty()
         && project.content.lane_ranges.is_empty()
+        && project.content.midi_lane_ranges.is_none()
     {
         return Ok(None);
     }
@@ -208,6 +210,10 @@ fn power_fingerprint(project: &Project) -> Result<Option<String>> {
         bytes
     } else {
         serde_json::to_vec(&(bytes, &project.content.lane_ranges))?
+    };
+    let bytes = match &project.content.midi_lane_ranges {
+        Some(ranges) => serde_json::to_vec(&(bytes, ranges))?,
+        None => bytes,
     };
     Ok(Some(format!("{:x}", Sha256::digest(bytes))))
 }

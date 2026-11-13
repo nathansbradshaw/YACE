@@ -18,8 +18,14 @@ mod decode;
 #[path = "game_midi/harmonies.rs"]
 mod harmonies;
 pub(crate) use harmonies::harmony_percussion_ranges;
+#[path = "game_midi/lane_ranges.rs"]
+mod lane_ranges;
 #[path = "game_midi/merge.rs"]
 mod merge;
+pub use lane_ranges::{
+    LaneState, edit_lane_ranges, export_lane_ranges, lane_state, read_lane_state,
+    validate as validate_lane_state,
+};
 #[path = "game_midi/percussion.rs"]
 mod percussion;
 pub use harmonies::{
@@ -597,7 +603,13 @@ fn lane_source_view(records: &[PhysicalLaneRange]) -> Result<crate::lane_ranges:
     use crate::lane_ranges::{self, Tracks};
     let mut result = Tracks::new();
     for record in records {
-        let (suffix, _) = decode::part(&record.owner).context("Missing lane-range owner")?;
+        let (suffix, difficulty) =
+            decode::part(&record.owner).context("Missing lane-range owner")?;
+        record.attributes.validate()?;
+        ensure!(
+            self::lane_ranges::record_scope(record, suffix, difficulty),
+            "Lane marker scope or attributes do not match its physical MIDI owner"
+        );
         let targets = match &record.scope {
             LaneScope::Expert => vec![format!("Expert{suffix}")],
             LaneScope::ExpertHard => vec![format!("Expert{suffix}"), format!("Hard{suffix}")],

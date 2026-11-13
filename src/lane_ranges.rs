@@ -35,6 +35,147 @@ pub struct Range {
 }
 pub type Tracks = BTreeMap<String, Vec<Range>>;
 
+#[derive(Clone, Default)]
+pub struct Source {
+    pub midi: bool,
+    pub physical: Option<crate::song_files::game_midi::LaneState>,
+    pub chart: BTreeMap<String, Option<Vec<Range>>>,
+}
+
+pub fn source(
+    store: &crate::editor::Store,
+    project: &crate::editor::Project,
+    chart: &Chart,
+) -> Source {
+    let midi = crate::song_files::game_midi::exists(&store.root.join("source"));
+    Source {
+        midi,
+        physical: midi
+            .then(|| {
+                crate::song_files::game_midi::lane_state(&store.root.join("source"))
+                    .ok()
+                    .flatten()
+            })
+            .flatten(),
+        chart: project
+            .content
+            .tracks
+            .keys()
+            .filter(|t| supports(t, Kind::Trill))
+            .map(|t| (t.clone(), imported(chart, t).ok()))
+            .collect(),
+    }
+}
+
+pub fn midi_owner(track: &str) -> Option<(String, crate::song_files::game_midi::LaneScope)> {
+    use crate::song_files::game_midi::LaneScope;
+    let (tier, suffix) = ["Expert", "Hard", "Medium", "Easy"]
+        .into_iter()
+        .find_map(|tier| track.strip_prefix(tier).map(|suffix| (tier, suffix)))?;
+    if suffix == "ProKeys" {
+        return Some((
+            format!(
+                "PART REAL_KEYS_{}",
+                match tier {
+                    "Expert" => "X",
+                    "Hard" => "H",
+                    "Medium" => "M",
+                    _ => "E",
+                }
+            ),
+            LaneScope::Dedicated {
+                track: track.into(),
+            },
+        ));
+    }
+    let owner = match suffix {
+        "Single" => "PART GUITAR",
+        "DoubleBass" => "PART BASS",
+        "DoubleRhythm" => "PART RHYTHM",
+        "DoubleGuitar" => "PART GUITAR COOP",
+        "Keyboard" => "PART KEYS",
+        "ProGuitar17" => "PART REAL_GUITAR",
+        "ProGuitar22" => "PART REAL_GUITAR_22",
+        "ProBass17" => "PART REAL_BASS",
+        "ProBass22" => "PART REAL_BASS_22",
+        _ => return None,
+    };
+    Some((
+        owner.into(),
+        match tier {
+            "Expert" => LaneScope::Expert,
+            "Hard" => LaneScope::ExpertHard,
+            _ => return None,
+        },
+    ))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisibleRange {
+    pub range: Range,
+    pub scope: Option<crate::song_files::game_midi::LaneScope>,
+}
+pub fn view(
+    project: &crate::editor::Project,
+    source: &Source,
+    track: &str,
+) -> Option<Vec<VisibleRange>> {
+    if source.midi {
+        let state = project
+            .content
+            .midi_lane_ranges
+            .as_ref()
+            .or(source.physical.as_ref())?;
+        let Some((owner, _)) = midi_owner(track) else {
+            return Some(Vec::new());
+        };
+        Some(
+            state
+                .ranges
+                .iter()
+                .filter(|r| {
+                    r.owner == owner
+                        && match &r.scope {
+                            crate::song_files::game_midi::LaneScope::Expert => {
+                                track.starts_with("Expert")
+                            }
+                            crate::song_files::game_midi::LaneScope::ExpertHard => {
+                                track.starts_with("Expert") || track.starts_with("Hard")
+                            }
+                            crate::song_files::game_midi::LaneScope::Dedicated { track: own } => {
+                                own == track
+                            }
+                        }
+                })
+                .map(|r| VisibleRange {
+                    range: r.range.clone(),
+                    scope: Some(r.scope.clone()),
+                })
+                .collect(),
+        )
+    } else {
+        project
+            .content
+            .lane_ranges
+            .get(track)
+            .cloned()
+            .map(Some)
+            .unwrap_or_else(|| {
+                source
+                    .chart
+                    .get(track)
+                    .cloned()
+                    .unwrap_or_else(|| Some(Vec::new()))
+            })
+            .map(|ranges| {
+                ranges
+                    .into_iter()
+                    .map(|range| VisibleRange { range, scope: None })
+                    .collect()
+            })
+    }
+}
+
 pub fn current(
     project: &crate::editor::Project,
     source: &Chart,
@@ -354,7 +495,7 @@ mod tests {
         assert!(current(&doc, &chart, "ExpertSingle").unwrap().is_empty());
     }
     #[test]
-    fn lane_range_midi_commands_refuse_until_scope_writer_is_available() {
+    fn lane_range_track_only_commands_refuse_midi_to_preserve_physical_scope() {
         let (_temp, store) = project(true);
         let before = std::fs::read(store.root.join("project.json")).unwrap();
         assert!(
@@ -370,7 +511,7 @@ mod tests {
             )
             .unwrap_err()
             .to_string()
-            .contains("MIDI lane-range authoring")
+            .contains("scoped MIDI lane controls")
         );
         assert_eq!(
             before,

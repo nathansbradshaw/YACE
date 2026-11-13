@@ -81,6 +81,7 @@ pub struct Studio {
     pub source_sync: Signal<Option<crate::sync_track::SyncTrack>>,
     pub source_star_power: Signal<crate::star_power::Source>,
     pub source_solos: Signal<crate::solos::Source>,
+    pub source_lane_ranges: Signal<crate::lane_ranges::Source>,
     pub source_drum_ranges: Signal<crate::drum_ranges::Source>,
     pub drum_activation_editable: Signal<bool>,
     pub star_power_open: Signal<bool>,
@@ -158,6 +159,7 @@ pub fn use_studio() -> Studio {
         source_sync: use_signal(|| None),
         source_star_power: use_signal(Default::default),
         source_solos: use_signal(Default::default),
+        source_lane_ranges: use_signal(Default::default),
         source_drum_ranges: use_signal(Default::default),
         drum_activation_editable: use_signal(|| false),
         star_power_open: use_signal(|| false),
@@ -1535,6 +1537,7 @@ impl Studio {
         self.source_sync.set(sync);
         self.source_star_power.set(star_power);
         self.source_solos.set(solos);
+        self.source_lane_ranges.set(store.source_lane_ranges(&doc).unwrap_or_default());
         self.source_drum_ranges.set(drum_ranges);
         self.drum_activation_editable.set(drum_activation);
         self.star_power_open.set(false);

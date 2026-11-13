@@ -13,6 +13,190 @@ use std::collections::BTreeSet;
 type Event = (u64, TrackEventKind<'static>);
 
 #[test]
+fn instrument_lane_ranges_commands_keep_history_late_tiers_export_and_reopen() {
+    use crate::lane_ranges::{Edit, Kind, Range};
+    let bytes = encode(vec![
+        track(
+            b"PART GUITAR",
+            vec![
+                (0, on(1, 96, 87)),
+                (120, off(1, 96, 25)),
+                (240, on(6, 126, 44)),
+                (480, on(6, 126, 0)),
+            ],
+        ),
+        track(
+            b"PART REAL_KEYS_H",
+            vec![
+                (0, on(3, 72, 95)),
+                (120, off(3, 72, 15)),
+                (960, on(5, 127, 42)),
+                (1200, off(5, 127, 17)),
+            ],
+        ),
+        track(b"VENUE", vec![(240, on(2, 60, 89)), (960, off(2, 60, 12))]),
+    ]);
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &bytes, 0);
+    let original = lane_state(&store.root.join("source")).unwrap().unwrap();
+    let old = original.ranges[0].range.clone();
+    let range = Range {
+        start: 360,
+        end: 720,
+        kind: Kind::Tremolo,
+    };
+    let edit = |edit| Action::EditMidiLaneRange {
+        owner: "PART GUITAR".into(),
+        scope: LaneScope::ExpertHard,
+        edit,
+    };
+    apply(
+        &store,
+        edit(Edit::Put {
+            previous: Some(old.clone()),
+            range: range.clone(),
+        }),
+    )
+    .unwrap();
+    let saved = fs::read(store.root.join("project.json")).unwrap();
+    assert!(apply(&store, edit(Edit::Remove { range: old })).is_err());
+    assert_eq!(saved, fs::read(store.root.join("project.json")).unwrap());
+    apply(&store, Action::Undo).unwrap();
+    assert!(store.load().unwrap().content.midi_lane_ranges.is_none());
+    apply(&store, Action::Redo).unwrap();
+    apply(
+        &store,
+        Action::CreateTrack {
+            track: "HardSingle".into(),
+        },
+    )
+    .unwrap();
+    let doc = store.load().unwrap();
+    let source = store.source_lane_ranges(&doc).unwrap();
+    assert_eq!(
+        crate::lane_ranges::view(&doc, &source, "HardSingle").unwrap()[0].range,
+        range
+    );
+    let output = root.path().join("authored");
+    let written = export(&store, &output);
+    assert_eq!(
+        decoded_lane_sources(&written).unwrap(),
+        doc.content.midi_lane_ranges.unwrap().ranges
+    );
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    assert!(reopened.load().unwrap().content.midi_lane_ranges.is_some());
+    assert_eq!(written, export(&reopened, &root.path().join("again")));
+    apply(&store, edit(Edit::Remove { range })).unwrap();
+    let clear = root.path().join("clear");
+    let cleared = export(&store, &clear);
+    let current = decoded_lane_sources(&cleared).unwrap();
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0].owner, "PART REAL_KEYS_H");
+    let reopened = Store::create(&clear, None, &root.path().join("clear-reopened")).unwrap();
+    let doc = reopened.load().unwrap();
+    let source = reopened.source_lane_ranges(&doc).unwrap();
+    assert!(
+        crate::lane_ranges::view(&doc, &source, "HardSingle")
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(cleared, export(&reopened, &root.path().join("clear-again")));
+    let scoped = crate::export_options::Options { tracks: Some(["ExpertSingle".to_string()].into_iter().collect()), ..Default::default() };
+    reopened
+        .export_with_options(
+            &doc,
+            &root.path().join("scoped"),
+            &Actor {
+                kind: ActorKind::Human,
+                name: "Lane regression".into(),
+            },
+            &scoped,
+        )
+        .unwrap();
+    assert!(
+        decoded_lane_sources(&fs::read(root.path().join("scoped/notes.mid")).unwrap())
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn instrument_lane_ranges_writer_preserves_scope_attributes_and_other_raw_tracks() {
+    let bytes = encode(vec![
+        track(
+            b"PART GUITAR",
+            vec![
+                (0, on(2, 96, 83)),
+                (120, off(2, 96, 27)),
+                (240, on(6, 126, 44)),
+                (480, on(6, 126, 0)),
+                (720, on(3, 127, 91)),
+                (960, off(3, 127, 23)),
+                (
+                    1020,
+                    TrackEventKind::Midi {
+                        channel: u4::new(4),
+                        message: MidiMessage::Controller {
+                            controller: u7::new(11),
+                            value: u7::new(71),
+                        },
+                    },
+                ),
+            ],
+        ),
+        track(
+            b"PART REAL_KEYS_H",
+            vec![
+                (240, on(5, 127, 42)),
+                (480, off(5, 127, 17)),
+                (1200, on(7, 126, 89)),
+            ],
+        ),
+        track(
+            b"PART DRUMS",
+            vec![(0, on(0, 126, 81)), (480, off(0, 126, 3))],
+        ),
+    ]);
+    let before = decoded_lane_sources(&bytes).unwrap();
+    assert_eq!(
+        lane_ranges::rewrite(&bytes, &before, &before).unwrap(),
+        bytes
+    );
+    let mut after = before.clone();
+    after[0].range.start = 360;
+    after[0].range.end = 600;
+    let output = lane_ranges::rewrite(&bytes, &before, &after).unwrap();
+    assert_eq!(decoded_lane_sources(&output).unwrap(), after);
+    let (_, old) = merge::chunks(&bytes, 3).unwrap();
+    let (_, new) = merge::chunks(&output, 3).unwrap();
+    assert_eq!(old[1], new[1]);
+    assert_eq!(old[2], new[2]);
+    let events = |b: &[u8]| {
+        let m = Smf::parse(b).unwrap();
+        merge::absolute(&m.tracks[0]).into_iter().filter(|(_,kind)|!matches!(kind,TrackEventKind::Midi {message:MidiMessage::NoteOn{key,..}|MidiMessage::NoteOff{key,..},..} if key.as_int()==126)).map(|(tick,kind)|(tick,format!("{kind:?}"))).collect::<Vec<_>>()
+    };
+    assert_eq!(events(&bytes), events(&output));
+    let clear = lane_ranges::rewrite(&bytes, &before, &[]).unwrap();
+    assert!(decoded_lane_sources(&clear).unwrap().is_empty());
+    let (_, cleared) = merge::chunks(&clear, 3).unwrap();
+    assert_eq!(old[2], cleared[2]);
+    let keys = Smf::parse(&clear).unwrap();
+    assert!(
+        merge::absolute(&keys.tracks[1])
+            .iter()
+            .any(|(tick, kind)| *tick == 1200 && *kind == on(7, 126, 89))
+    );
+    assert!(lane_ranges::rewrite(&output, &before, &after).is_err());
+    let mut invalid = after.clone();
+    invalid[0].scope = LaneScope::Expert;
+    assert!(lane_ranges::rewrite(&bytes, &before, &invalid).is_err());
+    let mut overlap = after.clone();
+    overlap[1].range.start = 400;
+    overlap[1].range.kind = crate::lane_ranges::Kind::Tremolo;
+    assert!(lane_ranges::rewrite(&bytes, &before, &overlap).is_err());
+}
+
+#[test]
 fn instrument_lane_ranges_read_physical_expert_hard_and_dedicated_keys_scopes() {
     use crate::lane_ranges::{Kind, Range};
     let guitar = track(

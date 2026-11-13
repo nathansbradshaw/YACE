@@ -80,6 +80,7 @@ fn fixture(root: &Path, generated: bool) -> Store {
         solos: Default::default(),
         drum_ranges: Default::default(),
         lane_ranges: Default::default(),
+        midi_lane_ranges: None,
         sync: None,
         sections: None,
         track_origins: Default::default(),
