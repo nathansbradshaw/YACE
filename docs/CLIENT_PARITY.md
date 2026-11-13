@@ -42,7 +42,9 @@ rounded musical positions, including unusual PPQ and tempo changes. Pointer
 positions retain their fractional tick until the musical grid is chosen.
 Dance uses its 48-row resolution consistently for the roll, placement,
 keyboard navigation and atomic selection quantization; finer subdivisions can
-share a representable row. Dense grid rendering is bounded.
+share a representable row. Dense grid rendering is bounded. Existing notes keep
+their timing when the grid changes; Dance quantization is an explicit selection
+edit.
 
 Actual static-browser checks at `994ff6e` reproduced and corrected a 7-PPQ
 triplet placement from tick 0 to tick 2. Custom five-step placement, dragging
