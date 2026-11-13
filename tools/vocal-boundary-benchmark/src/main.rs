@@ -1,4 +1,5 @@
 //! Source-excluded development study. Never a fresh validation or promotion.
+mod context;
 use anyhow::{Context, Result, ensure};
 use chart_engine::{
     vocal_benchmark::{self as vb, Reference},
@@ -432,6 +433,28 @@ fn main() -> Result<()> {
     let entries = manifest["recordings"]
         .as_array()
         .context("Missing recordings")?;
+    let game = entries.iter().any(|e| e.get("game_features").is_some());
+    let role = entries.iter().any(|e| e.get("role_features").is_some());
+    ensure!(
+        !game
+            || entries
+                .iter()
+                .all(|e| e["game_features"].as_str().is_some()),
+        "GAME context requires evidence for every source"
+    );
+    ensure!(
+        !role
+            || entries
+                .iter()
+                .all(|e| e["role_features"].as_str().is_some()),
+        "Lead/backing context requires evidence for every source"
+    );
+    let schema = match (role, game) {
+        (true, true) => "rmvpe_jdc_game_small_lead_backing_context_v6_148",
+        (true, false) => "rmvpe_jdc_lead_backing_context_v6_117",
+        (false, true) => "rmvpe_jdc_game_small_context_v5_116",
+        (false, false) => "rmvpe_jdc_relative_context_v2_85",
+    };
     ensure!(
         entries.len() == 16,
         "This exposed study requires 8 solo and 8 mixed recordings"
@@ -534,7 +557,28 @@ fn main() -> Result<()> {
                 }
             })
             .collect();
-        let x = features(&c);
+        let mut x = features(&c);
+        if game {
+            let hash = context::append_game(
+                &g,
+                &c,
+                &mut x,
+                Path::new(entry["game_features"].as_str().unwrap()),
+            )?;
+            input_pins.last_mut().unwrap()["game_features_sha256"] = json!(hash);
+        }
+        if role {
+            let hash = context::append_role(
+                &g,
+                &c,
+                &mut x,
+                Path::new(entry["role_features"].as_str().unwrap()),
+                input_pins.last().unwrap()["generation_sha256"]
+                    .as_str()
+                    .unwrap(),
+            )?;
+            input_pins.last_mut().unwrap()["role_features_sha256"] = json!(hash);
+        }
         data.push(Data {
             id: entry["id"].as_str().unwrap().into(),
             hash: g.audio_sha256.clone(),
@@ -572,7 +616,7 @@ fn main() -> Result<()> {
         let root = Path::new(parent);
         let receipt: Value = read(root.join("prediction-receipt.json"))?;
         ensure!(
-            receipt["feature_schema"] == "rmvpe_jdc_relative_context_v2_85",
+            receipt["feature_schema"] == schema,
             "Reused model feature schema differs; refit required"
         );
         let bytes = fs::read(root.join("models.json"))?;
@@ -680,7 +724,7 @@ fn main() -> Result<()> {
     fs::write(
         out.join("prediction-receipt.json"),
         serde_json::to_vec_pretty(
-            &json!({"status":"predictions_complete_before_scoring_pass","implementation_sha256":format!("{:x}",Sha256::digest([include_bytes!("main.rs").as_slice(),include_bytes!("lib.rs").as_slice()].concat())),"executable_sha256":format!("{:x}",Sha256::digest(fs::read(std::env::current_exe()?)?)),"models_sha256":format!("{:x}",Sha256::digest(fs::read(out.join("models.json"))?)),"training_protocol":if all_sources {"4fold source-excluded all16 exposed solo+mixed development, A1 note labels only"}else{"4fold source-excluded solo development, A1 note labels only; mixed train8solo without mixed refs"},"all_sources":all_sources,"feature_schema":"rmvpe_jdc_relative_context_v2_85","reused_models_from":args.get(4),"inputs":input_pins,"probability_outputs":probability_pins,"outputs":receipt}),
+            &json!({"status":"predictions_complete_before_scoring_pass","implementation_sha256":format!("{:x}",Sha256::digest([include_bytes!("main.rs").as_slice(),include_bytes!("lib.rs").as_slice(),include_bytes!("context.rs").as_slice()].concat())),"executable_sha256":format!("{:x}",Sha256::digest(fs::read(std::env::current_exe()?)?)),"models_sha256":format!("{:x}",Sha256::digest(fs::read(out.join("models.json"))?)),"training_protocol":if all_sources {"4fold source-excluded all16 exposed solo+mixed development, A1 note labels only"}else{"4fold source-excluded solo development, A1 note labels only; mixed train8solo without mixed refs"},"all_sources":all_sources,"feature_schema":schema,"reused_models_from":args.get(4),"inputs":input_pins,"probability_outputs":probability_pins,"outputs":receipt}),
         )?,
     )?;
     let mut rows = vec![];
