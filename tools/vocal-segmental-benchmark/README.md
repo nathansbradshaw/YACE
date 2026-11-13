@@ -1,13 +1,13 @@
-# Continuous vocal note segmentation comparison
+# Pitch-preserving vocal segmentation comparison
 
-Offline Rust research tool. Fits continuous RMVPE pitch before assigning MIDI
-notes, then compares the actual exported notes with independent references.
-It does not change production generation or edit a project.
+Offline Rust research tool. Replays source-bound RMVPE/JDC evidence and compares
+the actual exported MIDI notes with independent references. It does not change
+production generation or edit a project.
 
 ## Run
 
-Use the repository's existing Cargo target cache. No model downloads or Python
-runtime are needed; the inputs are previously extracted, source-bound evidence.
+Reuse the existing Cargo target cache. Inputs are already-extracted evidence;
+no models, audio downloads or Python runtime are needed.
 
 ```sh
 cargo test --locked --manifest-path tools/vocal-segmental-benchmark/Cargo.toml
@@ -16,14 +16,14 @@ cargo run --locked --release --manifest-path tools/vocal-segmental-benchmark/Car
 ```
 
 The output directory must not exist. Keep recordings, references, manifests and
-results outside public Git. Every recording ID must be unique. Manifest paths
-refer to existing local files, not audio to download:
+results outside public Git. Recording IDs must be unique. Manifest paths point
+to existing local files:
 
 ```json
 {
   "recordings": [{
     "id": "recording-01",
-    "group": "development",
+    "group": "exposed-development",
     "generation": "/private/generation.json",
     "jdc": "/private/source-bound-jdc.json",
     "references": ["/private/reference-A1.json", "/private/reference-A2.json"]
@@ -31,8 +31,8 @@ refer to existing local files, not audio to download:
 }
 ```
 
-Recipes are an array. This is an evaluated research configuration, **not an
-approved production setting**:
+Recipes are an array. This conservative configuration was evaluated, but is
+**not an approved production default**:
 
 ```json
 [{
@@ -40,77 +40,109 @@ approved production setting**:
   "singing": 0.95,
   "penalty": 0.08,
   "articulation_db": 3.0,
-  "baseline_mask": false
+  "baseline_mask": false,
+  "method": {
+    "mode": "guarded",
+    "maximum_residual": 0.55,
+    "maximum_excursion_seconds": 0.04
+  }
 }]
 ```
 
+## Decoder styles
+
+| Method | Behavior |
+| --- | --- |
+| `{"mode":"pitch_exact"}` | Keep every independently rounded source-cell pitch. Group adjacent identical labels; optionally split repeated pitches at envelope valleys. No smoothing or pitch-label changes. |
+| `{"mode":"guarded", ...}` | Use continuous PELT segmentation as a proposal. Change a source-cell label only within a short rounded-pitch run, and only when the proposed MIDI label stays within the configured residual of the original continuous observation. |
+| `{"mode":"legacy"}` | Original unconstrained duration-weighted PELT least-squares fitting. Preserved for reproduction, including its observed over-smoothing failure. |
+
+Omitting `method` retains `legacy` for old recipes. `maximum_residual` is in
+semitones, from 0.5 to 1.0. `maximum_excursion_seconds` is from 0 to 0.2 seconds.
+The conservative example permits only runs of at most 40 ms and residuals below
+55 cents. A centered semitone change cannot be flattened by that setting,
+including a 40 ms note. This is an explicit constraint, not a claim that all
+brief ambiguous changes are mistakes. Wider bounds trade pitch fidelity for
+more grouping.
+
+All methods preserve the original observations, accepted time cells and rests.
+`pitch_exact` additionally preserves every rounded MIDI label. Optional
+`articulation_db` is a separately tested envelope-valley heuristic; `null`
+disables it. A split of a repeated pitch does not add silence. The `penalty` is
+in squared-semitone seconds and affects PELT proposals; `pitch_exact` does not
+run the optimizer.
+
 `baseline_mask` additionally requires the original generation's accepted pitch
-mask. Otherwise, both experimental decoders use the same RMVPE confidence, RMS
-and JDC class-mass gates. `singing` uses one minus the non-singing class
-probability, or the sum of the legacy `note_band_mass` values; it does not use
-the separate JDC detection head. The RMS floor is 0.0015, matching the compared
-development experiment. No new activity classifier is trained here.
+mask. Otherwise all methods share the RMVPE confidence, RMS and JDC class-mass
+gates. `singing` uses one minus the non-singing class probability, or the sum of
+legacy `note_band_mass`; it does not use the separate JDC detection head. The
+RMS floor is 0.0015. No activity classifier is trained here.
 
-`penalty` is measured in squared-semitone seconds, so changing frame density
-does not change the intended objective. `articulation_db: null` disables the
-separately testable envelope-valley heuristic.
+## Verification
 
-## Method and checks
+- Bound input size and optimizer work; fail rather than hang on pathological
+  input. Check pruned PELT against an exhaustive dynamic-program oracle.
+- Audit every output against entire accepted cells and total accepted duration,
+  not just sample midpoints. Reject deleted cells, filled rests and invalid
+  notes. Save changed MIDI-cell count, changed duration and maximum residual as
+  `pitch_fidelity` in each prediction.
+- Exhaustively check 15,625 short pitch/rest patterns in `pitch_exact`. Test
+  actual short semitone changes, ambiguous blips, sustained alternative pitches,
+  doubled frame density, repeated-pitch articulation and invalid bounds.
+- Write and hash every prediction before reading references. The receipt records
+  input JSON hashes, implementation/executable identity and output hashes.
+- Score each annotation independently with the existing
+  `vocal_benchmark::score_exported_notes`; retain its original metrics. Check
+  MIDI export/import preserves pitch, note count and ticks. Require the matched
+  control and candidate to retain identical voiced coverage.
 
-- Preserve continuous observations and accepted source-time frame cells.
-- Within each uninterrupted voiced run, minimize duration-weighted squared
-  residuals plus a boundary penalty using PELT pruning. The fitted center is
-  continuous; MIDI rounding happens after segmentation.
-- Merge adjacent segments that round to the same MIDI pitch. Optional envelope
-  rearticulation can split a repeated pitch without adding a silence gap.
-- Retain all accepted time cells, including brief notes. Do not bridge rests.
-- Bound input size and cost evaluations; fail rather than hang on a pathological
-  quadratic case. Constant-pitch pruning is covered by a work-count test.
-- Save and hash every prediction before reading references. The receipt includes
-  input JSON hashes, implementation and executable identity, and output hashes.
-- Use the existing `vocal_benchmark::score_exported_notes` scorer, separately for
-  each annotation. Verify MIDI export/import preserves notes and ticks, and
-  require frame-rounding and segmental output to retain identical voiced
-  coverage on each reference clock.
+## November 13 protected-decoder replay
 
-The library tests compare pruned optimization with an exhaustive dynamic-program
-oracle, check frame-density invariance, short semitone changes, rests,
-sub-semitone modulation, repeated-pitch articulation, invalid input, and the work
-budget. The envelope heuristic and squared-error model are research hypotheses;
-the tests do not establish musical accuracy.
+The follow-up evaluated 93 exact/guarded/penalty settings and 54 additional
+center-protection variants on eight already-exposed solo excerpts and eight
+already-exposed mixed excerpts. The additional variants did not establish a
+winner and remain private research. These are development comparisons, not new
+held-out validation. Both four-recording subgroups are already exposed too.
 
-## November 13 development result
+Below, exact uses no envelope splitting; guarded uses the example recipe;
+legacy uses penalty 0.08 and articulation 3 dB. All three experimental styles
+share confidence 0.8, class mass 0.95, RMS floor and source clock. The saved High
+baseline has its own gates, so that column is an end-to-end comparison.
 
-Thirty-five settings were evaluated over eight already-exposed solo excerpts
-and eight already-exposed mixed excerpts. The following macro averages use the
-recipe above. The matched frame-rounding control reproduced the corresponding
-saved development metrics. Both decoders use the same singing gate and source
-clock; this isolates the effect of segmentation.
+| Measure | Pitch exact / matched control | Guarded | Old unconstrained | Existing High |
+| --- | ---: | ---: | ---: | ---: |
+| Solo exported MIDI vs performed-F0 frame accuracy | 82.44% | 82.07% | 64.11% | 61.99% |
+| Solo event F1, annotation A1 | 17.21% | 19.33% | 52.87% | 37.67% |
+| Solo event F1, annotation A2 | 10.45% | 13.24% | 44.14% | 33.81% |
+| Mixed exported MIDI vs reference-frame accuracy | 46.58% | 47.06% | 49.50% | 29.59% |
+| Mixed event F1 | 10.61% | 11.57% | 16.84% | 7.26% |
 
-| Measure | Matched frame rounding | Segmental candidate | Existing High baseline |
-| --- | ---: | ---: | ---: |
-| Solo exported-note pitch-frame accuracy | 82.44% | 64.11% | 61.99% |
-| Solo voiced recall | 87.87% | 87.87% | 73.84% |
-| Solo wrong pitch among detected voiced frames | 6.21% | 27.17% | 16.57% |
-| Solo false voicing | 3.25% | 3.25% | 5.55% |
-| Solo event-note F1, annotation A1 | 17.21% | 52.87% | 37.67% |
-| Solo event-note F1, annotation A2 | 10.45% | 44.14% | 33.81% |
-| Mixed exported-note pitch-frame accuracy | 46.58% | 49.50% | 29.59% |
-| Mixed voiced recall | 56.82% | 56.82% | 31.99% |
-| Mixed wrong pitch among detected voiced frames | 17.52% | 12.55% | 6.36% |
-| Mixed false voicing | 8.60% | 8.60% | 7.18% |
-| Mixed event-note F1 | 10.61% | 16.84% | 7.26% |
+Guarded improves event F1 for both solo annotations and mixed excerpts versus
+the matched control, while limiting the solo frame-accuracy loss to 0.375
+percentage points. It changes 192 of 8,674 accepted solo cells (1.916 seconds);
+the largest residual is 0.549512 semitones. Exact preserves all labels but
+envelope splitting alone did not improve both solo annotation sets. All styles
+retain identical accepted voicing: solo recall 87.87% / false voicing 3.25%,
+mixed recall 56.82% / false voicing 8.60% under the original reference-frame
+definitions. The old unconstrained configuration reproduces its saved metrics.
 
-**Not promoted.** Better note-event matching does not cancel the solo pitch-frame
-regression, and mixed wrong-pitch proportion remains worse than the established
-High baseline. Fixed MIDI notes also cannot reproduce all performed vibrato and
-slides, so event targets and continuous-F0 targets must stay separate. These
-development results demonstrate a tradeoff, not a passed held-out gate, listening
-acceptance, or improved production detector. Later experiments must freeze a
-candidate before using untouched singers; do not reuse these recordings as fresh
-validation.
+**No overall win or production promotion.** Guarded still loses solo event F1
+to High, and mixed false voicing remains worse (8.60% versus 7.18%). Increasing
+smoothing strength did not remove the tradeoff. Earlier 35-setting experiments,
+including gate and original-High-mask ablations, also failed promotion.
 
-The initial JDC 0.9 / RMVPE 0.03 comparison and original-High-mask ablations also
-failed to establish a universal improvement. Private prediction receipts retain
-their results. Do not select whichever annotation, recording group, metric, or
-penalty looks best after scoring and call it a win.
+The other agent's exposed anchored-cell experiment (activity threshold 0.6,
+voice-change cost 0, note-change cost 3.2, High-anchor weight 2) also beats this
+conservative style on event F1: solo A1 35.50%, A2 27.57%, mixed 13.85%. It uses
+a different activity model and gates, so this is an end-to-end snapshot, not an
+isolated segmentation comparison. That experiment also reports failure of its
+note-target acceptance gates. Neither result establishes a production winner.
+
+Performed F0 and annotated musical notes are different reference objects. The
+frame diagnostic above measures how exported fixed MIDI pitches follow the
+performed contour; it is not annotated-note pitch accuracy. The event F1 uses
+the annotated note events. Raw continuous observations remain unchanged in
+every mode. Use separately labeled note-interval diagnostics as well when
+assessing MIDI pitch/presence; never silently replace one reference basis with
+the other or select whichever looks best. Fresh singers, mixed-song checks and
+listening acceptance are still needed before choosing a production style.
