@@ -4,6 +4,10 @@
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
+#[path = "drum_mix_midi.rs"]
+mod midi;
+pub use midi::{State, hash, import_midi, rewrite_midi};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Setting {
@@ -284,6 +288,9 @@ pub fn edited(events: &[Event], difficulty: u8, edit: &Edit) -> Result<Vec<Event
     Ok(next)
 }
 
+#[cfg(test)]
+#[path = "drum_mix_midi_tests.rs"]
+mod midi_tests;
 #[cfg(test)]
 #[path = "drum_mix_tests.rs"]
 mod tests;
