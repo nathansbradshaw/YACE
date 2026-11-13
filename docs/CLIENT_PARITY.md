@@ -56,8 +56,20 @@ checks placed and quantized onto row 10, restored row 13 with Undo, redid row 10
 advanced one row with a fine-grid keyboard step and reopened its complete backup.
 The SM export retained the other difficulty, custom metadata and original audio.
 Four grid, four timeline and 21 Dance regressions cover the underlying rules.
-Native GUI, hosted grid qualification, other platforms and musical/game
-acceptance remain open.
+The hosted `994ff6e` runtime passed the same 7-PPQ chart-only placement, custom
+and fine grids, drag/resize, invalid-input, export and restart workflows. Its
+22,952,579-byte WASM matched the local SHA-256
+`43eb2231794aa176ba87624ec3a46cbe231da9a39509d7c11d2646772533db02`.
+Before/after-restart backups verified eight/nine files (the export report adds
+one), five Undo checkpoints and byte-identical revision-12 project JSON:
+`1988dfd9134e80770044924211a096ba488b83479861fdd8415a6a339d863a7f`.
+Post-restart Undo/Redo retained the fine note and resized forced note. Hosted
+chart-only Dance also passed custom placement/quantization, exact Undo/Redo,
+fine keyboard navigation, SM export and complete-backup reopen; independent
+audits retained the other difficulty and unknown metadata. A simfile declaring
+an absent recording refused import while retaining the current project; an
+explicitly chart-only simfile opened normally. Native GUI, broader platform
+and fault coverage, and musical/game acceptance remain open.
 
 Vocal overdrive now has shared native/static controls for independent Lead and
 shared HARM1 power ranges. HARM1 supplies power to HARM2 and HARM3 in the target
