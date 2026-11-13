@@ -5,6 +5,29 @@ before additional product features ship. Use one source revision and the same
 full-length song project for acceptance. Sharing Rust modules establishes shared
 rules; it does not establish that both applications expose working controls.
 
+Vocal overdrive now has shared native/static controls for independent Lead and
+shared HARM1 power ranges. HARM1 supplies power to HARM2 and HARM3 in the target
+parser; their original opaque power events remain untouched. Tick editing,
+timeline markers, current-loop bounds and witnessed Undo/Redo use a source-bound
+MIDI writer that preserves channel, onset velocity and note-off encoding.
+Unsupported or ambiguous originals remain read-only. Explicit clears and export
+omissions survive reopen; re-authoring an omitted singer does not restore its
+archived power ranges.
+
+Actual static-browser checks at `a0701d5` moved Lead 480–960 to 720–1200, added
+1920–2400, moved shared harmony 960–1440 to 1080–1560 and added 2880–3360.
+A stale Apply after Undo refused while retaining its draft; Redo restored the
+range. Removing all four ranges, Undo/Redo, export and actual song-ZIP reopen
+retained the explicit clear. An independent MIDI parser checked exact edges and
+attributes, unchanged singer notes/lyrics/scoring/percussion, opaque HARM2/3
+controls, all other raw tracks and the original recording. The complete browser
+backup restored 18 verified files and four Undo checkpoints in a pinned native
+CLI; native exports and Undo/Redo matched the browser MIDI/WAV byte-for-byte.
+Nine focused core/project regressions include chart-origin creation, marker-only
+owners, export/reopen, clear and omission/re-authoring. Native GUI, hosted
+qualification, game/controller, listening, selected-note bounds and broader
+fault coverage remain open; shared source and CLI checks do not close them.
+
 Instrument trill and tremolo editing now has shared inspector controls and a
 timeline lane. Chart sources keep independent difficulty ranges. Imported MIDI
 exposes Expert and Expert+Hard scopes separately; Pro Keys trills belong to
