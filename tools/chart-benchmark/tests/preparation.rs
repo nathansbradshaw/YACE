@@ -42,12 +42,13 @@ fn fixture(root: &Path) {
         resolution: 480,
         source: "Synthetic text fixture".into(),
         phrases: vec![VocalPhrase {
- midi: None,
+            midi: None,
             start: 0,
             end: 10,
             player: 1,
         }],
         notes: vec![VocalNote {
+            midi: None,
             start: 0,
             end: 10,
             tone: VocalTone::Pitched { midi: 60 },

@@ -88,7 +88,7 @@ fn vocal_stage_failure_retains_source_bound_band_artifact_and_never_scores_parti
         resolution: timing.resolution,
         source: "Synthetic fixture".into(),
         phrases: vec![VocalPhrase {
- midi: None,
+            midi: None,
             start: 192,
             end: 384,
             player: 1,
