@@ -26,6 +26,23 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    /// Research only: threshold RMVPE voicing and retain every accepted cell.
+    /// Does not change High accuracy or any open project.
+    NoteCells {
+        #[arg(long)]
+        baseline: PathBuf,
+        #[arg(long)]
+        audio: PathBuf,
+        #[arg(long)]
+        vocal_stem: PathBuf,
+        /// Explicit uncalibrated salience cutoff; no quality preset is implied.
+        #[arg(long)]
+        minimum_confidence: f32,
+        #[arg(long)]
+        minimum_rms: f64,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Attach a source-bound draft only to a project with no authored vocals.
     Attach {
         #[arg(long)]
@@ -152,16 +169,89 @@ fn write(path: &Path, value: &impl serde::Serialize) -> Result<()> {
     Ok(())
 }
 fn binding(audio: &Path, stem: &Path) -> Result<StemAlignment> {
+    Ok(binding_clock(audio, stem)?.0)
+}
+fn binding_clock(audio: &Path, stem: &Path) -> Result<(StemAlignment, f64)> {
     let source = models::decode(audio, 44100, 2)?;
     let voice = models::decode(stem, 44100, 2)?;
     ensure!(
         !source.is_empty() && source.len() == voice.len(),
         "Research source and stem must have the identical full recording clock"
     );
-    Ok(StemAlignment{audio_sha256:models::hash_file(audio)?,stem_sha256:models::hash_file(stem)?,evidence:"Explicit research input pair; equal decoded clocks checked; alignment assertion is caller-owned, not inferred from duration".into()})
+    Ok((StemAlignment{audio_sha256:models::hash_file(audio)?,stem_sha256:models::hash_file(stem)?,evidence:"Explicit research input pair; equal decoded clocks checked; alignment assertion is caller-owned, not inferred from duration".into()},source.len() as f64/88200.))
 }
 fn main() -> Result<()> {
     match Args::parse().command {
+        Command::NoteCells {
+            baseline,
+            audio,
+            vocal_stem,
+            minimum_confidence,
+            minimum_rms,
+            output,
+        } => {
+            use chart_engine::vocal_acoustic_draft::{self, Settings};
+            let parent_hash = models::hash_file(&baseline)?;
+            let base: vocal_generation::Generation = serde_json::from_slice(&fs::read(&baseline)?)?;
+            let settings = Settings {
+                minimum_confidence,
+                minimum_rms,
+            };
+            settings.validate()?;
+            ensure!(!output.exists(), "Use a new research output directory");
+            let (source, duration) = binding_clock(&audio, &vocal_stem)?;
+            ensure!(
+                source.audio_sha256 == base.audio_sha256
+                    && source.stem_sha256 == base.vocal_stem_sha256
+                    && (duration - base.duration_seconds).abs() <= 1. / 16000.,
+                "Research observations belong to a different audio source or vocal stem"
+            );
+            let draft = vocal_acoustic_draft::reconstruct(&base, settings, &|| false)?;
+            // Build and round-trip the playable MIDI before publishing files.
+            let midi = draft
+                .chart
+                .as_ref()
+                .map(|chart| {
+                    let clock = draft.timing.as_ref().context("Missing MIDI clock")?;
+                    let empty = chart_engine::midi::new_midi(clock, &Default::default())?;
+                    let midi = chart_engine::vocals::append_midi(&empty, chart)?;
+                    let read = chart_engine::vocals::import_midi(&midi)?;
+                    ensure!(
+                        read.notes
+                            .iter()
+                            .map(|n| (n.start, n.end, &n.tone, &n.lyric))
+                            .eq(chart
+                                .notes
+                                .iter()
+                                .map(|n| (n.start, n.end, &n.tone, &n.lyric)))
+                            && read.phrases == chart.phrases,
+                        "Acoustic MIDI round-trip changed notes"
+                    );
+                    Ok::<_, anyhow::Error>(midi)
+                })
+                .transpose()?;
+            ensure!(
+                models::hash_file(&audio)? == base.audio_sha256
+                    && models::hash_file(&vocal_stem)? == base.vocal_stem_sha256
+                    && models::hash_file(&baseline)? == parent_hash,
+                "Audio changed during reconstruction"
+            );
+            fs::create_dir(&output)?;
+            write(&output.join("generation.json"), &draft)?;
+            if let Some(midi) = midi {
+                fs::write(output.join("notes.mid"), midi)?;
+            }
+            write(
+                &output.join("recipe.json"),
+                &json!({"experimental":true,"promotion_eligible":false,
+                "baseline_sha256":parent_hash,"settings":settings,
+                "implementation_sha256":vocal_acoustic_draft::implementation_hash(),
+                "algorithm":vocal_generation::NOTE_CELLS_ALGORITHM,
+                "raw_pitch_retained":draft.rmvpe_pitch.as_ref().map(serde_json::to_value).transpose()? == base.rmvpe_pitch.as_ref().map(serde_json::to_value).transpose()?,
+                "midi_round_trip_checked":draft.chart.is_some(),"recording_clock_unchanged":true,
+                "quality_gate_passed":false}),
+            )?;
+        }
         Command::Attach {
             project,
             generation,

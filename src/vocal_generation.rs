@@ -20,6 +20,7 @@ const HOP: usize = 220;
 mod acoustics;
 pub const ALGORITHM: &str = "rust-yin-mcleod-v10; acoustic-recovery-and-note-boundaries-independent-of-lyrics; 22050Hz; centered2048; hop220; consensus0.55semitone; local-energy; anchored-YIN-period0.85; neural-YIN-score0.6-margin0.15-period0.75; SwiftF0-score0.8-stable3of5-period0.75; median5; high-accuracy-source-frame-cells-and-touching-same-pitch-subminimum-attack-coalescing; flagged-alternatives; no-transposition; source-time";
 pub const COMPARISON_ALGORITHM: &str = "rust-vocal-v10; DSP-supported-voicing; RMVPE-e6d0c1a; mel-HTK128-Hann1024-hop160-reflect; 30s-context1s; local-mean9bins-salience0.03; salience-weighted-note-centres49states-cost3.2-residual-cap4-floor0.1; model-context-at-most8DSP-hops-with-voicing-mask-restored; assembly-v3-source-frame-cells-touching-same-pitch-subminimum-attacks-and-lyric-independent-boundaries; source-time; no-voicing-deletion; no-key-or-scale-or-octave-folding";
+pub const NOTE_CELLS_ALGORITHM: &str = "rust-acoustic-note-cells-v1;immutable-input;nearest-integer-MIDI-at-output-only;source-cell-midpoints;no-smoothing;no-minimum-duration-pruning;short-notes-flagged;no-gap-fill;no-lyrics-in-boundaries;experimental-not-promoted";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(not(target_arch = "wasm32"), derive(clap::ValueEnum))]
@@ -1164,6 +1165,41 @@ pub fn assemble_notes(
     policy: &Policy,
     issues: &mut Vec<Issue>,
 ) -> Result<NoteAssembly> {
+    assemble_note_policy(frames, duration, timing, words, policy, issues, false)
+}
+
+/// Research constructor for an already accepted acoustic contour. Every voiced
+/// source cell reaches the chart, including short runs. It performs no pitch
+/// smoothing or minimum-duration pruning. Callers must decide voicing and note
+/// centres separately; this is not a newly promoted detection mode.
+///
+/// The input contour is immutable. Integer MIDI quantization happens only in
+/// the returned chart, and the ordinary review map flags short/recovered notes.
+pub fn assemble_note_cells(
+    frames: &[PitchFrame],
+    duration: f64,
+    timing: &TempoMap,
+    words: Option<&WordTimings>,
+    policy: &Policy,
+    issues: &mut Vec<Issue>,
+) -> Result<NoteAssembly> {
+    ensure!(
+        policy.analysis_mode == AnalysisMode::HighAccuracy,
+        "Complete acoustic cells require the explicit High accuracy source clock"
+    );
+    assemble_note_policy(frames, duration, timing, words, policy, issues, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assemble_note_policy(
+    frames: &[PitchFrame],
+    duration: f64,
+    timing: &TempoMap,
+    words: Option<&WordTimings>,
+    policy: &Policy,
+    issues: &mut Vec<Issue>,
+    complete: bool,
+) -> Result<NoteAssembly> {
     policy.validate()?;
     TempoMap::new(timing.resolution, timing.offset, timing.tempos.clone())?;
     ensure!(
@@ -1188,14 +1224,51 @@ pub fn assemble_notes(
     if let Some(words) = words {
         words.validate()?;
     }
-    let spans = pitch_spans(
-        frames,
-        duration,
-        policy.minimum_note_seconds,
-        policy.analysis_mode,
-    );
+    let spans = if complete {
+        pitch_spans_policy(
+            frames,
+            duration,
+            policy.minimum_note_seconds,
+            policy.analysis_mode,
+            true,
+        )
+    } else {
+        pitch_spans(
+            frames,
+            duration,
+            policy.minimum_note_seconds,
+            policy.analysis_mode,
+        )
+    };
     let acoustic_boundaries = policy.analysis_mode == AnalysisMode::HighAccuracy;
     let mut chart = chart_from_spans(&spans, frames, None, timing, policy, issues)?;
+    if complete {
+        if let Some(chart) = &mut chart {
+            chart.source = format!(
+                "Experimental acoustic note construction; {NOTE_CELLS_ALGORITHM}; voicing is caller-owned; review required"
+            );
+        }
+        // Rounding to the project's tick grid must not silently discard short
+        // accepted cells. Ask for a finer grid instead of stretching them into
+        // unsupported audio or manufacturing overlaps.
+        ensure!(
+            spans.iter().all(|s| timing
+                .tick(s.start_seconds)
+                .zip(timing.tick(s.end_seconds))
+                .is_some_and(|(a, b)| a < b)),
+            "The MIDI timing grid cannot represent an accepted acoustic note; use a finer resolution"
+        );
+        ensure!(
+            spans
+                .windows(2)
+                .all(|w| w[1].start_seconds - w[0].end_seconds <= 0.000001
+                    || timing
+                        .tick(w[0].end_seconds)
+                        .zip(timing.tick(w[1].start_seconds))
+                        .is_some_and(|(a, b)| a < b)),
+            "The MIDI timing grid cannot preserve an acoustic gap; use a finer resolution"
+        );
+    }
     if let Some(chart) = &mut chart {
         issues.retain(|issue| issue.reason != Reason::MissingLyrics);
         acoustics::attach_words(chart, words, timing, issues);
@@ -1268,13 +1341,26 @@ fn pitch_spans(
     minimum_note_seconds: f64,
     mode: AnalysisMode,
 ) -> Vec<PitchedSpan> {
+    pitch_spans_policy(frames, duration, minimum_note_seconds, mode, false)
+}
+
+fn pitch_spans_policy(
+    frames: &[PitchFrame],
+    duration: f64,
+    minimum_note_seconds: f64,
+    mode: AnalysisMode,
+    complete: bool,
+) -> Vec<PitchedSpan> {
     // Smooth voiced frames to reduce vibrato and isolated pitch jumps.
     // Leave breaths and unvoiced frames empty.
     let medians: Vec<_> = frames
         .iter()
         .enumerate()
         .map(|(index, frame)| {
-            frame.midi.map(|_| {
+            frame.midi.map(|value| {
+                if complete {
+                    return value;
+                }
                 let mut pitches: Vec<_> = frames
                     [index.saturating_sub(2)..(index + 3).min(frames.len())]
                     .iter()
@@ -1291,7 +1377,7 @@ fn pitch_spans(
     let mut smoothed = Vec::with_capacity(medians.len());
     for value in medians {
         let pitch = value.map(|value| match last {
-            Some(previous) if (value - previous as f64).abs() < 0.70 => previous,
+            Some(previous) if !complete && (value - previous as f64).abs() < 0.70 => previous,
             _ => value.round() as u8,
         });
         last = pitch;
@@ -1345,6 +1431,7 @@ fn pitch_spans(
                         0.000001
                     }
             && !(mode == AnalysisMode::HighAccuracy
+                && !complete
                 && acoustic_attack(frames, index, previous.start_seconds))
         {
             previous.end_seconds = end;
@@ -1358,7 +1445,7 @@ fn pitch_spans(
             clarity: frame.clarity,
         });
     }
-    if mode == AnalysisMode::HighAccuracy {
+    if mode == AnalysisMode::HighAccuracy && !complete {
         // An energy dip proposes a repeated-note boundary, not a reason to
         // erase accepted pitch. If either side is too short to form a note,
         // preserve the continuous same-pitch run instead of discarding it.
@@ -1380,7 +1467,10 @@ fn pitch_spans(
         }
         spans = complete;
     }
-    spans.retain(|n| n.end_seconds - n.start_seconds >= minimum_note_seconds);
+    spans.retain(|n| {
+        n.end_seconds > n.start_seconds
+            && (complete || n.end_seconds - n.start_seconds >= minimum_note_seconds)
+    });
     spans
 }
 
@@ -1503,6 +1593,9 @@ fn chart_from_spans(
     issues: &mut Vec<Issue>,
 ) -> Result<Option<VocalChart>> {
     let mut proposals: Vec<(VocalNote, Option<usize>, f64, f64)> = Vec::new();
+    let disjoint = spans
+        .windows(2)
+        .all(|w| w[0].end_seconds <= w[1].start_seconds);
     if let Some(words) = words {
         for (word_index, word) in words.words.iter().enumerate() {
             let (Some(start), Some(end), Some(text)) = (word.start, word.end, word.text.as_ref())
@@ -1599,14 +1692,18 @@ fn chart_from_spans(
         }
     }
     for span in spans {
-        let mut covered: Vec<_> = proposals
-            .iter()
-            .filter_map(|p| {
-                let start = p.2.max(span.start_seconds);
-                let end = p.3.min(span.end_seconds);
-                (start < end).then_some((start, end))
-            })
-            .collect();
+        let mut covered: Vec<_> = if words.is_none() && disjoint {
+            Vec::new()
+        } else {
+            proposals
+                .iter()
+                .filter_map(|p| {
+                    let start = p.2.max(span.start_seconds);
+                    let end = p.3.min(span.end_seconds);
+                    (start < end).then_some((start, end))
+                })
+                .collect()
+        };
         covered.sort_by(|a, b| a.0.total_cmp(&b.0));
         let mut cursor = span.start_seconds;
         for (start, end) in covered
@@ -2778,6 +2875,85 @@ mod coverage_probes {
             })
             .collect()
     }
+    #[test]
+    fn complete_cells_preserve_every_accepted_pitch_and_real_gap() {
+        let map = TempoMap::constant(120.).unwrap();
+        let policy = Policy {
+            analysis_mode: AnalysisMode::HighAccuracy,
+            ..Policy::default()
+        };
+        // Exhaustively cover short notes, changing pitches and rests. No note
+        // may disappear just because its accepted run is below 80 ms.
+        for pattern in 0u32..729 {
+            let mut digits = pattern;
+            let mut input = frames();
+            input.truncate(6);
+            for (i, f) in input.iter_mut().enumerate() {
+                f.time_seconds = 0.005 + i as f64 * 0.01;
+                f.midi = match digits % 3 {
+                    0 => None,
+                    1 => Some(60.49),
+                    _ => Some(60.51),
+                };
+                digits /= 3;
+            }
+            let before = serde_json::to_vec(&input).unwrap();
+            let result =
+                assemble_note_cells(&input, 0.06, &map, None, &policy, &mut vec![]).unwrap();
+            assert_eq!(
+                before,
+                serde_json::to_vec(&input).unwrap(),
+                "Raw F0 was changed"
+            );
+            for frame in &input {
+                let at = map.tick(frame.time_seconds).unwrap();
+                let found = result
+                    .chart
+                    .as_ref()
+                    .and_then(|c| c.notes.iter().find(|n| n.start <= at && at < n.end));
+                assert_eq!(
+                    found.map(|n| n.tone.clone()),
+                    frame.midi.map(|m| VocalTone::Pitched {
+                        midi: m.round() as u8
+                    })
+                );
+            }
+            assert!(result.note_evidence.iter().all(|n| n.uncertain));
+        }
+    }
+
+    #[test]
+    fn complete_cells_never_stretch_over_missing_samples_or_drop_a_tick() {
+        let policy = Policy {
+            analysis_mode: AnalysisMode::HighAccuracy,
+            ..Policy::default()
+        };
+        let map = TempoMap::constant(120.).unwrap();
+        let mut input = frames();
+        input.truncate(4);
+        for (f, t) in input.iter_mut().zip([0.005, 0.015, 0.065, 0.075]) {
+            f.time_seconds = t;
+        }
+        let result = assemble_note_cells(&input, 0.08, &map, None, &policy, &mut vec![]).unwrap();
+        let notes = &result.chart.unwrap().notes;
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0].end, map.tick(0.02).unwrap());
+        assert_eq!(notes[1].start, map.tick(0.06).unwrap());
+        let coarse = TempoMap::new(1, 0., map.tempos.clone()).unwrap();
+        assert!(assemble_note_cells(&input, 0.08, &coarse, None, &policy, &mut vec![]).is_err());
+        let mut input = frames();
+        input.truncate(20);
+        for (i, frame) in input.iter_mut().enumerate() {
+            frame.time_seconds = 0.005 + i as f64 * 0.01;
+        }
+        input[10].midi = None;
+        let coarse_gap = TempoMap::new(20, 0., map.tempos.clone()).unwrap();
+        assert!(
+            assemble_note_cells(&input, 0.2, &coarse_gap, None, &policy, &mut vec![]).is_err(),
+            "Representable notes must not hide an unrepresentable rest between them"
+        );
+    }
+
     #[test]
     fn acoustic_note_cells_follow_the_actual_detector_clock() {
         for step in [0.010, 0.016, 512. / 44100.] {

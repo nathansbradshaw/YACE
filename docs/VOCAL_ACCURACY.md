@@ -669,3 +669,51 @@ Native and browser clients use the same planner, physical support, decoder and e
 On four already-exposed development recordings using the pinned ONNX Runtime 1.24.4 research build for comparison, applying all initial review proposals raised exported-note pitch accuracy from 28.49% to 35.92% and voiced recall from 30.27% to 38.05%. Wrong pitches among detected voiced frames fell from 6.39% to 6.11%; false voicing rose from 3.76% to 4.71%. The reduction in missing-or-wrong pitch frames was approximately 10.40%, below the 20% gate. These figures predate the short-input context-identity correction; they do not establish the corrected recipe's accuracy. They are development results, not held-out promotion or native/browser listening/game acceptance. Private source recordings, references and detailed reports remain outside Git.
 
 A complete 171-second project check with the existing native release runtime performed 618 scans in 131 seconds at 1.29 GB maximum resident memory. Its scan budget was reached and remaining sections stayed flagged. The separate research runtime used substantially more memory and remains experimental; its resource figures cannot be substituted for the installed runtime. Recycling sessions preserved the complete repair report on a separate full-song regression, apart from implementation/provenance hashes.
+
+## Separate voicing from note construction
+
+`vocal_generation::assemble_note_cells` is an experimental shared Rust constructor
+for an **already accepted** contour. It rounds pitches only for MIDI, never smooths
+the input, never drops a short accepted run, and preserves breaths and skipped
+samples. Short notes retain review evidence. A MIDI clock too coarse to represent
+a note or gap fails explicitly. The existing production constructor is unchanged.
+
+`vocal_acoustic_draft::reconstruct` provides a source-bound RMVPE threshold
+diagnostic. It retains the complete original continuous RMVPE observations,
+selects voicing separately, then calls that constructor. It does not use words to
+accept pitches. To reproduce a diagnostic without editing a project:
+
+```sh
+cargo run --release --no-default-features --features vocal-alignment \
+  --bin vocal-research -- note-cells \
+  --baseline /private/path/generation.json \
+  --audio /private/path/source.wav --vocal-stem /private/path/vocals.wav \
+  --minimum-confidence 0.8 --minimum-rms 0.0015 \
+  --output /private/path/new-diagnostic
+```
+
+The numeric values above reproduce a development experiment, not a quality
+preset. Output includes a generation report, playable MIDI when pitches exist,
+and a recipe with source/implementation witnesses and a MIDI round-trip check.
+No model, runtime, chart, or live quality mode is silently replaced.
+
+On eight **already exposed isolated-singing clips**, unrounded RMVPE observations
+at confidence 0.03 had 97.79% pitch accuracy during annotated singing, 99.88%
+voiced recall, and 29.61% false voicing during annotated unvoiced frames. This is
+not 97.79% correct MIDI. With confidence 0.8 and every accepted cell retained,
+exported MIDI frame accuracy rose from 61.99% to 87.33%, recall from 73.84% to
+93.17%, wrong-pitch proportion fell from 16.57% to 6.33%, and false voicing from
+5.55% to 5.13%. However, naive frame rounding produced excessive fragmentation:
+note-event precision was only 11.44%. The same threshold on eight exposed mixed
+recordings also failed the wrong-pitch and false-voicing requirements. These are
+development diagnostics; **neither recipe is promoted**.
+
+Research is being tested at the appropriate stage. [Tony's note-transcription
+method](https://www.tenor-conference.org/proceedings/2015/04-Mauch-Tony.pdf)
+separates continuous-pitch tracking from attack/stable/silent note states.
+[GAME 1.0.3](https://github.com/openvpi/GAME/blob/v1.0.3/ONNX.md) separately predicts
+boundaries, note presence and pitch. Its pinned default ONNX pipeline was run in
+Rust in private development; its extra unvoiced-section notes failed this gate.
+GAME weights declare CC BY-NC-SA 4.0 and were not bundled or integrated. Further
+note grouping must be tested for fragmentation and attacks as well as frame
+accuracy. Detailed reports, references and recordings stay outside public Git.
