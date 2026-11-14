@@ -191,6 +191,8 @@ pub struct Content {
     pub text_events: Option<crate::text_events::Document>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub midi_text_events: Option<crate::text_events::Document>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub venue_events: Option<crate::venue::Document>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub track_origins: BTreeMap<String, crate::parts::Origin>,
     pub tracks: BTreeMap<String, Vec<EditorNote>>,
@@ -335,6 +337,9 @@ pub enum Action {
     },
     EditTextEvent {
         edit: crate::text_events::Edit,
+    },
+    EditVenue {
+        edit: crate::venue::Edit,
     },
     CreateTrack {
         track: String,
@@ -1065,6 +1070,13 @@ impl Store {
             Ok(None)
         }
     }
+    pub fn venue_events(&self, project: &Project) -> Result<crate::venue::Document> {
+        crate::song_files::game_midi::venue_events(
+            &self.root.join("source"),
+            project,
+            &self.source_chart(project)?.chart,
+        )
+    }
     pub fn source_sync(&self, project: &Project) -> Result<crate::sync_track::SyncTrack> {
         crate::sync_track::imported(&self.source_chart(project)?.chart)
     }
@@ -1480,6 +1492,7 @@ impl Store {
                 midi_text_events: crate::song_files::game_midi::read_text_events(
                     &self.root.join("source"),
                 )?,
+                venue_events: crate::song_files::game_midi::read_venue(&self.root.join("source"))?,
                 track_origins: Default::default(),
                 tracks,
                 vocals: {
@@ -1585,6 +1598,7 @@ impl Store {
             &doc,
             &chart,
         )?;
+        crate::song_files::game_midi::validate_venue(&self.root.join("source"), &doc, &chart)?;
         crate::difficulty_links::validate(&doc.content, &doc.timing(self)?, doc.duration)?;
         crate::reanalysis::validate_sources(&doc.content, doc.duration)?;
         #[cfg(target_arch = "wasm32")]
@@ -1959,6 +1973,7 @@ impl Store {
                 | Action::CreateTrack { .. }
                 | Action::EditSection { .. }
                 | Action::EditTextEvent { .. }
+                | Action::EditVenue { .. }
                 | Action::EditSync { .. }
                 | Action::EditStarPower { .. }
                 | Action::EditSolo { .. }
@@ -2171,6 +2186,15 @@ impl Store {
                 } else {
                     crate::text_events::apply(&mut doc, &source, edit)?;
                 }
+            }
+            Action::EditVenue { edit } => {
+                let source = self.source_chart(&doc)?;
+                crate::song_files::game_midi::edit_venue(
+                    &self.root.join("source"),
+                    &mut doc,
+                    &source,
+                    edit,
+                )?;
             }
             Action::CreateTrack { track } => {
                 let legacy_name = ["Easy", "Medium", "Hard", "Expert"]
@@ -2929,6 +2953,11 @@ impl Store {
                 &doc,
                 &self.source_chart(&doc)?.chart,
             )?;
+            crate::song_files::game_midi::validate_venue(
+                &self.root.join("source"),
+                &doc,
+                &self.source_chart(&doc)?.chart,
+            )?;
             crate::difficulty_links::validate(&doc.content, &timing, doc.duration)?;
             crate::reanalysis::validate_sources(&doc.content, doc.duration)?;
         }
@@ -3028,6 +3057,20 @@ impl Store {
             .midi_text_events
             .as_ref()
             .or(inherited_midi_text.as_ref());
+        let inherited_venue = if doc.content.venue_events.is_none() {
+            crate::song_files::game_midi::read_venue(&self.root.join("source"))?
+        } else {
+            None
+        };
+        let venue_state = doc
+            .content
+            .venue_events
+            .as_ref()
+            .or(inherited_venue.as_ref());
+        ensure!(
+            venue_state.is_none() || midi_export,
+            "Venue edits require MIDI export; chart conversion cannot preserve VENUE commands"
+        );
         ensure!(
             midi_text_state.is_none() || midi_export,
             "MIDI text edits require MIDI export; chart conversion cannot preserve physical text scope"
@@ -3325,6 +3368,7 @@ impl Store {
             )?;
             let midi =
                 crate::song_files::game_midi::export_text_events(&source, midi_text_state, &midi)?;
+            let midi = crate::song_files::game_midi::export_venue(&source, venue_state, &midi)?;
             exported_chart_sha256 = hash(&midi);
             fs::write(stage.join("notes.mid"), &midi)?;
             fs::rename(stage.join("notes.chart"), archive.join("notes.chart"))?;
@@ -3348,6 +3392,7 @@ impl Store {
                 doc.content.vocal_percussion.as_ref(),
             )?;
             crate::song_files::game_midi::write_text_events(stage, midi_text_state, &midi)?;
+            crate::song_files::game_midi::write_venue(stage, venue_state, &midi)?;
             if let Some(vocals) = &doc.content.vocals {
                 fs::write(
                     song_layout::path(stage, "chart-engine-vocals.json"),

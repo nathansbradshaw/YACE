@@ -70,6 +70,13 @@ pub fn project_end(project: &Project, store: &crate::editor::Store) -> Result<f6
             end = end.max(seconds);
         }
     }
+    if let Some(venue) = &project.content.venue_events {
+        for e in &venue.events {
+            let seconds = chart.timing.seconds(e.end.unwrap_or(e.tick));
+            ensure!(seconds.is_finite(), "Nonfinite venue timeline extent");
+            end = end.max(seconds);
+        }
+    }
     Ok(end)
 }
 pub fn resize(project: &mut Project, duration: f64) -> Result<()> {

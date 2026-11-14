@@ -140,6 +140,8 @@ pub fn reduce_generated(
         sections: None,
         text_events: None,
         midi_text_events: None,
+        venue_events: None,
+
         track_origins: Default::default(),
         vocals: None,
         harmonies: None,

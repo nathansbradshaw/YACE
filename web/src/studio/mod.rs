@@ -108,6 +108,8 @@ mod timing_repair;
 mod track_picker;
 #[path = "../../../src/studio/track_views.rs"]
 mod track_views;
+#[path = "../../../src/studio/venue_editor.rs"]
+mod venue_editor;
 #[path = "../../../src/studio/vocal_editor.rs"]
 mod vocal_editor;
 #[path = "../../../src/studio/vocal_overdrive_editor.rs"]

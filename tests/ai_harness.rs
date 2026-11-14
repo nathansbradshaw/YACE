@@ -90,6 +90,8 @@ fn fixture(root: &Path) -> Store {
             sections: None,
             text_events: None,
             midi_text_events: None,
+            venue_events: None,
+
             track_origins: Default::default(),
             difficulty_links: Default::default(),
             vocals: None,

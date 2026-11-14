@@ -347,8 +347,9 @@ pub fn validate(
         source.resolution == timing.resolution,
         "Venue source resolution changed"
     );
+    let originals: BTreeMap<_, _> = source.document.events.iter().map(|e| (&e.id, e)).collect();
     for e in &document.events {
-        let old = source.document.events.iter().find(|o| o.id == e.id);
+        let old = originals.get(&e.id);
         if old.is_none_or(|o| o.tick != e.tick || o.end != e.end) {
             let t = timing.seconds(e.end.unwrap_or(e.tick));
             ensure!(
@@ -498,9 +499,12 @@ pub fn rewrite(bytes: &[u8], source: &Source, after: &Document) -> Result<Vec<u8
             }
             Encoding::Note(note) => {
                 let a = e.attributes.as_ref().unwrap();
+                // Moving a range across an earlier source ordinal must not put
+                // its new note-on before a touching range's note-off.
+                let unchanged = original.is_some_and(|old| *old == e);
                 events.push((
                     e.tick,
-                    1,
+                    if unchanged { 1 } else { 2 },
                     order,
                     K::Midi {
                         channel: a.channel.into(),
@@ -527,7 +531,7 @@ pub fn rewrite(bytes: &[u8], source: &Source, after: &Document) -> Result<Vec<u8
                     .unwrap_or(base + i * 2 + 1);
                 events.push((
                     e.end.unwrap(),
-                    1,
+                    if unchanged { 1 } else { 0 },
                     offorder,
                     K::Midi {
                         channel: a.channel.into(),
@@ -554,6 +558,11 @@ pub fn rewrite(bytes: &[u8], source: &Source, after: &Document) -> Result<Vec<u8
         output[8..10].copy_from_slice(&1u16.to_be_bytes());
     }
     output[10..12].copy_from_slice(&(count as u16).to_be_bytes());
+    let verified = imported(&output)?;
+    ensure!(
+        values(&verified.document) == values(after),
+        "Rewritten VENUE differs from its editable state"
+    );
     Ok(output)
 }
 

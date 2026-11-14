@@ -129,6 +129,10 @@ impl Proposal {
             "MIDI text event changes are not supported in note proposals; share the saved project instead"
         );
         ensure!(
+            base.content.venue_events == edited.content.venue_events,
+            "Venue changes are not supported in note proposals; share the saved project instead"
+        );
+        ensure!(
             base.content.star_power == edited.content.star_power,
             "Star Power changes are not supported in note proposals; share the saved project instead"
         );
