@@ -187,6 +187,8 @@ pub struct Content {
     pub sync: Option<crate::sync_track::SyncTrack>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sections: Option<Vec<crate::sections::Marker>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_events: Option<crate::text_events::Document>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub track_origins: BTreeMap<String, crate::parts::Origin>,
     pub tracks: BTreeMap<String, Vec<EditorNote>>,
@@ -328,6 +330,9 @@ pub enum Action {
     },
     EditSection {
         edit: crate::sections::Edit,
+    },
+    EditTextEvent {
+        edit: crate::text_events::Edit,
     },
     CreateTrack {
         track: String,
@@ -647,7 +652,14 @@ impl Project {
             self.content.bre.as_ref(),
             crate::song_files::game_midi::exists(&store.root.join("source")),
         )?;
-        crate::lane_ranges::render(text, &self.content.lane_ranges)
+        let text = crate::lane_ranges::render(text, &self.content.lane_ranges)?;
+        if self.content.text_events.is_some() {
+            ensure!(
+                !crate::song_files::game_midi::exists(&store.root.join("source")),
+                "Editing imported MIDI text events is not supported yet; original MIDI remains preserved"
+            );
+        }
+        crate::text_events::render(text, &chart, &self.content.text_events)
     }
     pub fn chart_hash(&self, store: &Store) -> Result<String> {
         Ok(hash(self.chart_text(store)?.as_bytes()))
@@ -1031,6 +1043,13 @@ impl Store {
         Ok(crate::sections::imported(
             &self.source_chart(project)?.chart,
         ))
+    }
+    pub fn text_events(&self, project: &Project) -> Result<crate::text_events::Document> {
+        ensure!(
+            !crate::song_files::game_midi::exists(&self.root.join("source")),
+            "Imported MIDI text is preserved. MIDI text editing is not available yet."
+        );
+        crate::text_events::current(project, &self.source_chart(project)?.chart)
     }
     pub fn source_sync(&self, project: &Project) -> Result<crate::sync_track::SyncTrack> {
         crate::sync_track::imported(&self.source_chart(project)?.chart)
@@ -1443,6 +1462,7 @@ impl Store {
                 )?,
                 sync: None,
                 sections: None,
+                text_events: None,
                 track_origins: Default::default(),
                 tracks,
                 vocals: {
@@ -1916,6 +1936,7 @@ impl Store {
                 }
                 | Action::CreateTrack { .. }
                 | Action::EditSection { .. }
+                | Action::EditTextEvent { .. }
                 | Action::EditSync { .. }
                 | Action::EditStarPower { .. }
                 | Action::EditSolo { .. }
@@ -2115,6 +2136,14 @@ impl Store {
             Action::EditSection { edit } => {
                 let source = self.source_chart(&doc)?;
                 crate::sections::apply(&mut doc, &source, edit)?;
+            }
+            Action::EditTextEvent { edit } => {
+                ensure!(
+                    !crate::song_files::game_midi::exists(&self.root.join("source")),
+                    "Editing imported MIDI text events is not supported yet; original MIDI remains preserved"
+                );
+                let source = self.source_chart(&doc)?;
+                crate::text_events::apply(&mut doc, &source, edit)?;
             }
             Action::CreateTrack { track } => {
                 let legacy_name = ["Easy", "Medium", "Hard", "Expert"]

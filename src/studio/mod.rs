@@ -57,6 +57,7 @@ mod startup;
 pub mod state;
 mod stem_generation;
 mod stems;
+mod text_events_editor;
 #[cfg(not(feature = "browser"))]
 mod timeline_player;
 mod timing_editor;

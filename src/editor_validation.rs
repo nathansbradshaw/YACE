@@ -42,6 +42,9 @@ pub(crate) fn is_link_created_track(project: &Project, chart: &Chart, track: &st
 
 pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
     let timing = crate::sync_track::effective(project, &chart.timing)?;
+    if let Some(document) = &project.content.text_events {
+        crate::text_events::validate(document, project, chart, &timing)?;
+    }
     if let Some(state) = &project.content.midi_drum_attributes {
         state.validate()?;
     }

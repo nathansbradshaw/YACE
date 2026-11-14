@@ -121,6 +121,10 @@ impl Proposal {
             "Section changes are not supported in note proposals; share the saved project instead"
         );
         ensure!(
+            base.content.text_events == edited.content.text_events,
+            "Text event changes are not supported in note proposals; share the saved project instead"
+        );
+        ensure!(
             base.content.star_power == edited.content.star_power,
             "Star Power changes are not supported in note proposals; share the saved project instead"
         );
