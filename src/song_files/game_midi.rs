@@ -43,11 +43,14 @@ pub(crate) fn text_owner(name: &str) -> bool {
 }
 #[path = "game_midi/text_events.rs"]
 mod text_events;
+#[path = "game_midi/venue.rs"]
+mod venue;
 pub use overdrive::{edit_overdrive, export_overdrive, read_overdrive_state, source_overdrive};
 pub use text_events::{
     edit_text_events, export_text_events, read_text_events, text_event_owners, text_events,
     validate_text_events, write_text_events,
 };
+pub use venue::{edit_venue, export_venue, read_venue, validate_venue, venue_events, write_venue};
 #[path = "game_midi/bre.rs"]
 mod bre;
 #[path = "game_midi/bre_project.rs"]

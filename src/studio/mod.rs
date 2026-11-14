@@ -64,6 +64,7 @@ mod timing_editor;
 mod timing_repair;
 mod track_picker;
 mod track_views;
+mod venue_editor;
 mod vocal_editor;
 mod vocal_overdrive_editor;
 mod vocal_pitch_analysis;

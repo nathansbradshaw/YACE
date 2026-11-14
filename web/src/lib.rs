@@ -106,6 +106,8 @@ pub mod mapping;
 mod media_clock;
 #[path = "../../src/midi.rs"]
 pub mod midi;
+#[path = "../../src/midi_text_events.rs"]
+pub mod midi_text_events;
 pub mod model_assets;
 pub mod models;
 #[path = "../../src/muscriptor.rs"]
@@ -185,8 +187,6 @@ mod synth;
 pub mod tempo_analysis;
 #[path = "../../src/text_events.rs"]
 pub mod text_events;
-#[path = "../../src/midi_text_events.rs"]
-pub mod midi_text_events;
 #[path = "../../src/timeline.rs"]
 pub mod timeline;
 #[path = "../../src/timeline_clock.rs"]
@@ -197,6 +197,8 @@ pub mod timing;
 pub mod track_names;
 pub mod transcription;
 mod unload;
+#[path = "../../src/venue.rs"]
+pub mod venue;
 #[path = "../../src/vocal_acoustic_draft.rs"]
 pub mod vocal_acoustic_draft;
 #[path = "../../src/vocal_activity.rs"]

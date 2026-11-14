@@ -57,6 +57,7 @@ pub mod studio;
 pub mod sync_track;
 pub mod text_events;
 pub mod track_names;
+pub mod venue;
 #[cfg(feature = "editor")]
 pub use studio as editor_ui;
 #[cfg(any(feature = "editor", feature = "browser"))]
