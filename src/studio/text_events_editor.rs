@@ -28,6 +28,7 @@ fn binding(studio: Studio) -> Option<Binding> {
 struct View {
     events: Vec<Event>,
     tracks: Vec<String>,
+    midi: bool,
 }
 fn view(studio: Studio) -> Result<View, String> {
     let project = studio.snapshot().ok_or("Open a project")?;
@@ -38,12 +39,17 @@ fn view(studio: Studio) -> Result<View, String> {
         .map_err(|e| e.to_string())?
         .events;
     events.sort_by(|a, b| (a.tick, &a.scope, &a.id).cmp(&(b.tick, &b.scope, &b.id)));
+    let owners = store.midi_text_owners().map_err(|e| e.to_string())?;
+    let midi = owners.is_some();
     Ok(View {
         events,
-        tracks: super::track_picker::tracks(&project)
-            .into_iter()
-            .filter(|t| crate::parts::editable_track(t))
-            .collect(),
+        midi,
+        tracks: owners.unwrap_or_else(|| {
+            super::track_picker::tracks(&project)
+                .into_iter()
+                .filter(|t| crate::parts::editable_track(t))
+                .collect()
+        }),
     })
 }
 fn scope_label(scope: &Scope) -> String {
@@ -93,10 +99,11 @@ fn Dialog(studio: Studio) -> Element {
         }
     };
     let doc = studio.snapshot();
+    let midi = current.midi;
     rsx! {
         h2 {"Chart text events"}
-        p {class:"field-hint","Global events apply to the entire song. Local events apply only to the selected instrument difficulty. Edit text or tick, move between scopes, or remove an event. Each change has Undo and Redo."}
-        p {class:"field-hint","Sections, solos, BRE and drum-mix controls have dedicated editors. Unrecognized syntax and foreign sections are preserved. Arbitrary local text may require chart export; MIDI conversion refuses unrepresentable events."}
+        if midi {p {class:"field-hint","Global events apply to the entire song. Local MIDI events apply to the whole named physical track, including every difficulty it contains. Edit text or tick, move between scopes, add or remove events with Undo and Redo."}p {class:"field-hint","Lyrics, sections, solos, BRE and drum controls retain their dedicated editors. Unknown tracks and other events are preserved. MIDI text edits require MIDI export."}}
+        else {p {class:"field-hint","Global events apply to the entire song. Local events apply only to the selected instrument difficulty. Edit text or tick, move between scopes, or remove an event. Each change has Undo and Redo."}p {class:"field-hint","Sections, solos, BRE and drum-mix controls have dedicated editors. Unrecognized syntax and foreign sections are preserved. Arbitrary local text may require chart export; MIDI conversion refuses unrepresentable events."}}
         if stale {p {role:"alert","The project changed. Your draft is kept; close and reopen this editor to continue."}}
         div {class:"vocal-syllables",role:"group",aria_label:"Existing chart text events",
             for event in current.events.iter().skip(at*PAGE).take(PAGE) {{let target=event.clone();let label=scope_label(&event.scope);rsx! {
@@ -106,11 +113,11 @@ fn Dialog(studio: Studio) -> Element {
         if current.events.is_empty(){p {class:"field-hint","No editable ordinary text events in this chart."}}
         if pages>1 {div {class:"field-row",button {class:"studio-tool",disabled:at==0,onclick:move|_|page.set(at-1),"Previous text events"}span {"Page {at+1} / {pages}"}button {class:"studio-tool",disabled:at+1>=pages,onclick:move|_|page.set(at+1),"Next text events"}}}
         button {class:"studio-tool",disabled:stale,onclick:move|_|{previous.set(None);text.set(String::new());error.set(None);},"New text event"}
-        label {class:"field-stack",span {class:"field-label","Scope"}select {class:"field-control",aria_label:"Text event scope",value:scope(),onchange:move|e|scope.set(e.value()),option {value:"",selected:scope().is_empty(),"Global · entire song"}for track in current.tracks {option {value:track.clone(),selected:scope()==track,"Local · {super::track_picker::title(&track)}"}}}}
+        label {class:"field-stack",span {class:"field-label","Scope"}select {class:"field-control",aria_label:"Text event scope",value:scope(),onchange:move|e|scope.set(e.value()),option {value:"",selected:scope().is_empty(),"Global · entire song"}for track in current.tracks {option {value:track.clone(),selected:scope()==track,if midi {"Local · {track} · physical MIDI track"}else{"Local · {super::track_picker::title(&track)}"}}}}}
         label {class:"field-stack",span {class:"field-label","Tick"}input {class:"field-control",aria_label:"Text event tick",r#type:"number",min:"0",step:"1",value:tick(),oninput:move|e|tick.set(e.value())}}
         label {class:"field-stack",span {class:"field-label","Text"}input {class:"field-control",aria_label:"Text event text",value:text(),oninput:move|e|text.set(e.value())}}
         if let Some(message)=error() {p {role:"alert",class:"vocal-edit-error","{message}"}}
-        button {class:"field-button",disabled:stale,onclick:move|_|{let Ok(value)=tick().parse::<u64>() else {error.set(Some("Use a nonnegative whole tick.".into()));return};let target=if scope().is_empty(){Scope::Global}else{Scope::Local {track:scope()}};apply(Action::EditTextEvent {edit:Edit::Put {previous:previous(),scope:target,tick:value,text:text()}});},if chosen.is_some(){"Apply text event"}else{"Add text event"}}
+        button {class:"field-button",disabled:stale,onclick:move|_|{let Ok(value)=tick().parse::<u64>() else {error.set(Some("Use a nonnegative whole tick.".into()));return};let target=if scope().is_empty(){Scope::Global}else if midi {Scope::Physical {owner:scope()}}else{Scope::Local {track:scope()}};apply(Action::EditTextEvent {edit:Edit::Put {previous:previous(),scope:target,tick:value,text:text()}});},if chosen.is_some(){"Apply text event"}else{"Add text event"}}
         if let Some(event)=chosen {button {class:"studio-tool",disabled:stale,onclick:move|_|apply(Action::EditTextEvent {edit:Edit::Remove {event:event.clone()}}),"Remove text event"}}
         div {class:"field-row",
             button {class:"studio-tool",aria_label:"Undo text event edit",disabled:stale||doc.as_ref().is_none_or(|p|p.undo.is_empty()),onclick:move|_|apply(Action::Undo),"Undo"}

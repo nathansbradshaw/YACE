@@ -1,4 +1,5 @@
 use chart_engine::{
+    editor::{Action, Actor, ActorKind, Request, Store},
     midi_text_events as text,
     text_events::{Document, Edit, Scope},
     timing::TempoMap,
@@ -7,6 +8,7 @@ use midly::{
     Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind as Kind,
     num::{u4, u7, u15, u28},
 };
+use std::{fs, path::Path};
 fn owner(name: &str) -> Scope {
     Scope::Physical { owner: name.into() }
 }
@@ -99,6 +101,7 @@ fn fixture() -> Vec<u8> {
             b"HARM2",
             vec![
                 (240, Kind::Meta(MetaMessage::Lyric(b"word"))),
+                (250, Kind::Meta(MetaMessage::Text(b"legacy-word"))),
                 (243, note(true)),
                 (320, note(false)),
             ],
@@ -448,7 +451,7 @@ fn reopened_working_text_baseline_keeps_identity_after_moves_and_duplicate_edits
 fn midi_utf8_quotes_backslashes_and_lyric_meta_types_remain_distinct() {
     let bytes = fixture();
     let source = text::imported(&bytes).unwrap();
-    let value = "cue \"Coro\" \\ lumière";
+    let value = "[cue \"Coro\" \\ lumière]";
     let after = edit(
         &source,
         &source.document,
@@ -465,7 +468,251 @@ fn midi_utf8_quotes_backslashes_and_lyric_meta_types_remain_distinct() {
             .any(|e| e.scope == owner("HARM2") && e.tick == 480 && e.text == value)
     );
     assert!(events(&output,b"HARM2").iter().any(|(tick,kind)|*tick==240&&matches!(kind,Owned::Other(value) if value.contains("Lyric")&&value.contains("119"))));
+    assert!(
+        events(&output, b"HARM2")
+            .iter()
+            .any(|(tick, kind)| *tick == 250
+                && matches!(kind,Owned::Text(value) if value==b"legacy-word"))
+    );
     for index in [0, 1, 2, 3, 5] {
         assert_eq!(chunks(&bytes)[index], chunks(&output)[index]);
     }
+}
+
+fn actor() -> Actor {
+    Actor {
+        kind: ActorKind::Human,
+        name: "You".into(),
+    }
+}
+fn apply(store: &Store, action: Action) -> anyhow::Result<()> {
+    store.apply(Request {
+        expected_revision: store.load()?.revision,
+        actor: actor(),
+        action,
+    })?;
+    Ok(())
+}
+fn change(store: &Store, edit: Edit) -> anyhow::Result<()> {
+    apply(store, Action::EditTextEvent { edit })
+}
+fn stored(store: &Store) -> Vec<chart_engine::text_events::Event> {
+    store.text_events(&store.load().unwrap()).unwrap().events
+}
+fn project(root: &Path) -> Store {
+    let song = root.join("song");
+    fs::create_dir(&song).unwrap();
+    fs::write(song.join("notes.mid"), fixture()).unwrap();
+    fs::write(
+        song.join("song.ini"),
+        "[song]\nname = MIDI text fixture\nsong_length = 10000\ncustom = keep\n",
+    )
+    .unwrap();
+    Store::create(&song, None, &root.join("project")).unwrap()
+}
+fn export(store: &Store, output: &Path) -> Vec<u8> {
+    apply(
+        store,
+        Action::Export {
+            output: output.into(),
+        },
+    )
+    .unwrap_or_else(|error| panic!("{}: {error:#}", output.display()));
+    fs::read(output.join("notes.mid")).unwrap()
+}
+#[test]
+fn midi_text_transactions_export_reopen_and_history_keep_physical_scope_and_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let store = project(root.path());
+    let before = store.load().unwrap();
+    let original = stored(&store);
+    let duplicate = original
+        .iter()
+        .filter(|e| e.text == "duplicate cue")
+        .nth(1)
+        .unwrap()
+        .clone();
+    change(
+        &store,
+        put(Some(duplicate), Scope::Global, 240, "lighting (chorus)"),
+    )
+    .unwrap();
+    let local = stored(&store)
+        .into_iter()
+        .find(|e| e.text == "[play]")
+        .unwrap();
+    change(
+        &store,
+        put(Some(local), Scope::Global, 720, "moved to global"),
+    )
+    .unwrap();
+    change(&store, put(None, owner("PART BASS"), 960, "bass cue")).unwrap();
+    let remaining = stored(&store)
+        .into_iter()
+        .find(|e| e.text == "duplicate cue")
+        .unwrap();
+    change(&store, Edit::Remove { event: remaining }).unwrap();
+    let after = store.load().unwrap();
+    assert_eq!(after.revision, 4);
+    assert_eq!(after.content.tracks, before.content.tracks);
+    assert!(after.content.text_events.is_none());
+    assert!(
+        chart_engine::collaboration::Proposal::between(
+            &before,
+            &after,
+            "notes".into(),
+            "Notes".into(),
+            String::new(),
+            actor()
+        )
+        .is_err()
+    );
+    let output = root.path().join("edited");
+    let bytes = export(&store, &output);
+    assert_eq!(
+        fs::read(
+            store
+                .root
+                .join("source/.yace/originals/game-midi/notes.mid")
+        )
+        .unwrap(),
+        fixture()
+    );
+    assert_eq!(stored(&store).len(), 4);
+    for index in [0, 4, 5] {
+        assert_eq!(chunks(&fixture())[index], chunks(&bytes)[index]);
+    }
+    for _ in 0..4 {
+        apply(&store, Action::Undo).unwrap();
+    }
+    assert!(store.load().unwrap().content.midi_text_events.is_none());
+    assert_eq!(export(&store, &root.path().join("original")), fixture());
+    for _ in 0..4 {
+        apply(&store, Action::Redo).unwrap();
+    }
+    assert_eq!(export(&store, &root.path().join("redone")), bytes);
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    assert_eq!(stored(&reopened), stored(&store));
+    // A legacy client can omit the new field while the source still carries a
+    // verified text sidecar. Export must preserve that inherited source state.
+    let mut legacy = reopened.load().unwrap();
+    legacy.content.midi_text_events = None;
+    fs::write(
+        reopened.root.join("project.json"),
+        serde_json::to_vec_pretty(&legacy).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        export(&reopened, &root.path().join("legacy-inherited")),
+        bytes
+    );
+    let cue = stored(&reopened)
+        .into_iter()
+        .find(|e| e.text == "lighting (chorus)")
+        .unwrap();
+    let id = cue.id.clone();
+    change(
+        &reopened,
+        put(Some(cue), owner("HARM2"), 480, "[cue \"vuelta\" \\ luz]"),
+    )
+    .unwrap();
+    assert!(
+        stored(&reopened)
+            .iter()
+            .any(|e| e.id == id && e.scope == owner("HARM2"))
+    );
+    let next = export(&reopened, &root.path().join("reopened-edited"));
+    assert!(
+        text::imported(&next)
+            .unwrap()
+            .document
+            .events
+            .iter()
+            .any(|e| e.scope == owner("HARM2") && e.text == "[cue \"vuelta\" \\ luz]")
+    );
+    apply(&reopened, Action::Undo).unwrap();
+    assert_eq!(
+        export(&reopened, &root.path().join("reopened-undone")),
+        bytes
+    );
+    let blocked = root.path().join("blocked-chart");
+    fs::create_dir(&blocked).unwrap();
+    assert!(
+        reopened
+            .write_export_with_options(
+                &reopened.load().unwrap(),
+                &blocked,
+                &actor(),
+                &chart_engine::export_options::Options {
+                    format: chart_engine::export_options::Format::Chart,
+                    ..Default::default()
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(fs::read_dir(&blocked).unwrap().count(), 0);
+}
+
+#[test]
+fn partial_midi_export_keeps_surviving_physical_text_without_restoring_omitted_notes() {
+    let root = tempfile::tempdir().unwrap();
+    let store = project(root.path());
+    change(&store, put(None, owner("PART GUITAR"), 960, "guitar cue")).unwrap();
+    change(&store, put(None, owner("PART BASS"), 960, "bass cue")).unwrap();
+    change(
+        &store,
+        put(None, owner("HARM2"), 960, "[cue omitted harmony]"),
+    )
+    .unwrap();
+    let output = root.path().join("guitar-only");
+    fs::create_dir(&output).unwrap();
+    store
+        .write_export_with_options(
+            &store.load().unwrap(),
+            &output,
+            &actor(),
+            &chart_engine::export_options::Options {
+                tracks: Some(["ExpertSingle".to_string()].into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let reopened = Store::create(&output, None, &root.path().join("reopened-subset")).unwrap();
+    assert_eq!(
+        reopened.midi_text_owners().unwrap().unwrap(),
+        vec!["PART BASS", "PART GUITAR"]
+    );
+    assert!(
+        !stored(&reopened)
+            .iter()
+            .any(|e| matches!(&e.scope,Scope::Physical {owner} if owner=="HARM2"))
+    );
+    let before = fs::read(reopened.root.join("project.json")).unwrap();
+    assert!(change(&reopened, put(None, owner("HARM2"), 0, "[absent owner]")).is_err());
+    assert_eq!(
+        fs::read(reopened.root.join("project.json")).unwrap(),
+        before
+    );
+    change(&reopened, put(None, Scope::Global, 480, "new global cue")).unwrap();
+    let bytes = export(&reopened, &root.path().join("subset-redone"));
+    assert!(
+        !text::imported(&bytes)
+            .unwrap()
+            .owners
+            .contains(&"HARM2".to_string())
+    );
+    // Existing export rules retain unknown text in a physical track after its
+    // playable difficulty was omitted. The new editor must keep that text and
+    // must not bring its omitted playable notes back.
+    assert!(!events(&bytes,b"PART BASS").iter().any(|(_,kind)|matches!(kind,Owned::Other(value) if value.contains("NoteOn")||value.contains("NoteOff"))));
+    let mut saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(output.join(".yace/working/text-events.json")).unwrap())
+            .unwrap();
+    saved["document"]["events"][0]["text"] = "tampered".into();
+    fs::write(
+        output.join(".yace/working/text-events.json"),
+        serde_json::to_vec(&saved).unwrap(),
+    )
+    .unwrap();
+    assert!(Store::create(&output, None, &root.path().join("refused-tampered")).is_err());
 }

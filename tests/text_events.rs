@@ -251,6 +251,7 @@ fn note_proposals_refuse_to_discard_text_edits_and_old_backups_omit_the_optional
     let original = store.load().unwrap();
     let json = serde_json::to_value(&original).unwrap();
     assert!(json["content"].get("text_events").is_none());
+    assert!(json["content"].get("midi_text_events").is_none());
     edit(&store, put(None, Scope::Global, 0, "music_start")).unwrap();
     assert!(
         chart_engine::collaboration::Proposal::between(

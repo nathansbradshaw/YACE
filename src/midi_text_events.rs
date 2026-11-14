@@ -55,7 +55,9 @@ pub fn dedicated(scope: &Scope, text: &str) -> bool {
                 || matches!(value.as_str(), "coda" | "midcoda" | "midcoda_end")
         }
         Scope::Physical { owner } => {
-            matches!(value.as_str(), "solo" | "soloend")
+            matches!(value.as_str(), "solo" | "soloend" | "enhanced_opens")
+                || (matches!(owner.as_str(), "PART VOCALS" | "HARM1" | "HARM2" | "HARM3")
+                    && !text.starts_with('['))
                 || (owner == "PART DRUMS"
                     && (value.starts_with("mix ") || value == "enable_chart_dynamics"))
         }
@@ -351,7 +353,7 @@ pub fn rewrite_from(
         }
         ensure!(
             values(before.get(owner)) == values(actual_events.get(owner)),
-            "Another editor changed this physical MIDI text owner; export refused"
+            "Text events in {owner:?} differ from their editable baseline; export refused"
         );
     }
     let midi = Smf::parse(bytes)?;

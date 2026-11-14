@@ -45,6 +45,9 @@ pub fn validate(project: &Project, chart: &Chart) -> Result<()> {
     if let Some(document) = &project.content.text_events {
         crate::text_events::validate(document, project, chart, &timing)?;
     }
+    if let Some(document) = &project.content.midi_text_events {
+        crate::midi_text_events::validate_shape(document)?;
+    }
     if let Some(state) = &project.content.midi_drum_attributes {
         state.validate()?;
     }
