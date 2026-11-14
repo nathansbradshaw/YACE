@@ -57,7 +57,7 @@ pub fn Controls(studio: Studio) -> Element {
     let mut open = use_signal(|| false);
     rsx! {
         button {class:"studio-tool",aria_label:"Edit chart text events",disabled:super::dance::active()||studio.snapshot().is_none()||(studio.analysis_preview)().is_some(),onclick:move|_|open.set(true),"Text events…"}
-        if open() {super::modal::Modal {id:"text-events-dialog",label:"Chart text events",onclose:move|_|open.set(false),Dialog {studio}button {class:"studio-tool",onclick:move|_|open.set(false),"Close text events"}}}
+        if open() {super::modal::Modal {id:"text-events-dialog",label:"Chart text events",onclose:move|_|open.set(false),div {class:"snap-custom-panel text-events-panel",onkeydown:super::shortcuts::keep_space_local,Dialog {studio}button {class:"studio-tool",onclick:move|_|open.set(false),"Close text events"}}}}
     }
 }
 #[component]

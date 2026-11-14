@@ -22,6 +22,10 @@
   background:#000b;
 }
 
+.text-events-panel { width:720px; }
+.text-events-panel .vocal-syllables { display:flex; flex-direction:column; align-items:stretch; gap:6px; }
+.text-events-panel .vocal-syllables button { text-align:left; white-space:normal; overflow-wrap:anywhere; }
+
 .studio-modal-portal > * {
   max-width:100%;
   max-height:calc(100vh - 24px);
