@@ -720,7 +720,9 @@ impl Studio {
         if let Some(range) = doc.transport.loop_range {
             if position >= range.end {
                 position = range.start + (position - range.end).rem_euclid(range.end - range.start);
-                media.seek(position);
+                // Retain overshoot in the recording clock, but audition the
+                // actual loop boundary rather than losing its first attack.
+                media.seek_loop(position, range.start);
             }
         } else if media.ended() {
             self.seek(doc.duration);

@@ -268,8 +268,14 @@ impl Media {
         }
     }
     pub fn seek(&self, position: f64) {
+        self.seek_boundary(position, position);
+    }
+    pub fn seek_loop(&self, position: f64, boundary: f64) {
+        self.seek_boundary(position, boundary);
+    }
+    fn seek_boundary(&self, position: f64, boundary: f64) {
         if let Some(clicks) = self.1.borrow_mut().as_mut() {
-            clicks.seek(position);
+            clicks.seek(boundary);
         }
         match &self.0 {
             Playback::Recording(media) => media.seek(position),
