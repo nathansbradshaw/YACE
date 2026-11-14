@@ -17,6 +17,8 @@ pub use midi::{append_midi, author_midi, clear_midi, import_midi, rewrite_midi};
 #[path = "vocal_harmonies/edit.rs"]
 mod edit;
 pub use edit::{Edit, PhraseKind};
+#[path = "vocal_harmonies/repair.rs"]
+mod repair;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
