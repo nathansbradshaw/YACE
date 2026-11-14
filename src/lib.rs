@@ -1,6 +1,7 @@
 pub mod ai_harness;
 pub mod analysis_validation;
 pub mod assistant;
+pub mod audition_clicks;
 pub mod bass_analysis;
 pub mod benchmark;
 pub mod bre;
