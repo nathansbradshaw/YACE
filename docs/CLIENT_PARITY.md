@@ -82,9 +82,27 @@ off-grid mine until explicitly snapped. Its three-file backup, two Undo steps,
 restored browser workflow, native-core history and exact SM export retained the
 other difficulty, timing, custom metadata and original audio.
 
+Repair also offers a whole-voice target for editable HARM1, HARM2 and HARM3.
+Other singers, shared scoring ranges and shared lyric ranges stay unchanged.
+Moves that leave the original shared range or overlap another note in that
+voice refuse the complete edit. Original order retains syllable ownership.
+Opaque/read-only harmony imports keep their existing authoring restrictions.
+
+Actual-browser checks at `c0aa787` and `2d0f2f4` exercised each independent voice,
+kept an intentional off-grid note, then snapped it under the explicit all-notes
+policy. Read-only and no-op previews, collision/range refusal, four atomic Undo
+steps, Redo, complete-backup reopen and an owned-browser restart passed. An
+18-file backup and independent raw-MIDI audits retained shared markers, physical
+note attributes, unchanged Lead/Guitar/tempo/venue tracks and original local
+audio. Native CLI restore/history/export passed the same data checks.
+
+A controlled no-audio 100,000-note Band fixture also passed preview, apply,
+exact Undo export, Redo and a six-file backup with stable IDs and an unchanged
+other difficulty. Long tasks up to 837 ms were observed across this workflow;
+this establishes bounded-workload correctness, with responsiveness still open.
+
 Native GUI, independent musical/game acceptance, broader platform/fault coverage
-and maximum-size repair workloads remain open. Independent harmony voices do
-not yet have a timing-repair scope.
+and maximum-size workloads for other repair targets remain open.
 
 Snap now offers custom 1–1024 steps per beat and fine musical presets through
 1/1024. Placement, dragging, sustain ends and visible grid lines use the same
