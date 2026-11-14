@@ -175,9 +175,10 @@ pub fn validate(
         let original = originals.get(&event.id);
         ensure!(
             original.is_some()
-                || event.id.strip_prefix("new:").is_some_and(|n| !n.is_empty()
-                    && n.len() <= 10
-                    && n.bytes().all(|c| c.is_ascii_digit())),
+                || event.id.strip_prefix("new:").is_some_and(|n| {
+                    n.parse::<u64>()
+                        .is_ok_and(|id| id > 0 && id.to_string() == n)
+                }),
             "Unknown text event identity"
         );
         ensure!(
@@ -212,6 +213,7 @@ pub fn apply(project: &mut Project, source: &Chart, edit: &Edit) -> Result<()> {
         Edit::Put { previous, .. } => previous.as_ref(),
         Edit::Remove { event } => Some(event),
     };
+    let mut next_id = project.next_id;
     let id = if let Some(previous) = previous {
         let index = document
             .events
@@ -220,10 +222,30 @@ pub fn apply(project: &mut Project, source: &Chart, edit: &Edit) -> Result<()> {
             .context("This text event changed. Select it again")?;
         document.events.remove(index).id
     } else {
-        (1..=MAX_EVENTS + 1)
-            .map(|n| format!("new:{n}"))
-            .find(|id| document.events.iter().all(|e| &e.id != id))
-            .context("No text event identity available")?
+        // The project counter survives Undo and deletion. Reusing a removed
+        // ID would let an old event snapshot address a newly created copy.
+        // Earlier text editors did not advance next_id, so revision also
+        // bounds their formerly allocated numeric event IDs.
+        next_id = next_id.max(
+            project
+                .revision
+                .checked_add(1)
+                .context("Text event identity exhausted")?,
+        );
+        let occupied: BTreeSet<_> = document
+            .events
+            .iter()
+            .map(|event| event.id.as_str())
+            .collect();
+        loop {
+            let id = format!("new:{next_id}");
+            next_id = next_id
+                .checked_add(1)
+                .context("Text event identity exhausted")?;
+            if !occupied.contains(id.as_str()) {
+                break id;
+            }
+        }
     };
     if let Edit::Put {
         scope, tick, text, ..
@@ -246,6 +268,7 @@ pub fn apply(project: &mut Project, source: &Chart, edit: &Edit) -> Result<()> {
         .events
         .sort_by(|a, b| (&a.scope, a.tick, &a.id).cmp(&(&b.scope, b.tick, &b.id)));
     project.content.text_events = Some(document);
+    project.next_id = next_id;
     Ok(())
 }
 fn line(event: &Event, newline: &str) -> String {
