@@ -5,6 +5,31 @@ before additional product features ship. Use one source revision and the same
 full-length song project for acceptance. Sharing Rust modules establishes shared
 rules; it does not establish that both applications expose working controls.
 
+The chart toolbar now opens a text-event editor for ordinary `.chart` global
+events and local instrument difficulties. Add, change text or tick, move between
+scopes, and remove events with individual Undo/Redo. Identical imported events
+remain separate. Sections, solos, BRE and drum-mix controls retain their dedicated
+editors; unrecognized syntax and foreign sections remain untouched. New or moved
+events outside the timeline refuse atomically. Quotes, backslashes, control
+characters and documents over 16,384 editable events remain unsupported.
+
+Actual static-browser checks at `7b6e3fe` and `14d8699` edited one of two identical
+global events, moved an imported local event to global scope, removed another
+global event and added a cue to a different difficulty. Dedicated-control and
+out-of-range edits refused without advancing revision. Exact exported chart
+bytes retained the other duplicate, malformed/foreign syntax, comments, CRLF,
+notes, technique flags, solos, Star Power, other difficulty and tempo changes.
+Original audio and sources remained exact. Complete backup restore, four Undo
+and Redo steps, and an owned-browser restart retained the edits and history;
+native CLI restoration, text removal, Undo and export passed independent checks.
+Before/after restart backups retained identical project and content-addressed
+files. This qualifies the controlled `.chart` subset.
+
+Imported MIDI text editing remains pending and is explicitly read-only. Arbitrary
+local chart events without a MIDI representation refuse conversion rather than
+silently broadening their scope. Native GUI, musical/game behavior, broader
+format/browser/platform coverage and larger event workloads remain open.
+
 Bulk note groups now accept up to 100,000 notes and 32 MiB clipboards, with
 indexed collision, shared-flag and vocal-word handling. The shared inspector
 offers relative tick/row moves, operation status and explicit atomic failures.
