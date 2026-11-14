@@ -128,10 +128,20 @@ impl Options {
         imported_midi: bool,
     ) -> Result<BTreeSet<String>> {
         ensure!(
+            self.format != Format::Chart || doc.content.venue_events.is_none(),
+            "VENUE cues require MIDI; choose Automatic or MIDI, or save a complete project backup"
+        );
+        ensure!(
             self.format != Format::Chart || doc.content.midi_lane_ranges.is_none(),
             "Physical MIDI lane markers require MIDI export; use a project backup for editable history"
         );
         let selected = self.validate(available, imported_midi)?;
+        ensure!(
+            doc.content.venue_events.is_none()
+                || doc.drum_layout() != crate::drum_layout::Layout::FiveLane
+                || !selected.iter().any(|t| t.ends_with("Drums")),
+            "VENUE cues require MIDI while five-lane drums require .chart; deselect drums or save a complete project backup"
+        );
         ensure!(
             self.format != Format::Chart || !crate::bre::midi_required(doc, &selected),
             "Guitar/keys BRE requires MIDI; choose Automatic or MIDI"
@@ -181,7 +191,20 @@ impl Options {
     }
     pub fn midi(&self, store: &Store, doc: &Project) -> Result<bool> {
         let selected = self.selected(store, doc)?;
+        let venue = doc.content.venue_events.is_some()
+            || crate::song_files::game_midi::read_venue(&store.root.join("source"))?.is_some();
+        ensure!(
+            self.format != Format::Chart || !venue,
+            "VENUE cues require MIDI; choose Automatic or MIDI, or save a complete project backup"
+        );
+        ensure!(
+            !venue
+                || doc.drum_layout() != crate::drum_layout::Layout::FiveLane
+                || !selected.iter().any(|t| t.ends_with("Drums")),
+            "VENUE cues require MIDI while five-lane drums require .chart; deselect drums or save a complete project backup"
+        );
         Ok(crate::bre::midi_required(doc, &selected)
+            || venue
             || self.use_midi(
                 &selected,
                 crate::song_files::game_midi::exists(&store.root.join("source")),

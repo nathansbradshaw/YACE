@@ -3392,7 +3392,7 @@ impl Store {
                 doc.content.vocal_percussion.as_ref(),
             )?;
             crate::song_files::game_midi::write_text_events(stage, midi_text_state, &midi)?;
-            crate::song_files::game_midi::write_venue(stage, venue_state, &midi)?;
+            crate::song_files::game_midi::write_venue(&source, stage, venue_state, &midi)?;
             if let Some(vocals) = &doc.content.vocals {
                 fs::write(
                     song_layout::path(stage, "chart-engine-vocals.json"),
