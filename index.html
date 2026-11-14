@@ -10,7 +10,7 @@ body { margin: 0; background: #151a1e; color: #eee9dc; font: 16px system-ui, san
 <body><div id="main"></div><section id="startup" role="status" aria-live="polite">
 <h1>YACE</h1><p>Loading YACE…</p><p>Preparing the chart editor. The first visit may take longer.</p>
 </section><noscript><style>#startup { display: none; }</style><p>YACE needs JavaScript enabled to start the browser chart editor.</p></noscript><script type="module">
-import('./releases/3c1f42a3374ff3e4f0dd974ff88512dc2b47ff76/yace_web.js').then(({ default: init }) => init()).catch(error => {
+import('./releases/d1c56fdecc4620d8c9025e6de4580eddad05a3ce/yace_web.js').then(({ default: init }) => init()).catch(error => {
     const root = document.getElementById('main');
     root.setAttribute('role', 'alert');
     root.textContent = `YACE could not start. Check your connection and reload this page. Details: ${error}`;
