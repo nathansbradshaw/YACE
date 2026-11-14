@@ -26,6 +26,7 @@
 .venue-preview { margin:10px 0; }
 .venue-preview svg { display:block; width:100%; max-height:200px; }
 .venue-preview figcaption { margin-top:6px; }
+.snap-custom-panel .venue-follow { display:flex; align-items:center; gap:8px; }
 .text-events-panel .vocal-syllables { display:flex; flex-direction:column; align-items:stretch; gap:6px; }
 .text-events-panel .vocal-syllables button { text-align:left; white-space:normal; overflow-wrap:anywhere; }
 

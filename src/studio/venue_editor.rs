@@ -91,7 +91,7 @@ fn Dialog(studio: Studio) -> Element {
         p{class:"field-hint","Cue schematic for the supported YARG/Rock Band mappings. Game visuals depend on the target venue; this is not a game rendering. MIDI export is required."}
         Preview{document:document.clone(),tick:position,resolution}
         label{class:"field-stack",span{class:"field-label","Preview tick · {position}"}input{aria_label:"Venue preview tick",r#type:"range",min:"0",max:"{max_tick}",step:"1",value:"{position}",disabled:follow(),oninput:move|e|if let Ok(t)=e.value().parse(){preview_tick.set(t)}}}
-        label{input{r#type:"checkbox",checked:follow(),onchange:move|e|follow.set(e.checked())}"Follow playback playhead"}
+        label{class:"venue-follow",input{r#type:"checkbox",checked:follow(),onchange:move|e|follow.set(e.checked())}"Follow playback playhead"}
         if stale{p{role:"alert","The project changed. Your draft is kept; close and reopen this editor to continue."}}
         div{class:"vocal-syllables",role:"group",aria_label:"Existing venue cues",
             for event in document.events.iter().skip(at*PAGE).take(PAGE){{let event=event.clone();let target=event.clone();let c=venue::cue(&event.cue).unwrap();let suffix=event.end.map(|end|format!("–{end}")).unwrap_or_default();rsx!{
@@ -144,7 +144,7 @@ fn Preview(document: Document, tick: u64, resolution: u32) -> Element {
             rect{x:"0",y:"0",width:"552",height:"180",rx:"8",fill:"#101923"}
             path{d:"M55 0 L0 160 L160 160 Z M275 0 L180 160 L370 160 Z M495 0 L390 160 L552 160 Z",fill:beam,opacity:"0.16"}
             ellipse{cx:"276",cy:"150",rx:"250",ry:"21",fill:"#28394b"}
-            for (index,name) in ["Vocals","Guitar","Drums","Bass","Keys"].iter().enumerate(){{let x=83+index*96;let spot=p.performers.iter().any(|s|s.to_lowercase().contains(&name.to_lowercase())&&s.contains("spotlight"));let sing=p.performers.iter().any(|s|s.to_lowercase().contains(&name.to_lowercase())&&s.contains("singalong"));rsx!{
+            for (index,(name,needle)) in [("Vocals","vocal"),("Guitar","guitar"),("Drums","drum"),("Bass","bass"),("Keys","keys")].iter().enumerate(){{let x=83+index*96;let spot=p.performers.iter().any(|s|s.to_lowercase().contains(needle)&&s.contains("spotlight"));let sing=p.performers.iter().any(|s|s.to_lowercase().contains(needle)&&s.contains("singalong"));rsx!{
                 if spot{ellipse{cx:"{x}",cy:"106",rx:"35",ry:"56",fill:"#efc56e",opacity:"0.4"}}
                 circle{cx:"{x}",cy:"78",r:"11",fill:"#b8c9d8"}
                 path{d:"M{x} 91 v32 m0 -20 l-19 15 m19 -15 l19 15 m-19 5 l-13 22 m13 -22 l13 22",fill:"none",stroke:"#b8c9d8",stroke_width:"5",stroke_linecap:"round"}
