@@ -1523,9 +1523,12 @@ zero click-bus PCM while the recording continued; playable exports and complete
 backups retained original chart, INI and WAV bytes. These are software checks,
 with independent capture and file comparisons, rather than DAC measurements.
 
-Loop-start claps exposed weak transients. A bounded restart renderer now retains
-a complete nearby attack across buffer boundaries and leaves future note timing
-unchanged; actual loop retesting is still required. Native chart-only output
+Loop-start claps exposed weak transients, including after an initial restart
+correction. Captured buffer metadata showed that media readiness can arrive
+after the requested seek point. The renderer now retains that explicit boundary
+through readiness and buffer joins, without rearticulating notes when seeking
+between attacks or replaying long-past notes after a stall. Future note timing
+stays on the recording clock; actual loop retesting is still required. Native chart-only output
 and Dance/4-key adapters remain unfinished. Native GUI, listening, device
 latency, complete seek/loop/rate coverage and cross-browser acceptance remain
 open; compilation and shared source do not close those gates.

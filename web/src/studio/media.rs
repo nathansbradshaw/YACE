@@ -269,7 +269,7 @@ impl Media {
     }
     pub fn seek(&self, position: f64) {
         if let Some(clicks) = self.1.borrow_mut().as_mut() {
-            clicks.cancel();
+            clicks.seek(position);
         }
         match &self.0 {
             Playback::Recording(media) => media.seek(position),

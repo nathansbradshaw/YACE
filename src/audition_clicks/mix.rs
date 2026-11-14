@@ -41,7 +41,7 @@ impl Mix {
         rate: f64,
         sample_rate: u32,
         output: &mut [f32],
-        epoch: Option<f64>,
+        epoch: Option<StartEpoch>,
     ) -> Result<()> {
         self.plan
             .render_epoch(start, rate, sample_rate, &self.settings, output, epoch)

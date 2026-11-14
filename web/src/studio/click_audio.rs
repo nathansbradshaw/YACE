@@ -1,5 +1,5 @@
 //! Bounded Rust synthesis scheduled against the recording's existing AudioContext.
-use crate::audition_clicks::Mix;
+use crate::audition_clicks::{Mix, StartEpoch};
 use anyhow::{Result, ensure};
 use std::sync::Arc;
 use wasm_bindgen::JsCast;
@@ -18,7 +18,8 @@ pub struct ClickAudio {
     mix: Option<Arc<Mix>>,
     nodes: Vec<(f64, AudioBufferSourceNode)>,
     anchor: Option<(f64, f64, f64)>,
-    epoch: Option<f64>,
+    epoch: Option<StartEpoch>,
+    pending_boundary: Option<f64>,
     next: f64,
     volume: f32,
 }
@@ -38,6 +39,7 @@ impl ClickAudio {
             nodes: Vec::new(),
             anchor: None,
             epoch: None,
+            pending_boundary: None,
             next: 0.,
             volume: 0.7,
         })
@@ -88,6 +90,11 @@ impl ClickAudio {
         }
         self.anchor = None;
         self.epoch = None;
+        self.pending_boundary = None;
+    }
+    pub fn seek(&mut self, position: f64) {
+        self.cancel();
+        self.pending_boundary = Some(position);
     }
     pub fn synchronize(&mut self, position: f64, rate: f64, running: bool) -> Result<()> {
         ensure!(
@@ -115,7 +122,10 @@ impl ClickAudio {
                     > MAX_CLOCK_DRIFT * rate
         }) || self.next < now;
         if reset {
-            let epoch = self.epoch.or(Some(position));
+            let epoch = self.epoch.or(Some(StartEpoch {
+                boundary: self.pending_boundary.unwrap_or(position),
+                ready: position,
+            }));
             self.cancel();
             self.epoch = epoch;
             self.anchor = Some((now + START_LEAD, position, rate));

@@ -282,9 +282,8 @@ impl Plan {
     ) -> Result<()> {
         self.render_epoch(start, rate, sample_rate, settings, output, None)
     }
-    // A media seek may finish just after an attack. Rearticulate that attack
-    // once, within 12 ms of listening time, instead of playing only its tail.
-    // Keep the epoch through clock corrections so later blocks join exactly.
+    // Keep the exact requested boundary separate from asynchronous media
+    // readiness. Only an attack at that boundary may be rearticulated.
     fn render_epoch(
         &self,
         start: f64,
@@ -292,7 +291,7 @@ impl Plan {
         sample_rate: u32,
         settings: &Settings,
         output: &mut [f32],
-        epoch: Option<f64>,
+        epoch: Option<StartEpoch>,
     ) -> Result<()> {
         settings.validate()?;
         ensure!(
@@ -303,7 +302,7 @@ impl Plan {
             "Invalid audition render clock"
         );
         ensure!(
-            epoch.is_none_or(f64::is_finite),
+            epoch.is_none_or(|e| e.boundary.is_finite() && e.ready.is_finite()),
             "Invalid audition start epoch"
         );
         ensure!(
@@ -315,9 +314,22 @@ impl Plan {
             return Ok(());
         }
         let end = start + output.len() as f64 * rate / sample_rate as f64;
-        let first = self
+        let mut first = self
             .events
-            .partition_point(|e| e.seconds < start - (CLICK_SECONDS + 0.012) * rate);
+            .partition_point(|e| e.seconds < start - CLICK_SECONDS * rate);
+        let tolerance = rate / sample_rate as f64 * 0.5;
+        // A badly stalled browser must not replay a long-past attack.
+        let epoch = epoch
+            .filter(|e| e.ready >= e.boundary - tolerance && e.ready - e.boundary <= 0.1 * rate);
+        if let Some(e) = epoch
+            && start < e.ready + CLICK_SECONDS * rate
+            && end > e.ready
+        {
+            first = first.min(
+                self.events
+                    .partition_point(|v| v.seconds < e.boundary - tolerance),
+            );
+        }
         let last = self.events.partition_point(|e| e.seconds < end);
         let tail = (CLICK_SECONDS * sample_rate as f64).ceil() as i64;
         for event in &self.events[first..last] {
@@ -327,7 +339,8 @@ impl Plan {
                 _ => continue,
             };
             let seconds = epoch
-                .filter(|at| event.seconds < *at && *at - event.seconds <= 0.012 * rate)
+                .filter(|e| (event.seconds - e.boundary).abs() <= tolerance)
+                .map(|e| e.ready)
                 .unwrap_or(event.seconds);
             let onset = ((seconds - start) / rate * sample_rate as f64).round() as i64;
             for age in (-onset).max(0)..tail.min(output.len() as i64 - onset) {
@@ -343,6 +356,11 @@ impl Plan {
         }
         Ok(())
     }
+}
+#[derive(Clone, Copy, Debug)]
+pub struct StartEpoch {
+    pub boundary: f64,
+    pub ready: f64,
 }
 pub fn pulse(kind: Kind, frame: u32, sample_rate: u32) -> f32 {
     let t = frame as f64 / sample_rate as f64;
@@ -394,7 +412,11 @@ mod tests {
             ..Settings::default()
         };
         let mut actual = vec![0.; 1600];
-        plan.render_epoch(0.27, 2., 8000, &settings, &mut actual, Some(0.27))
+        let epoch = Some(StartEpoch {
+            boundary: 0.25,
+            ready: 0.27,
+        });
+        plan.render_epoch(0.27, 2., 8000, &settings, &mut actual, epoch)
             .unwrap();
         let mut expected = vec![0.; 1600];
         for age in 0..192 {
@@ -407,7 +429,7 @@ mod tests {
             "full initial pulse; later attack remains at 0.50 s"
         );
         let mut chunked = vec![0.; 1600];
-        plan.render_epoch(0.27, 2., 8000, &settings, &mut chunked[..137], Some(0.27))
+        plan.render_epoch(0.27, 2., 8000, &settings, &mut chunked[..137], epoch)
             .unwrap();
         plan.render_epoch(
             0.27 + 137. * 2. / 8000.,
@@ -415,7 +437,7 @@ mod tests {
             8000,
             &settings,
             &mut chunked[137..],
-            Some(0.27),
+            epoch,
         )
         .unwrap();
         assert_eq!(
@@ -425,15 +447,70 @@ mod tests {
         let mut legacy = vec![0.; 1600];
         plan.render(0.275, 2., 8000, &settings, &mut legacy)
             .unwrap();
-        plan.render_epoch(0.275, 2., 8000, &settings, &mut actual, Some(0.275))
-            .unwrap();
+        plan.render_epoch(
+            0.275,
+            2.,
+            8000,
+            &settings,
+            &mut actual,
+            Some(StartEpoch {
+                boundary: 0.275,
+                ready: 0.275,
+            }),
+        )
+        .unwrap();
         assert_eq!(
             actual, legacy,
-            "a seek beyond the bounded grace never rearticulates"
+            "a seek between attacks never invents a boundary note"
         );
         assert!(
-            plan.render_epoch(0., 1., 8000, &settings, &mut actual, Some(f64::NAN))
-                .is_err()
+            plan.render_epoch(
+                0.,
+                1.,
+                8000,
+                &settings,
+                &mut actual,
+                Some(StartEpoch {
+                    boundary: f64::NAN,
+                    ready: 0.
+                })
+            )
+            .is_err()
+        );
+        plan.render_epoch(
+            0.31,
+            2.,
+            8000,
+            &settings,
+            &mut actual,
+            Some(StartEpoch {
+                boundary: 0.25,
+                ready: 0.31,
+            }),
+        )
+        .unwrap();
+        for (age, sample) in actual[..192].iter().enumerate() {
+            assert_eq!(
+                *sample,
+                settings.clap_gain * pulse(Kind::Clap, age as u32, 8000),
+                "late readiness still retains the requested boundary attack"
+            );
+        }
+        plan.render_epoch(
+            1.,
+            2.,
+            8000,
+            &settings,
+            &mut actual,
+            Some(StartEpoch {
+                boundary: 0.25,
+                ready: 1.,
+            }),
+        )
+        .unwrap();
+        assert!(
+            actual.iter().all(|s| *s == 0.),
+            "large stalls never replay old notes"
         );
     }
     fn meters() -> Vec<Meter> {
