@@ -3,6 +3,10 @@
 use crate::{sync_track::Meter, timing::TempoMap};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
+#[path = "audition_clicks/preferences.rs"]
+pub mod preferences;
+#[path = "audition_clicks/project.rs"]
+mod project;
 
 pub const MAX_EVENTS: usize = 100_000;
 pub const CLICK_SECONDS: f64 = 0.024;
@@ -18,6 +22,15 @@ pub enum NoteClass {
     PitchedVocal,
     Talkie,
     VocalPercussion,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Singer {
+    #[default]
+    Lead,
+    Harm1,
+    Harm2,
+    Harm3,
 }
 impl NoteClass {
     pub const ALL: [Self; 7] = [
@@ -49,6 +62,7 @@ pub struct Settings {
     pub beat_gain: f32,
     pub clap_gain: f32,
     pub classes: Vec<NoteClass>,
+    pub singer: Singer,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -58,6 +72,7 @@ impl Default for Settings {
             beat_gain: 0.5,
             clap_gain: 0.5,
             classes: NoteClass::ALL.into(),
+            singer: Singer::Lead,
         }
     }
 }
