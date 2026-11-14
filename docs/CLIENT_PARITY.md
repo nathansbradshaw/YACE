@@ -103,6 +103,12 @@ steps, Redo, complete-backup reopen and an owned-browser restart passed. An
 note attributes, unchanged Lead/Guitar/tempo/venue tracks and original local
 audio. Native CLI restore/history/export passed the same data checks.
 
+Production runtime `2d0f2f4` passed the three independent voice targets, near/all
+policies and safe collision/range refusal. Complete-backup reopen and an owned
+browser restart retained byte-identical revision-4 project data. Four Undo steps
+and Redo exported the exact original and repaired voices, with shared phrase
+owners, note attributes and unrelated tracks preserved.
+
 A controlled no-audio 100,000-note Band fixture also passed preview, apply,
 exact Undo export, Redo and a six-file backup with stable IDs and an unchanged
 other difficulty. Long tasks up to 837 ms were observed across this workflow;
