@@ -138,6 +138,7 @@ pub fn reduce_generated(
         midi_lane_ranges: None,
         sync: None,
         sections: None,
+        text_events: None,
         track_origins: Default::default(),
         vocals: None,
         harmonies: None,

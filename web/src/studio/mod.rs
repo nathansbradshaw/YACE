@@ -98,6 +98,8 @@ pub(crate) mod state;
 mod stem_generation;
 #[path = "../../../src/studio/stems.rs"]
 mod stems;
+#[path = "../../../src/studio/text_events_editor.rs"]
+mod text_events_editor;
 #[path = "../../../src/studio/timing_editor.rs"]
 mod timing_editor;
 #[path = "../../../src/studio/timing_repair.rs"]

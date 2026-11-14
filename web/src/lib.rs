@@ -183,6 +183,8 @@ pub mod sync_track;
 mod synth;
 #[path = "../../src/tempo_analysis.rs"]
 pub mod tempo_analysis;
+#[path = "../../src/text_events.rs"]
+pub mod text_events;
 #[path = "../../src/timeline.rs"]
 pub mod timeline;
 #[path = "../../src/timeline_clock.rs"]
