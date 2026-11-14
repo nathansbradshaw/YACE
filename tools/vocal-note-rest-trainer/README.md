@@ -9,6 +9,9 @@ singers **failed the quality gate**: coverage improved, but wrong pitches and
 gap false notes increased. The private run retains both annotations, all frozen
 predictions, invalid-reference reasons, fitted models, and source hashes. This
 tool adds a reproducible research path; it does not enable that model in YACE.
+An expanded run with more reviewed solo singers also failed: recovering more
+singing did not prevent extra or wrong notes. Its weights remain private and
+experimental. More training sources or wider context are not acceptance evidence.
 
 Train timing decisions from trusted game charts while retaining the original
 RMVPE observations. The three binary heads predict pitched-note presence,
@@ -40,12 +43,31 @@ yace-vocal-note-rest-trainer score /private/fresh.json /private/fresh-features \
 
 Each manifest contains `recordings` with `id`, `artist`, `generation`, `stem`,
 and `reference` paths. `reference` may be null during extraction and prediction.
-Exactly four distinct artists are required for training; IDs must be unique and
+The legacy `train` command requires exactly four distinct artists; IDs must be unique and
 contain only ASCII letters, digits, underscores, or hyphens. Fresh artist names
 and recording hashes must not appear in the fitted model. Artist names alone
 do not prove singer independence: audit aliases, earlier experiments, and source
 provenance separately. Scoring accepts an otherwise identical manifest pointing
 to a second independent annotation.
+
+For a larger private corpus, `train-expanded MANIFEST FEATURES NEW_RUN` accepts
+4–32 distinct artists and reuses the same 336-column cache. It derives model-v3
+features in memory: three gain-relative RMS features, mel entropy/flatness/flux,
+and source-only 250 ms context windows centered at ±500/1500 ms (418 total).
+It does not read words or target values to construct these features, change F0,
+retime audio, or duplicate the audio/features. Edge windows remain inside their
+own recording. Normalization still uses only the training fold.
+
+Expanded training uses four folds by manifest index modulo four, excluding every
+tested source from its fold, and fits the final model on all training sources.
+Its 24 recipes combine voice cost 0/1/2, penalty .08/.16, existing-note lock
+off/on, and legacy/stronger attack rewards; all use full-run segmentation.
+Models, probabilities, MIDI, generation hashes and scores are retained. Full
+redundant development generations can be reconstructed with the pinned helper,
+source cache, probabilities and recipes. An empty chart has no vocal MIDI.
+`predict` accepts frozen v1/336 or v3/418 models explicitly; unsupported schemas
+fail instead of substituting a different profile. Existing v1 predictions retain
+their original features and decoder semantics.
 
 The stem must exactly match the generation's file hash and original 16 kHz PCM
 hash. Duration, RMVPE model/implementation identity, and native 100 Hz clock are
