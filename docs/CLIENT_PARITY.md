@@ -25,6 +25,15 @@ native CLI restoration, text removal, Undo and export passed independent checks.
 Before/after restart backups retained identical project and content-addressed
 files. This qualifies the controlled `.chart` subset.
 
+The hosted `14d8699` runtime passed the same audio-free scoped edits and refusal
+check. Its 23,199,576-byte WASM matched local SHA-256
+`db36f5897285223927005f5a3f7b96ad9acb56278ece661654da4e5ba5fdc82c`.
+Eight-file backups before and after an owned-browser restart were identical,
+including revision-4 project JSON and four Undo checkpoints. Restarted and
+backup-restored Undo/Redo retained the original and edited exact chart exports.
+The chart-only recording context and all unrelated content were checked
+separately from text-event changes.
+
 Imported MIDI text editing remains pending and is explicitly read-only. Arbitrary
 local chart events without a MIDI representation refuse conversion rather than
 silently broadening their scope. Native GUI, musical/game behavior, broader
