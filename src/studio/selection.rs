@@ -148,6 +148,7 @@ impl Studio {
         let Some(guard) = super::activity::BusyGuard::start(self.group_busy) else {
             return;
         };
+        let repairing = matches!(&edit, Edit::Repair { .. });
         let (count, active, done) = match &edit {
             Edit::Repair { selection, .. } => (
                 selection.ids.len() + selection.vocals.len(),
@@ -198,6 +199,8 @@ impl Studio {
                 "Note operation failed · no edit was committed".into()
             } else if (self.error)().is_some() {
                 "Notes edited; selection refresh failed · see error details".into()
+            } else if repairing {
+                "Timing repair applied".into()
             } else {
                 format!("{done} {count} notes")
             });

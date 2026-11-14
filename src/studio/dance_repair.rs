@@ -90,6 +90,7 @@ pub fn apply_timing_repair(
         return;
     };
     s.status.set("Repairing note timing…".into());
+    studio.status.set("Repairing note timing…".into());
     spawn(async move {
         let _guard = guard;
         #[cfg(target_arch = "wasm32")]
@@ -99,6 +100,7 @@ pub fn apply_timing_repair(
         if !current(s, &expected) {
             studio.error.set(Some("The project, part or selection changed. Preview timing repair again; nothing was changed.".into()));
             s.status.set("Timing repair cancelled".into());
+            studio.status.set("Timing repair cancelled".into());
             return;
         }
         s.apply(Action::EditNotes {
@@ -112,9 +114,16 @@ pub fn apply_timing_repair(
             .is_some_and(|p| p.revision == expected.revision + 1)
         {
             s.status.set("Timing repair applied".into());
+            studio.status.set("Timing repair applied".into());
         } else {
             s.status
                 .set("Timing repair failed · no edit was committed".into());
+            studio
+                .status
+                .set("Timing repair failed · no edit was committed".into());
+            studio.error.set(Some((s.error)().unwrap_or_else(|| {
+                "Timing repair was refused; no edit was committed".into()
+            })));
         }
     });
 }

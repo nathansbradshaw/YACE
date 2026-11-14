@@ -138,6 +138,11 @@ pub fn Controls(mut studio: Studio) -> Element {
     let available = dance::active() || studio.snapshot().is_some();
     let dance = dance::active();
     let units = if dance { "rows" } else { "ticks" };
+    let unit = if dance { "row" } else { "tick" };
+    let vocals = !dance
+        && studio
+            .snapshot()
+            .is_some_and(|p| p.selected_track == "Vocals");
     let resolution = if dance {
         48
     } else {
@@ -169,14 +174,16 @@ pub fn Controls(mut studio: Studio) -> Element {
                     option{value:"near","Near-grid notes only"}option{value:"all","Snap every note in scope"}
                 }}
                 label{"Maximum shift ({units})" input{aria_label:"Timing repair tolerance",r#type:"number",min:"0",value:"{tolerance}",disabled:busy||all(),oninput:move|e|{tolerance.set(e.value());result.set(None);error.set(None);}}}
-                p{class:"field-hint","Near-grid mode keeps notes farther away than the chosen tolerance. Scoring phrases keep their authored padding; collisions and incompatible techniques refuse the complete edit."}
+                p{class:"field-hint","Near-grid mode keeps notes farther away than the chosen tolerance. Collisions refuse the complete edit."}
+                if vocals {p{class:"field-hint","Complete vocal phrases carry their scoring padding. Partial phrases keep or extend their boundaries."}}
+                else if !dance {p{class:"field-hint","Repair refuses moves that would combine incompatible note techniques."}}
                 if dance {p{class:"field-hint","Dance has 48 rows per beat. Fine steps can share a row."}}
                 else {p{class:"field-hint","Enabled difficulty links can update their dependent parts. Undo restores the complete edit."}}
                 if let Some(message)=error(){p{role:"alert","{message}"}}
                 if busy{p{role:"status","Checking note timing…"}}
                 if let Some(value)=report{
                     if !current{p{role:"status","The project, part or selection changed. Preview again before applying."}}
-                    p{role:"status","{value.changed} of {value.examined} notes will move · {value.already_on_grid} already on grid · {value.kept_off_grid} off-grid notes kept · largest shift {value.largest_shift} {units}"}
+                    p{role:"status","{value.changed} of {value.examined} notes will move · {value.already_on_grid} already on grid · {value.kept_off_grid} off-grid notes kept · largest shift {value.largest_shift} {unit}" if value.largest_shift!=1 {"s"}}
                     if !value.examples.is_empty(){
                         p{class:"field-hint","First changes ({units}):"}
                         ul{for (before,after) in value.examples {li{"{before} → {after}"}}}
