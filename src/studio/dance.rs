@@ -11,8 +11,13 @@ use dioxus::prelude::*;
 use std::path::PathBuf;
 #[path = "dance_preview.rs"]
 mod preview;
+#[path = "dance_repair.rs"]
+mod repair;
 #[path = "dance_workspace.rs"]
 mod workspace;
+pub use repair::{
+    RepairContext, apply_timing_repair, repair_context, repair_is_current, repair_preview,
+};
 pub use workspace::{Audition, Inspector, Roll};
 #[path = "dance_transport.rs"]
 mod transport_backend;

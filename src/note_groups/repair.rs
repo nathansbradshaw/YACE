@@ -8,6 +8,17 @@ pub fn whole_part(project: &Project, track: &str) -> Result<Selection> {
         ..Selection::default()
     };
     if track == "Vocals" {
+        ensure!(
+            project
+                .content
+                .vocals
+                .as_ref()
+                .context("No vocal chart")?
+                .notes
+                .len()
+                <= MAX_NOTES,
+            "Repair at most 100,000 notes at once; select a smaller section"
+        );
         selected.vocals.extend(
             0..project
                 .content
@@ -26,6 +37,7 @@ pub fn whole_part(project: &Project, track: &str) -> Result<Selection> {
                 .context("Unknown track")?
                 .iter()
                 .filter(|n| project.playable(track, n.note.lane))
+                .take(MAX_NOTES + 1)
                 .map(|n| n.id.clone()),
         );
     }

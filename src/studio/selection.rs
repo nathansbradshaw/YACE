@@ -210,7 +210,7 @@ impl Studio {
         let chosen = self.selection();
         // Sorting can change vocal indices. Recover moved notes by value.
         let moved_vocals: std::collections::BTreeMap<_, _> =
-            if let Edit::Move { ticks, rows, .. } = &edit {
+            if matches!(&edit, Edit::Move { .. } | Edit::Repair { .. }) {
                 before
                     .content
                     .vocals
@@ -221,10 +221,25 @@ impl Studio {
                             .iter()
                             .filter_map(|&i| {
                                 let mut note = chart.notes.get(i)?.clone();
-                                note.start = note.start.checked_add_signed(*ticks)?;
-                                note.end = note.end.checked_add_signed(*ticks)?;
-                                if let crate::vocals::VocalTone::Pitched { midi } = &mut note.tone {
-                                    *midi = u8::try_from(*midi as i16 - rows).ok()?;
+                                match &edit {
+                                    Edit::Move { ticks, rows, .. } => {
+                                        note.start = note.start.checked_add_signed(*ticks)?;
+                                        note.end = note.end.checked_add_signed(*ticks)?;
+                                        if let crate::vocals::VocalTone::Pitched { midi } =
+                                            &mut note.tone
+                                        {
+                                            *midi = u8::try_from(*midi as i16 - rows).ok()?;
+                                        }
+                                    }
+                                    Edit::Repair { selection, policy }
+                                        if selection.vocals.contains(&i) =>
+                                    {
+                                        let grid = policy.grid(chart.resolution).ok()?;
+                                        let after = policy.destination(grid, note.start).ok()?;
+                                        note.end = after.checked_add(note.end - note.start)?;
+                                        note.start = after;
+                                    }
+                                    _ => {}
                                 }
                                 Some((note.start, note))
                             })
@@ -234,7 +249,7 @@ impl Studio {
             } else {
                 Default::default()
             };
-        let moving = matches!(&edit, Edit::Move { .. });
+        let moving = matches!(&edit, Edit::Move { .. } | Edit::Repair { .. });
         let pasting = matches!(&edit, Edit::Paste { .. });
         if !self.try_dispatch(Action::EditNoteGroup { edit }) {
             return false;
