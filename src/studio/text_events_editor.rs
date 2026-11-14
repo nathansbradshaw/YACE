@@ -50,6 +50,7 @@ fn scope_label(scope: &Scope) -> String {
     match scope {
         Scope::Global => "Global · entire song".into(),
         Scope::Local { track } => format!("Local · {}", super::track_picker::title(track)),
+        Scope::Physical { owner } => format!("Local · {owner} · physical MIDI track"),
     }
 }
 #[component]
@@ -99,7 +100,7 @@ fn Dialog(studio: Studio) -> Element {
         if stale {p {role:"alert","The project changed. Your draft is kept; close and reopen this editor to continue."}}
         div {class:"vocal-syllables",role:"group",aria_label:"Existing chart text events",
             for event in current.events.iter().skip(at*PAGE).take(PAGE) {{let target=event.clone();let label=scope_label(&event.scope);rsx! {
-                button {class:if chosen.as_ref()==Some(event){"studio-tool active"}else{"studio-tool"},aria_pressed:chosen.as_ref()==Some(event),disabled:stale,onclick:move|_|{scope.set(match &target.scope {Scope::Global=>String::new(),Scope::Local {track}=>track.clone()});tick.set(target.tick.to_string());text.set(target.text.clone());previous.set(Some(target.clone()));error.set(None);},"{event.tick} · {label} · {event.text}"}
+                button {class:if chosen.as_ref()==Some(event){"studio-tool active"}else{"studio-tool"},aria_pressed:chosen.as_ref()==Some(event),disabled:stale,onclick:move|_|{scope.set(match &target.scope {Scope::Global=>String::new(),Scope::Local {track}=>track.clone(),Scope::Physical {owner}=>owner.clone()});tick.set(target.tick.to_string());text.set(target.text.clone());previous.set(Some(target.clone()));error.set(None);},"{event.tick} · {label} · {event.text}"}
             }}}
         }
         if current.events.is_empty(){p {class:"field-hint","No editable ordinary text events in this chart."}}

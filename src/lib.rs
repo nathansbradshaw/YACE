@@ -29,6 +29,7 @@ pub mod kit_audition;
 pub mod lane_ranges;
 #[cfg(feature = "browser")]
 mod media_clock;
+pub mod midi_text_events;
 pub mod note_groups;
 pub mod note_types;
 pub mod parts;

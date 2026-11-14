@@ -10,13 +10,20 @@ pub const MAX_EVENTS: usize = 16_384;
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Scope {
     Global,
-    Local { track: String },
+    Local {
+        track: String,
+    },
+    /// A physical MIDI owner is shared by its difficulties, never a chart tier.
+    Physical {
+        owner: String,
+    },
 }
 impl Scope {
     pub fn section(&self) -> &str {
         match self {
             Self::Global => "Events",
             Self::Local { track } => track,
+            Self::Physical { owner } => owner,
         }
     }
     fn from_section(section: &str) -> Option<Self> {
@@ -62,7 +69,7 @@ pub enum Edit {
 fn source_hash(source: &Chart) -> String {
     format!("{:x}", Sha256::digest(source.raw.as_bytes()))
 }
-fn plain(text: &str) -> bool {
+pub(crate) fn plain(text: &str) -> bool {
     !text.trim().is_empty()
         && text.chars().count() <= 1024
         && !text
@@ -87,6 +94,7 @@ pub fn dedicated(scope: &Scope, text: &str) -> bool {
                         .strip_prefix("mix")
                         .is_some_and(|s| s.starts_with(char::is_whitespace)))
         }
+        Scope::Physical { .. } => true,
     }
 }
 fn parsed(line: &str, scope: &Scope, ordinal: usize) -> Option<Event> {
