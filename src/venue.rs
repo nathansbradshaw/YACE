@@ -108,7 +108,7 @@ pub struct Source {
     pub present: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Edit {
     Put {
         previous: Option<Event>,
