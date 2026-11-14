@@ -77,7 +77,8 @@ unsupported text and larger event documents remain opaque or read-only. Dance
 uses its existing timing/label controls. Native GUI, musical/game behavior,
 broader format/browser/platform coverage and larger event workloads remain open.
 
-The shared toolbar now offers a VENUE editor for imported MIDI. Its 25-cue
+The shared toolbar now offers a VENUE editor for imported MIDI and editable
+chart-source projects. Its 25-cue
 catalog covers lighting, post-processing, cameras, fog/bonus effects and bounded
 performer spotlight/singalong ranges, using known YARG/Rock Band wire mappings.
 The cue schematic previews latched settings and active performer ranges, with
@@ -106,10 +107,33 @@ overlap and out-of-timeline attempts preserved the saved revision.
 Saved operation histories retain their established action representation, checked
 by a frozen request regression and byte-identical recovery backups. Drum/vocal
 performer markers were also verified visually after correcting label handling.
-The current scope requires imported MIDI;
-chart-source/blank-chart authoring, unlisted encodings, native GUI, actual target
-game rendering, broad browser/platform coverage and event-capacity acceptance
-remain open. Twenty-nine affected regressions and strict native/WASM checks pass.
+Chart-source and blank projects select MIDI automatically when venue edits need
+it. Explicit chart export refuses those edits. Playable ZIPs retain the immutable
+original chart separately from the editable master, so unrelated chart edits do
+not change venue source ownership. Reimport verifies both files, the generated
+MIDI and editable cue state. Foreign chart VENUE sections and unbound commands
+remain read-only; unsupported chart rows and incompatible five-lane drum exports
+refuse conversion. Deliberate supported-part selection remains available.
+
+Controlled browser checks at `1dda1f7` added ordinary global text before six venue
+cues, then exported MIDI. Independent checks retained every unrelated raw MIDI
+track against a pre-venue export, the exact original CRLF chart and audio, the
+edited master's global text, cue identities and all unrelated project content.
+Six Undo steps exported the original chart with the preceding text edit; six
+Redo steps restored the expected MIDI. Complete backup opening, owned-browser
+restart and native CLI restoration/editing/history passed. Thirteen-file
+revision-19 backups before and after restart were identical. Playable ZIP
+reimport retained the original venue source hash even though its editable master
+had a different hash; moving a cue and using Undo/Redo retained exact output.
+An unsupported chart row refused MIDI conversion while its complete backup
+retained the exact source chart and audio. Actual blank-chart creation with
+explicit browser storage, venue authoring, automatic MIDI export and Undo/Redo
+retained zero playable notes; Undo returned to the exact empty source chart.
+Complete backups retained the cue and its history without a recording.
+Thirty-four affected regressions and strict native/WASM checks pass.
+
+Unlisted encodings, native GUI, actual target game rendering, broad
+browser/platform coverage and event-capacity acceptance remain open.
 
 The hosted `2a5720c` runtime passed the same audio-free nine edits and overlap
 refusal. Its 23,482,346-byte WASM matched local SHA-256
