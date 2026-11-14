@@ -601,3 +601,355 @@ fn venue_refusals_preserve_revision_and_source_for_bad_drafts_and_chart_conversi
         fixture()
     );
 }
+
+fn chart_project(root: &Path) -> Store {
+    let song = root.join("song");
+    fs::create_dir(&song).unwrap();
+    fs::write(song.join("notes.chart"),"[Song]\n{\n  Name = \"Chart venue\"\n  Resolution = 480\n}\n[SyncTrack]\n{\n  0 = B 120000\n  1920 = B 90000\n}\n[Events]\n{\n  0 = E \"section Intro\"\n  100 = E \"retained global cue\"\n}\n[ExpertSingle]\n{\n  0 = N 0 240\n  480 = N 1 120\n  120 = S 2 840\n}\n[HardSingle]\n{\n  240 = N 3 120\n}\n").unwrap();
+    fs::write(
+        song.join("song.ini"),
+        "[song]\nname = Chart venue\nsong_length = 10000\ncustom_metadata = retain me\n",
+    )
+    .unwrap();
+    Store::create(&song, None, &root.join("project")).unwrap()
+}
+#[test]
+fn chart_venue_automatic_midi_export_reopens_without_rebinding_to_an_edited_master() {
+    let root = tempfile::tempdir().unwrap();
+    let store = chart_project(root.path());
+    let original = fs::read(store.root.join("source/notes.chart")).unwrap();
+    let initial = store.load().unwrap();
+    assert!(store.venue_events(&initial).unwrap().events.is_empty());
+    transact(
+        &store,
+        Action::EditTextEvent {
+            edit: chart_engine::text_events::Edit::Put {
+                previous: None,
+                scope: chart_engine::text_events::Scope::Global,
+                tick: 240,
+                text: "new global cue".into(),
+            },
+        },
+    )
+    .unwrap();
+    transact(
+        &store,
+        Action::EditVenue {
+            edit: put("fog_on", 480, None),
+        },
+    )
+    .unwrap();
+    transact(
+        &store,
+        Action::EditVenue {
+            edit: put("spot_guitar", 960, Some(1440)),
+        },
+    )
+    .unwrap();
+    let before = store.load().unwrap();
+    let state = before.content.venue_events.clone().unwrap();
+    assert_eq!(state.source_sha256, initial.source_chart_sha256);
+    let output = root.path().join("game");
+    let bytes = export(&store, &output);
+    assert_eq!(
+        venue::values(&venue::imported(&bytes).unwrap().document),
+        venue::values(&state)
+    );
+    assert!(!output.join("notes.chart").exists());
+    let archived = output
+        .join(".yace/originals/venue-chart")
+        .join(&state.source_sha256)
+        .join("notes.chart");
+    assert_eq!(fs::read(&archived).unwrap(), original);
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    let doc = reopened.load().unwrap();
+    assert_ne!(
+        doc.source_chart_sha256, state.source_sha256,
+        "Master includes an unrelated authored global cue; venue stays bound to original chart"
+    );
+    assert_eq!(reopened.venue_events(&doc).unwrap(), state);
+    assert_eq!(export(&reopened, &root.path().join("again")), bytes);
+    let mut legacy = doc.clone();
+    legacy.content.venue_events = None;
+    fs::write(
+        reopened.root.join("project.json"),
+        serde_json::to_vec_pretty(&legacy).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        chart_engine::export_options::Options::default()
+            .midi(&reopened, &reopened.load().unwrap())
+            .unwrap(),
+        "Legacy omitted optional field must inherit the verified chart-origin venue source"
+    );
+    assert_eq!(
+        export(&reopened, &root.path().join("legacy-chart-origin")),
+        bytes
+    );
+    let e = state
+        .events
+        .iter()
+        .find(|e| e.cue == "fog_on")
+        .unwrap()
+        .clone();
+    transact(
+        &reopened,
+        Action::EditVenue {
+            edit: Edit::Put {
+                previous: Some(e),
+                cue: "fog_off".into(),
+                tick: 720,
+                end: None,
+            },
+        },
+    )
+    .unwrap();
+    let changed = export(&reopened, &root.path().join("changed"));
+    assert_ne!(changed, bytes);
+    transact(&reopened, Action::Undo).unwrap();
+    assert_eq!(export(&reopened, &root.path().join("undone")), bytes);
+    fs::write(archived, b"changed immutable chart").unwrap();
+    assert!(Store::create(&output, None, &root.path().join("tampered")).is_err());
+    assert_eq!(
+        fs::read(store.root.join("source/notes.chart")).unwrap(),
+        original
+    );
+}
+#[test]
+fn chart_venue_clearing_and_undo_keep_export_format_explicit() {
+    let root = tempfile::tempdir().unwrap();
+    let store = chart_project(root.path());
+    let initial = store.load().unwrap();
+    assert!(
+        !chart_engine::export_options::Options::default()
+            .midi(&store, &initial)
+            .unwrap()
+    );
+    transact(
+        &store,
+        Action::EditVenue {
+            edit: put("fog_on", 480, None),
+        },
+    )
+    .unwrap();
+    let current = store.load().unwrap();
+    assert!(
+        chart_engine::export_options::Options::default()
+            .midi(&store, &current)
+            .unwrap()
+    );
+    let options = chart_engine::export_options::Options {
+        format: chart_engine::export_options::Format::Chart,
+        ..Default::default()
+    };
+    assert!(options.selected(&store, &current).is_err());
+    let e = current.content.venue_events.as_ref().unwrap().events[0].clone();
+    transact(
+        &store,
+        Action::EditVenue {
+            edit: Edit::Remove { event: e },
+        },
+    )
+    .unwrap();
+    let cleared = export(&store, &root.path().join("cleared"));
+    assert!(
+        venue::imported(&cleared)
+            .unwrap()
+            .document
+            .events
+            .is_empty()
+    );
+    let reopened = Store::create(
+        &root.path().join("cleared"),
+        None,
+        &root.path().join("cleared-project"),
+    )
+    .unwrap();
+    assert!(
+        reopened
+            .venue_events(&reopened.load().unwrap())
+            .unwrap()
+            .events
+            .is_empty()
+    );
+    transact(&store, Action::Undo).unwrap();
+    assert_eq!(
+        store
+            .venue_events(&store.load().unwrap())
+            .unwrap()
+            .events
+            .len(),
+        1
+    );
+}
+#[test]
+fn blank_chart_venue_exports_without_inventing_playable_notes() {
+    let root = tempfile::tempdir().unwrap();
+    let song = root.path().join("song");
+    fs::create_dir(&song).unwrap();
+    let (ini, chart) =
+        chart_engine::project_recording::blank_song("Blank venue", "Controlled fixture", 120., 10.)
+            .unwrap();
+    fs::write(song.join("notes.chart"), chart.as_bytes()).unwrap();
+    fs::write(song.join("song.ini"), ini).unwrap();
+    let store = Store::create(&song, None, &root.path().join("project")).unwrap();
+    transact(
+        &store,
+        Action::EditVenue {
+            edit: put("light_chorus", 480, None),
+        },
+    )
+    .unwrap();
+    let state = store.load().unwrap();
+    assert!(state.content.tracks.values().all(Vec::is_empty));
+    let bytes = export(&store, &root.path().join("game"));
+    assert_eq!(venue::imported(&bytes).unwrap().document.events.len(), 1);
+    let midi = Smf::parse(&bytes).unwrap();
+    assert!(midi.tracks.iter().flatten().all(|e| !matches!(
+        e.kind,
+        K::Midi {
+            message: N::NoteOn { .. },
+            ..
+        }
+    )));
+    let again = Store::create(&root.path().join("game"), None, &root.path().join("again")).unwrap();
+    assert_eq!(
+        again.venue_events(&again.load().unwrap()).unwrap(),
+        state.content.venue_events.unwrap()
+    );
+    assert_eq!(
+        fs::read(store.root.join("source/notes.chart")).unwrap(),
+        chart.as_bytes()
+    );
+}
+#[test]
+fn chart_origin_venue_refuses_new_unmanaged_commands_even_if_checksums_are_refreshed() {
+    let root = tempfile::tempdir().unwrap();
+    let store = chart_project(root.path());
+    transact(
+        &store,
+        Action::EditVenue {
+            edit: put("fog_on", 480, None),
+        },
+    )
+    .unwrap();
+    let output = root.path().join("game");
+    let bytes = export(&store, &output);
+    let mut midi = Smf::parse(&bytes).unwrap();
+    let track = midi
+        .tracks
+        .iter_mut()
+        .find(|t| {
+            t.iter()
+                .any(|e| matches!(e.kind, K::Meta(M::TrackName(b"VENUE"))))
+        })
+        .unwrap();
+    track.pop().unwrap();
+    track.push(TrackEvent {
+        delta: 480.into(),
+        kind: K::Meta(M::Text(b"[foreign_venue keep me]")),
+    });
+    track.push(TrackEvent {
+        delta: 0.into(),
+        kind: K::Meta(M::EndOfTrack),
+    });
+    let mut changed = Vec::new();
+    midi.write_std(&mut changed).unwrap();
+    fs::write(output.join("notes.mid"), &changed).unwrap();
+    let hash = chart_engine::models::hash_file(&output.join("notes.mid")).unwrap();
+    for name in ["binding.json", "venue-events.json"] {
+        let path = output.join(".yace/working").join(name);
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        value["midi_sha256"] = hash.clone().into();
+        fs::write(path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+    }
+    let error = Store::create(&output, None, &root.path().join("foreign"))
+        .err()
+        .expect(
+            "Foreign venue commands must remain read-only rather than be silently regenerated away",
+        );
+    assert!(error.to_string().contains("unbound commands"), "{error:#}");
+    assert_eq!(fs::read(output.join("notes.mid")).unwrap(), changed);
+}
+#[test]
+fn chart_venue_five_lane_conflict_can_export_a_deliberate_guitar_subset() {
+    let root = tempfile::tempdir().unwrap();
+    let song = root.path().join("song");
+    fs::create_dir(&song).unwrap();
+    let chart = "[Song]\n{\n Resolution = 480\n}\n[SyncTrack]\n{\n 0 = B 120000\n}\n[ExpertSingle]\n{\n 0 = N 0 240\n}\n[ExpertDrums]\n{\n 0 = N 0 0\n 240 = N 5 0\n}\n";
+    fs::write(song.join("notes.chart"), chart).unwrap();
+    fs::write(
+        song.join("song.ini"),
+        "[song]\nname = Five lane venue\nsong_length = 10000\nfive_lane_drums = true\n",
+    )
+    .unwrap();
+    let store = Store::create(&song, None, &root.path().join("project")).unwrap();
+    transact(
+        &store,
+        Action::EditVenue {
+            edit: put("fog_on", 480, None),
+        },
+    )
+    .unwrap();
+    let p = store.load().unwrap();
+    assert!(
+        chart_engine::export_options::Options::default()
+            .midi(&store, &p)
+            .is_err()
+    );
+    let options = chart_engine::export_options::Options {
+        tracks: Some(["ExpertSingle".into()].into()),
+        ..Default::default()
+    };
+    let output = root.path().join("guitar");
+    fs::create_dir(&output).unwrap();
+    store
+        .write_export_with_options(
+            &p,
+            &output,
+            &Actor {
+                kind: ActorKind::Human,
+                name: "You".into(),
+            },
+            &options,
+        )
+        .unwrap();
+    let reopened = Store::create(&output, None, &root.path().join("reopened")).unwrap();
+    let doc = reopened.load().unwrap();
+    assert!(!doc.content.tracks.keys().any(|t| t.ends_with("Drums")));
+    assert_eq!(reopened.venue_events(&doc).unwrap().events.len(), 1);
+    assert_eq!(
+        fs::read(store.root.join("source/notes.chart")).unwrap(),
+        chart.as_bytes()
+    );
+}
+#[test]
+fn foreign_chart_venue_sections_stay_read_only_without_changing_the_project() {
+    let root = tempfile::tempdir().unwrap();
+    let song = root.path().join("song");
+    fs::create_dir(&song).unwrap();
+    let chart = "[Song]\n{\n Resolution = 480\n}\n[SyncTrack]\n{\n 0 = B 120000\n}\n[ExpertSingle]\n{\n 0 = N 0 240\n}\n[VENUE]\n{\n 120 = E \"foreign venue\"\n}\n";
+    fs::write(song.join("notes.chart"), chart).unwrap();
+    fs::write(
+        song.join("song.ini"),
+        "[song]\nname = Foreign venue\nsong_length = 10000\n",
+    )
+    .unwrap();
+    let store = Store::create(&song, None, &root.path().join("project")).unwrap();
+    let before = fs::read(store.root.join("project.json")).unwrap();
+    assert!(
+        transact(
+            &store,
+            Action::EditVenue {
+                edit: put("fog_on", 480, None)
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(store.root.join("project.json")).unwrap(), before);
+    assert_eq!(
+        fs::read(store.root.join("source/notes.chart")).unwrap(),
+        chart.as_bytes()
+    );
+}

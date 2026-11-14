@@ -44,13 +44,9 @@ pub fn ExportDialog(mut studio: Studio, #[props(default)] failure: String) -> El
         }
     };
     let selected = options();
-    let imported_midi = crate::song_files::game_midi::exists(&store.root.join("source"));
-    let validation = selected
-        .validate_for(&doc, &tracks, imported_midi)
-        .err()
-        .map(|e| e.to_string());
-    let chosen = selected.tracks.as_ref().unwrap_or(&tracks);
-    let midi = crate::bre::midi_required(&doc, chosen) || selected.use_midi(chosen, imported_midi);
+    let format = selected.midi(&store, &doc);
+    let validation = format.as_ref().err().map(|e| e.to_string());
+    let midi = format.unwrap_or(false);
     let estimated = if selected.include_audio {
         with_audio
     } else {
@@ -89,7 +85,7 @@ pub fn ExportDialog(mut studio: Studio, #[props(default)] failure: String) -> El
                     option {value: "chart", ".chart"}
                     option {value: "midi", "MIDI (.mid)"}
                 }
-                p {class: "field-hint", "Automatic uses MIDI for guitar/keys big rock endings, vocals, Pro Keys, Pro Guitar, Pro Bass and imported MIDI songs. Clone Hero requires you to deselect vocals, Pro Keys, Pro Guitar, Pro Bass and other original MIDI parts."}
+                p {class: "field-hint", "Automatic uses MIDI for VENUE cues, guitar/keys big rock endings, vocals, Pro Keys, Pro Guitar, Pro Bass and imported MIDI songs. Clone Hero requires you to deselect vocals, Pro Keys, Pro Guitar, Pro Bass and other original MIDI parts."}
             }
             fieldset {disabled: busy,
                 legend {"Instruments and difficulties"}

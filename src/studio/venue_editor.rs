@@ -52,7 +52,7 @@ fn Dialog(studio: Studio) -> Element {
     let mut follow = use_signal(|| false);
     let current = use_memo(move || view(studio));
     let Ok(document) = current() else {
-        return rsx! {h2{"Venue cues"}p{role:"status","{current().unwrap_err()}"}p{class:"field-hint","This editor currently authors the supported YARG/Rock Band MIDI VENUE subset. Original data remains retained."}};
+        return rsx! {h2{"Venue cues"}p{role:"status","{current().unwrap_err()}"}p{class:"field-hint","Venue cues use MIDI when you export. Your original chart remains in the complete editing project and export history."}};
     };
     let stale = binding(studio) != expected();
     let chosen = previous();
