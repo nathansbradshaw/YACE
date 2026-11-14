@@ -1,6 +1,7 @@
 //! Portable simfile authoring. Audio, files and UI belong to the host client.
 pub mod codec;
 pub mod generation;
+pub mod grid;
 pub mod project;
 pub mod timing;
 pub use codec::{Chart, Difficulty, Document, Format, Note, NoteKind};

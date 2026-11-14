@@ -149,6 +149,11 @@ impl Studio {
             return;
         };
         let (count, active, done) = match &edit {
+            Edit::Repair { selection, .. } => (
+                selection.ids.len() + selection.vocals.len(),
+                "Repairing",
+                "Repaired",
+            ),
             Edit::Move { selection, .. } => (
                 selection.ids.len() + selection.vocals.len(),
                 "Moving",
