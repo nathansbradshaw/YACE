@@ -27,7 +27,6 @@ impl HarmonyChart {
         part: Part,
         policy: RepairPolicy,
     ) -> Result<(Self, RepairPreview)> {
-        self.validate()?;
         let voice = self
             .voices
             .get(&part)
@@ -36,6 +35,7 @@ impl HarmonyChart {
             voice.notes.len() <= crate::note_groups::MAX_NOTES,
             "Repair at most 100,000 notes at once"
         );
+        self.validate()?;
         let grid = policy.grid(self.resolution)?;
         let mut candidate = self.clone();
         let mut report = RepairPreview::default();
@@ -60,6 +60,13 @@ impl HarmonyChart {
                 after.start,
             );
         }
+        ensure!(
+            candidate.voices[&part]
+                .notes
+                .windows(2)
+                .all(|pair| pair[0].end <= pair[1].start),
+            "Repair would overlap notes in this harmony voice; choose a finer grid or smaller tolerance"
+        );
         candidate.validate()?;
         Ok((candidate, report))
     }
@@ -149,7 +156,9 @@ mod tests {
                         maximum_shift: None
                     }
                 )
-                .is_err()
+                .unwrap_err()
+                .to_string()
+                .contains("overlap notes in this harmony voice")
         );
         assert_eq!(before, frozen);
         for lyrics in [false, true] {
