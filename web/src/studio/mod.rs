@@ -1,5 +1,7 @@
 #[path = "../../../src/studio/activity.rs"]
 mod activity;
+#[path = "../../../src/studio/audition_controls.rs"]
+mod audition_controls;
 #[path = "../../../src/studio/brand.rs"]
 mod brand;
 #[path = "../../../src/studio/bre_editor.rs"]
@@ -10,6 +12,7 @@ mod browser_viewport;
 mod chart_desk;
 #[path = "../../../src/studio/clean.rs"]
 mod clean;
+mod click_audio;
 #[path = "../../../src/studio/collaboration.rs"]
 mod collaboration;
 #[path = "../../../src/studio/dance.rs"]
@@ -148,6 +151,7 @@ pub fn App() -> Element {
     let github = github::use_session();
     use_context_provider(|| github);
     let studio = state::use_studio();
+    audition_controls::provide(studio);
     #[cfg(feature = "lifetime-fixture")]
     let fixture_controls = rsx! {crate::lifetime_fixture::Controls { studio }};
     #[cfg(not(feature = "lifetime-fixture"))]

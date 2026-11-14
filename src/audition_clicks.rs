@@ -3,6 +3,10 @@
 use crate::{sync_track::Meter, timing::TempoMap};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+#[path = "audition_clicks/mix.rs"]
+mod mix;
+pub use mix::Mix;
 #[path = "audition_clicks/preferences.rs"]
 pub mod preferences;
 #[path = "audition_clicks/project.rs"]

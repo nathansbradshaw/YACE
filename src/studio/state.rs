@@ -82,6 +82,7 @@ struct ReviewSource {
     loaded: Arc<LoadedStems>,
     kit_audio: Option<Arc<Vec<f32>>>,
     mix: Arc<RwLock<PreparedMix>>,
+    clicks: Arc<RwLock<Option<Arc<crate::audition_clicks::Mix>>>>,
     sample: usize,
     frame: [f32; 2],
 }
@@ -279,6 +280,7 @@ impl Audio {
             loaded: Arc::new(loaded),
             kit_audio,
             mix: Arc::new(RwLock::new(prepared)),
+            clicks: Arc::default(),
             sample: 0,
             frame: [0.0; 2],
         };
@@ -301,6 +303,42 @@ impl Audio {
     }
     fn set_mix(&self, mix: &StemMix) -> Result<()> {
         self.set_routed_mix(mix, None)
+    }
+    pub fn set_audition(&self, clicks: Option<Arc<crate::audition_clicks::Mix>>) -> Result<()> {
+        if let Some(buffer) = &self.buffer {
+            anyhow::ensure!(
+                clicks.as_ref().is_none_or(|c| !c.active())
+                    || (32000..=192000).contains(&buffer.loaded.sample_rate),
+                "Native click audition needs a recording sample rate from 32000 to 192000 Hz"
+            );
+            let mut current = buffer
+                .clicks
+                .write()
+                .map_err(|_| anyhow::anyhow!("Audition settings lock poisoned"))?;
+            if current.is_none() && clicks.is_none()
+                || current
+                    .as_ref()
+                    .zip(clicks.as_ref())
+                    .is_some_and(|(a, b)| Arc::ptr_eq(a, b))
+            {
+                return Ok(());
+            }
+            *current = clicks;
+            drop(current);
+            if self.player.is_paused()
+                && let Some(stream) = self.stream.borrow().as_ref()
+            {
+                // Primed PCM must reflect a setting changed before Play. Keep
+                // a running recording on its existing uninterrupted stream.
+                stream.seek(stream.position())?;
+            }
+        } else {
+            anyhow::ensure!(
+                clicks.as_ref().is_none_or(|c| !c.active()),
+                "Chart-only click output is not ready"
+            );
+        }
+        Ok(())
     }
     fn set_routed_mix(
         &self,
@@ -482,6 +520,9 @@ impl ReviewSource {
         let loaded = self.loaded.clone();
         let kit = self.kit_audio.clone();
         let mix = self.mix.clone();
+        let clicks = self.clicks.clone();
+        let mut click_samples = Vec::with_capacity(2048);
+        let mut music_gain = 1.;
         crate::streaming_audio::start(
             loaded.sample_rate,
             loaded.frame_count() as u64,
@@ -515,6 +556,17 @@ impl ReviewSource {
                             .context("Original source range outside recording")?,
                     );
                 }
+                let click_mix = clicks
+                    .read()
+                    .map_err(|_| anyhow::anyhow!("Audition settings lock poisoned"))?;
+                crate::audition_clicks::Mix::apply(
+                    click_mix.as_deref(),
+                    start as f64 / loaded.sample_rate as f64,
+                    loaded.sample_rate,
+                    output,
+                    &mut click_samples,
+                    &mut music_gain,
+                )?;
                 Ok(())
             }),
         )
@@ -817,6 +869,15 @@ impl Studio {
             .read()
             .as_ref()
             .is_some_and(|doc| doc.selected_track == "Vocals")
+    }
+    pub fn configure_audition(self, mix: Option<Arc<crate::audition_clicks::Mix>>) -> Result<()> {
+        #[cfg(not(feature = "browser"))]
+        if let Some(audio) = self.audio.read().as_ref() {
+            audio.set_audition(mix)?;
+        }
+        #[cfg(feature = "browser")]
+        anyhow::ensure!(mix.is_none(), "Click audition is not ready in LiveView");
+        Ok(())
     }
     pub fn reload(mut self, transport: bool) {
         let Some(store) = self.store.read().clone() else {
@@ -2935,6 +2996,74 @@ mod tests {
     #[cfg(not(feature = "browser"))]
     use rodio::Source;
     #[test]
+    #[cfg(not(feature = "browser"))]
+    fn native_clicks_enter_the_recording_stream_at_the_source_attack() {
+        use crate::audition_clicks::{Event, Kind, Mix, Plan, Settings};
+        let plan = Arc::new(
+            Plan::new(
+                vec![Event {
+                    seconds: 0.25,
+                    kind: Kind::Clap,
+                }],
+                1.,
+            )
+            .unwrap(),
+        );
+        let settings = Settings {
+            claps: true,
+            clap_gain: 1.,
+            ..Settings::default()
+        };
+        let buffer = ReviewSource {
+            loaded: Arc::new(
+                LoadedStems::from_pcm(44100, Arc::new(vec![0.; 88200]), BTreeMap::new()).unwrap(),
+            ),
+            kit_audio: None,
+            mix: Arc::new(RwLock::new(StemMix::default().prepare([]).unwrap())),
+            clicks: Arc::new(RwLock::new(Some(Arc::new(
+                Mix::new(plan, settings).unwrap(),
+            )))),
+            sample: 0,
+            frame: [0.; 2],
+        };
+        let (controller, mut source) = buffer.stream(1.).unwrap();
+        controller.wait_ready(Duration::from_secs(5)).unwrap();
+        let mut output = Vec::new();
+        while output.len() < 88200 {
+            let count = (88200 - output.len()).min(512);
+            let before = output.len();
+            output.extend(source.by_ref().take(count));
+            assert_eq!(output.len() - before, count);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(controller.underflow_frames(), 0);
+        assert!(controller.error().is_none());
+        assert_eq!(
+            output.chunks_exact(2).position(|f| f[0].abs() > 0.0001),
+            Some(11026)
+        );
+        let stereo_delta = output
+            .chunks_exact(2)
+            .map(|f| (f[0] - f[1]).abs())
+            .fold(0_f32, f32::max);
+        assert!(
+            stereo_delta <= 0.000001,
+            "Post-DSP stereo rounding difference {stereo_delta}"
+        );
+        println!(
+            "Native click source attack=11026/44100 seconds; stereo delta={stereo_delta}; underflow=0"
+        );
+        let precursor = output[..22050]
+            .iter()
+            .map(|s| s.abs())
+            .fold(0_f32, f32::max);
+        println!("Native click pre-attack numerical floor={precursor}");
+        assert!(
+            precursor <= 0.000001,
+            "Unexpected signal before the authored click: {precursor}"
+        );
+    }
+    #[test]
     fn isolated_peak_cache_is_bounded_source_timed_and_not_individually_normalized() {
         let loaded = LoadedStems::from_pcm(
             44100,
@@ -2990,6 +3119,7 @@ mod tests {
             loaded: loaded.clone(),
             kit_audio: None,
             mix: Arc::new(RwLock::new(StemMix::default().prepare([]).unwrap())),
+            clicks: Arc::default(),
             sample: 0,
             frame: [0.; 2],
         };
@@ -3150,6 +3280,7 @@ mod tests {
             loaded: loaded.clone(),
             kit_audio: None,
             mix: weights.clone(),
+            clicks: Arc::default(),
             sample: 0,
             frame: [0.0; 2],
         };
@@ -3177,6 +3308,7 @@ mod tests {
             loaded,
             kit_audio: Some(kit.clone()),
             mix: weights.clone(),
+            clicks: Arc::default(),
             sample: 0,
             frame: [0.; 2],
         };

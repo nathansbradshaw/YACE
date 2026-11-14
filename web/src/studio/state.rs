@@ -532,6 +532,12 @@ impl Studio {
             .as_ref()
             .map_or((self.playhead)(), |media| media.position())
     }
+    pub fn configure_audition(self, mix: Option<Arc<crate::audition_clicks::Mix>>) -> Result<()> {
+        if let Some(media) = self.media.read().as_ref() {
+            media.set_audition(mix, (self.volume)())?;
+        }
+        Ok(())
+    }
     pub fn set_playback_rate(mut self, rate: f64) {
         if !rate.is_finite() || !(0.25..=2.).contains(&rate) {
             self.error
@@ -722,6 +728,9 @@ impl Studio {
             return;
         }
         media.synchronize();
+        if let Some(error) = media.take_audition_error() {
+            super::audition_controls::report_warning(error);
+        }
         self.playhead.set(position);
         if (self.follow)()
             && (position < (self.view_start)()

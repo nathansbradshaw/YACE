@@ -4,12 +4,12 @@ pub mod analysis_validation;
 mod archive_blob;
 #[path = "../../src/archive_codec.rs"]
 pub mod archive_codec;
-#[path = "../../src/audition_clicks.rs"]
-pub mod audition_clicks;
 mod archive_import;
 pub mod audio_decode;
 mod audio_identity;
 mod audio_resample;
+#[path = "../../src/audition_clicks.rs"]
+pub mod audition_clicks;
 #[path = "../../src/bass_analysis.rs"]
 pub mod bass_analysis;
 #[path = "../../src/bre.rs"]

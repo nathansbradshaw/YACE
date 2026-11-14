@@ -357,6 +357,7 @@ pub fn PracticeControls(studio: Studio, children: Element) -> Element {
                     if let Some(error)=error{span{class:"field-hint",role:"alert",style:"color:var(--danger-color);","{error}"}}
                 }
             }
+                super::audition_controls::Controls{studio}
                 {children}
               }
             }

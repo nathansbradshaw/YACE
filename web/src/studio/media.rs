@@ -11,6 +11,7 @@ use std::{
     rc::Rc,
     sync::Arc,
 };
+use wasm_bindgen::{JsCast, closure::Closure};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{AudioContext, GainNode, HtmlAudioElement, MediaElementAudioSourceNode};
 pub struct Channel {
@@ -64,8 +65,78 @@ struct RecordingMedia {
     kit: RefCell<Option<Channel>>,
     master: GainNode,
     rate: Cell<f64>,
+    audition: Cell<bool>,
+    volume: Cell<f32>,
 }
-pub struct Media(Playback);
+pub struct Media(
+    Playback,
+    Rc<RefCell<Option<super::click_audio::ClickAudio>>>,
+    Rc<RefCell<Option<String>>>,
+    Vec<ClickListener>,
+);
+struct ClickListener {
+    element: HtmlAudioElement,
+    event: &'static str,
+    callback: Closure<dyn FnMut(web_sys::Event)>,
+}
+impl Drop for ClickListener {
+    fn drop(&mut self) {
+        let _ = self.element.remove_event_listener_with_callback(
+            self.event,
+            self.callback.as_ref().unchecked_ref(),
+        );
+    }
+}
+type ClickState = Rc<RefCell<Option<super::click_audio::ClickAudio>>>;
+fn click_listeners(
+    element: &HtmlAudioElement,
+    clicks: &ClickState,
+    warning: &Rc<RefCell<Option<String>>>,
+) -> Result<Vec<ClickListener>> {
+    let mut listeners = Vec::new();
+    for event in ["playing", "seeked", "ratechange"] {
+        let source = element.clone();
+        let weak = Rc::downgrade(clicks);
+        let warning = Rc::downgrade(warning);
+        let callback = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+            let mut state = state.borrow_mut();
+            let Some(clicks) = state.as_mut() else {
+                return;
+            };
+            let running = !source.paused() && !source.seeking() && source.ready_state() >= 3;
+            if let Err(error) =
+                clicks.synchronize(source.current_time(), source.playback_rate(), running)
+            {
+                clicks.set_mix(None);
+                if let Some(warning) = warning.upgrade() {
+                    warning.replace(Some(format!(
+                        "Click audition stopped; recording playback continues: {error:#}"
+                    )));
+                }
+            }
+        });
+        element
+            .add_event_listener_with_callback(event, callback.as_ref().unchecked_ref())
+            .map_err(err)?;
+        listeners.push(ClickListener {
+            element: element.clone(),
+            event,
+            callback,
+        });
+    }
+    Ok(listeners)
+}
+impl Drop for Media {
+    fn drop(&mut self) {
+        self.3.clear();
+        if let Some(clicks) = self.1.borrow_mut().as_mut() {
+            clicks.cancel();
+        }
+    }
+}
 enum Playback {
     Recording(Box<RecordingMedia>),
     Timeline(RefCell<crate::timeline_clock::TimelineClock>),
@@ -88,7 +159,20 @@ impl Media {
     ) -> Result<(Self, super::state::ReviewWaveforms, String)> {
         if doc.has_recording() {
             let (media, waves, notice) = RecordingMedia::load(store, doc).await?;
-            Ok((Self(Playback::Recording(Box::new(media))), waves, notice))
+            let clicks = super::click_audio::ClickAudio::new(media.context.clone(), false)?;
+            let clicks = Rc::new(RefCell::new(Some(clicks)));
+            let warning = Rc::new(RefCell::new(None));
+            let listeners = click_listeners(&media.original.element, &clicks, &warning)?;
+            Ok((
+                Self(
+                    Playback::Recording(Box::new(media)),
+                    clicks,
+                    warning,
+                    listeners,
+                ),
+                waves,
+                notice,
+            ))
         } else {
             ensure!(
                 web_sys::window()
@@ -101,7 +185,12 @@ impl Media {
             clock.set_rate(doc.transport.playback_rate, now)?;
             clock.seek(doc.transport.position, now)?;
             Ok((
-                Self(Playback::Timeline(RefCell::new(clock))),
+                Self(
+                    Playback::Timeline(RefCell::new(clock)),
+                    Rc::new(RefCell::new(None)),
+                    Rc::new(RefCell::new(None)),
+                    Vec::new(),
+                ),
                 empty_waveforms(),
                 "Chart timeline · no recording".into(),
             ))
@@ -152,15 +241,25 @@ impl Media {
         }
     }
     pub fn play(&self) -> Result<()> {
-        match &self.0 {
+        if let Some(clicks) = self.1.borrow().as_ref() {
+            clicks.resume();
+        }
+        let result = match &self.0 {
             Playback::Recording(media) => media.play(),
             Playback::Timeline(clock) => {
                 clock.borrow_mut().set_playing(true, monotonic_time())?;
                 Ok(())
             }
+        };
+        if result.is_ok() {
+            self.synchronize();
         }
+        result
     }
     pub fn pause(&self) {
+        if let Some(clicks) = self.1.borrow_mut().as_mut() {
+            clicks.cancel();
+        }
         match &self.0 {
             Playback::Recording(media) => media.pause(),
             Playback::Timeline(clock) => {
@@ -169,6 +268,9 @@ impl Media {
         }
     }
     pub fn seek(&self, position: f64) {
+        if let Some(clicks) = self.1.borrow_mut().as_mut() {
+            clicks.cancel();
+        }
         match &self.0 {
             Playback::Recording(media) => media.seek(position),
             Playback::Timeline(clock) => {
@@ -177,8 +279,12 @@ impl Media {
                 let _ = clock.seek(position.clamp(0., duration), monotonic_time());
             }
         }
+        self.synchronize();
     }
     pub fn set_rate(&self, rate: f64) {
+        if let Some(clicks) = self.1.borrow_mut().as_mut() {
+            clicks.cancel();
+        }
         match &self.0 {
             Playback::Recording(media) => media.set_rate(rate),
             Playback::Timeline(clock) => {
@@ -199,14 +305,70 @@ impl Media {
         }
     }
     pub fn mix(&self, mix: &StemMix, volume: f32, kit: bool, keyboard: bool) {
+        if let Some(clicks) = self.1.borrow_mut().as_mut() {
+            clicks.volume(volume);
+        }
         if let Playback::Recording(media) = &self.0 {
             media.mix(mix, volume, kit, keyboard);
         }
     }
     pub fn synchronize(&self) {
         if let Playback::Recording(media) = &self.0 {
+            let active = self.1.borrow().as_ref().is_some_and(|c| c.active());
+            if media.audition.get() != active {
+                media.audition.set(active);
+                media.set_volume(media.volume.get());
+            }
             media.synchronize();
         }
+        if let Some(clicks) = self.1.borrow_mut().as_mut() {
+            let (rate, running) = match &self.0 {
+                Playback::Recording(media) => (
+                    media.rate.get(),
+                    !media.original.element.paused()
+                        && !media.original.element.seeking()
+                        && media.original.element.ready_state() >= 3,
+                ),
+                Playback::Timeline(clock) => {
+                    let c = clock.borrow();
+                    (c.rate(), !c.paused() && !c.ended(monotonic_time()))
+                }
+            };
+            if let Err(error) = clicks.synchronize(self.position(), rate, running) {
+                clicks.set_mix(None);
+                self.2.replace(Some(format!(
+                    "Click audition stopped; recording playback continues: {error:#}"
+                )));
+                if let Playback::Recording(media) = &self.0 {
+                    media.audition.set(false);
+                    media.set_volume(media.volume.get());
+                }
+            }
+        }
+    }
+    pub fn take_audition_error(&self) -> Option<String> {
+        self.2.borrow_mut().take()
+    }
+    pub fn set_audition(
+        &self,
+        mix: Option<Arc<crate::audition_clicks::Mix>>,
+        volume: f32,
+    ) -> Result<()> {
+        let active = mix.as_ref().is_some_and(|m| m.active());
+        if active && self.1.borrow().is_none() {
+            let context = AudioContext::new().map_err(err)?;
+            self.1
+                .replace(Some(super::click_audio::ClickAudio::new(context, true)?));
+        }
+        if let Some(clicks) = self.1.borrow_mut().as_mut() {
+            clicks.set_mix(mix);
+            clicks.volume(volume);
+        }
+        if let Playback::Recording(media) = &self.0 {
+            media.audition.set(active);
+            media.set_volume(volume);
+        }
+        Ok(())
     }
     pub fn analysis_route(
         &self,
@@ -542,6 +704,8 @@ impl RecordingMedia {
             // New media elements begin at 1×; set_rate applies a saved custom
             // rate exactly once before an unchanged request can be skipped.
             rate: Cell::new(1.),
+            audition: Cell::new(false),
+            volume: Cell::new(0.7),
         };
         pending_context.0.take();
         media.set_rate(doc.transport.playback_rate);
@@ -749,8 +913,15 @@ impl RecordingMedia {
         self.update_activity();
     }
     fn set_volume(&self, volume: f32) {
-        if self.master.gain().value() != volume {
-            ramp_gain(&self.master, volume, self.context.current_time());
+        self.volume.set(volume);
+        let target = volume
+            * if self.audition.get() {
+                1. - crate::audition_clicks::PEAK
+            } else {
+                1.
+            };
+        if self.master.gain().value() != target {
+            ramp_gain(&self.master, target, self.context.current_time());
         }
     }
     pub fn synchronize(&self) {
