@@ -189,6 +189,8 @@ pub struct Content {
     pub sections: Option<Vec<crate::sections::Marker>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text_events: Option<crate::text_events::Document>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi_text_events: Option<crate::text_events::Document>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub track_origins: BTreeMap<String, crate::parts::Origin>,
     pub tracks: BTreeMap<String, Vec<EditorNote>>,
@@ -1045,11 +1047,23 @@ impl Store {
         ))
     }
     pub fn text_events(&self, project: &Project) -> Result<crate::text_events::Document> {
-        ensure!(
-            !crate::song_files::game_midi::exists(&self.root.join("source")),
-            "Imported MIDI text is preserved. MIDI text editing is not available yet."
-        );
+        if crate::song_files::game_midi::exists(&self.root.join("source")) {
+            return crate::song_files::game_midi::text_events(
+                &self.root.join("source"),
+                project,
+                &self.source_chart(project)?.chart,
+            );
+        }
         crate::text_events::current(project, &self.source_chart(project)?.chart)
+    }
+    pub fn midi_text_owners(&self) -> Result<Option<Vec<String>>> {
+        if crate::song_files::game_midi::exists(&self.root.join("source")) {
+            Ok(Some(crate::song_files::game_midi::text_event_owners(
+                &self.root.join("source"),
+            )?))
+        } else {
+            Ok(None)
+        }
     }
     pub fn source_sync(&self, project: &Project) -> Result<crate::sync_track::SyncTrack> {
         crate::sync_track::imported(&self.source_chart(project)?.chart)
@@ -1463,6 +1477,9 @@ impl Store {
                 sync: None,
                 sections: None,
                 text_events: None,
+                midi_text_events: crate::song_files::game_midi::read_text_events(
+                    &self.root.join("source"),
+                )?,
                 track_origins: Default::default(),
                 tracks,
                 vocals: {
@@ -1563,6 +1580,11 @@ impl Store {
         );
         self.restore_preserved_fret_tracks(&mut doc.content, &chart)?;
         crate::editor_validation::validate(&doc, &chart)?;
+        crate::song_files::game_midi::validate_text_events(
+            &self.root.join("source"),
+            &doc,
+            &chart,
+        )?;
         crate::difficulty_links::validate(&doc.content, &doc.timing(self)?, doc.duration)?;
         crate::reanalysis::validate_sources(&doc.content, doc.duration)?;
         #[cfg(target_arch = "wasm32")]
@@ -2138,12 +2160,17 @@ impl Store {
                 crate::sections::apply(&mut doc, &source, edit)?;
             }
             Action::EditTextEvent { edit } => {
-                ensure!(
-                    !crate::song_files::game_midi::exists(&self.root.join("source")),
-                    "Editing imported MIDI text events is not supported yet; original MIDI remains preserved"
-                );
                 let source = self.source_chart(&doc)?;
-                crate::text_events::apply(&mut doc, &source, edit)?;
+                if crate::song_files::game_midi::exists(&self.root.join("source")) {
+                    crate::song_files::game_midi::edit_text_events(
+                        &self.root.join("source"),
+                        &mut doc,
+                        &source,
+                        edit,
+                    )?;
+                } else {
+                    crate::text_events::apply(&mut doc, &source, edit)?;
+                }
             }
             Action::CreateTrack { track } => {
                 let legacy_name = ["Easy", "Medium", "Hard", "Expert"]
@@ -2897,6 +2924,11 @@ impl Store {
             }
             doc.content.stem_mix.prepare(doc.content.stem_ids())?;
             crate::editor_validation::validate(&doc, &self.source_chart(&doc)?.chart)?;
+            crate::song_files::game_midi::validate_text_events(
+                &self.root.join("source"),
+                &doc,
+                &self.source_chart(&doc)?.chart,
+            )?;
             crate::difficulty_links::validate(&doc.content, &timing, doc.duration)?;
             crate::reanalysis::validate_sources(&doc.content, doc.duration)?;
         }
@@ -2986,6 +3018,20 @@ impl Store {
         let selected = options.selected(self, doc)?;
         let all_parts = crate::export_options::available(self, doc)?;
         let midi_export = options.midi(self, doc)?;
+        let inherited_midi_text = if doc.content.midi_text_events.is_none() {
+            crate::song_files::game_midi::read_text_events(&self.root.join("source"))?
+        } else {
+            None
+        };
+        let midi_text_state = doc
+            .content
+            .midi_text_events
+            .as_ref()
+            .or(inherited_midi_text.as_ref());
+        ensure!(
+            midi_text_state.is_none() || midi_export,
+            "MIDI text edits require MIDI export; chart conversion cannot preserve physical text scope"
+        );
         ensure!(
             !midi_export
                 || doc.drum_layout() != crate::drum_layout::Layout::FiveLane
@@ -3277,8 +3323,10 @@ impl Store {
                 &midi,
                 &selected,
             )?;
+            let midi =
+                crate::song_files::game_midi::export_text_events(&source, midi_text_state, &midi)?;
             exported_chart_sha256 = hash(&midi);
-            fs::write(stage.join("notes.mid"), midi)?;
+            fs::write(stage.join("notes.mid"), &midi)?;
             fs::rename(stage.join("notes.chart"), archive.join("notes.chart"))?;
             let ini = stage.join("song.ini");
             fs::write(ini, crate::game_export::ini_with_delay(&raw, delay))?;
@@ -3299,6 +3347,7 @@ impl Store {
                 stage,
                 doc.content.vocal_percussion.as_ref(),
             )?;
+            crate::song_files::game_midi::write_text_events(stage, midi_text_state, &midi)?;
             if let Some(vocals) = &doc.content.vocals {
                 fs::write(
                     song_layout::path(stage, "chart-engine-vocals.json"),

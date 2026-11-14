@@ -185,6 +185,8 @@ mod synth;
 pub mod tempo_analysis;
 #[path = "../../src/text_events.rs"]
 pub mod text_events;
+#[path = "../../src/midi_text_events.rs"]
+pub mod midi_text_events;
 #[path = "../../src/timeline.rs"]
 pub mod timeline;
 #[path = "../../src/timeline_clock.rs"]

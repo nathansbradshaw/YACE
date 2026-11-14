@@ -36,7 +36,18 @@ pub use harmonies::{
 };
 pub(crate) use merge::{absolute as midi_events, encode as encode_midi_owner};
 pub(crate) use merge::{chunks as midi_chunks, validate_complete as validate_midi_complete};
+pub(crate) fn text_owner(name: &str) -> bool {
+    name == "EVENTS"
+        || decode::part(name).is_some()
+        || matches!(name, "PART VOCALS" | "HARM1" | "HARM2" | "HARM3")
+}
+#[path = "game_midi/text_events.rs"]
+mod text_events;
 pub use overdrive::{edit_overdrive, export_overdrive, read_overdrive_state, source_overdrive};
+pub use text_events::{
+    edit_text_events, export_text_events, read_text_events, text_event_owners, text_events,
+    validate_text_events, write_text_events,
+};
 #[path = "game_midi/bre.rs"]
 mod bre;
 #[path = "game_midi/bre_project.rs"]

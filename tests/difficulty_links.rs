@@ -88,6 +88,7 @@ fn fixture(root: &Path, generated: bool) -> Store {
         sync: None,
         sections: None,
         text_events: None,
+        midi_text_events: None,
         track_origins: Default::default(),
         vocals: None,
         harmonies: None,

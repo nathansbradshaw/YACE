@@ -251,6 +251,7 @@ fn note_proposals_refuse_to_discard_text_edits_and_old_backups_omit_the_optional
     let original = store.load().unwrap();
     let json = serde_json::to_value(&original).unwrap();
     assert!(json["content"].get("text_events").is_none());
+    assert!(json["content"].get("midi_text_events").is_none());
     edit(&store, put(None, Scope::Global, 0, "music_start")).unwrap();
     assert!(
         chart_engine::collaboration::Proposal::between(
@@ -292,4 +293,30 @@ fn chart_export_keeps_local_scope_and_undo_while_midi_conversion_refuses_unknown
     assert!(chart_engine::game_export::chart_to_midi(&chart).is_err());
     apply(&store, Action::Undo).unwrap();
     assert!(!text(&store).contains("local cue"));
+}
+
+#[test]
+fn deleting_and_recreating_an_identical_event_cannot_reuse_a_stale_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let store = support::fixture(root.path());
+    edit(&store, put(None, Scope::Global, 480, "cue")).unwrap();
+    let old = events(&store).pop().unwrap();
+    // An earlier client materialized new:1 without advancing the counter.
+    let mut legacy = store.load().unwrap();
+    legacy.next_id = 1;
+    support::save(&store, &legacy);
+    edit(&store, Edit::Remove { event: old.clone() }).unwrap();
+    edit(&store, put(None, Scope::Global, 480, "cue")).unwrap();
+    let fresh = events(&store).pop().unwrap();
+    assert_ne!(fresh.id, old.id);
+    let before = fs::read(root.path().join("project.json")).unwrap();
+    assert!(edit(&store, Edit::Remove { event: old }).is_err());
+    assert_eq!(fs::read(root.path().join("project.json")).unwrap(), before);
+    apply(&store, Action::Undo).unwrap();
+    apply(&store, Action::Undo).unwrap();
+    assert_ne!(store.load().unwrap().next_id, 1);
+    assert!(events(&store).iter().all(|event| event.id != fresh.id));
+    apply(&store, Action::Undo).unwrap();
+    edit(&store, put(None, Scope::Global, 480, "cue")).unwrap();
+    assert_ne!(events(&store).pop().unwrap().id, fresh.id);
 }

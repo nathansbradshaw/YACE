@@ -34,10 +34,38 @@ backup-restored Undo/Redo retained the original and edited exact chart exports.
 The chart-only recording context and all unrelated content were checked
 separately from text-event changes.
 
-Imported MIDI text editing remains pending and is explicitly read-only. Arbitrary
-local chart events without a MIDI representation refuse conversion rather than
-silently broadening their scope. Native GUI, musical/game behavior, broader
-format/browser/platform coverage and larger event workloads remain open.
+Imported MIDI now uses the same text-event dialog for global `EVENTS` and known
+instrument or singer tracks. Local MIDI text applies to the whole named physical
+track and every difficulty it contains. Lyrics, sections, solos, BRE and known
+drum/open-note controls retain their dedicated owners. Singer text that represents
+lyrics remains outside this editor; bracketed non-lyric controls are supported.
+MIDI text accepts quotes, backslashes and UTF-8 within the plain-text limit.
+New identities survive deletion and Undo without being reused.
+
+MIDI text edits retain a source-bound state in complete backups and a verified
+working sidecar in playable MIDI exports. Reopening those exports restores the
+event identities and scope. A selected export preserves surviving physical text
+owners while keeping omitted notes absent. MIDI text changes require MIDI export;
+chart conversion refuses when it cannot preserve physical scope. Arbitrary local
+chart events without a MIDI representation also refuse conversion.
+
+Actual browser checks at `c1ad050` edited one duplicate global event, moved a local
+cue to global scope, removed another event, and added instrument and harmony cues,
+including quotes and a backslash. Lyric-owned and out-of-range requests refused
+without advancing revision. Independent checks verified every ordered MIDI event,
+original channels, velocities, note-off encoding, scoring ranges, lyrics, tempo,
+both guitar difficulties, unknown events, untouched raw tracks and original audio.
+A 19-file complete backup retained five Undo steps; browser and native CLI
+restore/history/export checks passed. Twenty-file backups before and after an
+owned-browser restart were identical, including revision-15 project JSON.
+A fresh browser profile reimported the playable MIDI ZIP, moved an event back to
+an instrument track, used Undo/Redo and exported the exact expected MIDI. Its
+27-file backup retained the new state and original source bindings.
+
+Unknown MIDI tracks, malformed or ambiguous owners, SMPTE/sequential MIDI,
+unsupported text and larger event documents remain opaque or read-only. Dance
+uses its existing timing/label controls. Native GUI, musical/game behavior,
+broader format/browser/platform coverage and larger event workloads remain open.
 
 Bulk note groups now accept up to 100,000 notes and 32 MiB clipboards, with
 indexed collision, shared-flag and vocal-word handling. The shared inspector
