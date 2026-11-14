@@ -145,6 +145,20 @@ and Redo steps exported the expected edited MIDI; independent checks retained
 every ordered VENUE event, all eight unrelated raw tracks and unrelated project
 content. The final 23-file backup retained revision 27 and nine Undo steps.
 
+The hosted `1dda1f7` runtime also passed chart-source authoring after an unrelated
+global text edit. Its 23,435,840-byte WASM matched local SHA-256
+`6e7f9a64e142464415d1f6a2edea9f2faa2b004aced3f9f381c0483ca54009c1`.
+Eleven-file revision-7 backups with seven Undo steps were identical before and
+after an owned-browser restart. Six Undo steps returned automatic export to the
+preceding chart; six Redo steps restored exact MIDI, with all unrelated raw
+tracks and the original CRLF chart retained. The final 12-file backup retained
+revision 19 and seven Undo steps. Explicit chart output was disabled with a
+MIDI-required explanation while venue edits were present. The actual schematic
+at tick 1600 displayed chorus lighting, sepia, directed guitar, fog and the
+active guitar spotlight. Hosted blank-chart creation with explicit browser
+storage, a venue cue and Undo/Redo also exported the expected MIDI; its complete
+backup retained the cue history and zero playable notes.
+
 Bulk note groups now accept up to 100,000 notes and 32 MiB clipboards, with
 indexed collision, shared-flag and vocal-word handling. The shared inspector
 offers relative tick/row moves, operation status and explicit atomic failures.
