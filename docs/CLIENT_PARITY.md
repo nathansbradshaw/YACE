@@ -111,6 +111,16 @@ chart-source/blank-chart authoring, unlisted encodings, native GUI, actual targe
 game rendering, broad browser/platform coverage and event-capacity acceptance
 remain open. Twenty-nine affected regressions and strict native/WASM checks pass.
 
+The hosted `2a5720c` runtime passed the same audio-free nine edits and overlap
+refusal. Its 23,482,346-byte WASM matched local SHA-256
+`373ed4f9f74335b67f0255005560c6ae58efedb6aadf7ec65e3fd5e5cbba512a`.
+Twenty-two-file backups before and after an owned-browser restart were identical,
+including revision-9 project JSON and nine Undo checkpoints. Post-restart Undo
+exported the original MIDI. Reopening the complete backup and using nine Undo
+and Redo steps exported the expected edited MIDI; independent checks retained
+every ordered VENUE event, all eight unrelated raw tracks and unrelated project
+content. The final 23-file backup retained revision 27 and nine Undo steps.
+
 Bulk note groups now accept up to 100,000 notes and 32 MiB clipboards, with
 indexed collision, shared-flag and vocal-word handling. The shared inspector
 offers relative tick/row moves, operation status and explicit atomic failures.
