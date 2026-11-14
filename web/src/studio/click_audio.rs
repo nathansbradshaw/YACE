@@ -7,6 +7,9 @@ use web_sys::{AudioBufferSourceNode, AudioContext, AudioScheduledSourceNode, Gai
 const FRAMES: usize = 1024;
 const LEAD: f64 = 0.006;
 const HORIZON: f64 = 0.09;
+// Bound drift in listening time. A fixed source-time tolerance becomes four
+// times as audible at 25% practice speed.
+const MAX_CLOCK_DRIFT: f64 = 0.012;
 pub struct ClickAudio {
     context: AudioContext,
     gain: GainNode,
@@ -103,7 +106,8 @@ impl ClickAudio {
             }
         });
         let reset = self.anchor.is_none_or(|(at, source, old_rate)| {
-            old_rate != rate || (position - (source + (now - at) * rate)).abs() > 0.035
+            old_rate != rate
+                || (position - (source + (now - at) * rate)).abs() > MAX_CLOCK_DRIFT * rate
         }) || self.next < now;
         if reset {
             self.cancel();
