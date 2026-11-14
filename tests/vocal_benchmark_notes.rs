@@ -40,6 +40,7 @@ fn fixture() -> (Reference, Generation) {
             resolution: 480,
             source: "Synthetic chart".into(),
             phrases: vec![VocalPhrase {
+                midi: None,
                 start: 0,
                 end: 960,
                 player: 1,

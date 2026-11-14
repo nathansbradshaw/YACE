@@ -102,6 +102,7 @@ fn singing(start: u64) -> crate::vocals::VocalChart {
         resolution: 480,
         source: "Independent singer preflight".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start,
             end: start + 960,
             player: 1,
@@ -388,6 +389,7 @@ fn conflicting_singing_and_unsupported_original_percussion_refuse_without_saving
         resolution: 480,
         source: "Conflicting lead".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 0,
             end: 960,
             player: 1,

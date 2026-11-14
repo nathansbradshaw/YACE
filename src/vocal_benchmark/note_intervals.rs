@@ -342,6 +342,7 @@ mod tests {
             resolution: timing.resolution,
             source: "Synthetic reviewed notes".into(),
             phrases: vec![VocalPhrase {
+                midi: None,
                 start: a.start,
                 end: b.end,
                 player: 1,

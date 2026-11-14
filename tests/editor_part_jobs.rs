@@ -91,6 +91,7 @@ fn completed_project_job(root: &Path, store: &Store, instruments: &[&str]) -> st
                     resolution: before.timing(store).unwrap().resolution,
                     source: "Synthetic generation handoff regression; not an inference test".into(),
                     phrases: vec![chart_engine::vocals::VocalPhrase {
+                        midi: None,
                         start: 0,
                         end: 1920,
                         player: 1,
@@ -136,6 +137,7 @@ fn whole_vocal_generation_updates_the_existing_project_with_undo_and_unchanged_s
     let root = tempfile::tempdir().unwrap();
     let store = fixture(root.path());
     let phrase = VocalPhrase {
+        midi: None,
         start: 0,
         end: 1920,
         player: 1,

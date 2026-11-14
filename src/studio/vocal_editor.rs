@@ -617,6 +617,7 @@ mod tests {
             resolution: 192,
             source: "supplied MIDI".into(),
             phrases: vec![crate::vocals::VocalPhrase {
+                midi: None,
                 start: 0,
                 end: 1000,
                 player: 1,

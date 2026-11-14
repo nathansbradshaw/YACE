@@ -119,6 +119,7 @@ fn positive_and_negative_delays_survive_chart_and_bound_midi_reopen_exactly_once
             resolution: 480,
             source: "Timing fixture".into(),
             phrases: vec![VocalPhrase {
+                midi: None,
                 start: 0,
                 end: 960,
                 player: 1,

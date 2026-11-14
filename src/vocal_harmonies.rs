@@ -72,6 +72,7 @@ fn phrase_shape(phrases: &[VocalPhrase]) -> Result<()> {
     ensure!(
         phrases.iter().all(|phrase| phrase.start < phrase.end
             && phrase.end <= u64::from(u32::MAX)
+            && phrase.midi.is_none()
             && matches!(phrase.player, 1 | 2)),
         "Invalid harmony phrase span or player"
     );
@@ -470,11 +471,13 @@ mod tests {
             resolution: 480,
             source: "Manual harmony fixture".into(),
             phrases: vec![VocalPhrase {
+                midi: None,
                 start: 0,
                 end: 960,
                 player: 1,
             }],
             lyric_phrases: vec![VocalPhrase {
+                midi: None,
                 start: 0,
                 end: 960,
                 player: 1,

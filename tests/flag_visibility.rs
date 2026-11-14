@@ -430,11 +430,13 @@ fn vocal_report(store: &Store) -> chart_engine::vocal_generation::Generation {
             source: "original test syllables".into(),
             phrases: vec![
                 VocalPhrase {
+                    midi: None,
                     start: 0,
                     end: 22080,
                     player: 1,
                 },
                 VocalPhrase {
+                    midi: None,
                     start: 24000,
                     end: 24960,
                     player: 1,

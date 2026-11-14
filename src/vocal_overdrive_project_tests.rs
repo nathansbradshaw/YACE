@@ -89,6 +89,7 @@ fn singing() -> crate::vocals::VocalChart {
         resolution: 480,
         source: "Power fixture singer".into(),
         phrases: vec![crate::vocals::VocalPhrase {
+            midi: None,
             start: 1920,
             end: 2880,
             player: 1,

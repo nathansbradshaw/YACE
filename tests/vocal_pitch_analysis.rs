@@ -40,6 +40,7 @@ fn setup(root: &Path) -> (Store, vg::Generation) {
         resolution: 480,
         source: "independent test intervals".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 0,
             end: 3840,
             player: 1,

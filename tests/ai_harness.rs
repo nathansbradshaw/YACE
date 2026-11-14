@@ -676,6 +676,7 @@ fn vocal_flags_use_same_pending_approval_hide_and_stale_edit_queue() {
         resolution: 480,
         source: "Known fixture".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 480,
             end: 1440,
             player: 1,
@@ -1069,6 +1070,7 @@ fn replacing_aligned_vocal_stem_keeps_stale_checks_inspectable_hideable_and_navi
         resolution: 480,
         source: "Synthetic source-bound phrase".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 480,
             end: 1440,
             player: 1,

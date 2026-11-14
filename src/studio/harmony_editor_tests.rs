@@ -5,6 +5,7 @@ fn first_singer_form_uses_a_full_beat_outside_dedicated_percussion_without_movin
         .into_iter()
         .map(|(start, end)| crate::vocal_percussion::Phrase {
             range: VocalPhrase {
+                midi: None,
                 start,
                 end,
                 player: 1,
@@ -22,17 +23,20 @@ fn new_harm3_draft_uses_the_overlap_of_shared_score_and_lyric_ranges() {
     let ranges = RetainedHarmonyPhrases {
         scoring: vec![
             VocalPhrase {
+                midi: None,
                 start: 0,
                 end: 960,
                 player: 1,
             },
             VocalPhrase {
+                midi: None,
                 start: 1920,
                 end: 2880,
                 player: 1,
             },
         ],
         lyrics: vec![VocalPhrase {
+            midi: None,
             start: 1800,
             end: 2880,
             player: 1,
@@ -48,6 +52,7 @@ fn new_harm3_draft_uses_the_overlap_of_shared_score_and_lyric_ranges() {
 fn adding_after_an_existing_note_stays_inside_its_current_shared_range() {
     let ranges = RetainedHarmonyPhrases {
         scoring: vec![VocalPhrase {
+            midi: None,
             start: 0,
             end: 960,
             player: 1,

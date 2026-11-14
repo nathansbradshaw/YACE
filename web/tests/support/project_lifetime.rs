@@ -151,6 +151,7 @@ pub async fn prepare() -> Result<()> {
                 resolution: 480,
                 source: "Synthetic lifetime fixture, no inference".into(),
                 phrases: vec![crate::vocals::VocalPhrase {
+                    midi: None,
                     start: 0,
                     end: 1920,
                     player: 1,

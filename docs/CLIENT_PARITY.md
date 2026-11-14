@@ -36,6 +36,25 @@ JSON and three Undo checkpoints. Post-restart Undo removed the pasted group;
 Redo restored all 12,001 notes. Independent export checks retained the flags,
 unknown events and unrelated parts. This qualifies that controlled hosted subset.
 
+Vocal group moves and deletes preserve authored scoring-phrase padding. Moving
+every note in a phrase shifts its original boundaries; partial moves retain or
+extend them. Overlapping scoring phrases refuse the complete edit. Imported
+Lead scoring markers now retain channel, velocity and note-off representation
+through editable JSON, history and MIDI export. Older documents still open;
+export refuses a phrase rewrite when missing metadata would reset non-default
+source marker attributes. Reimporting identical source in the browser can reopen
+its existing editing copy, so it is not a metadata migration.
+
+Controlled actual-browser checks reproduced the previous loss, then moved the
+first syllable by 120 ticks and deleted/restored it. Independent MIDI checks
+retained its padded 520–1120 scoring range, an untouched player-2 range at
+1200–2000, original channels/velocities/note-offs, all unrelated raw tracks and
+the original recording. An overlapping move refused without advancing revision.
+A 17-file complete backup reopened with working Undo/Redo; native CLI restoration
+and export independently retained the moved and original events. Native GUI,
+older-document migration, broader browser coverage and musical/game acceptance
+remain open.
+
 Snap now offers custom 1–1024 steps per beat and fine musical presets through
 1/1024. Placement, dragging, sustain ends and visible grid lines use the same
 rounded musical positions, including unusual PPQ and tempo changes. Pointer

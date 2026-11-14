@@ -593,6 +593,7 @@ pub fn apply(chart: &VocalChart, repairs: &[Repair]) -> Result<VocalChart> {
                     "Repair crosses a scoring phrase boundary"
                 );
                 next.phrases.push(VocalPhrase {
+                    midi: None,
                     start: n.start,
                     end: n.end,
                     player: 1,

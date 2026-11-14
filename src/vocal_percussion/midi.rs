@@ -184,6 +184,7 @@ fn read_track(events: &[TrackEvent<'_>], label: &str) -> Result<Option<Track>> {
         .filter(|span| matches!(span.key, 105 | 106))
         .map(|span| Phrase {
             range: VocalPhrase {
+                midi: None,
                 start: span.start,
                 end: span.end,
                 player: if span.key == 106 { 2 } else { 1 },

@@ -52,6 +52,7 @@ pub fn emit(g: &Generation, notes: &[Note]) -> Result<Generation> {
         resolution: t.resolution,
         source: "Offline vocal boundary study, not production".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: a.start,
             end: b.end,
             player: 1,

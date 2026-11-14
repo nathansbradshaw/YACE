@@ -17,6 +17,7 @@ fn hit_form_preserves_midi_attributes_and_updates_physical_zero_length_intent() 
     };
     let phrase = Phrase {
         range: VocalPhrase {
+            midi: None,
             start: 0,
             end: 960,
             player: 2,
@@ -84,6 +85,7 @@ fn an_inserted_earlier_hit_does_not_retarget_the_selected_form_or_its_edit() {
                 source: "Manual lead".into(),
                 phrases: vec![Phrase {
                     range: VocalPhrase {
+                        midi: None,
                         start: 0,
                         end: 960,
                         player: 1,

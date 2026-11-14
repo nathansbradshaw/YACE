@@ -714,6 +714,7 @@ fn decode(d: &Data, prob: &[[f64; 3]], r: Recipe) -> Result<Generation> {
             "EXPERIMENTAL acoustic presence/attack/release; immutable original RMVPE; no lyrics"
                 .into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: a.start,
             end: b.end,
             player: 1,

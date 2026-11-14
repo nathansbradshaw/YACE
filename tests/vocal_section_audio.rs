@@ -10,6 +10,7 @@ fn chart() -> VocalChart {
         resolution: 480,
         source: "controlled comparison".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 0,
             end: 960,
             player: 1,

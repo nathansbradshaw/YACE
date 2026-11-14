@@ -242,7 +242,7 @@ pub fn copy(project: &Project, timing: &TempoMap, selection: &Selection) -> Resu
                 Some(VocalPhrase {
                     start: owned.first()?.start,
                     end: owned.last()?.end,
-                    player: phrase.player,
+                    ..phrase.clone()
                 })
             })
             .collect();
@@ -630,8 +630,8 @@ fn merge_phrases(mut phrases: Vec<VocalPhrase>) -> Result<Vec<VocalPhrase>> {
             && phrase.start < last.end
         {
             ensure!(
-                last.player == phrase.player,
-                "Vocal phrases belong to different players"
+                last.player == phrase.player && last.midi == phrase.midi,
+                "Vocal phrases have different players or MIDI attributes"
             );
             last.end = last.end.max(phrase.end);
         } else {
@@ -756,13 +756,30 @@ fn edit_vocals(project: &mut Project, selection: &Snapshot, edit: &Edit) -> Resu
     let mut phrases = Vec::new();
     for (phrase, bound) in original.phrases.iter().zip(bounds) {
         if let Some((start, end)) = bound {
-            phrases.push(VocalPhrase {
-                start,
-                end,
-                player: phrase.player,
-            });
+            let first = original.notes.partition_point(|n| n.start < phrase.start);
+            let last = original.notes.partition_point(|n| n.start < phrase.end);
+            let mut updated = phrase.clone();
+            if let Edit::Move { ticks, .. } = edit
+                && selection.vocals.range(first..last).count() == last - first
+            {
+                // Moving the whole phrase carries its authored leading and
+                // trailing space, rather than rebuilding it from note edges.
+                updated.start = shifted(phrase.start, *ticks)?;
+                updated.end = shifted(phrase.end, *ticks)?;
+            } else {
+                // Retained/unselected phrases keep their exact scoring edges.
+                // A partial move extends them only when a note needs room.
+                updated.start = phrase.start.min(start);
+                updated.end = phrase.end.max(end);
+            }
+            phrases.push(updated);
         }
     }
+    phrases.sort_by_key(|phrase| phrase.start);
+    ensure!(
+        phrases.windows(2).all(|pair| pair[0].end <= pair[1].start),
+        "The group would overlap scoring phrases. Move or resize their boundaries first; nothing was changed."
+    );
     notes.sort_by_key(|(_, note)| note.start);
     let tags: Vec<_> = notes.iter().map(|(i, _)| *i).collect();
     let retained: BTreeSet<_> = tags.iter().copied().collect();
@@ -772,7 +789,7 @@ fn edit_vocals(project: &mut Project, selection: &Snapshot, edit: &Edit) -> Resu
         .collect();
     let chart = VocalChart {
         notes: notes.into_iter().map(|(_, note)| note).collect(),
-        phrases: merge_phrases(phrases)?,
+        phrases,
         ..original.clone()
     };
     chart.validate()?;

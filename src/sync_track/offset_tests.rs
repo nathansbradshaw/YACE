@@ -239,6 +239,7 @@ fn offset_archives_vocal_checks_and_undo_restores_their_original_clock() {
         resolution: 480,
         source: "Offset fixture".into(),
         phrases: vec![VocalPhrase {
+            midi: None,
             start: 960,
             end: 1920,
             player: 1,

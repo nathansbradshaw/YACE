@@ -100,6 +100,7 @@ impl Draft {
     fn phrase(&self, before: Option<&Phrase>) -> Result<Phrase, String> {
         Ok(Phrase {
             range: VocalPhrase {
+                midi: None,
                 start: self
                     .phrase_start
                     .parse()

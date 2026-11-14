@@ -1051,6 +1051,93 @@ fn vocal_edits_preserve_talkie_pitch_channels_percussion_overdrive_and_phrase_at
     assert_eq!(chunk(&bytes, "HARM1"), chunk(&original, "HARM1"));
 }
 
+#[test]
+fn vocal_group_moves_export_scoring_attributes_and_refuse_legacy_attribute_loss() {
+    let original = encode(vec![track(
+        b"PART VOCALS",
+        vec![
+            (400, on(3, 105, 77)),
+            (1000, off(3, 105, 19)),
+            (480, TrackEventKind::Meta(MetaMessage::Lyric(b"one"))),
+            (480, on(4, 60, 89)),
+            (720, on(4, 60, 0)),
+            (1200, on(2, 106, 81)),
+            (2000, off(2, 106, 23)),
+            (1440, TrackEventKind::Meta(MetaMessage::Lyric(b"two"))),
+            (1440, on(5, 64, 91)),
+            (1680, off(5, 64, 17)),
+        ],
+    )]);
+    let root = tempfile::tempdir().unwrap();
+    let store = store(root.path(), &original, 0);
+    let before = store.load().unwrap();
+    let selection = note_groups::Snapshot::capture(
+        &before,
+        &Selection {
+            track: "Vocals".into(),
+            ids: BTreeSet::new(),
+            vocals: BTreeSet::from([0]),
+        },
+    )
+    .unwrap();
+    apply(
+        &store,
+        Action::EditNoteGroup {
+            edit: note_groups::Edit::Move {
+                selection,
+                ticks: 120,
+                rows: 0,
+            },
+        },
+    )
+    .unwrap();
+    let moved = store.load().unwrap();
+    let bytes = export(&store, &root.path().join("export"));
+    let lead = events(&bytes, "PART VOCALS");
+    for event in [
+        (520, on(3, 105, 77)),
+        (1120, off(3, 105, 19)),
+        (1200, on(2, 106, 81)),
+        (2000, off(2, 106, 23)),
+        (600, on(4, 60, 89)),
+        (840, on(4, 60, 0)),
+    ] {
+        assert!(lead.contains(&event), "{event:?}");
+    }
+    // Simulate an older editable document and its imported baseline, both
+    // created before scoring-marker metadata was retained.
+    let mut before_vocals = before.content.vocals.clone().unwrap();
+    let mut after_vocals = moved.content.vocals.unwrap();
+    for phrase in before_vocals
+        .phrases
+        .iter_mut()
+        .chain(&mut after_vocals.phrases)
+    {
+        phrase.midi = None;
+    }
+    let chart = Chart::parse(before.chart_text(&store).unwrap()).unwrap();
+    let err = merge::rewrite(
+        &original,
+        &bytes,
+        merge::State {
+            chart: &chart,
+            vocals: Some(&before_vocals),
+            attributes: &[],
+        },
+        merge::State {
+            chart: &chart,
+            vocals: Some(&after_vocals),
+            attributes: &[],
+        },
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("older vocal document"), "{err:#}");
+    assert_eq!(
+        fs::read(root.path().join("song/notes.mid")).unwrap(),
+        original
+    );
+}
+
 fn vocal_dedicated_percussion_source(uncovered: bool) -> Vec<u8> {
     encode(vec![
         track(
