@@ -77,6 +77,40 @@ unsupported text and larger event documents remain opaque or read-only. Dance
 uses its existing timing/label controls. Native GUI, musical/game behavior,
 broader format/browser/platform coverage and larger event workloads remain open.
 
+The shared toolbar now offers a VENUE editor for imported MIDI. Its 25-cue
+catalog covers lighting, post-processing, cameras, fog/bonus effects and bounded
+performer spotlight/singalong ranges, using known YARG/Rock Band wire mappings.
+The cue schematic previews latched settings and active performer ranges, with
+scrubbing and playback-playhead following. It represents cue intent; actual
+game visuals depend on the target venue.
+
+Venue edits carry source-bound identities through history, complete backups and
+verified playable-export sidecars. Unknown commands, metadata and notes retain
+their original ownership. Moving/resizing an imported performer range preserves
+its channel, velocity and note-off representation. Overlapping ranges, stale
+drafts, out-of-timeline edits, malformed/ambiguous owners and unrepresentable
+chart conversion refuse instead of discarding data.
+
+Controlled browser checks at `ceb2a10` and `2a5720c` changed one duplicate cue,
+moved/resized a performer range, removed a cue and authored all five categories.
+Independent checks retained every ordered VENUE event, unknown data, eight
+unrelated raw MIDI tracks, original audio and unrelated project content. A
+23-file revision-9 backup retained nine Undo steps. Actual browser backup restore,
+nine Undo/Redo steps, exact exports and native CLI restoration/editing/history
+passed. Twenty-four-file revision-27 backups before and after an owned-browser
+restart were identical. A fresh browser profile reimported the playable ZIP,
+moved a cue, used Undo/Redo and retained exact output and event identities in a
+27-file complete backup. Playback following advanced the displayed cue tick;
+overlap and out-of-timeline attempts preserved the saved revision.
+
+Saved operation histories retain their established action representation, checked
+by a frozen request regression and byte-identical recovery backups. Drum/vocal
+performer markers were also verified visually after correcting label handling.
+The current scope requires imported MIDI;
+chart-source/blank-chart authoring, unlisted encodings, native GUI, actual target
+game rendering, broad browser/platform coverage and event-capacity acceptance
+remain open. Twenty-nine affected regressions and strict native/WASM checks pass.
+
 Bulk note groups now accept up to 100,000 notes and 32 MiB clipboards, with
 indexed collision, shared-flag and vocal-word handling. The shared inspector
 offers relative tick/row moves, operation status and explicit atomic failures.

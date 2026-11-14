@@ -419,13 +419,11 @@ fn venue_store_exports_reopens_undoes_and_composes_with_ordinary_text() {
     .unwrap();
     let store = Store::create(&song, None, &root.path().join("project")).unwrap();
     let before = store.load().unwrap();
-    transact(
-        &store,
-        Action::EditVenue {
-            edit: put("fog_on", 480, None),
-        },
-    )
-    .unwrap();
+    // The first saved request representation also lives in operation
+    // history. Reopening it must not depend on a newer editor's enum tags.
+    let request:Request=serde_json::from_str(r#"{"expected_revision":0,"actor":{"kind":"human","name":"You"},"action":{"type":"edit_venue","edit":{"kind":"put","previous":null,"cue":"fog_on","tick":480,"end":null}}}"#).unwrap();
+    store.apply(request).unwrap();
+    assert_eq!(Store::new(&store.root).load().unwrap().revision, 1);
     let selected = store.venue_events(&store.load().unwrap()).unwrap().events[2].clone();
     transact(
         &store,
