@@ -55,6 +55,103 @@ fn policy(tolerance: Option<u64>) -> RepairPolicy {
 }
 
 #[test]
+fn harmony_preview_commits_one_singer_with_stale_revision_refusal_and_exact_reopened_history() {
+    use chart_engine::vocal_harmonies::{HarmonyChart, Part, Voice};
+    let (_root, store) = seeded(vec![gem(243, 0, 77)]);
+    let document = HarmonyChart {
+        version: 1,
+        resolution: 480,
+        source: "Independent harmony repair regression".into(),
+        phrases: vec![VocalPhrase {
+            midi: None,
+            start: 120,
+            end: 960,
+            player: 1,
+        }],
+        lyric_phrases: vec![VocalPhrase {
+            midi: None,
+            start: 120,
+            end: 960,
+            player: 1,
+        }],
+        voices: Part::ALL
+            .into_iter()
+            .enumerate()
+            .map(|(i, part)| {
+                (
+                    part,
+                    Voice {
+                        source: part.track().into(),
+                        notes: vec![VocalNote {
+                            start: 243,
+                            end: 303,
+                            tone: VocalTone::Pitched {
+                                midi: 60 + i as u8 * 4,
+                            },
+                            lyric: Syllable::Text {
+                                text: "voice".into(),
+                                join_next: false,
+                            },
+                            midi: None,
+                        }],
+                    },
+                )
+            })
+            .collect(),
+    };
+    apply(
+        &store,
+        Action::SetHarmonies {
+            document: document.clone(),
+        },
+    )
+    .unwrap();
+    let before = store.load().unwrap();
+    let bytes = fs::read(store.root.join("project.json")).unwrap();
+    let source = fs::read(store.root.join("source/notes.chart")).unwrap();
+    let (candidate, report) = document
+        .preview_timing_repair(Part::Harm3, policy(Some(3)))
+        .unwrap();
+    assert_eq!(report.changed, 1);
+    assert_eq!(fs::read(store.root.join("project.json")).unwrap(), bytes);
+    let action = Action::SetHarmonies {
+        document: candidate.clone(),
+    };
+    assert!(
+        store
+            .apply(Request {
+                expected_revision: before.revision - 1,
+                actor: Actor {
+                    kind: ActorKind::Human,
+                    name: "Stale repair".into()
+                },
+                action: action.clone()
+            })
+            .is_err()
+    );
+    assert_eq!(fs::read(store.root.join("project.json")).unwrap(), bytes);
+    apply(&store, action).unwrap();
+    let repaired = store.load().unwrap();
+    assert_eq!(repaired.content.harmonies, Some(candidate));
+    assert_eq!(repaired.content.tracks, before.content.tracks);
+    let reopened = Store::new(&store.root);
+    apply(&reopened, Action::Undo).unwrap();
+    assert_eq!(
+        serde_json::to_value(reopened.load().unwrap().content).unwrap(),
+        serde_json::to_value(before.content).unwrap()
+    );
+    apply(&reopened, Action::Redo).unwrap();
+    assert_eq!(
+        serde_json::to_value(reopened.load().unwrap().content).unwrap(),
+        serde_json::to_value(repaired.content).unwrap()
+    );
+    assert_eq!(
+        fs::read(store.root.join("source/notes.chart")).unwrap(),
+        source
+    );
+}
+
+#[test]
 fn preview_is_read_only_and_near_policy_preserves_off_grid_lengths_ids_flags_and_history() {
     let mut first = gem(243, 0, 77);
     first.midi = Some(chart_engine::song_files::game_midi::NoteAttributes {
