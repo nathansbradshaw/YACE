@@ -4,6 +4,149 @@ use chart_engine::{
 };
 
 #[test]
+fn integer_repair_policy_uses_the_musical_grid_and_keeps_distant_notes() {
+    use chart_engine::snap_grid::RepairPolicy;
+    let grid = Grid::new(7, 3).unwrap();
+    assert_eq!(
+        (0..=7)
+            .map(|t| grid.snap_tick(t).unwrap())
+            .collect::<Vec<_>>(),
+        vec![0, 0, 2, 2, 5, 5, 7, 7]
+    );
+    let policy = RepairPolicy {
+        divisions: 4,
+        maximum_shift: Some(2),
+    };
+    let grid = policy.grid(480).unwrap();
+    assert_eq!(policy.destination(grid, 242).unwrap(), 240);
+    assert_eq!(policy.destination(grid, 243).unwrap(), 243);
+    assert_eq!(
+        RepairPolicy {
+            maximum_shift: None,
+            ..policy
+        }
+        .destination(grid, 243)
+        .unwrap(),
+        240
+    );
+    assert_eq!(
+        Grid::new(480, 4).unwrap().snap_tick(9_007_199_254_740_993),
+        Some(9_007_199_254_740_960)
+    );
+}
+
+#[test]
+fn dance_repair_previews_policy_preserves_hold_lengths_and_other_difficulties_with_exact_undo() {
+    use yace_stepmania::{
+        Action, Difficulty, NoteKind, Profile, Project, Request, project::SelectionEdit,
+    };
+    let apply = |p: &mut Project, action| {
+        p.apply(Request {
+            expected_revision: p.revision,
+            actor: "Repair regression".into(),
+            action,
+        })
+    };
+    let mut p = Project::blank(
+        "Repair".into(),
+        "Fixture".into(),
+        String::new(),
+        120.,
+        0.,
+        Profile::Pad,
+    )
+    .unwrap();
+    for description in ["First", "Other"] {
+        apply(
+            &mut p,
+            Action::AddChart {
+                difficulty: Difficulty::Edit,
+                meter: 1,
+                description: description.into(),
+            },
+        )
+        .unwrap();
+    }
+    for (row, lane, kind, end_row) in [
+        (13, 0, NoteKind::Hold, Some(20)),
+        (18, 1, NoteKind::Mine, None),
+        (48, 2, NoteKind::Tap, None),
+    ] {
+        apply(
+            &mut p,
+            Action::AddNote {
+                chart_id: "added-1".into(),
+                row,
+                lane,
+                kind,
+                end_row,
+            },
+        )
+        .unwrap();
+    }
+    let ids = p.content.document.charts[0]
+        .notes
+        .iter()
+        .map(|n| n.id.clone())
+        .collect::<Vec<_>>();
+    let before = serde_json::to_vec(&p).unwrap();
+    let old_content = serde_json::to_value(&p.content).unwrap();
+    let policy = chart_engine::snap_grid::RepairPolicy {
+        divisions: 4,
+        maximum_shift: Some(2),
+    };
+    let report = p.preview_timing_repair("added-1", &ids, policy).unwrap();
+    assert_eq!(
+        (report.changed, report.already_on_grid, report.kept_off_grid),
+        (1, 1, 1)
+    );
+    assert_eq!(serde_json::to_vec(&p).unwrap(), before);
+    apply(
+        &mut p,
+        Action::EditNotes {
+            chart_id: "added-1".into(),
+            note_ids: ids.clone(),
+            edit: SelectionEdit::Repair { policy },
+        },
+    )
+    .unwrap();
+    let repaired = serde_json::to_value(&p.content).unwrap();
+    let hold = p.content.document.charts[0]
+        .notes
+        .iter()
+        .find(|n| n.lane == 0)
+        .unwrap();
+    assert_eq!((hold.row, hold.end_row), (12, Some(19)));
+    assert_eq!(
+        repaired["document"]["charts"][1],
+        old_content["document"]["charts"][1]
+    );
+    apply(&mut p, Action::Undo).unwrap();
+    assert_eq!(serde_json::to_value(&p.content).unwrap(), old_content);
+    apply(&mut p, Action::Redo).unwrap();
+    assert_eq!(serde_json::to_value(&p.content).unwrap(), repaired);
+    let stable = serde_json::to_vec(&p).unwrap();
+    assert_eq!(
+        p.preview_timing_repair("added-1", &ids, policy)
+            .unwrap()
+            .changed,
+        0
+    );
+    assert!(
+        apply(
+            &mut p,
+            Action::EditNotes {
+                chart_id: "added-1".into(),
+                note_ids: ids,
+                edit: SelectionEdit::Repair { policy }
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(serde_json::to_vec(&p).unwrap(), stable);
+}
+
+#[test]
 fn unusual_ppq_keeps_lines_placement_and_navigation_on_the_same_grid() {
     for resolution in [1, 7, 47, 100, 480, 960] {
         for divisions in [1, 3, 5, 7, 48, 64, 96, 192, 1024] {

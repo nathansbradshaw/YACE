@@ -124,6 +124,7 @@ pub enum SelectionEdit {
     Mirror,
     Quantize { rows: i64 },
     QuantizeDivisions { divisions: u32 },
+    Repair { policy: crate::grid::RepairPolicy },
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -136,6 +137,54 @@ fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 impl Project {
+    pub fn preview_timing_repair(
+        &self,
+        chart_id: &str,
+        note_ids: &[String],
+        policy: crate::grid::RepairPolicy,
+    ) -> Result<crate::grid::RepairPreview> {
+        let ids: std::collections::BTreeSet<_> = note_ids.iter().collect();
+        ensure!(
+            !ids.is_empty() && ids.len() <= 100_000,
+            "Select 1–100,000 notes for repair"
+        );
+        let chart = self
+            .content
+            .document
+            .charts
+            .iter()
+            .find(|c| c.id == chart_id)
+            .context("Unknown chart")?;
+        let present: std::collections::BTreeSet<_> =
+            chart.notes.iter().map(|n| n.id.as_str()).collect();
+        ensure!(
+            ids.iter().all(|id| present.contains(id.as_str())),
+            "Selection contains a missing note"
+        );
+        let grid = policy.grid(48)?;
+        let mut report = crate::grid::RepairPreview::default();
+        for note in chart.notes.iter().filter(|n| ids.contains(&n.id)) {
+            let before = u64::try_from(note.row)?;
+            report.observe(
+                before,
+                grid.snap_tick(before).context("Grid timing overflow")?,
+                policy.destination(grid, before)?,
+            );
+        }
+        if report.changed > 0 {
+            let mut candidate = self.clone();
+            candidate.apply(Request {
+                expected_revision: self.revision,
+                actor: "Timing repair preview".into(),
+                action: Action::EditNotes {
+                    chart_id: chart_id.into(),
+                    note_ids: note_ids.to_vec(),
+                    edit: SelectionEdit::Repair { policy },
+                },
+            })?;
+        }
+        Ok(report)
+    }
     pub fn import(raw: String, format: Format, profile: Profile) -> Result<Self> {
         let source_sha256 = hash(raw.as_bytes());
         let document = Document::parse(raw, format)?;
@@ -301,8 +350,10 @@ impl Project {
                 let ids: std::collections::BTreeSet<_> = note_ids.into_iter().collect();
                 ensure!(!ids.is_empty(), "Select notes first");
                 let chart = candidate.chart_mut(&chart_id)?;
+                let present: std::collections::BTreeSet<_> =
+                    chart.notes.iter().map(|n| n.id.as_str()).collect();
                 ensure!(
-                    ids.iter().all(|id| chart.notes.iter().any(|n| &n.id == id)),
+                    ids.iter().all(|id| present.contains(id.as_str())),
                     "Selection contains a missing note"
                 );
                 if matches!(edit, SelectionEdit::Delete) {
@@ -312,6 +363,19 @@ impl Project {
                         .foot_overrides
                         .retain(|id, _| !ids.contains(id));
                 } else {
+                    if let SelectionEdit::Repair { policy } = edit {
+                        ensure!(ids.len() <= 100_000, "Repair at most 100,000 notes at once");
+                        let grid = policy.grid(48)?;
+                        let mut changed = false;
+                        for note in chart.notes.iter().filter(|n| ids.contains(&n.id)) {
+                            let before = u64::try_from(note.row)?;
+                            changed |= policy.destination(grid, before)? != before;
+                        }
+                        ensure!(
+                            changed,
+                            "No notes need this timing repair; nothing was changed"
+                        );
+                    }
                     for n in chart.notes.iter_mut().filter(|n| ids.contains(&n.id)) {
                         match edit {
                             SelectionEdit::Move { rows }
@@ -352,6 +416,20 @@ impl Project {
                                 };
                                 n.row = snap(n.row)?;
                                 n.end_row = n.end_row.map(snap).transpose()?;
+                            }
+                            SelectionEdit::Repair { policy } => {
+                                let grid = policy.grid(48)?;
+                                let after = i64::try_from(
+                                    policy.destination(grid, u64::try_from(n.row)?)?,
+                                )?;
+                                let delta = after - n.row;
+                                n.row = after;
+                                n.end_row = n
+                                    .end_row
+                                    .map(|end| {
+                                        end.checked_add(delta).context("Repaired tail overflow")
+                                    })
+                                    .transpose()?;
                             }
                             SelectionEdit::Delete => unreachable!(),
                         }

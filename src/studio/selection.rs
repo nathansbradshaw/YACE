@@ -148,7 +148,13 @@ impl Studio {
         let Some(guard) = super::activity::BusyGuard::start(self.group_busy) else {
             return;
         };
+        let repairing = matches!(&edit, Edit::Repair { .. });
         let (count, active, done) = match &edit {
+            Edit::Repair { selection, .. } => (
+                selection.ids.len() + selection.vocals.len(),
+                "Repairing",
+                "Repaired",
+            ),
             Edit::Move { selection, .. } => (
                 selection.ids.len() + selection.vocals.len(),
                 "Moving",
@@ -193,6 +199,8 @@ impl Studio {
                 "Note operation failed · no edit was committed".into()
             } else if (self.error)().is_some() {
                 "Notes edited; selection refresh failed · see error details".into()
+            } else if repairing {
+                "Timing repair applied".into()
             } else {
                 format!("{done} {count} notes")
             });
@@ -205,7 +213,7 @@ impl Studio {
         let chosen = self.selection();
         // Sorting can change vocal indices. Recover moved notes by value.
         let moved_vocals: std::collections::BTreeMap<_, _> =
-            if let Edit::Move { ticks, rows, .. } = &edit {
+            if matches!(&edit, Edit::Move { .. } | Edit::Repair { .. }) {
                 before
                     .content
                     .vocals
@@ -216,10 +224,25 @@ impl Studio {
                             .iter()
                             .filter_map(|&i| {
                                 let mut note = chart.notes.get(i)?.clone();
-                                note.start = note.start.checked_add_signed(*ticks)?;
-                                note.end = note.end.checked_add_signed(*ticks)?;
-                                if let crate::vocals::VocalTone::Pitched { midi } = &mut note.tone {
-                                    *midi = u8::try_from(*midi as i16 - rows).ok()?;
+                                match &edit {
+                                    Edit::Move { ticks, rows, .. } => {
+                                        note.start = note.start.checked_add_signed(*ticks)?;
+                                        note.end = note.end.checked_add_signed(*ticks)?;
+                                        if let crate::vocals::VocalTone::Pitched { midi } =
+                                            &mut note.tone
+                                        {
+                                            *midi = u8::try_from(*midi as i16 - rows).ok()?;
+                                        }
+                                    }
+                                    Edit::Repair { selection, policy }
+                                        if selection.vocals.contains(&i) =>
+                                    {
+                                        let grid = policy.grid(chart.resolution).ok()?;
+                                        let after = policy.destination(grid, note.start).ok()?;
+                                        note.end = after.checked_add(note.end - note.start)?;
+                                        note.start = after;
+                                    }
+                                    _ => {}
                                 }
                                 Some((note.start, note))
                             })
@@ -229,7 +252,7 @@ impl Studio {
             } else {
                 Default::default()
             };
-        let moving = matches!(&edit, Edit::Move { .. });
+        let moving = matches!(&edit, Edit::Move { .. } | Edit::Repair { .. });
         let pasting = matches!(&edit, Edit::Paste { .. });
         if !self.try_dispatch(Action::EditNoteGroup { edit }) {
             return false;

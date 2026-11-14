@@ -113,6 +113,7 @@ fn SnapControls(mut studio: Studio) -> Element {
             }
         }
         button{class:"studio-tool",aria_label:"Custom snap grid",aria_expanded:open().to_string(),onclick:move|_|open.toggle(),"Custom…"}
+        super::timing_repair::Controls {studio}
         if open(){super::modal::Modal{id:"snap-grid-dialog",label:"Custom snap settings",onclose:move|_|open.set(false),div{class:"snap-custom-panel",
             h2{"Custom snap grid"}
             label{"Steps per beat" input{aria_label:"Snap steps per beat",r#type:"number",min:"1",max:"1024",step:"1",value:"{custom}",oninput:move|e|{custom.set(e.value());error.set(None);},onkeydown:move|e|e.stop_propagation()}}

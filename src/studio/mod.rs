@@ -60,6 +60,7 @@ mod stems;
 #[cfg(not(feature = "browser"))]
 mod timeline_player;
 mod timing_editor;
+mod timing_repair;
 mod track_picker;
 mod track_views;
 mod vocal_editor;

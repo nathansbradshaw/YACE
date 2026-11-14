@@ -62,6 +62,30 @@ Sixteen-file backups before and after an owned-browser restart retained identica
 revision-6 project JSON and working Undo/Redo. Reopening the backup and exporting
 after Undo/Redo preserved exact scoring attributes and unrelated raw tracks.
 
+Timing repair now previews the current selection or whole active canvas part.
+Choose a maximum shift to preserve more distant off-grid notes, or explicitly
+snap every note in scope. The preview reports changes, untouched notes and a
+bounded sample. Apply preserves durations, pitches, gem IDs and MIDI attributes;
+collisions, incompatible shared techniques and stale previews refuse the edit.
+Band and Dance use the same integer musical grid.
+
+Controlled actual-browser checks at `8f6ac08` repaired selected and whole-part
+guitar notes, kept an intentional off-grid note, then moved it under the explicit
+all-notes policy. Read-only previews, invalid settings, incompatible-attack
+refusal and atomic Undo/Redo passed. Export and a nine-file complete backup kept
+both technique flags, other difficulties, unknown events, tempo changes and
+original audio. Browser restore/history/export and native CLI restore/history/
+export passed independent checks. Lead repair retained scoring padding, original
+MIDI attributes and other raw tracks through a 17-file backup, restore and export.
+Dance repair preserved a seven-row hold while moving its onset and kept an
+off-grid mine until explicitly snapped. Its three-file backup, two Undo steps,
+restored browser workflow, native-core history and exact SM export retained the
+other difficulty, timing, custom metadata and original audio.
+
+Native GUI, independent musical/game acceptance, broader platform/fault coverage
+and maximum-size repair workloads remain open. Independent harmony voices do
+not yet have a timing-repair scope.
+
 Snap now offers custom 1–1024 steps per beat and fine musical presets through
 1/1024. Placement, dragging, sustain ends and visible grid lines use the same
 rounded musical positions, including unusual PPQ and tempo changes. Pointer

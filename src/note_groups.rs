@@ -11,6 +11,8 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 const PREFIX: &str = "YACE notes v1\n";
+#[path = "note_groups/repair.rs"]
+pub mod repair;
 pub const MAX_NOTES: usize = 100_000;
 pub const MAX_CLIPBOARD_BYTES: usize = 32 * 1024 * 1024;
 
@@ -367,6 +369,10 @@ pub enum Edit {
         ticks: i64,
         rows: i16,
     },
+    Repair {
+        selection: Snapshot,
+        policy: crate::snap_grid::RepairPolicy,
+    },
     Paste {
         track: String,
         tick: u64,
@@ -510,6 +516,15 @@ fn scaled(tick: u64, from: u32, to: u32, anchor: u64) -> Result<u64> {
 
 pub fn apply(project: &mut Project, timing: &TempoMap, edit: &Edit) -> Result<()> {
     match edit {
+        Edit::Repair { selection, policy } => {
+            let report = repair::apply(project, timing, selection, *policy)?;
+            ensure!(
+                report.changed > 0,
+                "No notes need this timing repair; nothing was changed"
+            );
+            project.selected_track = selection.track.clone();
+            project.selected_note = None;
+        }
         Edit::Delete { selection } | Edit::Move { selection, .. } => {
             selection.validate(project)?;
             if selection.track == "Vocals" {
@@ -734,6 +749,18 @@ fn edit_vocals(project: &mut Project, selection: &Snapshot, edit: &Edit) -> Resu
                 }
             }
         }
+        Edit::Repair { policy, .. } => {
+            let grid = policy.grid(original.resolution)?;
+            for (i, note) in &mut notes {
+                if selection.vocals.contains(i) {
+                    let start = policy.destination(grid, note.start)?;
+                    note.end = start
+                        .checked_add(note.end - note.start)
+                        .context("Vocal timing overflow")?;
+                    note.start = start;
+                }
+            }
+        }
         Edit::Paste { .. } => unreachable!(),
     }
     if notes.is_empty() {
@@ -759,13 +786,27 @@ fn edit_vocals(project: &mut Project, selection: &Snapshot, edit: &Edit) -> Resu
             let first = original.notes.partition_point(|n| n.start < phrase.start);
             let last = original.notes.partition_point(|n| n.start < phrase.end);
             let mut updated = phrase.clone();
-            if let Edit::Move { ticks, .. } = edit
+            let delta = match edit {
+                Edit::Move { ticks, .. } => Some(*ticks),
+                Edit::Repair { policy, .. } => {
+                    let grid = policy.grid(original.resolution)?;
+                    let mut offsets = original.notes[first..last].iter().map(|n| -> Result<i64> {
+                        Ok(i64::try_from(policy.destination(grid, n.start)?)?
+                            - i64::try_from(n.start)?)
+                    });
+                    let first_delta = offsets.next().transpose()?;
+                    let rest = offsets.collect::<Result<Vec<_>>>()?;
+                    first_delta.filter(|d| rest.iter().all(|other| other == d))
+                }
+                _ => None,
+            };
+            if let Some(ticks) = delta
                 && selection.vocals.range(first..last).count() == last - first
             {
                 // Moving the whole phrase carries its authored leading and
                 // trailing space, rather than rebuilding it from note edges.
-                updated.start = shifted(phrase.start, *ticks)?;
-                updated.end = shifted(phrase.end, *ticks)?;
+                updated.start = shifted(phrase.start, ticks)?;
+                updated.end = shifted(phrase.end, ticks)?;
             } else {
                 // Retained/unselected phrases keep their exact scoring edges.
                 // A partial move extends them only when a note needs room.

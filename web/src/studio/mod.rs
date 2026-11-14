@@ -100,6 +100,8 @@ mod stem_generation;
 mod stems;
 #[path = "../../../src/studio/timing_editor.rs"]
 mod timing_editor;
+#[path = "../../../src/studio/timing_repair.rs"]
+mod timing_repair;
 #[path = "../../../src/studio/track_picker.rs"]
 mod track_picker;
 #[path = "../../../src/studio/track_views.rs"]
