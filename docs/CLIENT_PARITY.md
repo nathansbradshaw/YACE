@@ -62,6 +62,16 @@ A fresh browser profile reimported the playable MIDI ZIP, moved an event back to
 an instrument track, used Undo/Redo and exported the exact expected MIDI. Its
 27-file backup retained the new state and original source bindings.
 
+The hosted `c1ad050` runtime passed the same audio-free edits and lyric-owned
+refusal. Its 23,000,096-byte WASM matched local SHA-256
+`c5068358e4647ab2e49938a6dde8229b79ba4b9cdbddfa4eb4a3f8416c06e00a`.
+Eighteen-file backups before and after an owned-browser restart were identical,
+including revision-5 project JSON and five Undo checkpoints. Post-restart Undo
+exported the original MIDI; reopening the complete backup and using five Undo
+and Redo steps exported the expected edited MIDI. Independent checks retained
+every ordered event across all nine tracks and all unrelated project content.
+The final 19-file backup retained revision 15 and five Undo steps.
+
 Unknown MIDI tracks, malformed or ambiguous owners, SMPTE/sequential MIDI,
 unsupported text and larger event documents remain opaque or read-only. Dance
 uses its existing timing/label controls. Native GUI, musical/game behavior,
