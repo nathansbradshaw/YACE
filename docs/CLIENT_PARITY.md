@@ -82,6 +82,13 @@ off-grid mine until explicitly snapped. Its three-file backup, two Undo steps,
 restored browser workflow, native-core history and exact SM export retained the
 other difficulty, timing, custom metadata and original audio.
 
+Production runtime `d1c56fd` also passed near/all policies, incompatible-attack
+refusal, exact chart/MIDI/SM exports, complete backups and Undo/Redo after
+separate owned-browser restarts for Band, Lead and Dance. Lead scoring padding
+and attributes, Dance hold lengths and unrelated authored data remained exact.
+Dance can still show a stale welcome/import footer after reopen or history
+actions despite a valid active chart; its broader status feedback remains open.
+
 Repair also offers a whole-voice target for editable HARM1, HARM2 and HARM3.
 Other singers, shared scoring ranges and shared lyric ranges stay unchanged.
 Moves that leave the original shared range or overlap another note in that
