@@ -323,6 +323,16 @@ then waited for idle: the restored revision stayed saved with no stale alert.
 A separate one-byte-quota restore still displayed its new autosave failure and
 unsaved status; restoring quota allowed Undo/Redo and saving again.
 
+Production runtime `2d0f2f4` also exercised the browser's actual Leave/Stay
+confirmation for both Band and standalone Dance after a quota-refused save.
+Stay cancelled navigation and retained the unsaved draft. After verified draft
+backups, Leave navigated away; reopening retained the byte-identical last
+accepted save. The downloaded drafts reopened through the normal project picker,
+with exact Undo/Redo and exported notes, flags, holds, mines, timing and unrelated
+parts. After saving succeeded, navigation proceeded without a confirmation.
+This qualifies those controlled unload/recovery paths; real pressure eviction,
+other browser/platform behavior and broader fault acceptance remain open.
+
 Terminal big rock ending authoring at `00e7481` shares Rust coda/range controls,
 Undo/Redo, timeline bands and recording-clock preview labels across clients.
 Five-fret guitar, bass, rhythm/co-op and standard Keys use physical MIDI
@@ -496,7 +506,7 @@ GUI and game interpretation remain separate acceptance gates.
 | Manual clean audio | Both actual panels rendered the same bound plan; native output matched shared DSP exactly; 10,755,108 browser stereo frames, zero lag, maximum decoder delta 0.00000054 | Verified functional render; musical acceptance remains with the listener |
 | Review and flags | Shared rules, actual browser queue/decisions and portable source-bound review history | Verified |
 | Team proposals | Actual browser proposal → native import/independent approval/merge → browser conflict resolution → fresh native approval → browser merge; new parts preserved | Verified file exchange and protocol tests. Authenticated GitHub writes remain untested at the user's request |
-| Recovery, undo and backups | IndexedDB restore/stale-tab guard; independent browser-tab projects and standalone Dance recovery; same-name library switching with separate histories; full project/kit roundtrips; imported first checkpoint and native/browser Undo/Redo; controlled hosted browser-process exit and restart | Verified exercised paths; quota, eviction and other storage/platform faults remain unqualified |
+| Recovery, undo and backups | IndexedDB restore/stale-tab guard; independent browser-tab projects and standalone Dance recovery; same-name library switching with separate histories; full project/kit roundtrips; imported first checkpoint and native/browser Undo/Redo; controlled hosted process exit, quota-refused saves and explicit Band/Dance Leave/Stay recovery | Verified controlled paths; real pressure eviction and other storage/platform faults remain open |
 | Playable export | Actual client exports had byte-identical MIDI, editable master, vocal JSON, INI and original Ogg; partial-stem game receipt avoids duplicate mix playback | Verified export equivalence; game/controller acceptance is separate |
 | Navigation and errors | Shared controls and OS pickers; actual narrow browser layout; lazy folder discovery; explicit downloads; native dialogs expose their accessibility role | Verified exercised paths |
 | Browser desktop workspace | Static and hosted thresholds, per-tab dismissal/reload, keyboard overflow and uninterrupted playback; actual Firefox zoom at 140%; native layout retained | Verified exercised paths; assistive technology and broader platforms remain open |
