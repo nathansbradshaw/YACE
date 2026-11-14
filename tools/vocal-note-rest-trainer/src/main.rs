@@ -1,4 +1,5 @@
 //! Local acoustic note/rest training. Labels never enter feature extraction or prediction.
+mod context;
 mod segmentation;
 use anyhow::{Context, Result, ensure};
 use candle_core::{DType, Device, Tensor, Var};
@@ -290,6 +291,10 @@ fn forward(x: &Tensor, p: &[Var]) -> Result<Tensor> {
 }
 fn fit(data: &[Data], ids: &[usize], out: &Path) -> Result<Model> {
     let f = data[0].meta.cols;
+    ensure!(
+        matches!(f, 336 | context::WIDTH) && data.iter().all(|d| d.meta.cols == f),
+        "Mixed or unsupported feature schemas"
+    );
     let mut rows = vec![];
     let mut ys = vec![];
     let mut weights = vec![];
@@ -415,7 +420,7 @@ fn fit(data: &[Data], ids: &[usize], out: &Path) -> Result<Model> {
         }
     }
     let model = Model {
-        version: 1,
+        version: if f == context::WIDTH { 3 } else { 1 },
         features: f,
         hidden: H,
         epochs: EPOCHS,
@@ -436,7 +441,7 @@ fn fit(data: &[Data], ids: &[usize], out: &Path) -> Result<Model> {
 }
 fn infer(d: &Data, m: &Model) -> Result<Vec<[f64; 3]>> {
     ensure!(
-        m.version == 1
+        matches!((m.version, m.features), (1, 336) | (3, context::WIDTH))
             && m.features == d.meta.cols
             && m.hidden == H
             && m.mean.len() == m.features
@@ -775,16 +780,43 @@ fn score(d: &Data, g: &Generation) -> Result<Value> {
     }
 }
 fn train(manifest: &Path, features: &Path, out: &Path) -> Result<()> {
+    train_configured(manifest, features, out, false)
+}
+fn calibration_groups(n: usize, expanded: bool) -> Result<Vec<Vec<usize>>> {
+    ensure!(
+        if expanded {
+            (4..=32).contains(&n)
+        } else {
+            n == 4
+        },
+        "Invalid calibration source count"
+    );
+    Ok((0..4)
+        .map(|fold| {
+            (0..n)
+                .filter(|i| if expanded { *i % 4 == fold } else { *i == fold })
+                .collect()
+        })
+        .collect())
+}
+fn train_configured(manifest: &Path, features: &Path, out: &Path, expanded: bool) -> Result<()> {
     let entries = entries(manifest)?;
     ensure!(
-        entries.len() == 4,
-        "Four distinct training artists required"
+        if expanded {
+            (4..=32).contains(&entries.len())
+        } else {
+            entries.len() == 4
+        },
+        "Legacy training needs four distinct artists; expanded training needs four to thirty-two"
     );
     ensure!(!out.exists(), "Output exists");
     fs::create_dir(out)?;
     let data = entries
         .iter()
-        .map(|e| load(e, features))
+        .map(|e| {
+            let d = load(e, features)?;
+            if expanded { context::enhance(d) } else { Ok(d) }
+        })
         .collect::<Result<Vec<_>>>()?;
     let mut recipes = Vec::new();
     for locked in [false, true] {
@@ -820,43 +852,83 @@ fn train(manifest: &Path, features: &Path, out: &Path) -> Result<()> {
         })
         .collect::<Vec<_>>();
     recipes.extend(full_run);
+    if expanded {
+        recipes = [false, true]
+            .into_iter()
+            .flat_map(|strong| {
+                [false, true].into_iter().flat_map(move |locked| {
+                    [0., 1., 2.].into_iter().flat_map(move |bias| {
+                        [0.08, 0.16].into_iter().map(move |penalty| Recipe {
+                            bias,
+                            penalty,
+                            locked,
+                            attack_reward: if strong { Some(2. * penalty) } else { None },
+                            full_run: true,
+                        })
+                    })
+                })
+            })
+            .collect();
+    }
     save(
         out.join("protocol.json"),
-        &json!({"status":"TRAINING_AND_SOURCE_EXCLUDED_DEVELOPMENT_NOT_PROMOTION","reference_use":"Four trusted game-chart training sources only; each calibration source excluded from its fold; final four-source model frozen before fresh targets","manifest_sha256":models::hash_file(manifest)?,"epochs":EPOCHS,"hidden":H,"heads":["pitched-note-presence","attack","release"],"pitch_policy":"Immutable original RMVPE; classifier predicts no frequencies or note pitches; median only for MIDI after segmentation; absent F0 is a gap","recipes":recipes,"helper_sha256":models::hash_file(&std::env::current_exe()?)?}),
+        &json!({"status":"TRAINING_AND_SOURCE_EXCLUDED_DEVELOPMENT_NOT_PROMOTION","reference_use":"Each source and artist excluded from its calibration fold; final model uses all training sources and must be frozen before fresh targets","expanded":expanded,"training_sources":data.len(),"features":data[0].meta.cols,"model_schema":if expanded{3}else{1},"context_policy":"Expanded model uses gain-relative evidence and source-only windows +/-500ms and +/-1500ms; base cache unchanged","manifest_sha256":models::hash_file(manifest)?,"epochs":EPOCHS,"hidden":H,"heads":["pitched-note-presence","attack","release"],"pitch_policy":"Immutable original RMVPE; classifier predicts no frequencies or note pitches; median only for MIDI after segmentation; absent F0 is a gap","recipes":recipes,"helper_sha256":models::hash_file(&std::env::current_exe()?)?}),
     )?;
-    let mut predictions = vec![];
-    for held in 0..4 {
-        let ids = (0..4).filter(|i| *i != held).collect::<Vec<_>>();
-        let m = fit(&data, &ids, &out.join(format!("fold{held}.model.json")))?;
-        ensure!(
-            m.training
-                .iter()
-                .all(|r| r["artist"] != data[held].meta.entry.artist
-                    && r["audio_sha256"] != data[held].g.audio_sha256),
-            "Training source leaked"
-        );
-        let p = infer(&data[held], &m)?;
-        save(out.join(format!("fold{held}.probabilities.json")), &p)?;
-        let mut row = vec![];
-        for (j, r) in recipes.iter().enumerate() {
-            let g = decode(&data[held], &p, *r)?;
-            save(
-                out.join(format!("{}-{j}.json", data[held].meta.entry.id)),
-                &g,
-            )?;
-            roundtrip(
-                &g,
-                &out.join(format!("{}-{j}.mid", data[held].meta.entry.id)),
-            )?;
-            row.push(g);
+    let mut predictions: Vec<Option<Vec<Generation>>> = (0..data.len()).map(|_| None).collect();
+    for (fold, held_sources) in calibration_groups(data.len(), expanded)?.iter().enumerate() {
+        let ids = (0..data.len())
+            .filter(|i| !held_sources.contains(i))
+            .collect::<Vec<_>>();
+        let m = fit(&data, &ids, &out.join(format!("fold{fold}.model.json")))?;
+        for &held in held_sources {
+            ensure!(
+                m.training
+                    .iter()
+                    .all(|r| r["artist"] != data[held].meta.entry.artist
+                        && r["audio_sha256"] != data[held].g.audio_sha256),
+                "Training source leaked"
+            );
+            let p = infer(&data[held], &m)?;
+            let probability_name = if expanded {
+                format!("{}.probabilities.json", data[held].meta.entry.id)
+            } else {
+                format!("fold{held}.probabilities.json")
+            };
+            save(out.join(probability_name), &p)?;
+            let mut row = vec![];
+            let mut witnesses = vec![];
+            for (j, r) in recipes.iter().enumerate() {
+                let g = decode(&data[held], &p, *r)?;
+                if !expanded {
+                    save(
+                        out.join(format!("{}-{j}.json", data[held].meta.entry.id)),
+                        &g,
+                    )?;
+                }
+                let mid = out.join(format!("{}-{j}.mid", data[held].meta.entry.id));
+                roundtrip(&g, &mid)?;
+                if expanded {
+                    witnesses.push(json!({"recipe_index":j,"generation_sha256":format!("{:x}",Sha256::digest(serde_json::to_vec(&g)?)),"midi_sha256":if mid.exists(){Some(models::hash_file(&mid)?)}else{None},"replay":"Pinned source generation, saved fold probabilities, recipe and helper; redundant full generation not stored; no chart means no vocal MIDI"}));
+                }
+                row.push(g);
+            }
+            if expanded {
+                save(
+                    out.join(format!(
+                        "{}.candidate-witnesses.json",
+                        data[held].meta.entry.id
+                    )),
+                    &witnesses,
+                )?;
+            }
+            predictions[held] = Some(row);
         }
-        predictions.push(row);
     }
     let mut means = vec![[0.; 5]; recipes.len()];
     let mut baseline = [0.; 5];
     let mut details = vec![];
     let mut available = 0;
-    for i in 0..4 {
+    for i in 0..data.len() {
         let b = score(&data[i], &data[i].g)?;
         let Some(br) = b["rates"].as_array() else {
             details.push(json!({"id":data[i].meta.entry.id,"baseline":b}));
@@ -867,10 +939,15 @@ fn train(manifest: &Path, features: &Path, out: &Path) -> Result<()> {
             baseline[k] += br[k].as_f64().unwrap();
         }
         let mut cs = vec![];
-        for j in 0..recipes.len() {
-            let s = score(&data[i], &predictions[i][j])?;
-            for k in 0..5 {
-                means[j][k] += s["rates"][k]
+        for (j, mean) in means.iter_mut().enumerate() {
+            let s = score(
+                &data[i],
+                &predictions[i]
+                    .as_ref()
+                    .context("Missing excluded-source prediction")?[j],
+            )?;
+            for (k, total) in mean.iter_mut().enumerate() {
+                *total += s["rates"][k]
                     .as_f64()
                     .context("Candidate scoring unavailable")?;
             }
@@ -909,7 +986,11 @@ fn train(manifest: &Path, features: &Path, out: &Path) -> Result<()> {
                 .total_cmp(&((1. - means[**b][0]) + means[**b][3]))
         })
         .unwrap();
-    let model = fit(&data, &[0, 1, 2, 3], &out.join("model.json"))?;
+    let model = fit(
+        &data,
+        &(0..data.len()).collect::<Vec<_>>(),
+        &out.join("model.json"),
+    )?;
     save(
         out.join("frozen.json"),
         &json!({"promotion_eligible":false,"model_sha256":models::hash_file(&out.join("model.json"))?,"recipe":recipes[chosen],"recipe_index":chosen,"development_constraints_passed":eligible[chosen],"calibration_valid_sources":available,"baseline":baseline,"means":means,"selection_objective":"Minimum macro missing-or-wrong note time plus false gap time among no-worse wrong-share/coverage/F1 profiles when available; otherwise same objective marked failed","training":model.training,"fresh_targets_read":false}),
@@ -942,6 +1023,11 @@ fn predict(manifest: &Path, features: &Path, run: &Path, out: &Path) -> Result<(
             "Fresh artist appeared in training"
         );
         let d = load(&e, features)?;
+        let d = match (model.version, model.features) {
+            (1, 336) => d,
+            (3, context::WIDTH) => context::enhance(d)?,
+            _ => anyhow::bail!("Unsupported frozen model feature schema; no substitution"),
+        };
         ensure!(
             model
                 .training
@@ -1024,6 +1110,9 @@ fn main() -> Result<()> {
         Some("train") if a.len() == 5 => {
             train(Path::new(&a[2]), Path::new(&a[3]), Path::new(&a[4]))
         }
+        Some("train-expanded") if a.len() == 5 => {
+            train_configured(Path::new(&a[2]), Path::new(&a[3]), Path::new(&a[4]), true)
+        }
         Some("predict") if a.len() == 6 => predict(
             Path::new(&a[2]),
             Path::new(&a[3]),
@@ -1037,7 +1126,7 @@ fn main() -> Result<()> {
             Path::new(&a[5]),
         ),
         _ => anyhow::bail!(
-            "extract MANIFEST OUT | train MANIFEST FEATURES OUT | predict MANIFEST FEATURES FROZEN_RUN OUT | score MANIFEST FEATURES PREDICTIONS NEW_REPORT"
+            "extract MANIFEST OUT | train|train-expanded MANIFEST FEATURES OUT | predict MANIFEST FEATURES FROZEN_RUN OUT | score MANIFEST FEATURES PREDICTIONS NEW_REPORT"
         ),
     }
 }
@@ -1046,7 +1135,31 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
     use chart_engine::{timing::TempoMap, vocal_generation as vg, vocal_pitch::Frame};
-    fn data() -> Data {
+    #[test]
+    fn expanded_folds_cover_each_source_once_and_exclude_it_from_training() {
+        for n in [4, 5, 29, 32] {
+            let groups = calibration_groups(n, true).unwrap();
+            let mut seen = vec![0; n];
+            for group in groups {
+                assert!(!group.is_empty());
+                let training = (0..n).filter(|i| !group.contains(i)).collect::<Vec<_>>();
+                assert!(!training.is_empty());
+                for held in group {
+                    assert!(!training.contains(&held));
+                    seen[held] += 1;
+                }
+            }
+            assert_eq!(seen, vec![1; n]);
+        }
+        assert_eq!(
+            calibration_groups(4, false).unwrap(),
+            vec![vec![0], vec![1], vec![2], vec![3]]
+        );
+        assert!(calibration_groups(3, true).is_err());
+        assert!(calibration_groups(33, true).is_err());
+        assert!(calibration_groups(5, false).is_err());
+    }
+    pub(super) fn data() -> Data {
         let mut raw = vocal_rmvpe::finish_pcm(
             &vec![0.; 3200],
             (0..=20)
