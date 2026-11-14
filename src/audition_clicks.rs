@@ -280,6 +280,20 @@ impl Plan {
         settings: &Settings,
         output: &mut [f32],
     ) -> Result<()> {
+        self.render_epoch(start, rate, sample_rate, settings, output, None)
+    }
+    // A media seek may finish just after an attack. Rearticulate that attack
+    // once, within 12 ms of listening time, instead of playing only its tail.
+    // Keep the epoch through clock corrections so later blocks join exactly.
+    fn render_epoch(
+        &self,
+        start: f64,
+        rate: f64,
+        sample_rate: u32,
+        settings: &Settings,
+        output: &mut [f32],
+        epoch: Option<f64>,
+    ) -> Result<()> {
         settings.validate()?;
         ensure!(
             start.is_finite()
@@ -287,6 +301,10 @@ impl Plan {
                 && (0.25..=2.).contains(&rate)
                 && (8000..=192000).contains(&sample_rate),
             "Invalid audition render clock"
+        );
+        ensure!(
+            epoch.is_none_or(f64::is_finite),
+            "Invalid audition start epoch"
         );
         ensure!(
             output.len() <= sample_rate as usize * 2,
@@ -299,7 +317,7 @@ impl Plan {
         let end = start + output.len() as f64 * rate / sample_rate as f64;
         let first = self
             .events
-            .partition_point(|e| e.seconds < start - CLICK_SECONDS * rate);
+            .partition_point(|e| e.seconds < start - (CLICK_SECONDS + 0.012) * rate);
         let last = self.events.partition_point(|e| e.seconds < end);
         let tail = (CLICK_SECONDS * sample_rate as f64).ceil() as i64;
         for event in &self.events[first..last] {
@@ -308,7 +326,10 @@ impl Plan {
                 Kind::Beat | Kind::Accent if settings.metronome => settings.beat_gain,
                 _ => continue,
             };
-            let onset = ((event.seconds - start) / rate * sample_rate as f64).round() as i64;
+            let seconds = epoch
+                .filter(|at| event.seconds < *at && *at - event.seconds <= 0.012 * rate)
+                .unwrap_or(event.seconds);
+            let onset = ((seconds - start) / rate * sample_rate as f64).round() as i64;
             for age in (-onset).max(0)..tail.min(output.len() as i64 - onset) {
                 let index = (onset + age) as usize;
                 let source_seconds = start + index as f64 * rate / sample_rate as f64;
@@ -348,6 +369,73 @@ pub fn pulse(kind: Kind, frame: u32, sample_rate: u32) -> f32 {
 mod tests {
     use super::*;
     use crate::timing::Tempo;
+    #[test]
+    fn seek_epoch_restores_one_complete_attack_and_keeps_future_timing() {
+        let plan = Plan::new(
+            vec![
+                Event {
+                    seconds: 0.20,
+                    kind: Kind::Clap,
+                },
+                Event {
+                    seconds: 0.25,
+                    kind: Kind::Clap,
+                },
+                Event {
+                    seconds: 0.50,
+                    kind: Kind::Clap,
+                },
+            ],
+            2.,
+        )
+        .unwrap();
+        let settings = Settings {
+            claps: true,
+            ..Settings::default()
+        };
+        let mut actual = vec![0.; 1600];
+        plan.render_epoch(0.27, 2., 8000, &settings, &mut actual, Some(0.27))
+            .unwrap();
+        let mut expected = vec![0.; 1600];
+        for age in 0..192 {
+            let sample = settings.clap_gain * pulse(Kind::Clap, age as u32, 8000);
+            expected[age] = sample;
+            expected[920 + age] = sample;
+        }
+        assert_eq!(
+            actual, expected,
+            "full initial pulse; later attack remains at 0.50 s"
+        );
+        let mut chunked = vec![0.; 1600];
+        plan.render_epoch(0.27, 2., 8000, &settings, &mut chunked[..137], Some(0.27))
+            .unwrap();
+        plan.render_epoch(
+            0.27 + 137. * 2. / 8000.,
+            2.,
+            8000,
+            &settings,
+            &mut chunked[137..],
+            Some(0.27),
+        )
+        .unwrap();
+        assert_eq!(
+            actual, chunked,
+            "epoch survives block boundaries without a second attack"
+        );
+        let mut legacy = vec![0.; 1600];
+        plan.render(0.275, 2., 8000, &settings, &mut legacy)
+            .unwrap();
+        plan.render_epoch(0.275, 2., 8000, &settings, &mut actual, Some(0.275))
+            .unwrap();
+        assert_eq!(
+            actual, legacy,
+            "a seek beyond the bounded grace never rearticulates"
+        );
+        assert!(
+            plan.render_epoch(0., 1., 8000, &settings, &mut actual, Some(f64::NAN))
+                .is_err()
+        );
+    }
     fn meters() -> Vec<Meter> {
         vec![Meter {
             tick: 0,

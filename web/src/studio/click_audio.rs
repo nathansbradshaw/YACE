@@ -6,6 +6,7 @@ use wasm_bindgen::JsCast;
 use web_sys::{AudioBufferSourceNode, AudioContext, AudioScheduledSourceNode, GainNode};
 const FRAMES: usize = 1024;
 const LEAD: f64 = 0.006;
+const START_LEAD: f64 = LEAD + 0.006;
 const HORIZON: f64 = 0.09;
 // Bound drift in listening time. A fixed source-time tolerance becomes four
 // times as audible at 25% practice speed.
@@ -17,6 +18,7 @@ pub struct ClickAudio {
     mix: Option<Arc<Mix>>,
     nodes: Vec<(f64, AudioBufferSourceNode)>,
     anchor: Option<(f64, f64, f64)>,
+    epoch: Option<f64>,
     next: f64,
     volume: f32,
 }
@@ -35,6 +37,7 @@ impl ClickAudio {
             mix: None,
             nodes: Vec::new(),
             anchor: None,
+            epoch: None,
             next: 0.,
             volume: 0.7,
         })
@@ -84,6 +87,7 @@ impl ClickAudio {
             *end = (*end).min(now + LEAD);
         }
         self.anchor = None;
+        self.epoch = None;
     }
     pub fn synchronize(&mut self, position: f64, rate: f64, running: bool) -> Result<()> {
         ensure!(
@@ -107,12 +111,15 @@ impl ClickAudio {
         });
         let reset = self.anchor.is_none_or(|(at, source, old_rate)| {
             old_rate != rate
-                || (position - (source + (now - at) * rate)).abs() > MAX_CLOCK_DRIFT * rate
+                || (position - (source + (now - at + START_LEAD) * rate)).abs()
+                    > MAX_CLOCK_DRIFT * rate
         }) || self.next < now;
         if reset {
+            let epoch = self.epoch.or(Some(position));
             self.cancel();
-            self.anchor = Some((now + LEAD, position, rate));
-            self.next = now + LEAD;
+            self.epoch = epoch;
+            self.anchor = Some((now + START_LEAD, position, rate));
+            self.next = now + START_LEAD;
             let gain = self.gain.gain();
             let _ = gain.set_value_at_time(0., now + LEAD);
             let _ = gain.linear_ramp_to_value_at_time(self.volume, now + LEAD + 0.006);
@@ -128,7 +135,7 @@ impl ClickAudio {
             );
             let start = source + (self.next - at) * rate;
             let mut samples = vec![0.; FRAMES];
-            mix.render_output(start, rate, sample_rate, &mut samples)?;
+            mix.render_output_epoch(start, rate, sample_rate, &mut samples, self.epoch)?;
             let buffer = self
                 .context
                 .create_buffer(1, FRAMES as u32, sample_rate as f32)

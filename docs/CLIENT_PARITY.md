@@ -1507,3 +1507,25 @@ Vocals while looping, solo/backing switches, mute/rejoin, seeking, pause, and
 cover channel activity/fade cancellation and partial/empty runtime mixes. Preview
 listening reported an improvement. These checks do not establish sample-accurate
 acoustic alignment or artifact-free stretching on every browser/output device.
+
+## Metronome and note claps: development work in progress
+
+Shared controls expose independent beat/clap gains, selected note classes and a
+vocal singer choice. Preferences stay separate from authored project content.
+Rust synthesis feeds the existing native recorded-audio worker and the static
+browser's recording AudioContext; this feature is not deployed yet.
+
+Actual browser graph PCM captured all 16 beats across a tempo change, with at
+most 9.2 ms of software media-clock error at normal speed. Halving beat gain
+halved the captured peak exactly. A practice-clock correction reduced the
+50-percent-speed error from 72.8 to 17.1 ms. Excluding instrument notes produced
+zero click-bus PCM while the recording continued; playable exports and complete
+backups retained original chart, INI and WAV bytes. These are software checks,
+with independent capture and file comparisons, rather than DAC measurements.
+
+Loop-start claps exposed weak transients. A bounded restart renderer now retains
+a complete nearby attack across buffer boundaries and leaves future note timing
+unchanged; actual loop retesting is still required. Native chart-only output
+and Dance/4-key adapters remain unfinished. Native GUI, listening, device
+latency, complete seek/loop/rate coverage and cross-browser acceptance remain
+open; compilation and shared source do not close those gates.

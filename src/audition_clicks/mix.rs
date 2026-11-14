@@ -35,6 +35,17 @@ impl Mix {
         self.plan
             .render(start, rate, sample_rate, &self.settings, output)
     }
+    pub fn render_output_epoch(
+        &self,
+        start: f64,
+        rate: f64,
+        sample_rate: u32,
+        output: &mut [f32],
+        epoch: Option<f64>,
+    ) -> Result<()> {
+        self.plan
+            .render_epoch(start, rate, sample_rate, &self.settings, output, epoch)
+    }
     /// The click bus reserves at most 25% of nominal full scale. Its fade uses
     /// exactly the headroom currently available while the music gain ramps.
     pub fn apply(
