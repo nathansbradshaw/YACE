@@ -55,6 +55,13 @@ and export independently retained the moved and original events. Native GUI,
 older-document migration, broader browser coverage and musical/game acceptance
 remain open.
 
+Hosted `3c1f42a` passed the same audio-free move/delete, overlap refusal and
+event-level MIDI checks. Its 22,903,792-byte WASM matched the local SHA-256
+`c14dadef1725208dc42db8b983f02ac6d3466b51eba56bc10f0b9bb0957bcbc6`.
+Sixteen-file backups before and after an owned-browser restart retained identical
+revision-6 project JSON and working Undo/Redo. Reopening the backup and exporting
+after Undo/Redo preserved exact scoring attributes and unrelated raw tracks.
+
 Snap now offers custom 1–1024 steps per beat and fine musical presets through
 1/1024. Placement, dragging, sustain ends and visible grid lines use the same
 rounded musical positions, including unusual PPQ and tempo changes. Pointer
